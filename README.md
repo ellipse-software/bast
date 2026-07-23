@@ -1,87 +1,95 @@
 # Bast
 
-Bast is a lightweight terminal interface for native OpenSSH. It gives you a searchable host picker and practical key management without replacing `ssh` or hiding your configuration in a proprietary database.
+[![License: MIT](https://img.shields.io/github/license/ellipse-software/bast)](LICENSE)
+[![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Release](https://img.shields.io/github/v/release/ellipse-software/bast)](https://github.com/ellipse-software/bast/releases)
+[![Tests](https://github.com/ellipse-software/bast/actions/workflows/test.yml/badge.svg)](https://github.com/ellipse-software/bast/actions/workflows/test.yml)
+[![Website](https://img.shields.io/badge/website-bast.sh-111)](https://bast.sh)
 
-## Features
+A terminal UI for the OpenSSH you already have. Browse hosts, manage keys, and connect — without a proprietary runtime or a hidden host database.
 
-- Discover literal host labels from `~/.ssh/config` and its `Include` files
-- Connect immediately with Enter or run `bast <label>` directly
-- Add and edit ordinary OpenSSH host blocks
-- Use friendly host labels with spaces while Bast keeps underscore-based SSH names behind the scenes
-- Use a specific identity, OpenSSH defaults, or password-only authentication per host
-- Favorite, tag, annotate, sort, and temporarily hide hosts
-- Visually group hosts under collapsible headers, with newly created groups selected after saving
-- Generate, import, export, inspect, and delete native SSH keys
-- Import key paths or pasted key contents, derive missing public keys, and verify keypairs
-- Edit public-key comments without changing key material or fingerprints
-- Add a selected public key to a server's `~/.ssh/authorized_keys`
-- Keep newly created hosts, groups, and keys in focus after reloading
-- Show prominent, descriptive errors while preserving unfinished form input
-- Clear the shell before and after SSH sessions, with a connection banner and stuck-session reminder
-- Return to Bast when the native SSH process exits
-- Automatically dismiss ordinary status notifications after four seconds
-- Optional anonymous telemetry (version, platform, and usage events). Opt out with `BAST_NO_TELEMETRY=1`
+**Website:** [bast.sh](https://bast.sh) · **Releases:** [github.com/ellipse-software/bast](https://github.com/ellipse-software/bast/releases)
+
+## Install
+
+```sh
+curl -fsSL https://bast.sh/install | sh
+```
+
+The [bast.sh](https://bast.sh) installer downloads the latest macOS or Linux build for your architecture, verifies the SHA-256 checksum, and installs `bast` to `~/.local/bin` by default. Run the same command again to update; it skips the download when you're already on the latest version.
+
+Set `BAST_INSTALL_DIR` to install somewhere else. Make sure that directory is on your `PATH`, then run:
+
+```sh
+bast
+```
+
+## Quick start
+
+| Command | What it does |
+| --- | --- |
+| `bast` | Open the host picker |
+| `bast <label>` | Connect directly to a host label |
+| `bast "Production web"` | Labels with spaces work — Bast maps them to safe OpenSSH names |
+
+Inside the TUI, press `?` for the full keybinding reference.
+
+## What Bast does
+
+**Hosts** — Reads your existing `~/.ssh/config` (including `Include` files). Add and edit OpenSSH host blocks, favorite and tag them, group them under collapsible headers, hide hosts you rarely use, and search or sort the list.
+
+**Keys** — Generate, import, export, inspect, and delete native SSH keys. Import from a file path or pasted PEM. Verify keypairs, edit public-key comments, and push a public key to a server's `~/.ssh/authorized_keys`.
+
+**Connections** — Launches your system's `ssh` binary with the host's config. Clears the shell before and after sessions, shows a connection banner, and returns you to the picker when the session ends.
+
+Bast adds presentation metadata (groups, tags, colors, notes, favorites, recency) in your OS user config directory. It does not replace OpenSSH as the source of truth for hosts and keys.
 
 ## Requirements
 
 - macOS or Linux
-- Go 1.26 or newer when building from source
-- OpenSSH commands: `ssh`, `ssh-keygen`, and `ssh-add`
-- A Nerd Font is recommended for the return-key glyph, but Bast otherwise remains usable without one
+- OpenSSH: `ssh`, `ssh-keygen`, `ssh-add`
+- For the installer: `curl`, `tar`, and `shasum` or `sha256sum`
+- Go 1.26+ when building from source
+- A Nerd Font is recommended for some glyphs; Bast works without one
 
-## Build and run
+## Keyboard shortcuts
+
+Press `1` for hosts, `2` for keys. Move with arrow keys or `j`/`k`. `/` searches, `r` reloads.
+
+**Hosts:** Enter to connect · `a` add · `e` edit · `d` delete · `f` favorite · `h` hide · `.` toggle hidden · Space collapse/expand group · `s` sort · `K` remove known-host entry
+
+**Keys:** `a` generate · `i` import · `e` edit comment · `d` delete · `u` add to server · `x` export · `p` change passphrase · `c` copy public key
+
+During an SSH session, `exit` returns to Bast. For a stuck session, press Enter then `~.`.
+
+## Files
+
+On first use, Bast prepends one `Include ~/.ssh/bast/config` directive to your main SSH config and writes managed host blocks there. Generated and imported keys live in `~/.ssh/bast/keys` (private keys at mode `0600`). Metadata lives in `bast/state.json` under your user config directory.
+
+Back up `~/.ssh` before testing unreleased builds against production config. Never paste real private keys into issues or bug reports.
+
+## Telemetry
+
+Bast sends optional anonymous telemetry (version, platform, usage events) to help improve the tool. Opt out with:
+
+```sh
+export BAST_NO_TELEMETRY=1
+```
+
+The [bast.sh](https://bast.sh) site and installer use the same opt-out. Website source: [ellipse-software/bast-web](https://github.com/ellipse-software/bast-web).
+
+## Build from source
 
 ```sh
 go build -trimpath -o bast .
 ./bast
 ```
 
-Release builds can inject a version with `go build -trimpath -ldflags "-X main.version=v1.0.0" -o bast .`.
+Release builds can inject a version:
 
-Use `bast <label>` to connect without opening the picker. Friendly labels containing spaces are converted to safe OpenSSH names with underscores, so `bast "Production web"` connects through `Host Production_web`.
-
-## Controls
-
-- `1` hosts, `2` keys
-- arrows or `j`/`k` move through a list
-- left-click a tab or list row to select it
-- `/` searches, `r` reloads, and `?` opens full help
-- `󰌑` connects to the selected host
-- `a`, `e`, and `d` add, edit, and delete where applicable
-- `␣` (Space) collapses or expands the selected host group
-- On a selected key, `u` opens the server picker and installs its public key
-- `h` hides or shows a host; `.` toggles all hidden hosts
-- `q` quits Bast
-
-### Forms
-
-- Creation forms reveal fields step by step with Enter.
-- Edit forms show every field immediately. Use Up/Down to move and Enter to save from anywhere.
-- On an editable choice such as Identity, press `␣` to open the choices and Enter to confirm one.
-- Destructive confirmations show the exact required text as a muted placeholder; type over it to confirm.
-- Errors open in a dedicated panel with the full reason. Enter or Esc returns to the preserved form.
-
-### SSH sessions
-
-- Bast clears the normal shell and scrollback before showing the connection banner and starting OpenSSH.
-- `exit` returns to the picker and clears the completed session from the shell again.
-- For a stuck session, press Enter and then `~.`. The connection banner repeats this reminder.
-
-### Keys and servers
-
-- Select a key and press `u`, or click **Add to server**, to choose a server and append the public key to its `~/.ssh/authorized_keys`.
-- Installation uses the selected OpenSSH host configuration, may prompt for its password, fixes standard SSH file permissions, and does not add duplicate keys.
-- Password-only hosts disable public-key authentication. OpenSSH does not store remote-login passwords; install a public key when durable passwordless access is wanted.
-
-## Files and safety
-
-- Existing SSH configuration remains authoritative. When Bast first creates a host, it preserves the main config and prepends one top-level `Include ~/.ssh/bast/config` directive.
-- Bast-managed host blocks live in `~/.ssh/bast/config`.
-- Generated and imported keys live in `~/.ssh/bast/keys` with private files restricted to mode `0600`.
-- Friendly labels, favorites, tags, groups, notes, hidden state, and recency live in the operating system user config directory under `bast/state.json`.
-- Bast validates key material with the installed `ssh-keygen` and refuses mismatched imported keypairs.
-
-Back up `~/.ssh` before testing unreleased builds against important configuration. Never paste a real private key into a bug report.
+```sh
+go build -trimpath -ldflags "-X main.version=v1.0.0" -o bast .
+```
 
 ## Development
 
@@ -89,17 +97,13 @@ Back up `~/.ssh` before testing unreleased builds against important configuratio
 go mod download
 go test -race ./...
 go vet ./...
-go build -trimpath -o bast .
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the code layout and contribution expectations. Security issues should follow [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for project layout and contribution guidelines. Report security issues via [SECURITY.md](SECURITY.md).
 
 ## Releases
 
-The release workflow builds tarballs for macOS and Linux on both Intel and ARM, uploads them as workflow artifacts, and includes SHA-256 checksums.
-
-- Run the workflow manually from GitHub Actions to create downloadable build artifacts without publishing a release.
-- Push a `v*` tag to publish the same artifacts as a GitHub Release with generated release notes:
+Tagged releases (`v*`) are built for macOS and Linux on amd64 and arm64, with SHA-256 checksums attached. Push a tag to publish:
 
 ```sh
 git tag -a v0.1.0 -m "v0.1.0"
