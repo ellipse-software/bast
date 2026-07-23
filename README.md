@@ -6,7 +6,7 @@
 [![Tests](https://github.com/ellipse-software/bast/actions/workflows/test.yml/badge.svg)](https://github.com/ellipse-software/bast/actions/workflows/test.yml)
 [![Website](https://img.shields.io/badge/website-bast.sh-111)](https://bast.sh)
 
-A terminal UI for the OpenSSH you already have. Browse hosts, manage keys, and connect — without a proprietary runtime or a hidden host database.
+Browse SSH hosts, manage keys, and connect from the terminal. The fast way into the servers you use every day.
 
 **Website:** [bast.sh](https://bast.sh) · **Releases:** [github.com/ellipse-software/bast](https://github.com/ellipse-software/bast/releases)
 
@@ -30,17 +30,17 @@ bast
 | --- | --- |
 | `bast` | Open the host picker |
 | `bast <label>` | Connect directly to a host label |
-| `bast "Production web"` | Labels with spaces work — Bast maps them to safe OpenSSH names |
+| `bast "Production web"` | Labels with spaces work. Bast maps them to safe OpenSSH names |
 
 Inside the TUI, press `?` for the full keybinding reference.
 
 ## What Bast does
 
-**Hosts** — Reads your existing `~/.ssh/config` (including `Include` files). Add and edit OpenSSH host blocks, favorite and tag them, group them under collapsible headers, hide hosts you rarely use, and search or sort the list.
+**Hosts.** Reads your existing `~/.ssh/config` (including `Include` files). Add and edit OpenSSH host blocks, favorite and tag them, group them under collapsible headers, hide hosts you rarely use, and search or sort the list.
 
-**Keys** — Generate, import, export, inspect, and delete native SSH keys. Import from a file path or pasted PEM. Verify keypairs, edit public-key comments, and push a public key to a server's `~/.ssh/authorized_keys`.
+**Keys.** Generate, import, export, inspect, and delete native SSH keys. Import from a file path or pasted PEM. Verify keypairs, edit public-key comments, and push a public key to a server's `~/.ssh/authorized_keys`.
 
-**Connections** — Launches your system's `ssh` binary with the host's config. Clears the shell before and after sessions, shows a connection banner, and returns you to the picker when the session ends.
+**Connections.** Launches your system's `ssh` binary with the host's config. Clears the shell before and after sessions, shows a connection banner, and returns you to the picker when the session ends.
 
 Bast adds presentation metadata (groups, tags, colors, notes, favorites, recency) in your OS user config directory. It does not replace OpenSSH as the source of truth for hosts and keys.
 
