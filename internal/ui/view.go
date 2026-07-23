@@ -178,7 +178,7 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 	}
 	return "  " + s.active.Render(truncate(row.group, max(4, width-3))) + "\n" +
 		"  " + s.muted.Render(fmt.Sprintf("%d servers · %s", row.count, state)) + "\n\n" +
-		"  " + s.value.Render("Press ␠ to collapse or expand this group.")
+		"  " + s.value.Render("Press ␣ to collapse or expand this group.")
 }
 
 func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) string {
@@ -371,11 +371,16 @@ func (m *App) renderForm(s styleSet) string {
 		}
 		b.WriteString("  " + s.muted.Render("  "+label+"  "+value) + "\n")
 	}
+	return b.String()
+}
+
+func (m *App) formHint() string {
+	f := m.form
 	action := "󰌑 next"
 	if isEditForm(f) && !f.selecting {
 		action = "󰌑 save"
 		if len(f.fields[f.index].options) > 0 && !f.fields[f.index].options[f.fields[f.index].selected].custom {
-			action += " • ␠ change"
+			action += " • ␣ change"
 		}
 	} else if f.selecting {
 		action = "↑/↓ or j/k choose • 󰌑 select"
@@ -389,19 +394,17 @@ func (m *App) renderForm(s styleSet) string {
 		}
 	}
 	if f.selecting {
-		b.WriteString("\n  " + s.muted.Render(action+" • Esc close"))
-	} else {
-		escape := "Esc cancel"
-		if len(f.fields[f.index].options) > 0 && f.fields[f.index].options[f.fields[f.index].selected].custom {
-			escape = "Esc choices"
-		}
-		movement := "↑/↓ revisit"
-		if isEditForm(f) {
-			movement = "↑/↓ move"
-		}
-		b.WriteString("\n  " + s.muted.Render(action+" • "+movement+" • "+escape))
+		return action + " • Esc close"
 	}
-	return b.String()
+	escape := "Esc cancel"
+	if len(f.fields[f.index].options) > 0 && f.fields[f.index].options[f.fields[f.index].selected].custom {
+		escape = "Esc choices"
+	}
+	movement := "↑/↓ revisit"
+	if isEditForm(f) {
+		movement = "↑/↓ move"
+	}
+	return action + " • " + movement + " • " + escape
 }
 
 func contrastingTextColor(background string) (string, bool) {
@@ -437,7 +440,7 @@ func contrastingTextColor(background string) (string, bool) {
 }
 
 func (m *App) renderHelp(s styleSet) string {
-	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   ?  help         q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␠ collapse/expand group                  s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "During SSH", "  exit returns normally; press 󰌑 then ~. to force-close a stuck session"}
+	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   ?  help         q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand group                  s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "During SSH", "  exit returns normally; press 󰌑 then ~. to force-close a stuck session"}
 	return "\n  " + s.active.Render("Keyboard help") + "\n\n" + strings.Join(lines, "\n") + "\n\n  " + s.muted.Render("Press ? or Esc to close")
 }
 
@@ -464,8 +467,10 @@ func (m *App) renderFooter(s styleSet) string {
 		}
 	}
 	hint := "? help"
-	if m.section == hostsSection {
-		hint = "󰌑 connect • ␠ group • a add • h hide • ? help"
+	if m.form != nil {
+		hint = m.formHint()
+	} else if m.section == hostsSection {
+		hint = "󰌑 connect • ␣ group • a add • h hide • ? help"
 	} else {
 		hint = "a generate • i import • u add to server • x export • ? help"
 	}

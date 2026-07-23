@@ -151,8 +151,32 @@ func TestExternalHostEditOnlyOffersMetadataAndIsFullyRevealed(t *testing.T) {
 	if !strings.Contains(rendered, "Label") || !strings.Contains(rendered, "Group") || !strings.Contains(rendered, "Tags") || strings.Contains(rendered, "Alias") {
 		t.Fatalf("metadata editor was not fully revealed:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "󰌑 save") || strings.Contains(rendered, "󰌑 next") {
-		t.Fatalf("metadata editor does not offer immediate save:\n%s", rendered)
+	footer := m.renderFooter(m.styles())
+	if !strings.Contains(footer, "󰌑 save") || strings.Contains(footer, "󰌑 next") {
+		t.Fatalf("metadata editor does not offer immediate save: %q", footer)
+	}
+}
+
+func TestFooterShowsControlsForTheActiveFormState(t *testing.T) {
+	m := testApp(t)
+	m.openAddHostForm()
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "󰌑 next") || !strings.Contains(footer, "Esc cancel") || strings.Contains(footer, "connect") {
+		t.Fatalf("create footer = %q", footer)
+	}
+
+	m.openEditHostForm()
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "󰌑 save") || !strings.Contains(footer, "↑/↓ move") || strings.Contains(footer, "connect") {
+		t.Fatalf("edit footer = %q", footer)
+	}
+
+	m.hosts[0].Managed = true
+	m.openEditHostForm()
+	for range 4 {
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "choose") || !strings.Contains(footer, "󰌑 select") || !strings.Contains(footer, "Esc close") {
+		t.Fatalf("choice footer = %q", footer)
 	}
 }
 
@@ -517,8 +541,12 @@ func TestManagedKeyCommentCanBeEditedAfterImport(t *testing.T) {
 	m.form = nil
 	m.Update(press("d"))
 	deleteForm := m.renderForm(m.styles())
-	if !strings.Contains(deleteForm, "Type the name to confirm") || !strings.Contains(deleteForm, "󰌑 delete") || strings.Contains(deleteForm, "󰌑 save") {
+	if !strings.Contains(deleteForm, "Type the name to confirm") {
 		t.Fatalf("delete confirmation copy is incorrect:\n%s", deleteForm)
+	}
+	footer := m.renderFooter(m.styles())
+	if !strings.Contains(footer, "󰌑 delete") || strings.Contains(footer, "󰌑 save") {
+		t.Fatalf("delete footer is incorrect: %q", footer)
 	}
 	if m.form.input.Placeholder != "work" || !strings.Contains(deleteForm, "work") {
 		t.Fatalf("delete confirmation does not show the required name as a placeholder:\n%s", deleteForm)

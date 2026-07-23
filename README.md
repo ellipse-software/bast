@@ -48,7 +48,7 @@ Use `bast <label>` to connect without opening the picker. Friendly labels contai
 - `/` searches, `r` reloads, and `?` opens full help
 - `󰌑` connects to the selected host
 - `a`, `e`, and `d` add, edit, and delete where applicable
-- `␠` (Space) collapses or expands the selected host group
+- `␣` (Space) collapses or expands the selected host group
 - On a selected key, `u` opens the server picker and installs its public key
 - `h` hides or shows a host; `.` toggles all hidden hosts
 - `q` quits Bast
@@ -57,7 +57,7 @@ Use `bast <label>` to connect without opening the picker. Friendly labels contai
 
 - Creation forms reveal fields step by step with Enter.
 - Edit forms show every field immediately. Use Up/Down to move and Enter to save from anywhere.
-- On an editable choice such as Identity, press `␠` to open the choices and Enter to confirm one.
+- On an editable choice such as Identity, press `␣` to open the choices and Enter to confirm one.
 - Destructive confirmations show the exact required text as a muted placeholder; type over it to confirm.
 - Errors open in a dedicated panel with the full reason. Enter or Esc returns to the preserved form.
 
