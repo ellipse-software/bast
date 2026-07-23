@@ -109,6 +109,79 @@ func TestFormRevealsFieldsProgressivelyAndRevisitsThem(t *testing.T) {
 	}
 }
 
+func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
+	m := testApp(t)
+	managedPath := filepath.Join(m.paths.ManagedKeys, "work")
+	m.keys = []keymodel.Key{
+		{Name: "work", PrivatePath: managedPath, Managed: true, Algorithm: "ED25519"},
+		{Name: "legacy", PrivatePath: filepath.Join(m.paths.SSHDir, "id_rsa")},
+		{Name: "agent-only", Fingerprint: "SHA256:agent", InAgent: true},
+	}
+	m.openAddHostForm()
+	for range 4 {
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	}
+	if m.form.fields[m.form.index].label != "Identity file" || !m.form.selecting {
+		t.Fatalf("identity picker was not opened: %+v", m.form)
+	}
+	view := m.renderForm(m.styles())
+	if !strings.Contains(view, "OpenSSH defaults / agent") || !strings.Contains(view, "work · ~/.ssh/bast/keys/work") || !strings.Contains(view, "Manual path…") {
+		t.Fatalf("identity picker is missing expected choices:\n%s", view)
+	}
+	if strings.Contains(view, "agent-only") {
+		t.Fatalf("agent-only key was offered as an IdentityFile:\n%s", view)
+	}
+	if !m.form.selecting {
+		t.Fatal("identity picker closed while rendering")
+	}
+
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if option := m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected]; option.value != "~/.ssh/bast/keys/work" {
+		t.Fatalf("wrong identity option selected: %+v", option)
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if got := m.form.fields[4].value; got != "~/.ssh/bast/keys/work" {
+		t.Fatalf("selected identity = %q", got)
+	}
+	if m.form.fields[m.form.index].label != "Identities only" {
+		t.Fatalf("selecting a key did not advance: index=%d", m.form.index)
+	}
+
+	m = testApp(t)
+	manualTestPath := filepath.Join(m.paths.ManagedKeys, "work")
+	m.keys = []keymodel.Key{{Name: "work", PrivatePath: manualTestPath}}
+	m.openAddHostForm()
+	for range 4 {
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.form.selecting || m.form.fields[m.form.index].label != "Identity file" {
+		t.Fatal("manual choice did not switch the picker to path entry")
+	}
+	m.form.input.SetValue("~/.ssh/special_key")
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	if !m.form.selecting || m.form.fields[4].customValue != "~/.ssh/special_key" {
+		t.Fatal("Esc did not return manual path entry to the key choices")
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if got := m.form.fields[4].value; got != "~/.ssh/special_key" {
+		t.Fatalf("manual identity = %q", got)
+	}
+
+	m = testApp(t)
+	editPath := filepath.Join(m.paths.ManagedKeys, "work")
+	m.keys = []keymodel.Key{{Name: "work", PrivatePath: editPath}}
+	m.hosts = []sshconfig.Host{{Alias: "alpha", Managed: true, ManagedID: "alpha", Resolved: sshconfig.Resolved{IdentityFiles: []string{editPath}}}}
+	m.openEditHostForm()
+	identity := m.form.fields[5]
+	if identity.options[identity.selected].value != "~/.ssh/bast/keys/work" {
+		t.Fatalf("existing detected identity was not preselected: %+v", identity)
+	}
+}
+
 func TestImportFormDetectsPastedPrivateKey(t *testing.T) {
 	m := testApp(t)
 	m.openImportForm()

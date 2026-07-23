@@ -14,22 +14,65 @@ import (
 
 func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	f := m.form
+	item := &f.fields[f.index]
+	if f.selecting {
+		switch key {
+		case "esc":
+			f.selecting = false
+			m.focusFormField()
+		case "up", "down":
+			direction := 1
+			if key == "up" {
+				direction = -1
+			}
+			item.selected = (item.selected + direction + len(item.options)) % len(item.options)
+			m.focusFormField()
+		case "shift+tab":
+			f.selecting = false
+			m.commitFormField()
+			m.moveForm(-1, false)
+		case "enter", "tab":
+			f.selecting = false
+			m.focusFormField()
+			if item.options[item.selected].custom {
+				return m, nil
+			}
+			m.commitFormField()
+			if m.moveForm(1, true) {
+				return m, nil
+			}
+			return m.submitForm()
+		}
+		return m, nil
+	}
+	if key == "esc" && len(item.options) > 0 && item.options[item.selected].custom {
+		m.commitFormField()
+		f.selecting = true
+		m.focusFormField()
+		return m, nil
+	}
 	if key == "esc" {
 		m.form = nil
 		return m, nil
 	}
 	if key == "up" || key == "shift+tab" {
-		m.form.fields[m.form.index].value = strings.TrimSpace(m.form.input.Value())
+		m.commitFormField()
 		m.moveForm(-1, false)
 		return m, nil
 	}
 	if key == "down" {
-		m.form.fields[m.form.index].value = strings.TrimSpace(m.form.input.Value())
+		m.commitFormField()
 		m.moveForm(1, false)
 		return m, nil
 	}
 	if key == "enter" || key == "tab" {
-		m.form.fields[m.form.index].value = strings.TrimSpace(m.form.input.Value())
+		if len(item.options) > 0 && !item.options[item.selected].custom {
+			f.selecting = true
+			m.focusFormField()
+			return m, nil
+		}
+		m.commitFormField()
 		if m.moveForm(1, true) {
 			return m, nil
 		}
@@ -42,6 +85,9 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.form.action == "key_import" && m.form.fields[m.form.index].label == "Public key" && m.form.pastedPublicKey != "" {
 		m.form.pastedPublicKey = ""
 		m.form.input.SetValue("")
+	}
+	if len(item.options) > 0 && !item.options[item.selected].custom {
+		return m, nil
 	}
 	var cmd tea.Cmd
 	m.form.input, cmd = m.form.input.Update(msg)
@@ -199,7 +245,7 @@ func (m *App) formError(message string) (tea.Model, tea.Cmd) {
 func (m *App) openAddHostForm() {
 	m.openForm("Add host", "host_add", []field{
 		{label: "Label", placeholder: "prod"}, {label: "Hostname", placeholder: "server.example.com"}, {label: "User", placeholder: "ubuntu"},
-		{label: "Port", placeholder: "22"}, {label: "Identity file", placeholder: "~/.ssh/bast/keys/work"}, {label: "Identities only", placeholder: "yes or no"},
+		{label: "Port", placeholder: "22"}, m.identityField(""), {label: "Identities only", placeholder: "yes or no"},
 		{label: "Proxy jump", placeholder: "bastion"}, {label: "Group"}, {label: "Tags", placeholder: "web, production"}, {label: "Environment", placeholder: "production"},
 		{label: "Color", placeholder: "#7C3AED"}, {label: "Notes"},
 	})
@@ -224,7 +270,7 @@ func (m *App) openEditHostForm() {
 	}
 	m.openForm("Edit host — "+host.Alias, "host_edit", []field{
 		{label: "Original label", value: host.Alias, hidden: true}, {label: "Label", value: host.Alias}, {label: "Hostname", value: host.Resolved.HostName}, {label: "User", value: host.Resolved.User},
-		{label: "Port", value: host.Resolved.Port}, {label: "Identity file", value: identity}, {label: "Identities only", value: host.Resolved.IdentitiesOnly},
+		{label: "Port", value: host.Resolved.Port}, m.identityField(identity), {label: "Identities only", value: host.Resolved.IdentitiesOnly},
 		{label: "Proxy jump", value: emptyIfNone(host.Resolved.ProxyJump)}, {label: "Group", value: meta.Group}, {label: "Tags", value: strings.Join(meta.Tags, ", ")},
 		{label: "Environment", value: meta.Environment}, {label: "Color", value: meta.Color}, {label: "Notes", value: meta.Notes},
 	})
@@ -283,6 +329,37 @@ func (m *App) openKnownHostForm() {
 	}
 }
 
+func (m *App) identityField(current string) field {
+	item := field{label: "Identity file", placeholder: "~/.ssh/id_ed25519"}
+	item.options = append(item.options, fieldOption{label: "OpenSSH defaults / agent"})
+	if current != "" {
+		current = shortPath(current, m.paths.Home)
+	}
+	seen := map[string]bool{}
+	for _, key := range m.keys {
+		if key.PrivatePath == "" {
+			continue
+		}
+		path := shortPath(key.PrivatePath, m.paths.Home)
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		item.options = append(item.options, fieldOption{label: key.Name + " · " + path, value: path})
+		if current == path {
+			item.selected = len(item.options) - 1
+			item.value = path
+		}
+	}
+	item.options = append(item.options, fieldOption{label: "Manual path…", custom: true})
+	if current != "" && item.value == "" {
+		item.selected = len(item.options) - 1
+		item.customValue = current
+		item.value = current
+	}
+	return item
+}
+
 func (m *App) openForm(title, action string, fields []field) {
 	input := textinput.New()
 	input.Prompt = ""
@@ -292,15 +369,51 @@ func (m *App) openForm(title, action string, fields []field) {
 		m.form.index++
 	}
 	m.form.revealed = m.form.index
+	m.form.selecting = len(m.form.fields[m.form.index].options) > 0
 	m.focusFormField()
 }
 
 func (m *App) focusFormField() {
 	f := m.form
-	f.input.SetValue(f.fields[f.index].value)
-	f.input.Placeholder = f.fields[f.index].placeholder
-	f.input.SetCursor(len([]rune(f.fields[f.index].value)))
+	item := &f.fields[f.index]
+	if len(item.options) > 0 {
+		option := item.options[item.selected]
+		if option.custom {
+			item.value = item.customValue
+			f.input.SetValue(item.customValue)
+			f.input.Placeholder = item.placeholder
+			f.input.SetCursor(len([]rune(item.customValue)))
+			if f.selecting {
+				f.input.Blur()
+			} else {
+				f.input.Focus()
+			}
+		} else {
+			item.value = option.value
+			f.input.SetValue("")
+			f.input.Blur()
+		}
+		return
+	}
+	f.input.SetValue(item.value)
+	f.input.Placeholder = item.placeholder
+	f.input.SetCursor(len([]rune(item.value)))
 	f.input.Focus()
+}
+
+func (m *App) commitFormField() {
+	item := &m.form.fields[m.form.index]
+	if len(item.options) > 0 {
+		option := item.options[item.selected]
+		if option.custom {
+			item.customValue = strings.TrimSpace(m.form.input.Value())
+			item.value = item.customValue
+		} else {
+			item.value = option.value
+		}
+		return
+	}
+	item.value = strings.TrimSpace(m.form.input.Value())
 }
 
 func (m *App) moveForm(direction int, reveal bool) bool {
@@ -311,13 +424,15 @@ func (m *App) moveForm(direction int, reveal bool) bool {
 	if next < 0 || next >= len(m.form.fields) {
 		return false
 	}
-	if direction > 0 && next > m.form.revealed {
+	newlyRevealed := direction > 0 && next > m.form.revealed
+	if newlyRevealed {
 		if !reveal {
 			return false
 		}
 		m.form.revealed = next
 	}
 	m.form.index = next
+	m.form.selecting = newlyRevealed && len(m.form.fields[next].options) > 0
 	m.focusFormField()
 	return true
 }

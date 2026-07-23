@@ -226,23 +226,59 @@ func (m *App) renderForm(s styleSet) string {
 		}
 		if i == f.index {
 			b.WriteString("  " + s.active.Render("› "+item.label) + "\n")
-			b.WriteString("    " + f.input.View() + "\n")
+			if len(item.options) > 0 {
+				if f.selecting {
+					rows := min(7, len(item.options))
+					start := scrollStart(item.selected, len(item.options), rows)
+					for optionIndex := start; optionIndex < min(len(item.options), start+rows); optionIndex++ {
+						option := "  " + item.options[optionIndex].label
+						if optionIndex == item.selected {
+							option = s.selected.Render("› " + item.options[optionIndex].label)
+						} else {
+							option = s.muted.Render(option)
+						}
+						b.WriteString("    " + option + "\n")
+					}
+				} else if item.options[item.selected].custom {
+					b.WriteString("    " + f.input.View() + "\n")
+				} else {
+					b.WriteString("    " + s.value.Render(item.options[item.selected].label) + "\n")
+				}
+			} else {
+				b.WriteString("    " + f.input.View() + "\n")
+			}
 			continue
 		}
 		value := item.value
+		if len(item.options) > 0 && !item.options[item.selected].custom {
+			value = item.options[item.selected].label
+		}
 		if value == "" {
 			value = "—"
 		}
 		b.WriteString("  " + s.muted.Render("  "+item.label+"  "+value) + "\n")
 	}
 	action := "󰌑 next"
+	if f.selecting {
+		action = "↑/↓ choose • 󰌑 select"
+	} else if len(f.fields[f.index].options) > 0 && !f.fields[f.index].options[f.fields[f.index].selected].custom {
+		action = "󰌑 change"
+	}
 	if !hasNextFormField(f) {
 		action = "󰌑 save"
 		if f.action == "host_delete" || f.action == "key_delete" || f.action == "known_delete" {
 			action = "󰌑 delete"
 		}
 	}
-	b.WriteString("\n  " + s.muted.Render(action+" • ↑/↓ revisit • Esc cancel"))
+	if f.selecting {
+		b.WriteString("\n  " + s.muted.Render(action+" • Esc close"))
+	} else {
+		escape := "Esc cancel"
+		if len(f.fields[f.index].options) > 0 && f.fields[f.index].options[f.fields[f.index].selected].custom {
+			escape = "Esc choices"
+		}
+		b.WriteString("\n  " + s.muted.Render(action+" • ↑/↓ revisit • "+escape))
+	}
 	return b.String()
 }
 

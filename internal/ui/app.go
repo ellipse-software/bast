@@ -23,6 +23,15 @@ type field struct {
 	value       string
 	placeholder string
 	hidden      bool
+	options     []fieldOption
+	selected    int
+	customValue string
+}
+
+type fieldOption struct {
+	label  string
+	value  string
+	custom bool
 }
 
 type form struct {
@@ -33,6 +42,7 @@ type form struct {
 	revealed         int
 	pastedPrivateKey string
 	pastedPublicKey  string
+	selecting        bool
 	input            textinput.Model
 }
 
