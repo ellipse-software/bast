@@ -28,6 +28,11 @@ func renderBlock(id string, input HostInput) []byte {
 	if input.IdentitiesOnly {
 		b.WriteString("    IdentitiesOnly yes\n")
 	}
+	if input.PasswordOnly {
+		b.WriteString("    PubkeyAuthentication no\n")
+		b.WriteString("    PasswordAuthentication yes\n")
+		b.WriteString("    PreferredAuthentications keyboard-interactive,password\n")
+	}
 	if input.ProxyJump != "" {
 		fmt.Fprintf(&b, "    ProxyJump %s\n", configValue(input.ProxyJump))
 	}

@@ -28,12 +28,15 @@ type Host struct {
 }
 
 type Resolved struct {
-	HostName       string
-	User           string
-	Port           string
-	IdentityFiles  []string
-	IdentitiesOnly string
-	ProxyJump      string
+	HostName                 string
+	User                     string
+	Port                     string
+	IdentityFiles            []string
+	IdentitiesOnly           string
+	PubkeyAuthentication     string
+	PasswordAuthentication   string
+	PreferredAuthentications string
+	ProxyJump                string
 }
 
 type HostInput struct {
@@ -43,6 +46,7 @@ type HostInput struct {
 	Port           string
 	IdentityFile   string
 	IdentitiesOnly bool
+	PasswordOnly   bool
 	ProxyJump      string
 }
 
@@ -288,4 +292,8 @@ func Validate(input HostInput) error {
 		}
 	}
 	return nil
+}
+
+func NormalizeAlias(label string) string {
+	return strings.Join(strings.Fields(label), "_")
 }

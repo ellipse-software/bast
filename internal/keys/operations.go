@@ -249,6 +249,20 @@ func (m Manager) Delete(key Key, confirmation string) error {
 	return nil
 }
 
+func (m Manager) PublicText(key Key) (string, error) {
+	if key.PublicPath != "" {
+		return PublicText(key)
+	}
+	if key.PrivatePath == "" {
+		return "", errors.New("no public key file is available")
+	}
+	public, err := exec.Command(m.SSHKeygen, "-y", "-f", key.PrivatePath).CombinedOutput()
+	if err != nil {
+		return "", errors.New("could not derive the public key; add its .pub file and try again")
+	}
+	return strings.TrimSpace(string(public)), nil
+}
+
 func PublicText(key Key) (string, error) {
 	if key.PublicPath == "" {
 		return "", errors.New("no public key file is available")

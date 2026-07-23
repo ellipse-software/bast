@@ -13,6 +13,11 @@ import (
 	"bast/internal/sshconfig"
 )
 
+const (
+	keyInstallAction    = "[u] Add to server"
+	keyInstallActionRow = 4
+)
+
 func (m *App) render() string {
 	styles := m.styles()
 	width := m.terminalWidth()
@@ -22,7 +27,9 @@ func (m *App) render() string {
 		header += "  " + styles.muted.Render("syncing…")
 	}
 	var body string
-	if m.help {
+	if m.statusError && m.status != "" {
+		body = m.renderError(styles)
+	} else if m.help {
 		body = m.renderHelp(styles)
 	} else if m.form != nil {
 		body = m.renderForm(styles)
@@ -34,6 +41,26 @@ func (m *App) render() string {
 	body = lipgloss.NewStyle().Width(width).Height(bodyHeight).Render(body)
 	footer := m.renderFooter(styles)
 	return lipgloss.NewStyle().Width(width).Render(header + "\n" + m.renderHeaderRule(styles) + "\n" + body + "\n" + footer)
+}
+
+func (m *App) renderError(s styleSet) string {
+	contentWidth := max(16, min(66, m.terminalWidth()-10))
+	explanation := "The action did not complete."
+	if m.form != nil {
+		explanation += " Your entries are still available when you return."
+	}
+	content := s.error.Bold(true).Render("✕  Action failed") +
+		"\n\n" + s.muted.Render("What happened") +
+		"\n" + s.value.Width(contentWidth).Render(m.status) +
+		"\n\n" + s.muted.Width(contentWidth).Render(explanation) +
+		"\n\n" + s.muted.Render("Press Enter or Esc to return")
+	panel := lipgloss.NewStyle().
+		Width(contentWidth).
+		Padding(1, 2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#EF4444")).
+		Render(content)
+	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, panel)
 }
 
 type styleSet struct{ title, active, inactive, selected, muted, label, value, error, success, rule lipgloss.Style }
@@ -87,11 +114,27 @@ func (m *App) renderHosts(s styleSet) string {
 			"\n  " + s.muted.Render("Press a to add your first destination.")
 	}
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
+	rowsData := m.hostRows()
 	rows := bodyHeight
-	start := scrollStart(m.cursor, len(filtered), rows)
+	start := scrollStart(m.cursor, len(rowsData), rows)
 	var list strings.Builder
-	for i := start; i < min(len(filtered), start+rows); i++ {
-		host := filtered[i]
+	for i := start; i < min(len(rowsData), start+rows); i++ {
+		row := rowsData[i]
+		if row.header {
+			indicator := "▾"
+			if m.collapsedGroups[row.group] && m.searchText() == "" {
+				indicator = "▸"
+			}
+			line := indicator + " " + truncate(row.group, max(2, listWidth-8)) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
+			if i == m.cursor {
+				line = s.selected.Width(listWidth).Render(line)
+			} else {
+				line = s.active.Width(listWidth).Render(line)
+			}
+			list.WriteString(line + "\n")
+			continue
+		}
+		host := row.host
 		meta := m.metadata.Host(host.Alias)
 		prefix := "  "
 		if meta.Hidden {
@@ -99,7 +142,11 @@ func (m *App) renderHosts(s styleSet) string {
 		} else if meta.Favorite {
 			prefix = "◆ "
 		}
-		line := prefix + truncate(host.Alias, listWidth-4)
+		indent := ""
+		if row.group != "" {
+			indent = "  "
+		}
+		line := indent + prefix + truncate(m.hostLabel(host), max(2, listWidth-lipgloss.Width(indent+prefix)-2))
 		if i == m.cursor {
 			line = s.selected.Width(listWidth).Render(line)
 		} else {
@@ -108,9 +155,30 @@ func (m *App) renderHosts(s styleSet) string {
 		list.WriteString(line + "\n")
 	}
 	listPanel := lipgloss.NewStyle().Width(listWidth).Height(bodyHeight).Render(strings.TrimRight(list.String(), "\n"))
-	detail := lipgloss.NewStyle().Width(detailWidth).Height(bodyHeight).Render(m.renderHostDetail(s, filtered[m.cursor], detailWidth))
+	detailContent := ""
+	if m.cursor >= 0 && m.cursor < len(rowsData) {
+		if rowsData[m.cursor].header {
+			detailContent = m.renderGroupDetail(s, rowsData[m.cursor], detailWidth)
+		} else {
+			detailContent = m.renderHostDetail(s, rowsData[m.cursor].host, detailWidth)
+		}
+	}
+	detail := lipgloss.NewStyle().Width(detailWidth).Height(bodyHeight).Render(detailContent)
 	divider := s.rule.Render(strings.TrimSuffix(strings.Repeat("│\n", bodyHeight), "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, listPanel, divider, detail)
+}
+
+func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
+	state := "expanded"
+	if m.collapsedGroups[row.group] {
+		state = "collapsed"
+		if m.searchText() != "" {
+			state = "expanded for search"
+		}
+	}
+	return "  " + s.active.Render(truncate(row.group, max(4, width-3))) + "\n" +
+		"  " + s.muted.Render(fmt.Sprintf("%d servers · %s", row.count, state)) + "\n\n" +
+		"  " + s.value.Render("Press ␠ to collapse or expand this group.")
 }
 
 func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) string {
@@ -124,14 +192,15 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 		trust = "known host"
 	}
 	var b strings.Builder
+	label := m.hostLabel(host)
 	titleStyle := s.active
-	title := truncate(host.Alias, max(4, width-3))
+	title := truncate(label, max(4, width-3))
 	if foreground, ok := contrastingTextColor(meta.Color); ok {
 		titleStyle = lipgloss.NewStyle().Bold(true).
 			Foreground(lipgloss.Color(foreground)).
 			Background(lipgloss.Color(meta.Color)).
 			Padding(0, 1)
-		title = truncate(host.Alias, max(4, width-5))
+		title = truncate(label, max(4, width-5))
 	}
 	destination := destination(host)
 	if destination == "" {
@@ -141,7 +210,10 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	b.WriteString("  " + s.value.Render(truncate(destination, max(4, width-3))) + "\n")
 	b.WriteString("  " + s.muted.Render(truncate(owner+" · "+trust, max(4, width-3))) + "\n\n")
 	b.WriteString(compactRow(s, "Source", shortPath(host.Source, m.paths.Home)+":"+strconv.Itoa(host.Line), width))
-	b.WriteString(compactRow(s, "Key", joinOr(host.Resolved.IdentityFiles, "agent/defaults"), width))
+	if label != host.Alias {
+		b.WriteString(compactRow(s, "SSH name", host.Alias, width))
+	}
+	b.WriteString(compactRow(s, "Key", hostIdentity(host), width))
 	if host.Resolved.ProxyJump != "" && host.Resolved.ProxyJump != "none" {
 		b.WriteString(compactRow(s, "Jump", host.Resolved.ProxyJump, width))
 	}
@@ -204,8 +276,13 @@ func (m *App) renderKeyDetail(s styleSet, key keys.Key, width int) string {
 	b.WriteString("  " + s.muted.Render(truncate(summary, max(4, width-3))) + "\n")
 	if key.Fingerprint != "" {
 		b.WriteString("  " + s.value.Render(truncate(key.Fingerprint, max(4, width-3))) + "\n")
+	} else {
+		b.WriteString("\n")
 	}
 	b.WriteString("\n")
+	if key.PublicPath != "" || key.PrivatePath != "" {
+		b.WriteString("  " + s.active.Render(keyInstallAction) + "\n\n")
+	}
 	if key.PrivatePath != "" {
 		b.WriteString(compactRow(s, "Private", shortPath(key.PrivatePath, m.paths.Home), width))
 	}
@@ -216,7 +293,15 @@ func (m *App) renderKeyDetail(s styleSet, key keys.Key, width int) string {
 		b.WriteString(compactRow(s, "Comment", key.Comment, width))
 	}
 	if len(key.References) > 0 {
-		b.WriteString(compactRow(s, "Used by", strings.Join(key.References, ", "), width))
+		references := make([]string, 0, len(key.References))
+		for _, alias := range key.References {
+			if host, ok := m.findHost(alias); ok {
+				references = append(references, m.hostLabel(host))
+			} else {
+				references = append(references, alias)
+			}
+		}
+		b.WriteString(compactRow(s, "Used by", strings.Join(references, ", "), width))
 	}
 	return b.String()
 }
@@ -287,12 +372,17 @@ func (m *App) renderForm(s styleSet) string {
 		b.WriteString("  " + s.muted.Render("  "+label+"  "+value) + "\n")
 	}
 	action := "󰌑 next"
-	if f.selecting {
+	if isEditForm(f) && !f.selecting {
+		action = "󰌑 save"
+		if len(f.fields[f.index].options) > 0 && !f.fields[f.index].options[f.fields[f.index].selected].custom {
+			action += " • ␠ change"
+		}
+	} else if f.selecting {
 		action = "↑/↓ or j/k choose • 󰌑 select"
 	} else if len(f.fields[f.index].options) > 0 && !f.fields[f.index].options[f.fields[f.index].selected].custom {
 		action = "󰌑 change"
 	}
-	if !hasNextFormField(f) {
+	if !isEditForm(f) && !hasNextFormField(f) {
 		action = "󰌑 save"
 		if f.action == "host_delete" || f.action == "key_delete" || f.action == "known_delete" {
 			action = "󰌑 delete"
@@ -305,7 +395,11 @@ func (m *App) renderForm(s styleSet) string {
 		if len(f.fields[f.index].options) > 0 && f.fields[f.index].options[f.fields[f.index].selected].custom {
 			escape = "Esc choices"
 		}
-		b.WriteString("\n  " + s.muted.Render(action+" • ↑/↓ revisit • "+escape))
+		movement := "↑/↓ revisit"
+		if isEditForm(f) {
+			movement = "↑/↓ move"
+		}
+		b.WriteString("\n  " + s.muted.Render(action+" • "+movement+" • "+escape))
 	}
 	return b.String()
 }
@@ -343,11 +437,15 @@ func contrastingTextColor(background string) (string, bool) {
 }
 
 func (m *App) renderHelp(s styleSet) string {
-	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   ?  help         q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  f favorite      h hide/show selected     . toggle hidden hosts", "  s sort          K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  x export        p change passphrase       c copy public key", "", "During SSH", "  exit returns normally; press 󰌑 then ~. to force-close a stuck session"}
+	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   ?  help         q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␠ collapse/expand group                  s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "During SSH", "  exit returns normally; press 󰌑 then ~. to force-close a stuck session"}
 	return "\n  " + s.active.Render("Keyboard help") + "\n\n" + strings.Join(lines, "\n") + "\n\n  " + s.muted.Render("Press ? or Esc to close")
 }
 
 func (m *App) renderFooter(s styleSet) string {
+	if m.statusError && m.status != "" {
+		hint := "Enter / Esc return"
+		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
+	}
 	query := m.searchText()
 	left := ""
 	if strings.HasPrefix(m.search, "\x00") {
@@ -367,9 +465,9 @@ func (m *App) renderFooter(s styleSet) string {
 	}
 	hint := "? help"
 	if m.section == hostsSection {
-		hint = "󰌑 connect • a add • h hide • . hidden • ? help"
+		hint = "󰌑 connect • ␠ group • a add • h hide • ? help"
 	} else {
-		hint = "a generate • i import • e comment • x export • ? help"
+		hint = "a generate • i import • u add to server • x export • ? help"
 	}
 	space := max(1, m.terminalWidth()-lipgloss.Width(left)-lipgloss.Width(hint)-1)
 	return left + strings.Repeat(" ", space) + s.muted.Render(hint)
@@ -377,7 +475,7 @@ func (m *App) renderFooter(s styleSet) string {
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.help || m.form != nil || m.loading || m.itemCount() == 0 {
+	if m.statusError || m.help || m.form != nil || m.loading || m.itemCount() == 0 {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	listWidth, detailWidth, _ := m.columnDimensions()

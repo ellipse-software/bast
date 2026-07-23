@@ -7,10 +7,14 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/sshconfig"
 )
+
+const noticeDuration = 4 * time.Second
 
 func (m *App) terminalWidth() int {
 	if m.width > 0 {
@@ -49,12 +53,48 @@ func (m *App) filteredHosts() []sshconfig.Host {
 			out = append(out, h)
 			continue
 		}
-		hay := strings.ToLower(strings.Join([]string{h.Alias, h.Resolved.HostName, h.Resolved.User, meta.Group, strings.Join(meta.Tags, " "), meta.Environment, meta.Notes}, " "))
+		hay := strings.ToLower(strings.Join([]string{m.hostLabel(h), h.Alias, h.Resolved.HostName, h.Resolved.User, meta.Group, strings.Join(meta.Tags, " "), meta.Environment, meta.Notes}, " "))
 		if strings.Contains(hay, q) {
 			out = append(out, h)
 		}
 	}
 	return out
+}
+
+type hostRow struct {
+	group  string
+	host   sshconfig.Host
+	header bool
+	count  int
+}
+
+func (m *App) hostRows() []hostRow {
+	hosts := m.filteredHosts()
+	grouped := map[string][]sshconfig.Host{}
+	order := make([]string, 0)
+	seen := map[string]bool{}
+	for _, host := range hosts {
+		group := strings.TrimSpace(m.metadata.Host(host.Alias).Group)
+		if !seen[group] {
+			seen[group] = true
+			order = append(order, group)
+		}
+		grouped[group] = append(grouped[group], host)
+	}
+	rows := make([]hostRow, 0, len(hosts)+len(order))
+	for _, group := range order {
+		members := grouped[group]
+		if group != "" {
+			rows = append(rows, hostRow{group: group, header: true, count: len(members)})
+			if m.collapsedGroups[group] && m.searchText() == "" {
+				continue
+			}
+		}
+		for _, host := range members {
+			rows = append(rows, hostRow{group: group, host: host})
+		}
+	}
+	return rows
 }
 
 func (m *App) hasHiddenHosts() bool {
@@ -72,18 +112,33 @@ func (m *App) filteredKeys() []keys.Key {
 	}
 	out := []keys.Key{}
 	for _, k := range m.keys {
-		if strings.Contains(strings.ToLower(k.Name+" "+k.Fingerprint+" "+k.Algorithm+" "+strings.Join(k.References, " ")), q) {
+		references := append([]string(nil), k.References...)
+		for _, alias := range k.References {
+			if host, ok := m.findHost(alias); ok {
+				references = append(references, m.hostLabel(host))
+			}
+		}
+		if strings.Contains(strings.ToLower(k.Name+" "+k.Fingerprint+" "+k.Algorithm+" "+strings.Join(references, " ")), q) {
 			out = append(out, k)
 		}
 	}
 	return out
 }
 func (m *App) selectedHost() (sshconfig.Host, bool) {
-	items := m.filteredHosts()
-	if m.cursor >= 0 && m.cursor < len(items) {
-		return items[m.cursor], true
+	rows := m.hostRows()
+	if m.cursor >= 0 && m.cursor < len(rows) && !rows[m.cursor].header {
+		return rows[m.cursor].host, true
 	}
 	return sshconfig.Host{}, false
+}
+
+func (m *App) selectedGroup() (string, bool) {
+	rows := m.hostRows()
+	if m.cursor < 0 || m.cursor >= len(rows) {
+		return "", false
+	}
+	group := rows[m.cursor].group
+	return group, group != ""
 }
 func (m *App) selectedKey() (keys.Key, bool) {
 	items := m.filteredKeys()
@@ -110,7 +165,7 @@ func (m *App) findKey(name string) (keys.Key, bool) {
 }
 func (m *App) itemCount() int {
 	if m.section == hostsSection {
-		return len(m.filteredHosts())
+		return len(m.hostRows())
 	}
 	return len(m.filteredKeys())
 }
@@ -121,10 +176,91 @@ func (m *App) clampCursor() {
 		m.cursor = n - 1
 	}
 }
-func (m *App) searchText() string { return strings.TrimPrefix(m.search, "\x00") }
-func (m *App) setError(err error) { m.status, m.statusError = err.Error(), true }
 
-func (m *App) cycleSort() {
+func (m *App) selectAfterLoad() {
+	name := m.selectAfterLoadName
+	if name == "" {
+		m.clampCursor()
+		return
+	}
+	section := m.selectAfterLoadSection
+	selectGroup := m.selectAfterLoadGroup
+	previousSearch := m.search
+	m.search = ""
+	index := -1
+	if section == hostsSection {
+		for i, row := range m.hostRows() {
+			if (selectGroup && row.header && row.group == name) || (!selectGroup && !row.header && row.host.Alias == name) {
+				index = i
+				break
+			}
+		}
+	} else {
+		for i, key := range m.keys {
+			if key.Name == name {
+				index = i
+				break
+			}
+		}
+	}
+	m.selectAfterLoadName = ""
+	m.selectAfterLoadGroup = false
+	if index < 0 {
+		m.search = previousSearch
+		m.clampCursor()
+		return
+	}
+	m.section = section
+	m.search = ""
+	m.cursor = index
+	m.clampCursor()
+}
+
+func (m *App) groupExists(group string) bool {
+	for _, host := range m.hosts {
+		if strings.TrimSpace(m.metadata.Host(host.Alias).Group) == group {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *App) toggleSelectedGroup() tea.Cmd {
+	if m.searchText() != "" {
+		return m.setNotice("Clear the search filter to collapse groups")
+	}
+	group, ok := m.selectedGroup()
+	if !ok {
+		return nil
+	}
+	if m.collapsedGroups == nil {
+		m.collapsedGroups = map[string]bool{}
+	}
+	m.collapsedGroups[group] = !m.collapsedGroups[group]
+	for i, row := range m.hostRows() {
+		if row.header && row.group == group {
+			m.cursor = i
+			break
+		}
+	}
+	return nil
+}
+func (m *App) searchText() string { return strings.TrimPrefix(m.search, "\x00") }
+func (m *App) setError(err error) {
+	m.statusID++
+	m.status, m.statusError = err.Error(), true
+}
+
+func (m *App) setNotice(message string) tea.Cmd {
+	m.statusID++
+	m.status, m.statusError = message, false
+	statusID := m.statusID
+	return tea.Tick(noticeDuration, func(time.Time) tea.Msg {
+		return clearStatusMsg(statusID)
+	})
+}
+
+func (m *App) cycleSort() tea.Cmd {
 	orders := []string{"smart", "alias", "recent", "group"}
 	current := m.metadata.Preferences().Sort
 	next := orders[0]
@@ -136,7 +272,7 @@ func (m *App) cycleSort() {
 	}
 	if err := m.metadata.SetSort(next); err != nil {
 		m.setError(err)
-		return
+		return nil
 	}
 	m.sortHosts()
 	m.cursor = 0
@@ -144,7 +280,7 @@ func (m *App) cycleSort() {
 	if display == "alias" {
 		display = "label"
 	}
-	m.status, m.statusError = "Sort: "+display, false
+	return m.setNotice("Sort: " + display)
 }
 func (m *App) sortHosts() {
 	order := m.metadata.Preferences().Sort
@@ -155,7 +291,7 @@ func (m *App) sortHosts() {
 		a, b := m.metadata.Host(m.hosts[i].Alias), m.metadata.Host(m.hosts[j].Alias)
 		switch order {
 		case "alias":
-			return strings.ToLower(m.hosts[i].Alias) < strings.ToLower(m.hosts[j].Alias)
+			return strings.ToLower(m.hostLabel(m.hosts[i])) < strings.ToLower(m.hostLabel(m.hosts[j]))
 		case "recent":
 			return later(a.LastUsedAt, b.LastUsedAt)
 		case "group":
@@ -172,8 +308,15 @@ func (m *App) sortHosts() {
 		if a.LastUsedAt != nil && !a.LastUsedAt.Equal(*b.LastUsedAt) {
 			return a.LastUsedAt.After(*b.LastUsedAt)
 		}
-		return strings.ToLower(m.hosts[i].Alias) < strings.ToLower(m.hosts[j].Alias)
+		return strings.ToLower(m.hostLabel(m.hosts[i])) < strings.ToLower(m.hostLabel(m.hosts[j]))
 	})
+}
+
+func (m *App) hostLabel(host sshconfig.Host) string {
+	if label := strings.TrimSpace(m.metadata.Host(host.Alias).Label); label != "" {
+		return label
+	}
+	return host.Alias
 }
 
 func destination(h sshconfig.Host) string {
@@ -186,6 +329,12 @@ func destination(h sshconfig.Host) string {
 		port = ":" + h.Resolved.Port
 	}
 	return user + h.Resolved.HostName + port
+}
+func hostIdentity(h sshconfig.Host) string {
+	if passwordOnly(h.Resolved) {
+		return "password only"
+	}
+	return joinOr(h.Resolved.IdentityFiles, "agent/defaults")
 }
 func usage(h metadata.Host) string {
 	if h.LastUsedAt == nil {

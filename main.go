@@ -73,6 +73,7 @@ func buildVersion() string {
 }
 
 func directConnect(p paths.Paths, client openssh.Client, alias string) error {
+	alias = sshconfig.NormalizeAlias(alias)
 	manager := sshconfig.Manager{
 		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,

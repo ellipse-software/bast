@@ -1,14 +1,53 @@
 package ui
 
 import (
+	"io"
+	"os"
+	"os/exec"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-
-	"bast/internal/keys"
 )
+
+const (
+	connectionBanner = "\x1b[1;38;2;139;92;246m BAST \x1b[0m  Connecting to server…\r\n" +
+		"\x1b[38;2;107;114;128m Stuck? Press Enter, then ~. to return to Bast.\x1b[0m\r\n\r\n"
+	clearTerminal = "\x1b[H\x1b[2J\x1b[3J"
+)
+
+type clearAfterProcess struct {
+	cmd *exec.Cmd
+}
+
+func (c *clearAfterProcess) Run() error {
+	output := c.cmd.Stdout
+	if output == nil {
+		output = os.Stdout
+	}
+	_, _ = io.WriteString(output, clearTerminal+connectionBanner)
+	err := c.cmd.Run()
+	_, _ = io.WriteString(output, clearTerminal)
+	return err
+}
+
+func (c *clearAfterProcess) SetStdin(input io.Reader) {
+	if c.cmd.Stdin == nil {
+		c.cmd.Stdin = input
+	}
+}
+
+func (c *clearAfterProcess) SetStdout(output io.Writer) {
+	if c.cmd.Stdout == nil {
+		c.cmd.Stdout = output
+	}
+}
+
+func (c *clearAfterProcess) SetStderr(output io.Writer) {
+	if c.cmd.Stderr == nil {
+		c.cmd.Stderr = output
+	}
+}
 
 func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
@@ -32,7 +71,17 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	listWidth, _, bodyHeight := m.columnDimensions()
 	row := mouse.Y - 2
-	if mouse.X < 0 || mouse.X >= listWidth || row < 0 || row >= bodyHeight {
+	if row < 0 || row >= bodyHeight {
+		return m, nil
+	}
+	if m.section == keysSection && mouse.X >= listWidth+3 && row == keyInstallActionRow {
+		key, ok := m.selectedKey()
+		if ok && (key.PublicPath != "" || key.PrivatePath != "") && mouse.X < listWidth+3+len(keyInstallAction) {
+			m.openInstallKeyForm()
+		}
+		return m, nil
+	}
+	if mouse.X < 0 || mouse.X >= listWidth {
 		return m, nil
 	}
 	count := m.itemCount()
@@ -66,17 +115,10 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.section == hostsSection {
 			m.showHidden = !m.showHidden
 			m.cursor = 0
-			m.statusID++
-			m.statusError = false
 			if m.showHidden {
-				m.status = "Showing hidden hosts"
-			} else {
-				m.status = "Hidden hosts concealed"
-				statusID := m.statusID
-				return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg {
-					return clearStatusMsg(statusID)
-				})
+				return m, m.setNotice("Showing hidden hosts")
 			}
+			return m, m.setNotice("Hidden hosts concealed")
 		}
 	case "1":
 		m.section, m.cursor, m.search = hostsSection, 0, ""
@@ -100,11 +142,15 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.search = "\x00"
 		m.cursor = 0
 	case "r":
-		m.loading, m.status = true, "Reloading OpenSSH files…"
-		return m, m.loadCmd()
+		m.loading = true
+		return m, tea.Batch(m.loadCmd(), m.setNotice("Reloading OpenSSH files…"))
 	case "s":
 		if m.section == hostsSection {
-			m.cycleSort()
+			return m, m.cycleSort()
+		}
+	case "space":
+		if m.section == hostsSection {
+			return m, m.toggleSelectedGroup()
 		}
 	case "a":
 		if m.section == hostsSection {
@@ -132,6 +178,10 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.section == keysSection {
 			m.openExportForm()
 		}
+	case "u":
+		if m.section == keysSection {
+			m.openInstallKeyForm()
+		}
 	case "p":
 		if m.section == keysSection {
 			return m.runPassphraseAction()
@@ -140,12 +190,11 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.section == keysSection {
 			selected, ok := m.selectedKey()
 			if ok {
-				public, err := keys.PublicText(selected)
+				public, err := m.keyring.PublicText(selected)
 				if err != nil {
 					m.setError(err)
 				} else {
-					m.status, m.statusError = "Public key copied", false
-					return m, tea.SetClipboard(public)
+					return m, tea.Batch(tea.SetClipboard(public), m.setNotice("Public key copied"))
 				}
 			}
 		}
@@ -172,11 +221,12 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				if err != nil {
 					m.setError(err)
 				} else {
-					m.status, m.statusError = "Host hidden", false
+					notice := "Host hidden"
 					if !hidden {
-						m.status = "Host shown"
+						notice = "Host shown"
 					}
 					m.clampCursor()
+					return m, m.setNotice(notice)
 				}
 			}
 		}
@@ -223,8 +273,10 @@ func (m *App) connectSelected() (tea.Model, tea.Cmd) {
 		m.setError(err)
 		return m, nil
 	}
-	m.status = "Connected to " + host.Alias + "; exit or 󰌑 then ~. to return"
-	return m, tea.ExecProcess(cmd, func(err error) tea.Msg { return processDoneMsg{name: "SSH session", err: err} })
+	m.status = "Connected to " + m.hostLabel(host) + "; exit or 󰌑 then ~. to return"
+	return m, tea.Exec(&clearAfterProcess{cmd: cmd}, func(err error) tea.Msg {
+		return processDoneMsg{name: "SSH session", err: err}
+	})
 }
 
 func (m *App) runPassphraseAction() (tea.Model, tea.Cmd) {

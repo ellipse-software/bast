@@ -12,6 +12,8 @@ import (
 	"bast/internal/sshconfig"
 )
 
+const passwordOnlyIdentity = "\x00password-only"
+
 func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	f := m.form
@@ -39,6 +41,10 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.commitFormField()
+			if key == "enter" && isEditForm(f) {
+				m.focusFormField()
+				return m, nil
+			}
 			if m.moveForm(1, true) {
 				return m, nil
 			}
@@ -64,6 +70,15 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if key == "down" {
 		m.commitFormField()
 		m.moveForm(1, false)
+		return m, nil
+	}
+	if key == "enter" && isEditForm(f) {
+		m.commitFormField()
+		return m.submitForm()
+	}
+	if key == "space" && len(item.options) > 0 && !item.options[item.selected].custom {
+		f.selecting = true
+		m.focusFormField()
 		return m, nil
 	}
 	if key == "enter" || key == "tab" {
@@ -92,6 +107,10 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.form.input, cmd = m.form.input.Update(msg)
 	return m, cmd
+}
+
+func isEditForm(f *form) bool {
+	return f.action == "host_edit" || f.action == "metadata_edit" || f.action == "key_comment"
 }
 
 func (m *App) updateFormPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
@@ -128,9 +147,17 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 	}
 	switch f.action {
 	case "host_add", "host_edit":
+		label := strings.TrimSpace(values["Label"])
+		group := strings.TrimSpace(values["Group"])
+		groupCreated := group != "" && !m.groupExists(group)
+		identityFile := values["Identity file"]
+		passwordOnly := identityFile == passwordOnlyIdentity
+		if passwordOnly {
+			identityFile = ""
+		}
 		input := sshconfig.HostInput{
-			Alias: values["Label"], HostName: values["Hostname"], User: values["User"], Port: values["Port"],
-			IdentityFile: values["Identity file"], IdentitiesOnly: strings.EqualFold(values["Identities only"], "yes"), ProxyJump: values["Proxy jump"],
+			Alias: sshconfig.NormalizeAlias(label), HostName: values["Hostname"], User: values["User"], Port: values["Port"],
+			IdentityFile: identityFile, IdentitiesOnly: !passwordOnly && strings.EqualFold(values["Identities only"], "yes"), PasswordOnly: passwordOnly, ProxyJump: values["Proxy jump"],
 		}
 		oldAlias := values["Original label"]
 		var err error
@@ -145,7 +172,10 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			}
 		}
 		if err == nil {
-			meta := metadata.Host{Group: values["Group"], Tags: splitCSV(values["Tags"]), Environment: values["Environment"], Color: values["Color"], Notes: values["Notes"]}
+			meta := metadata.Host{Label: label, Group: group, Tags: splitCSV(values["Tags"]), Environment: values["Environment"], Color: values["Color"], Notes: values["Notes"]}
+			if meta.Label == input.Alias {
+				meta.Label = ""
+			}
 			if oldAlias != "" {
 				old := m.metadata.Host(oldAlias)
 				meta.Favorite, meta.Hidden, meta.LastUsedAt, meta.ConnectionCount = old.Favorite, old.Hidden, old.LastUsedAt, old.ConnectionCount
@@ -155,15 +185,32 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			}
 			err = m.metadata.SetHost(input.Alias, meta)
 		}
+		if err == nil {
+			m.selectAfterLoadSection = hostsSection
+			if groupCreated {
+				m.selectAfterLoadName, m.selectAfterLoadGroup = group, true
+			} else if f.action == "host_add" {
+				m.selectAfterLoadName, m.selectAfterLoadGroup = input.Alias, false
+			}
+		}
 		return m.finishMutation(err, "Host saved")
 	case "metadata_edit":
-		alias := values["Label"]
+		alias := values["Alias"]
 		old := m.metadata.Host(alias)
-		old.Group, old.Tags, old.Environment, old.Color, old.Notes = values["Group"], splitCSV(values["Tags"]), values["Environment"], values["Color"], values["Notes"]
-		return m.finishMutation(m.metadata.SetHost(alias, old), "Host metadata saved")
+		group := strings.TrimSpace(values["Group"])
+		groupCreated := group != "" && !m.groupExists(group)
+		old.Label, old.Group, old.Tags, old.Environment, old.Color, old.Notes = values["Label"], group, splitCSV(values["Tags"]), values["Environment"], values["Color"], values["Notes"]
+		if old.Label == alias {
+			old.Label = ""
+		}
+		err := m.metadata.SetHost(alias, old)
+		if err == nil && groupCreated {
+			m.selectAfterLoadSection, m.selectAfterLoadName, m.selectAfterLoadGroup = hostsSection, group, true
+		}
+		return m.finishMutation(err, "Host metadata saved")
 	case "host_delete":
-		alias := values["Label"]
-		if values["Type the name to confirm"] != alias {
+		alias := values["Alias"]
+		if values["Type the name to confirm"] != values["Confirmation"] {
 			return m.formError("confirmation did not match the exact host label")
 		}
 		host, ok := m.findHost(alias)
@@ -180,6 +227,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		if err != nil {
 			return m.formError(err.Error())
 		}
+		m.selectAfterLoadSection, m.selectAfterLoadName, m.selectAfterLoadGroup = keysSection, values["Name"], false
 		m.form = nil
 		return m, tea.ExecProcess(cmd, func(err error) tea.Msg { return processDoneMsg{name: "Key generation", err: err} })
 	case "key_import":
@@ -191,7 +239,11 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		if f.pastedPublicKey != "" {
 			publicSource = f.pastedPublicKey
 		}
-		return m.finishMutation(m.keyring.Import(privateSource, publicSource, values["Name"], values["Comment"]), "Key imported")
+		err := m.keyring.Import(privateSource, publicSource, values["Name"], values["Comment"])
+		if err == nil {
+			m.selectAfterLoadSection, m.selectAfterLoadName, m.selectAfterLoadGroup = keysSection, values["Name"], false
+		}
+		return m.finishMutation(err, "Key imported")
 	case "key_comment":
 		key, ok := m.findKey(values["Key"])
 		if !ok {
@@ -207,6 +259,28 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			return m.formError("key no longer exists")
 		}
 		return m.finishMutation(m.keyring.Export(key, values["Directory"]), "Key exported")
+	case "key_install":
+		key, ok := m.findKey(values["Key"])
+		if !ok {
+			return m.formError("key no longer exists")
+		}
+		host, ok := m.findHost(values["Server"])
+		if !ok {
+			return m.formError("server no longer exists")
+		}
+		public, err := m.keyring.PublicText(key)
+		if err != nil {
+			return m.formError(err.Error())
+		}
+		cmd, err := m.openSSH.InstallPublicKeyCommand(values["Server"], public)
+		if err != nil {
+			return m.formError(err.Error())
+		}
+		hostLabel := m.hostLabel(host)
+		m.form = nil
+		return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+			return processDoneMsg{name: "Install public key on " + hostLabel, err: err}
+		})
 	case "key_delete":
 		key, ok := m.findKey(values["Key"])
 		if !ok {
@@ -214,8 +288,8 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		}
 		return m.finishMutation(m.keyring.Delete(key, values["Type the name to confirm"]), "Key permanently deleted")
 	case "known_delete":
-		alias := values["Label"]
-		if values["Type the name to confirm"] != alias {
+		alias := values["Alias"]
+		if values["Type the name to confirm"] != values["Confirmation"] {
 			return m.formError("confirmation did not match the host label")
 		}
 		host, ok := m.findHost(alias)
@@ -233,22 +307,26 @@ func (m *App) finishMutation(err error, success string) (tea.Model, tea.Cmd) {
 		return m.formError(err.Error())
 	}
 	m.form = nil
-	m.loading, m.status, m.statusError = true, success, false
-	return m, m.loadCmd()
+	m.loading = true
+	return m, tea.Batch(m.loadCmd(), m.setNotice(success))
 }
 
 func (m *App) formError(message string) (tea.Model, tea.Cmd) {
+	if m.form != nil {
+		message = m.form.title + " failed: " + message
+	}
+	m.statusID++
 	m.status, m.statusError = message, true
 	return m, nil
 }
 
 func (m *App) openAddHostForm() {
 	m.openForm("Add host", "host_add", []field{
-		{label: "Label", description: "Required — the short name used with ssh, for example ssh prod.", placeholder: "prod"},
+		{label: "Label", description: "Required — spaces are shown here and become underscores in the SSH name.", placeholder: "Production web"},
 		{label: "Hostname", description: "Required — the server address or IP to connect to.", placeholder: "server.example.com"},
 		{label: "User", description: "Remote login name; blank uses your OpenSSH default.", placeholder: "ubuntu", optional: true},
 		{label: "Port", description: "Blank uses the standard SSH port, 22.", placeholder: "22", optional: true},
-		m.identityField(""),
+		m.identityField("", false),
 		{label: "Identities only", description: "Limit SSH to configured identity files instead of every key in ssh-agent.", placeholder: "yes or no", optional: true},
 		{label: "Proxy jump", description: "Route through another SSH host, such as a bastion.", placeholder: "bastion", optional: true},
 		{label: "Group", description: "Organise related hosts for sorting and search.", optional: true},
@@ -266,28 +344,31 @@ func (m *App) openEditHostForm() {
 	}
 	meta := m.metadata.Host(host.Alias)
 	if !host.Managed {
-		m.openForm("Edit metadata — "+host.Alias, "metadata_edit", []field{
-			{label: "Label", value: host.Alias, hidden: true},
+		m.openForm("Edit metadata — "+m.hostLabel(host), "metadata_edit", []field{
+			{label: "Alias", value: host.Alias, hidden: true},
+			{label: "Label", description: "Friendly name shown in Bast; the SSH name remains " + host.Alias + ".", value: m.hostLabel(host)},
 			{label: "Group", description: "Organise related hosts for sorting and search.", value: meta.Group, optional: true},
 			{label: "Tags", description: "Comma-separated terms included in search.", value: strings.Join(meta.Tags, ", "), optional: true},
 			{label: "Environment", description: "For example production, staging, or development.", value: meta.Environment, optional: true},
 			{label: "Color", description: "Hex colour used for the host label, for example #7C3AED.", value: meta.Color, optional: true},
 			{label: "Notes", description: "Short context shown in the host details and search.", value: meta.Notes, optional: true},
 		})
+		m.form.revealed = len(m.form.fields) - 1
 		return
 	}
 	identity := ""
-	if len(host.Resolved.IdentityFiles) > 0 {
+	isPasswordOnly := passwordOnly(host.Resolved)
+	if !isPasswordOnly && len(host.Resolved.IdentityFiles) > 0 {
 		identity = host.Resolved.IdentityFiles[0]
 	}
-	m.openForm("Edit host — "+host.Alias, "host_edit", []field{
+	m.openForm("Edit host — "+m.hostLabel(host), "host_edit", []field{
 		{label: "Original label", value: host.Alias, hidden: true},
-		{label: "Label", description: "Required — the short name used with ssh, for example ssh prod.", value: host.Alias},
+		{label: "Label", description: "Friendly name shown in Bast; spaces become underscores in the SSH name.", value: m.hostLabel(host)},
 		{label: "Hostname", description: "Required — the server address or IP to connect to.", value: host.Resolved.HostName},
 		{label: "User", description: "Remote login name; blank uses your OpenSSH default.", value: host.Resolved.User, optional: true},
 		{label: "Port", description: "Blank uses the standard SSH port, 22.", value: host.Resolved.Port, optional: true},
-		m.identityField(identity),
-		{label: "Identities only", description: "Limit SSH to configured identity files instead of every key in ssh-agent.", value: host.Resolved.IdentitiesOnly, optional: true},
+		m.identityField(identity, isPasswordOnly),
+		{label: "Identities only", description: "Limit SSH to configured identity files instead of every key in ssh-agent.", value: host.Resolved.IdentitiesOnly, optional: true, hidden: isPasswordOnly},
 		{label: "Proxy jump", description: "Route through another SSH host, such as a bastion.", value: emptyIfNone(host.Resolved.ProxyJump), optional: true},
 		{label: "Group", description: "Organise related hosts for sorting and search.", value: meta.Group, optional: true},
 		{label: "Tags", description: "Comma-separated terms included in search.", value: strings.Join(meta.Tags, ", "), optional: true},
@@ -295,6 +376,7 @@ func (m *App) openEditHostForm() {
 		{label: "Color", description: "Hex colour used for the host label, for example #7C3AED.", value: meta.Color, optional: true},
 		{label: "Notes", description: "Short context shown in the host details and search.", value: meta.Notes, optional: true},
 	})
+	m.form.revealed = len(m.form.fields) - 1
 }
 
 func (m *App) openDeleteHostForm() {
@@ -306,7 +388,8 @@ func (m *App) openDeleteHostForm() {
 		m.status, m.statusError = "External hosts cannot be deleted by Bast", true
 		return
 	}
-	m.openForm("Delete host — "+host.Alias, "host_delete", []field{{label: "Label", value: host.Alias, hidden: true}, {label: "Type the name to confirm"}})
+	label := m.hostLabel(host)
+	m.openForm("Delete host — "+label, "host_delete", []field{{label: "Alias", value: host.Alias, hidden: true}, {label: "Confirmation", value: label, hidden: true}, {label: "Type the name to confirm", placeholder: label}})
 }
 
 func (m *App) openGenerateForm() {
@@ -339,25 +422,57 @@ func (m *App) openExportForm() {
 		m.openForm("Export key — "+key.Name, "key_export", []field{{label: "Key", value: key.Name, hidden: true}, {label: "Directory", placeholder: "~/Desktop"}, {label: "Type EXPORT"}})
 	}
 }
+func (m *App) openInstallKeyForm() {
+	key, ok := m.selectedKey()
+	if !ok {
+		return
+	}
+	if len(m.hosts) == 0 {
+		m.status, m.statusError = "Add a server before installing a public key", true
+		return
+	}
+	server := field{
+		label:       "Server",
+		description: "SSH may ask for the server password. Existing authorized keys are left unchanged.",
+	}
+	for _, host := range m.hosts {
+		label := m.hostLabel(host)
+		if target := destination(host); target != "" && target != host.Alias {
+			label += " · " + target
+		}
+		server.options = append(server.options, fieldOption{label: label, value: host.Alias})
+	}
+	m.openForm("Add "+key.Name+" to server", "key_install", []field{
+		{label: "Key", value: key.Name, hidden: true},
+		server,
+	})
+}
 func (m *App) openDeleteKeyForm() {
 	if key, ok := m.selectedKey(); ok {
-		m.openForm("Delete key — "+key.Name, "key_delete", []field{{label: "Key", value: key.Name, hidden: true}, {label: "Type the name to confirm"}})
+		m.openForm("Delete key — "+key.Name, "key_delete", []field{{label: "Key", value: key.Name, hidden: true}, {label: "Type the name to confirm", placeholder: key.Name}})
 	}
 }
 func (m *App) openKnownHostForm() {
 	if host, ok := m.selectedHost(); ok {
-		m.openForm("Remove known host — "+host.Alias, "known_delete", []field{{label: "Label", value: host.Alias, hidden: true}, {label: "Type the name to confirm"}})
+		label := m.hostLabel(host)
+		m.openForm("Remove known host — "+label, "known_delete", []field{{label: "Alias", value: host.Alias, hidden: true}, {label: "Confirmation", value: label, hidden: true}, {label: "Type the name to confirm", placeholder: label}})
 	}
 }
 
-func (m *App) identityField(current string) field {
+func (m *App) identityField(current string, passwordOnly bool) field {
 	item := field{
 		label:       "Identity file",
-		description: "Choose a key, or let OpenSSH and ssh-agent decide.",
+		description: "Choose password authentication, a key, or let OpenSSH and ssh-agent decide.",
 		placeholder: "~/.ssh/id_ed25519",
 		optional:    true,
 	}
 	item.options = append(item.options, fieldOption{label: "OpenSSH defaults / agent"})
+	item.options = append(item.options, fieldOption{label: "Password only", value: passwordOnlyIdentity})
+	if passwordOnly {
+		item.selected = len(item.options) - 1
+		item.value = passwordOnlyIdentity
+		current = ""
+	}
 	if current != "" {
 		current = shortPath(current, m.paths.Home)
 	}
@@ -384,6 +499,12 @@ func (m *App) identityField(current string) field {
 		item.value = current
 	}
 	return item
+}
+
+func passwordOnly(resolved sshconfig.Resolved) bool {
+	pubkey := strings.ToLower(resolved.PubkeyAuthentication)
+	password := strings.ToLower(resolved.PasswordAuthentication)
+	return (pubkey == "no" || pubkey == "false") && (password == "yes" || password == "true")
 }
 
 func (m *App) openForm(title, action string, fields []field) {
@@ -437,9 +558,17 @@ func (m *App) commitFormField() {
 		} else {
 			item.value = option.value
 		}
-		return
+	} else {
+		item.value = strings.TrimSpace(m.form.input.Value())
 	}
-	item.value = strings.TrimSpace(m.form.input.Value())
+	if item.label == "Identity file" {
+		for i := range m.form.fields {
+			if m.form.fields[i].label == "Identities only" {
+				m.form.fields[i].hidden = item.value == passwordOnlyIdentity
+				break
+			}
+		}
+	}
 }
 
 func (m *App) moveForm(direction int, reveal bool) bool {

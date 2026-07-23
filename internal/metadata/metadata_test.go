@@ -12,7 +12,7 @@ func TestStoreRoundTripAndPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetHost("prod", Host{Favorite: true, Hidden: true, Tags: []string{"web", "web", "prod"}, Group: "work"}); err != nil {
+	if err := store.SetHost("prod", Host{Label: "Production web", Favorite: true, Hidden: true, Tags: []string{"web", "web", "prod"}, Group: "work"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.RecordUse("prod"); err != nil {
@@ -26,7 +26,7 @@ func TestStoreRoundTripAndPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := reopened.Host("prod")
-	if !host.Favorite || !host.Hidden || host.ConnectionCount != 1 || len(host.Tags) != 2 || reopened.Preferences().Sort != "group" {
+	if host.Label != "Production web" || !host.Favorite || !host.Hidden || host.ConnectionCount != 1 || len(host.Tags) != 2 || reopened.Preferences().Sort != "group" {
 		t.Fatalf("unexpected state: %+v %+v", host, reopened.Preferences())
 	}
 	info, err := os.Stat(path)

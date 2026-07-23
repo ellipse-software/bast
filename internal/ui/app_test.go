@@ -1,9 +1,13 @@
 package ui
 
 import (
+	"bytes"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -45,6 +49,73 @@ func TestNumberedNavigationAndSearch(t *testing.T) {
 	}
 }
 
+func TestNewlyCreatedItemsAreSelectedAfterReload(t *testing.T) {
+	m := testApp(t)
+	m.search = "old filter"
+	m.selectAfterLoadSection, m.selectAfterLoadName = hostsSection, "new_server"
+	m.Update(loadedMsg{hosts: []sshconfig.Host{{Alias: "alpha"}, {Alias: "new_server"}}, keys: nil})
+	if m.section != hostsSection || m.search != "" || m.cursor != 1 {
+		t.Fatalf("new host was not selected: section=%v search=%q cursor=%d", m.section, m.search, m.cursor)
+	}
+	if err := m.metadata.SetHost("new_server", metadata.Host{Group: "New group"}); err != nil {
+		t.Fatal(err)
+	}
+	m.selectAfterLoadSection, m.selectAfterLoadName, m.selectAfterLoadGroup = hostsSection, "New group", true
+	m.Update(loadedMsg{hosts: m.hosts, keys: nil})
+	rows := m.hostRows()
+	if m.cursor >= len(rows) || !rows[m.cursor].header || rows[m.cursor].group != "New group" {
+		t.Fatalf("new group was not selected: rows=%+v cursor=%d", rows, m.cursor)
+	}
+
+	m.selectAfterLoadSection, m.selectAfterLoadName = keysSection, "new key"
+	m.Update(loadedMsg{hosts: m.hosts, keys: []keymodel.Key{{Name: "existing"}, {Name: "new key"}}})
+	if m.section != keysSection || m.cursor != 1 {
+		t.Fatalf("new key was not selected: section=%v cursor=%d", m.section, m.cursor)
+	}
+}
+
+func TestHostGroupsAreVisuallySeparatedAndCollapsible(t *testing.T) {
+	m := testApp(t)
+	m.hosts = append(m.hosts, sshconfig.Host{Alias: "gamma"})
+	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("beta", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("gamma", metadata.Host{Group: "Personal"}); err != nil {
+		t.Fatal(err)
+	}
+	m.sortHosts()
+
+	rows := m.hostRows()
+	if len(rows) != 5 || !rows[0].header || rows[0].group != "Work" || !rows[3].header || rows[3].group != "Personal" {
+		t.Fatalf("group rows = %+v", rows)
+	}
+	rendered := m.renderHosts(m.styles())
+	if !strings.Contains(rendered, "▾ Work") || !strings.Contains(rendered, "▾ Personal") {
+		t.Fatalf("group headers are not visually distinct:\n%s", rendered)
+	}
+
+	m.cursor = 1
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	if !m.collapsedGroups["Work"] || m.cursor != 0 {
+		t.Fatalf("Space did not collapse and select Work: collapsed=%v cursor=%d", m.collapsedGroups, m.cursor)
+	}
+	rows = m.hostRows()
+	if len(rows) != 3 || !rows[0].header {
+		t.Fatalf("collapsed rows = %+v", rows)
+	}
+	if collapsed := m.renderHosts(m.styles()); !strings.Contains(collapsed, "▸ Work") || strings.Contains(collapsed, "alpha") {
+		t.Fatalf("collapsed group was not rendered correctly:\n%s", collapsed)
+	}
+
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	if m.collapsedGroups["Work"] || len(m.hostRows()) != 5 {
+		t.Fatal("Space did not expand Work")
+	}
+}
+
 func TestMouseSelectsTabsAndListRowsOnly(t *testing.T) {
 	m := testApp(t)
 	if m.View().MouseMode != tea.MouseModeCellMotion {
@@ -70,15 +141,64 @@ func TestMouseSelectsTabsAndListRowsOnly(t *testing.T) {
 		t.Fatal("clicking the details panel changed the selection")
 	}
 }
-func TestExternalHostEditOnlyOffersMetadata(t *testing.T) {
+func TestExternalHostEditOnlyOffersMetadataAndIsFullyRevealed(t *testing.T) {
 	m := testApp(t)
 	m.openEditHostForm()
 	if m.form == nil || m.form.action != "metadata_edit" {
 		t.Fatalf("form = %+v", m.form)
 	}
 	rendered := m.renderForm(m.styles())
-	if !strings.Contains(rendered, "Group") || strings.Contains(rendered, "Tags") || strings.Contains(rendered, "Label") {
-		t.Fatalf("metadata editor did not start progressively:\n%s", rendered)
+	if !strings.Contains(rendered, "Label") || !strings.Contains(rendered, "Group") || !strings.Contains(rendered, "Tags") || strings.Contains(rendered, "Alias") {
+		t.Fatalf("metadata editor was not fully revealed:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "󰌑 save") || strings.Contains(rendered, "󰌑 next") {
+		t.Fatalf("metadata editor does not offer immediate save:\n%s", rendered)
+	}
+}
+
+func TestEditFormUsesArrowsToMoveAndEnterToSave(t *testing.T) {
+	m := testApp(t)
+	m.openEditHostForm()
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if m.form == nil || m.form.fields[m.form.index].label != "Group" {
+		t.Fatal("Down did not move to the next edit field")
+	}
+	m.form.input.SetValue("operations")
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	if m.form == nil || m.form.fields[m.form.index].label != "Group" {
+		t.Fatal("Up did not return to the previous edit field")
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.form != nil {
+		t.Fatal("Enter did not save and close the edit form")
+	}
+	if got := m.metadata.Host("alpha").Group; got != "operations" {
+		t.Fatalf("saved group = %q", got)
+	}
+}
+
+func TestEditFormUsesSpaceToChangeAChoice(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{Alias: "alpha", Managed: true, ManagedID: "alpha"}}
+	m.openEditHostForm()
+	for range 4 {
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	}
+	if m.form.fields[m.form.index].label != "Identity file" || m.form.selecting {
+		t.Fatal("arrow navigation did not focus the identity field")
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	if !m.form.selecting {
+		t.Fatal("Space did not open the identity choices")
+	}
+	m.updateForm(press("j"))
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.form.selecting || m.form.fields[m.form.index].label != "Identity file" {
+		t.Fatal("Enter did not confirm the identity choice in place")
+	}
+	if got := m.form.fields[m.form.index].value; got != passwordOnlyIdentity {
+		t.Fatalf("selected identity = %q", got)
 	}
 }
 
@@ -114,7 +234,7 @@ func TestHostFormExplainsOptionalConnectionFields(t *testing.T) {
 	m.openAddHostForm()
 
 	initial := m.renderForm(m.styles())
-	if !strings.Contains(initial, "Required — the short name used with ssh") {
+	if !strings.Contains(initial, "spaces are shown here and become underscores") {
 		t.Fatalf("label description is missing:\n%s", initial)
 	}
 
@@ -132,6 +252,51 @@ func TestHostFormExplainsOptionalConnectionFields(t *testing.T) {
 		return
 	}
 	t.Fatal("host form has no proxy jump field")
+}
+
+func TestHostLabelsKeepSpacesWhileSSHNamesUseUnderscores(t *testing.T) {
+	m := testApp(t)
+	m.config = sshconfig.Manager{
+		Home: m.paths.Home, MainConfig: m.paths.MainConfig, ManagedDir: m.paths.ManagedDir,
+		ManagedConfig: m.paths.ManagedConfig, ManagedKeys: m.paths.ManagedKeys,
+	}
+	m.openAddHostForm()
+	for i := range m.form.fields {
+		switch m.form.fields[i].label {
+		case "Label":
+			m.form.fields[i].value = "Production web"
+		case "Hostname":
+			m.form.fields[i].value = "prod.example"
+		}
+	}
+	m.submitForm()
+
+	config, err := os.ReadFile(m.paths.ManagedConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(config), "Host Production_web") {
+		t.Fatalf("managed config does not use the safe SSH name:\n%s", config)
+	}
+	if got := m.metadata.Host("Production_web").Label; got != "Production web" {
+		t.Fatalf("friendly label = %q", got)
+	}
+
+	host := sshconfig.Host{Alias: "Production_web", Managed: true}
+	m.hosts = []sshconfig.Host{host}
+	list := m.renderHosts(m.styles())
+	if !strings.Contains(list, "Production web") || !strings.Contains(list, "SSH name") || !strings.Contains(list, "Production_web") {
+		t.Fatalf("host view does not distinguish the friendly label and SSH name:\n%s", list)
+	}
+	m.openEditHostForm()
+	if got := m.form.fields[1].value; got != "Production web" {
+		t.Fatalf("edit form label = %q", got)
+	}
+	m.form = nil
+	m.openDeleteHostForm()
+	if m.form.input.Placeholder != "Production web" {
+		t.Fatalf("delete placeholder = %q", m.form.input.Placeholder)
+	}
 }
 
 func TestContrastingTextColor(t *testing.T) {
@@ -184,15 +349,31 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 	}
 
 	m.updateForm(press("j"))
+	if option := m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected]; option.value != passwordOnlyIdentity {
+		t.Fatalf("j did not select password-only authentication: %+v", option)
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.form.fields[m.form.index].label != "Proxy jump" || !m.form.fields[5].hidden {
+		t.Fatal("password-only selection did not skip the irrelevant identities-only field")
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	if m.form.fields[m.form.index].label != "Identity file" {
+		t.Fatal("up did not return to the password-only identity choice")
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	m.updateForm(press("j"))
 	if option := m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected]; option.value != "~/.ssh/bast/keys/work" {
-		t.Fatalf("j selected wrong identity option: %+v", option)
+		t.Fatalf("second j selected wrong identity option: %+v", option)
 	}
 	m.updateForm(press("k"))
-	if option := m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected]; option.value != "" {
+	if option := m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected]; option.value != passwordOnlyIdentity {
 		t.Fatalf("k selected wrong identity option: %+v", option)
 	}
 	m.updateForm(press("j"))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.form.fields[5].hidden {
+		t.Fatal("selecting a key did not restore the identities-only field")
+	}
 	if got := m.form.fields[4].value; got != "~/.ssh/bast/keys/work" {
 		t.Fatalf("selected identity = %q", got)
 	}
@@ -207,6 +388,7 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 	for range 4 {
 		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
@@ -232,6 +414,38 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 	identity := m.form.fields[5]
 	if identity.options[identity.selected].value != "~/.ssh/bast/keys/work" {
 		t.Fatalf("existing detected identity was not preselected: %+v", identity)
+	}
+	if m.form.revealed != len(m.form.fields)-1 || !strings.Contains(m.renderForm(m.styles()), "Notes") {
+		t.Fatal("managed host editor did not reveal every field")
+	}
+
+	m.hosts[0].Resolved = sshconfig.Resolved{PubkeyAuthentication: "no", PasswordAuthentication: "yes"}
+	m.openEditHostForm()
+	identity = m.form.fields[5]
+	if identity.options[identity.selected].value != passwordOnlyIdentity {
+		t.Fatalf("password-only authentication was not preselected: %+v", identity)
+	}
+}
+
+func TestSelectedPublicKeyCanOpenServerPickerFromKeyOrMouse(t *testing.T) {
+	m := testApp(t)
+	m.section = keysSection
+	m.keys = []keymodel.Key{{Name: "work", PublicPath: filepath.Join(m.paths.ManagedKeys, "work.pub")}}
+	m.hosts[0].Resolved = sshconfig.Resolved{HostName: "alpha.example", User: "deploy", Port: "22"}
+
+	m.Update(press("u"))
+	if m.form == nil || m.form.action != "key_install" || len(m.form.fields[1].options) != 2 {
+		t.Fatalf("server picker was not opened: %+v", m.form)
+	}
+	if got := m.form.fields[1].options[0]; got.value != "alpha" || !strings.Contains(got.label, "deploy@alpha.example") {
+		t.Fatalf("first server option = %+v", got)
+	}
+
+	m.form = nil
+	listWidth, _, _ := m.columnDimensions()
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: listWidth + 3, Y: keyInstallActionRow + 2, Button: tea.MouseLeft}))
+	if m.form == nil || m.form.action != "key_install" {
+		t.Fatal("clicking Add to server did not open the server picker")
 	}
 }
 
@@ -276,6 +490,22 @@ func TestKeysDoNotPresentAgentLoadingAsAPrimaryAction(t *testing.T) {
 	}
 }
 
+func TestSSHProcessClearsPreviousSessionOutput(t *testing.T) {
+	if !strings.Contains(connectionBanner, "Press Enter, then ~.") {
+		t.Fatal("connection banner does not explain how to force-close a stuck session")
+	}
+	var output bytes.Buffer
+	cmd := exec.Command("/bin/sh", "-c", "printf session-output")
+	cmd.Stdout = &output
+	process := &clearAfterProcess{cmd: cmd}
+	if err := process.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if got := output.String(); got != clearTerminal+connectionBanner+"session-output"+clearTerminal {
+		t.Fatalf("output = %q", got)
+	}
+}
+
 func TestManagedKeyCommentCanBeEditedAfterImport(t *testing.T) {
 	m := testApp(t)
 	m.section = keysSection
@@ -289,6 +519,57 @@ func TestManagedKeyCommentCanBeEditedAfterImport(t *testing.T) {
 	deleteForm := m.renderForm(m.styles())
 	if !strings.Contains(deleteForm, "Type the name to confirm") || !strings.Contains(deleteForm, "󰌑 delete") || strings.Contains(deleteForm, "󰌑 save") {
 		t.Fatalf("delete confirmation copy is incorrect:\n%s", deleteForm)
+	}
+	if m.form.input.Placeholder != "work" || !strings.Contains(deleteForm, "work") {
+		t.Fatalf("delete confirmation does not show the required name as a placeholder:\n%s", deleteForm)
+	}
+}
+
+func TestDeletionFormsUseTheExactConfirmationAsAPlaceholder(t *testing.T) {
+	m := testApp(t)
+	m.hosts[0].Managed = true
+	m.openDeleteHostForm()
+	if m.form.input.Placeholder != "alpha" {
+		t.Fatalf("host deletion placeholder = %q", m.form.input.Placeholder)
+	}
+
+	m.form = nil
+	m.openKnownHostForm()
+	if m.form.input.Placeholder != "alpha" {
+		t.Fatalf("known-host deletion placeholder = %q", m.form.input.Placeholder)
+	}
+}
+
+func TestErrorsUseAProminentScreenAndPreserveTheForm(t *testing.T) {
+	m := testApp(t)
+	m.hosts[0].Managed = true
+	m.openDeleteHostForm()
+	m.form.input.SetValue("wrong-name")
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if !m.statusError || m.form == nil {
+		t.Fatal("failed deletion did not retain its form and error state")
+	}
+
+	rendered := m.render()
+	for _, expected := range []string{"Action failed", "What happened", "Delete host — alpha failed", "confirmation did not match", "Your entries are still"} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("prominent error screen is missing %q:\n%s", expected, rendered)
+		}
+	}
+	if strings.Contains(rendered, "Type the name to confirm") {
+		t.Fatalf("the form was rendered over the error screen:\n%s", rendered)
+	}
+
+	m.Update(press("x"))
+	if !m.statusError {
+		t.Fatal("an unrelated key dismissed the error screen")
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.statusError || m.form == nil {
+		t.Fatal("Enter did not return to the retained form")
+	}
+	if !strings.Contains(m.render(), "Type the name to confirm") {
+		t.Fatal("the retained form was not restored")
 	}
 }
 
@@ -316,6 +597,9 @@ func TestHostsCanBeHiddenAndTemporarilyShown(t *testing.T) {
 }
 
 func TestHiddenHostsConcealedStatusClears(t *testing.T) {
+	if noticeDuration < 3*time.Second || noticeDuration > 5*time.Second {
+		t.Fatalf("notice duration = %s", noticeDuration)
+	}
 	m := testApp(t)
 	m.showHidden = true
 	_, cmd := m.Update(press("."))
@@ -381,7 +665,10 @@ func TestDetailsAreCompactAndOmitEmptyMetadata(t *testing.T) {
 	if strings.Contains(key, "Name") || strings.Contains(key, "Public") || strings.Contains(key, "Used by") {
 		t.Fatalf("key details contain redundant or empty fields:\n%s", key)
 	}
-	if lipgloss.Height(key) > 6 {
+	if !strings.Contains(key, keyInstallAction) {
+		t.Fatalf("key details do not show the server action:\n%s", key)
+	}
+	if lipgloss.Height(key) > 8 {
 		t.Fatalf("key details are too tall: %d lines\n%s", lipgloss.Height(key), key)
 	}
 }

@@ -152,6 +152,12 @@ func TestValidateHost(t *testing.T) {
 	}
 }
 
+func TestNormalizeAliasUsesUnderscoresForWhitespace(t *testing.T) {
+	if got := NormalizeAlias("  Production   web server  "); got != "Production_web_server" {
+		t.Fatalf("NormalizeAlias() = %q", got)
+	}
+}
+
 func TestRenderBlockQuotesIdentityFile(t *testing.T) {
 	identity := `~/.ssh/Work Keys/deploy "primary"`
 	block := string(renderBlock("test", HostInput{Alias: "prod", HostName: "prod.example", IdentityFile: identity}))
@@ -166,5 +172,21 @@ func TestRenderBlockQuotesIdentityFile(t *testing.T) {
 		if err != nil || len(parts) != 2 || parts[1] != identity {
 			t.Fatalf("quoted identity file did not round trip: parts=%q err=%v", parts, err)
 		}
+	}
+}
+
+func TestRenderBlockSupportsPasswordOnlyAuthentication(t *testing.T) {
+	block := string(renderBlock("test", HostInput{Alias: "legacy", HostName: "legacy.example", PasswordOnly: true}))
+	for _, directive := range []string{
+		"PubkeyAuthentication no",
+		"PasswordAuthentication yes",
+		"PreferredAuthentications keyboard-interactive,password",
+	} {
+		if !strings.Contains(block, directive) {
+			t.Fatalf("password-only block is missing %q:\n%s", directive, block)
+		}
+	}
+	if strings.Contains(block, "IdentityFile") {
+		t.Fatalf("password-only block unexpectedly contains an identity file:\n%s", block)
 	}
 }

@@ -61,11 +61,44 @@ func (c Client) Resolve(ctx context.Context, alias string) (sshconfig.Resolved, 
 			resolved.IdentityFiles = append(resolved.IdentityFiles, expandHome(value))
 		case "identitiesonly":
 			resolved.IdentitiesOnly = value
+		case "pubkeyauthentication":
+			resolved.PubkeyAuthentication = value
+		case "passwordauthentication":
+			resolved.PasswordAuthentication = value
+		case "preferredauthentications":
+			resolved.PreferredAuthentications = value
 		case "proxyjump":
 			resolved.ProxyJump = value
 		}
 	}
 	return resolved, scanner.Err()
+}
+
+func (c Client) InstallPublicKeyCommand(alias, publicKey string) (*exec.Cmd, error) {
+	if alias == "" || strings.HasPrefix(alias, "-") || strings.ContainsAny(alias, "\r\n\x00") {
+		return nil, errors.New("invalid host label")
+	}
+	publicKey = strings.TrimSpace(publicKey)
+	if publicKey == "" || strings.ContainsAny(publicKey, "\r\n\x00") {
+		return nil, errors.New("public key must contain exactly one non-empty line")
+	}
+	remote := `umask 077
+mkdir -p "$HOME/.ssh" &&
+touch "$HOME/.ssh/authorized_keys" &&
+chmod 700 "$HOME/.ssh" &&
+chmod 600 "$HOME/.ssh/authorized_keys" &&
+IFS= read -r key &&
+if grep -qxF "$key" "$HOME/.ssh/authorized_keys"; then
+    printf '%s\n' 'Public key is already installed.'
+else
+    printf '\n%s\n' "$key" >> "$HOME/.ssh/authorized_keys" &&
+    printf '%s\n' 'Public key installed.'
+fi`
+	cmd := exec.Command(c.SSH, "--", alias, remote)
+	cmd.Stdin = strings.NewReader(publicKey + "\n")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd, nil
 }
 
 func (c Client) SSHCommand(alias string) (*exec.Cmd, error) {

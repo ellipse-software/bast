@@ -68,21 +68,26 @@ type App struct {
 	keyring  keys.Manager
 	metadata *metadata.Store
 
-	section     section
-	hosts       []sshconfig.Host
-	keys        []keys.Key
-	cursor      int
-	search      string
-	form        *form
-	help        bool
-	showHidden  bool
-	loading     bool
-	status      string
-	statusError bool
-	statusID    uint64
-	width       int
-	height      int
-	dark        bool
+	section         section
+	hosts           []sshconfig.Host
+	keys            []keys.Key
+	cursor          int
+	search          string
+	form            *form
+	help            bool
+	showHidden      bool
+	loading         bool
+	status          string
+	statusError     bool
+	statusID        uint64
+	width           int
+	height          int
+	dark            bool
+	collapsedGroups map[string]bool
+
+	selectAfterLoadSection section
+	selectAfterLoadName    string
+	selectAfterLoadGroup   bool
 }
 
 func New(p paths.Paths, client openssh.Client) (*App, error) {
@@ -96,11 +101,12 @@ func New(p paths.Paths, client openssh.Client) (*App, error) {
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
 		},
-		openSSH:  client,
-		keyring:  keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
-		metadata: store,
-		loading:  true,
-		dark:     true,
+		openSSH:         client,
+		keyring:         keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
+		metadata:        store,
+		loading:         true,
+		dark:            true,
+		collapsedGroups: map[string]bool{},
 	}, nil
 }
 
@@ -124,18 +130,18 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.hosts, m.keys = msg.hosts, msg.keys
 		m.sortHosts()
-		m.clampCursor()
+		m.selectAfterLoad()
 		return m, nil
 	case processDoneMsg:
 		m.loading = true
 		if msg.err != nil {
+			m.statusID++
 			m.status, m.statusError = msg.name+": "+msg.err.Error(), true
-		} else {
-			m.status, m.statusError = msg.name+" completed", false
+			return m, m.loadCmd()
 		}
-		return m, m.loadCmd()
+		return m, tea.Batch(m.loadCmd(), m.setNotice(msg.name+" completed"))
 	case clearStatusMsg:
-		if uint64(msg) == m.statusID && m.status == "Hidden hosts concealed" {
+		if uint64(msg) == m.statusID && !m.statusError {
 			m.status = ""
 		}
 		return m, nil
@@ -147,6 +153,16 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyPressMsg:
+		if m.statusError && m.status != "" {
+			switch msg.String() {
+			case "ctrl+c", "q":
+				return m, tea.Quit
+			case "enter", "esc":
+				m.statusID++
+				m.status, m.statusError = "", false
+			}
+			return m, nil
+		}
 		if m.form != nil {
 			return m.updateForm(msg)
 		}

@@ -10,9 +10,10 @@ import (
 	"time"
 )
 
-const CurrentVersion = 1
+const CurrentVersion = 2
 
 type Host struct {
+	Label           string     `json:"label,omitempty"`
 	Favorite        bool       `json:"favorite,omitempty"`
 	Hidden          bool       `json:"hidden,omitempty"`
 	LastUsedAt      *time.Time `json:"lastUsedAt,omitempty"`
