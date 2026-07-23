@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -124,14 +125,19 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	}
 	var b strings.Builder
 	titleStyle := s.active
-	if strings.HasPrefix(meta.Color, "#") {
-		titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(meta.Color))
+	title := truncate(host.Alias, max(4, width-3))
+	if foreground, ok := contrastingTextColor(meta.Color); ok {
+		titleStyle = lipgloss.NewStyle().Bold(true).
+			Foreground(lipgloss.Color(foreground)).
+			Background(lipgloss.Color(meta.Color)).
+			Padding(0, 1)
+		title = truncate(host.Alias, max(4, width-5))
 	}
 	destination := destination(host)
 	if destination == "" {
 		destination = host.Alias
 	}
-	b.WriteString("  " + titleStyle.Render(truncate(host.Alias, max(4, width-3))) + "\n")
+	b.WriteString("  " + titleStyle.Render(title) + "\n")
 	b.WriteString("  " + s.value.Render(truncate(destination, max(4, width-3))) + "\n")
 	b.WriteString("  " + s.muted.Render(truncate(owner+" · "+trust, max(4, width-3))) + "\n\n")
 	b.WriteString(compactRow(s, "Source", shortPath(host.Source, m.paths.Home)+":"+strconv.Itoa(host.Line), width))
@@ -225,7 +231,14 @@ func (m *App) renderForm(s styleSet) string {
 			continue
 		}
 		if i == f.index {
-			b.WriteString("  " + s.active.Render("› "+item.label) + "\n")
+			label := item.label
+			if item.optional {
+				label += " (optional)"
+			}
+			b.WriteString("  " + s.active.Render("› "+label) + "\n")
+			if item.description != "" {
+				b.WriteString("    " + s.muted.Render(truncate(item.description, max(20, m.terminalWidth()-8))) + "\n")
+			}
 			if len(item.options) > 0 {
 				if f.selecting {
 					rows := min(7, len(item.options))
@@ -247,6 +260,17 @@ func (m *App) renderForm(s styleSet) string {
 			} else {
 				b.WriteString("    " + f.input.View() + "\n")
 			}
+			if item.label == "Color" {
+				colour := strings.TrimSpace(f.input.Value())
+				if foreground, ok := contrastingTextColor(colour); ok {
+					preview := lipgloss.NewStyle().Bold(true).
+						Foreground(lipgloss.Color(foreground)).
+						Background(lipgloss.Color(colour)).
+						Padding(0, 1).
+						Render("Host label preview")
+					b.WriteString("    " + preview + "\n")
+				}
+			}
 			continue
 		}
 		value := item.value
@@ -256,11 +280,15 @@ func (m *App) renderForm(s styleSet) string {
 		if value == "" {
 			value = "—"
 		}
-		b.WriteString("  " + s.muted.Render("  "+item.label+"  "+value) + "\n")
+		label := item.label
+		if item.optional {
+			label += " (optional)"
+		}
+		b.WriteString("  " + s.muted.Render("  "+label+"  "+value) + "\n")
 	}
 	action := "󰌑 next"
 	if f.selecting {
-		action = "↑/↓ choose • 󰌑 select"
+		action = "↑/↓ or j/k choose • 󰌑 select"
 	} else if len(f.fields[f.index].options) > 0 && !f.fields[f.index].options[f.fields[f.index].selected].custom {
 		action = "󰌑 change"
 	}
@@ -280,6 +308,38 @@ func (m *App) renderForm(s styleSet) string {
 		b.WriteString("\n  " + s.muted.Render(action+" • ↑/↓ revisit • "+escape))
 	}
 	return b.String()
+}
+
+func contrastingTextColor(background string) (string, bool) {
+	background = strings.TrimSpace(background)
+	if !strings.HasPrefix(background, "#") {
+		return "", false
+	}
+	hex := strings.TrimPrefix(background, "#")
+	if len(hex) == 3 {
+		hex = string([]byte{hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]})
+	}
+	if len(hex) != 6 {
+		return "", false
+	}
+	value, err := strconv.ParseUint(hex, 16, 24)
+	if err != nil {
+		return "", false
+	}
+	channel := func(v uint64) float64 {
+		srgb := float64(v) / 255
+		if srgb <= 0.04045 {
+			return srgb / 12.92
+		}
+		return math.Pow((srgb+0.055)/1.055, 2.4)
+	}
+	r := channel(value >> 16)
+	g := channel((value >> 8) & 0xff)
+	b := channel(value & 0xff)
+	if 0.2126*r+0.7152*g+0.0722*b > 0.2 {
+		return "#111827", true
+	}
+	return "#FFFFFF", true
 }
 
 func (m *App) renderHelp(s styleSet) string {

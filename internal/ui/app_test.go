@@ -109,6 +109,54 @@ func TestFormRevealsFieldsProgressivelyAndRevisitsThem(t *testing.T) {
 	}
 }
 
+func TestHostFormExplainsOptionalConnectionFields(t *testing.T) {
+	m := testApp(t)
+	m.openAddHostForm()
+
+	initial := m.renderForm(m.styles())
+	if !strings.Contains(initial, "Required — the short name used with ssh") {
+		t.Fatalf("label description is missing:\n%s", initial)
+	}
+
+	for index := range m.form.fields {
+		if m.form.fields[index].label != "Proxy jump" {
+			continue
+		}
+		m.form.index = index
+		m.form.revealed = index
+		m.focusFormField()
+		proxy := m.renderForm(m.styles())
+		if !strings.Contains(proxy, "Proxy jump (optional)") || !strings.Contains(proxy, "Route through another SSH host") {
+			t.Fatalf("proxy jump is not clearly explained as optional:\n%s", proxy)
+		}
+		return
+	}
+	t.Fatal("host form has no proxy jump field")
+}
+
+func TestContrastingTextColor(t *testing.T) {
+	tests := []struct {
+		background string
+		want       string
+		valid      bool
+	}{
+		{background: "#000000", want: "#FFFFFF", valid: true},
+		{background: "#fff", want: "#111827", valid: true},
+		{background: "#7C3AED", want: "#FFFFFF", valid: true},
+		{background: "#FFFF00", want: "#111827", valid: true},
+		{background: "ffffff", valid: false},
+		{background: "purple", valid: false},
+	}
+	for _, test := range tests {
+		t.Run(test.background, func(t *testing.T) {
+			got, ok := contrastingTextColor(test.background)
+			if ok != test.valid || got != test.want {
+				t.Fatalf("contrastingTextColor(%q) = %q, %v; want %q, %v", test.background, got, ok, test.want, test.valid)
+			}
+		})
+	}
+}
+
 func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 	m := testApp(t)
 	managedPath := filepath.Join(m.paths.ManagedKeys, "work")
@@ -135,10 +183,15 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 		t.Fatal("identity picker closed while rendering")
 	}
 
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	m.updateForm(press("j"))
 	if option := m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected]; option.value != "~/.ssh/bast/keys/work" {
-		t.Fatalf("wrong identity option selected: %+v", option)
+		t.Fatalf("j selected wrong identity option: %+v", option)
 	}
+	m.updateForm(press("k"))
+	if option := m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected]; option.value != "" {
+		t.Fatalf("k selected wrong identity option: %+v", option)
+	}
+	m.updateForm(press("j"))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if got := m.form.fields[4].value; got != "~/.ssh/bast/keys/work" {
 		t.Fatalf("selected identity = %q", got)

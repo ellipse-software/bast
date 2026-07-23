@@ -20,8 +20,10 @@ const (
 
 type field struct {
 	label       string
+	description string
 	value       string
 	placeholder string
+	optional    bool
 	hidden      bool
 	options     []fieldOption
 	selected    int

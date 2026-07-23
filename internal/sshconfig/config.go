@@ -272,8 +272,13 @@ func Validate(input HostInput) error {
 		return errors.New("hostname is required")
 	}
 	for name, value := range map[string]string{"hostname": input.HostName, "user": input.User, "identity file": input.IdentityFile, "proxy jump": input.ProxyJump} {
-		if strings.ContainsAny(value, "\r\n") {
-			return fmt.Errorf("%s cannot contain a newline", name)
+		if strings.ContainsAny(value, "\r\n\x00") {
+			return fmt.Errorf("%s cannot contain a newline or null byte", name)
+		}
+	}
+	for name, value := range map[string]string{"hostname": input.HostName, "user": input.User, "proxy jump": input.ProxyJump} {
+		if strings.ContainsAny(value, " \t") {
+			return fmt.Errorf("%s cannot contain whitespace", name)
 		}
 	}
 	if input.Port != "" {

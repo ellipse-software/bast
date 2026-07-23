@@ -133,7 +133,15 @@ func TestConditionalIncludeDoesNotSuppressTopLevelInclude(t *testing.T) {
 }
 
 func TestValidateHost(t *testing.T) {
-	bad := []HostInput{{Alias: "-oProxyCommand=x", HostName: "x"}, {Alias: "*.example", HostName: "x"}, {Alias: "ok", HostName: "x", Port: "70000"}, {Alias: "ok", HostName: "x\nHost evil"}}
+	bad := []HostInput{
+		{Alias: "-oProxyCommand=x", HostName: "x"},
+		{Alias: "*.example", HostName: "x"},
+		{Alias: "ok", HostName: "x", Port: "70000"},
+		{Alias: "ok", HostName: "x\nHost evil"},
+		{Alias: "ok", HostName: "two hosts"},
+		{Alias: "ok", HostName: "x", User: "two users"},
+		{Alias: "ok", HostName: "x", ProxyJump: "first second"},
+	}
 	for _, input := range bad {
 		if Validate(input) == nil {
 			t.Fatalf("expected invalid: %+v", input)
@@ -141,5 +149,22 @@ func TestValidateHost(t *testing.T) {
 	}
 	if err := Validate(HostInput{Alias: "good", HostName: "example.com", Port: "22"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRenderBlockQuotesIdentityFile(t *testing.T) {
+	identity := `~/.ssh/Work Keys/deploy "primary"`
+	block := string(renderBlock("test", HostInput{Alias: "prod", HostName: "prod.example", IdentityFile: identity}))
+	if !strings.Contains(block, `IdentityFile "~/.ssh/Work Keys/deploy \"primary\""`) {
+		t.Fatalf("identity file was not safely quoted:\n%s", block)
+	}
+	for _, line := range strings.Split(block, "\n") {
+		if !strings.Contains(line, "IdentityFile") {
+			continue
+		}
+		parts, err := fields(strings.TrimSpace(line))
+		if err != nil || len(parts) != 2 || parts[1] != identity {
+			t.Fatalf("quoted identity file did not round trip: parts=%q err=%v", parts, err)
+		}
 	}
 }

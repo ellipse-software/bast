@@ -15,24 +15,32 @@ import (
 func renderBlock(id string, input HostInput) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s%s\nHost %s\n", markerPrefix, id, input.Alias)
-	fmt.Fprintf(&b, "    HostName %s\n", input.HostName)
+	fmt.Fprintf(&b, "    HostName %s\n", configValue(input.HostName))
 	if input.User != "" {
-		fmt.Fprintf(&b, "    User %s\n", input.User)
+		fmt.Fprintf(&b, "    User %s\n", configValue(input.User))
 	}
 	if input.Port != "" {
-		fmt.Fprintf(&b, "    Port %s\n", input.Port)
+		fmt.Fprintf(&b, "    Port %s\n", configValue(input.Port))
 	}
 	if input.IdentityFile != "" {
-		fmt.Fprintf(&b, "    IdentityFile %s\n", input.IdentityFile)
+		fmt.Fprintf(&b, "    IdentityFile %s\n", configValue(input.IdentityFile))
 	}
 	if input.IdentitiesOnly {
 		b.WriteString("    IdentitiesOnly yes\n")
 	}
 	if input.ProxyJump != "" {
-		fmt.Fprintf(&b, "    ProxyJump %s\n", input.ProxyJump)
+		fmt.Fprintf(&b, "    ProxyJump %s\n", configValue(input.ProxyJump))
 	}
 	b.WriteString(markerEnd + "\n")
 	return []byte(b.String())
+}
+
+func configValue(value string) string {
+	if !strings.ContainsAny(value, " \t#\\\"") {
+		return value
+	}
+	escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(value)
+	return `"` + escaped + `"`
 }
 
 func replaceBlock(data []byte, id string, replacement []byte) ([]byte, bool) {
@@ -103,7 +111,7 @@ func cleanPath(path string) string {
 }
 
 func selectableAlias(alias string) bool {
-	return alias != "" && !strings.HasPrefix(alias, "!") && !strings.ContainsAny(alias, "*?% 	\r\n")
+	return alias != "" && !strings.HasPrefix(alias, "!") && !strings.ContainsAny(alias, "*?%#\\\"' \t\r\n\x00")
 }
 
 func fields(line string) ([]string, error) {

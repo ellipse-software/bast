@@ -21,9 +21,9 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "esc":
 			f.selecting = false
 			m.focusFormField()
-		case "up", "down":
+		case "up", "down", "j", "k":
 			direction := 1
-			if key == "up" {
+			if key == "up" || key == "k" {
 				direction = -1
 			}
 			item.selected = (item.selected + direction + len(item.options)) % len(item.options)
@@ -244,10 +244,18 @@ func (m *App) formError(message string) (tea.Model, tea.Cmd) {
 
 func (m *App) openAddHostForm() {
 	m.openForm("Add host", "host_add", []field{
-		{label: "Label", placeholder: "prod"}, {label: "Hostname", placeholder: "server.example.com"}, {label: "User", placeholder: "ubuntu"},
-		{label: "Port", placeholder: "22"}, m.identityField(""), {label: "Identities only", placeholder: "yes or no"},
-		{label: "Proxy jump", placeholder: "bastion"}, {label: "Group"}, {label: "Tags", placeholder: "web, production"}, {label: "Environment", placeholder: "production"},
-		{label: "Color", placeholder: "#7C3AED"}, {label: "Notes"},
+		{label: "Label", description: "Required — the short name used with ssh, for example ssh prod.", placeholder: "prod"},
+		{label: "Hostname", description: "Required — the server address or IP to connect to.", placeholder: "server.example.com"},
+		{label: "User", description: "Remote login name; blank uses your OpenSSH default.", placeholder: "ubuntu", optional: true},
+		{label: "Port", description: "Blank uses the standard SSH port, 22.", placeholder: "22", optional: true},
+		m.identityField(""),
+		{label: "Identities only", description: "Limit SSH to configured identity files instead of every key in ssh-agent.", placeholder: "yes or no", optional: true},
+		{label: "Proxy jump", description: "Route through another SSH host, such as a bastion.", placeholder: "bastion", optional: true},
+		{label: "Group", description: "Organise related hosts for sorting and search.", optional: true},
+		{label: "Tags", description: "Comma-separated terms included in search.", placeholder: "web, production", optional: true},
+		{label: "Environment", description: "For example production, staging, or development.", placeholder: "production", optional: true},
+		{label: "Color", description: "Hex colour used for the host label, for example #7C3AED.", placeholder: "#7C3AED", optional: true},
+		{label: "Notes", description: "Short context shown in the host details and search.", optional: true},
 	})
 }
 
@@ -259,8 +267,12 @@ func (m *App) openEditHostForm() {
 	meta := m.metadata.Host(host.Alias)
 	if !host.Managed {
 		m.openForm("Edit metadata — "+host.Alias, "metadata_edit", []field{
-			{label: "Label", value: host.Alias, hidden: true}, {label: "Group", value: meta.Group}, {label: "Tags", value: strings.Join(meta.Tags, ", ")},
-			{label: "Environment", value: meta.Environment}, {label: "Color", value: meta.Color}, {label: "Notes", value: meta.Notes},
+			{label: "Label", value: host.Alias, hidden: true},
+			{label: "Group", description: "Organise related hosts for sorting and search.", value: meta.Group, optional: true},
+			{label: "Tags", description: "Comma-separated terms included in search.", value: strings.Join(meta.Tags, ", "), optional: true},
+			{label: "Environment", description: "For example production, staging, or development.", value: meta.Environment, optional: true},
+			{label: "Color", description: "Hex colour used for the host label, for example #7C3AED.", value: meta.Color, optional: true},
+			{label: "Notes", description: "Short context shown in the host details and search.", value: meta.Notes, optional: true},
 		})
 		return
 	}
@@ -269,10 +281,19 @@ func (m *App) openEditHostForm() {
 		identity = host.Resolved.IdentityFiles[0]
 	}
 	m.openForm("Edit host — "+host.Alias, "host_edit", []field{
-		{label: "Original label", value: host.Alias, hidden: true}, {label: "Label", value: host.Alias}, {label: "Hostname", value: host.Resolved.HostName}, {label: "User", value: host.Resolved.User},
-		{label: "Port", value: host.Resolved.Port}, m.identityField(identity), {label: "Identities only", value: host.Resolved.IdentitiesOnly},
-		{label: "Proxy jump", value: emptyIfNone(host.Resolved.ProxyJump)}, {label: "Group", value: meta.Group}, {label: "Tags", value: strings.Join(meta.Tags, ", ")},
-		{label: "Environment", value: meta.Environment}, {label: "Color", value: meta.Color}, {label: "Notes", value: meta.Notes},
+		{label: "Original label", value: host.Alias, hidden: true},
+		{label: "Label", description: "Required — the short name used with ssh, for example ssh prod.", value: host.Alias},
+		{label: "Hostname", description: "Required — the server address or IP to connect to.", value: host.Resolved.HostName},
+		{label: "User", description: "Remote login name; blank uses your OpenSSH default.", value: host.Resolved.User, optional: true},
+		{label: "Port", description: "Blank uses the standard SSH port, 22.", value: host.Resolved.Port, optional: true},
+		m.identityField(identity),
+		{label: "Identities only", description: "Limit SSH to configured identity files instead of every key in ssh-agent.", value: host.Resolved.IdentitiesOnly, optional: true},
+		{label: "Proxy jump", description: "Route through another SSH host, such as a bastion.", value: emptyIfNone(host.Resolved.ProxyJump), optional: true},
+		{label: "Group", description: "Organise related hosts for sorting and search.", value: meta.Group, optional: true},
+		{label: "Tags", description: "Comma-separated terms included in search.", value: strings.Join(meta.Tags, ", "), optional: true},
+		{label: "Environment", description: "For example production, staging, or development.", value: meta.Environment, optional: true},
+		{label: "Color", description: "Hex colour used for the host label, for example #7C3AED.", value: meta.Color, optional: true},
+		{label: "Notes", description: "Short context shown in the host details and search.", value: meta.Notes, optional: true},
 	})
 }
 
@@ -330,7 +351,12 @@ func (m *App) openKnownHostForm() {
 }
 
 func (m *App) identityField(current string) field {
-	item := field{label: "Identity file", placeholder: "~/.ssh/id_ed25519"}
+	item := field{
+		label:       "Identity file",
+		description: "Choose a key, or let OpenSSH and ssh-agent decide.",
+		placeholder: "~/.ssh/id_ed25519",
+		optional:    true,
+	}
 	item.options = append(item.options, fieldOption{label: "OpenSSH defaults / agent"})
 	if current != "" {
 		current = shortPath(current, m.paths.Home)
