@@ -258,7 +258,7 @@ func TestHostFormExplainsOptionalConnectionFields(t *testing.T) {
 	m.openAddHostForm()
 
 	initial := m.renderForm(m.styles())
-	if !strings.Contains(initial, "spaces are shown here and become underscores") {
+	if !strings.Contains(initial, "spaces become SSH underscores") {
 		t.Fatalf("label description is missing:\n%s", initial)
 	}
 
@@ -270,7 +270,7 @@ func TestHostFormExplainsOptionalConnectionFields(t *testing.T) {
 		m.form.revealed = index
 		m.focusFormField()
 		proxy := m.renderForm(m.styles())
-		if !strings.Contains(proxy, "Proxy jump (optional)") || !strings.Contains(proxy, "Route through another SSH host") {
+		if !strings.Contains(proxy, "Optional - Route connection through a jump host") {
 			t.Fatalf("proxy jump is not clearly explained as optional:\n%s", proxy)
 		}
 		return

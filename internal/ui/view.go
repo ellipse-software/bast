@@ -317,9 +317,6 @@ func (m *App) renderForm(s styleSet) string {
 		}
 		if i == f.index {
 			label := item.label
-			if item.optional {
-				label += " (optional)"
-			}
 			b.WriteString("  " + s.active.Render("› "+label) + "\n")
 			if item.description != "" {
 				b.WriteString("    " + s.muted.Render(truncate(item.description, max(20, m.terminalWidth()-8))) + "\n")
@@ -366,9 +363,6 @@ func (m *App) renderForm(s styleSet) string {
 			value = "—"
 		}
 		label := item.label
-		if item.optional {
-			label += " (optional)"
-		}
 		b.WriteString("  " + s.muted.Render("  "+label+"  "+value) + "\n")
 	}
 	return b.String()

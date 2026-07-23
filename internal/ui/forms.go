@@ -12,6 +12,30 @@ import (
 	"bast/internal/sshconfig"
 )
 
+const (
+	descHostLabel       = "Required - Display name; spaces become SSH underscores"
+	descHostHostname    = "Required - Server hostname or IP address"
+	descHostUser        = "Optional - Remote username; blank uses SSH default"
+	descHostPort        = "Optional - Port number; blank defaults to 22"
+	descHostIdentity    = "Optional - Key file, password auth, or agent defaults"
+	descHostIdentities  = "Optional - Only listed keys, not all in agent"
+	descHostProxyJump   = "Optional - Route connection through a jump host"
+	descHostGroup       = "Optional - Group header for sorting and search"
+	descHostTags        = "Optional - Comma-separated tags included in search"
+	descHostEnvironment = "Optional - Environment name like production or staging"
+	descHostColor       = "Optional - Hex colour for the host label"
+	descHostNotes       = "Optional - Short note in details and search"
+	descKeyName         = "Required - Short name for this keypair"
+	descKeyAlgorithm    = "Required - Key algorithm: ed25519 or rsa"
+	descKeyPrivate      = "Required - Private key path or pasted PEM"
+	descKeyPublic       = "Optional - Public key; blank derives from private"
+	descKeyComment      = "Optional - Public key comment; blank keeps existing"
+	descKeyCommentEdit  = "Optional - Public key comment; blank removes it"
+	descKeyExportDir    = "Required - Directory to write exported key files"
+	descKeyExportConfirm = "Required - Type EXPORT to confirm export"
+	descKeyServer       = "Required - Target server; may prompt for password"
+)
+
 const passwordOnlyIdentity = "\x00password-only"
 
 func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -322,18 +346,18 @@ func (m *App) formError(message string) (tea.Model, tea.Cmd) {
 
 func (m *App) openAddHostForm() {
 	m.openForm("Add host", "host_add", []field{
-		{label: "Label", description: "Required — spaces are shown here and become underscores in the SSH name.", placeholder: "Production web"},
-		{label: "Hostname", description: "Required — the server address or IP to connect to.", placeholder: "server.example.com"},
-		{label: "User", description: "Remote login name; blank uses your OpenSSH default.", placeholder: "ubuntu", optional: true},
-		{label: "Port", description: "Blank uses the standard SSH port, 22.", placeholder: "22", optional: true},
+		{label: "Label", description: descHostLabel, placeholder: "Production web"},
+		{label: "Hostname", description: descHostHostname, placeholder: "server.example.com"},
+		{label: "User", description: descHostUser, placeholder: "ubuntu", optional: true},
+		{label: "Port", description: descHostPort, placeholder: "22", optional: true},
 		m.identityField("", false),
-		{label: "Identities only", description: "Limit SSH to configured identity files instead of every key in ssh-agent.", placeholder: "yes or no", optional: true},
-		{label: "Proxy jump", description: "Route through another SSH host, such as a bastion.", placeholder: "bastion", optional: true},
-		{label: "Group", description: "Organise related hosts for sorting and search.", optional: true},
-		{label: "Tags", description: "Comma-separated terms included in search.", placeholder: "web, production", optional: true},
-		{label: "Environment", description: "For example production, staging, or development.", placeholder: "production", optional: true},
-		{label: "Color", description: "Hex colour used for the host label, for example #7C3AED.", placeholder: "#7C3AED", optional: true},
-		{label: "Notes", description: "Short context shown in the host details and search.", optional: true},
+		{label: "Identities only", description: descHostIdentities, placeholder: "yes or no", optional: true},
+		{label: "Proxy jump", description: descHostProxyJump, placeholder: "bastion", optional: true},
+		{label: "Group", description: descHostGroup, optional: true},
+		{label: "Tags", description: descHostTags, placeholder: "web, production", optional: true},
+		{label: "Environment", description: descHostEnvironment, placeholder: "production", optional: true},
+		{label: "Color", description: descHostColor, placeholder: "#7C3AED", optional: true},
+		{label: "Notes", description: descHostNotes, optional: true},
 	})
 }
 
@@ -346,12 +370,12 @@ func (m *App) openEditHostForm() {
 	if !host.Managed {
 		m.openForm("Edit metadata — "+m.hostLabel(host), "metadata_edit", []field{
 			{label: "Alias", value: host.Alias, hidden: true},
-			{label: "Label", description: "Friendly name shown in Bast; the SSH name remains " + host.Alias + ".", value: m.hostLabel(host)},
-			{label: "Group", description: "Organise related hosts for sorting and search.", value: meta.Group, optional: true},
-			{label: "Tags", description: "Comma-separated terms included in search.", value: strings.Join(meta.Tags, ", "), optional: true},
-			{label: "Environment", description: "For example production, staging, or development.", value: meta.Environment, optional: true},
-			{label: "Color", description: "Hex colour used for the host label, for example #7C3AED.", value: meta.Color, optional: true},
-			{label: "Notes", description: "Short context shown in the host details and search.", value: meta.Notes, optional: true},
+			{label: "Label", description: "Optional - Display name; SSH alias stays " + host.Alias, value: m.hostLabel(host), optional: true},
+			{label: "Group", description: descHostGroup, value: meta.Group, optional: true},
+			{label: "Tags", description: descHostTags, value: strings.Join(meta.Tags, ", "), optional: true},
+			{label: "Environment", description: descHostEnvironment, value: meta.Environment, optional: true},
+			{label: "Color", description: descHostColor, value: meta.Color, optional: true},
+			{label: "Notes", description: descHostNotes, value: meta.Notes, optional: true},
 		})
 		m.form.revealed = len(m.form.fields) - 1
 		return
@@ -363,18 +387,18 @@ func (m *App) openEditHostForm() {
 	}
 	m.openForm("Edit host — "+m.hostLabel(host), "host_edit", []field{
 		{label: "Original label", value: host.Alias, hidden: true},
-		{label: "Label", description: "Friendly name shown in Bast; spaces become underscores in the SSH name.", value: m.hostLabel(host)},
-		{label: "Hostname", description: "Required — the server address or IP to connect to.", value: host.Resolved.HostName},
-		{label: "User", description: "Remote login name; blank uses your OpenSSH default.", value: host.Resolved.User, optional: true},
-		{label: "Port", description: "Blank uses the standard SSH port, 22.", value: host.Resolved.Port, optional: true},
+		{label: "Label", description: descHostLabel, value: m.hostLabel(host)},
+		{label: "Hostname", description: descHostHostname, value: host.Resolved.HostName},
+		{label: "User", description: descHostUser, value: host.Resolved.User, optional: true},
+		{label: "Port", description: descHostPort, value: host.Resolved.Port, optional: true},
 		m.identityField(identity, isPasswordOnly),
-		{label: "Identities only", description: "Limit SSH to configured identity files instead of every key in ssh-agent.", value: host.Resolved.IdentitiesOnly, optional: true, hidden: isPasswordOnly},
-		{label: "Proxy jump", description: "Route through another SSH host, such as a bastion.", value: emptyIfNone(host.Resolved.ProxyJump), optional: true},
-		{label: "Group", description: "Organise related hosts for sorting and search.", value: meta.Group, optional: true},
-		{label: "Tags", description: "Comma-separated terms included in search.", value: strings.Join(meta.Tags, ", "), optional: true},
-		{label: "Environment", description: "For example production, staging, or development.", value: meta.Environment, optional: true},
-		{label: "Color", description: "Hex colour used for the host label, for example #7C3AED.", value: meta.Color, optional: true},
-		{label: "Notes", description: "Short context shown in the host details and search.", value: meta.Notes, optional: true},
+		{label: "Identities only", description: descHostIdentities, value: host.Resolved.IdentitiesOnly, optional: true, hidden: isPasswordOnly},
+		{label: "Proxy jump", description: descHostProxyJump, value: emptyIfNone(host.Resolved.ProxyJump), optional: true},
+		{label: "Group", description: descHostGroup, value: meta.Group, optional: true},
+		{label: "Tags", description: descHostTags, value: strings.Join(meta.Tags, ", "), optional: true},
+		{label: "Environment", description: descHostEnvironment, value: meta.Environment, optional: true},
+		{label: "Color", description: descHostColor, value: meta.Color, optional: true},
+		{label: "Notes", description: descHostNotes, value: meta.Notes, optional: true},
 	})
 	m.form.revealed = len(m.form.fields) - 1
 }
@@ -393,14 +417,17 @@ func (m *App) openDeleteHostForm() {
 }
 
 func (m *App) openGenerateForm() {
-	m.openForm("Generate key", "key_generate", []field{{label: "Name", placeholder: "work"}, {label: "Algorithm", value: "ed25519", placeholder: "ed25519 or rsa"}})
+	m.openForm("Generate key", "key_generate", []field{
+		{label: "Name", description: descKeyName, placeholder: "work"},
+		{label: "Algorithm", description: descKeyAlgorithm, value: "ed25519", placeholder: "ed25519 or rsa"},
+	})
 }
 func (m *App) openImportForm() {
 	m.openForm("Import native keypair", "key_import", []field{
-		{label: "Private key", placeholder: "file path or paste key contents"},
-		{label: "Public key", placeholder: "optional path/content; Enter to derive"},
-		{label: "Comment", placeholder: "optional; blank keeps an existing comment"},
-		{label: "Name", placeholder: "work"},
+		{label: "Private key", description: descKeyPrivate, placeholder: "file path or paste key contents"},
+		{label: "Public key", description: descKeyPublic, placeholder: "optional path/content; Enter to derive", optional: true},
+		{label: "Comment", description: descKeyComment, placeholder: "optional; blank keeps an existing comment", optional: true},
+		{label: "Name", description: descKeyName, placeholder: "work"},
 	})
 }
 func (m *App) openEditKeyForm() {
@@ -414,12 +441,16 @@ func (m *App) openEditKeyForm() {
 	}
 	m.openForm("Edit key comment — "+key.Name, "key_comment", []field{
 		{label: "Key", value: key.Name, hidden: true},
-		{label: "Comment", value: key.Comment, placeholder: "blank removes the comment"},
+		{label: "Comment", description: descKeyCommentEdit, value: key.Comment, placeholder: "blank removes the comment", optional: true},
 	})
 }
 func (m *App) openExportForm() {
 	if key, ok := m.selectedKey(); ok {
-		m.openForm("Export key — "+key.Name, "key_export", []field{{label: "Key", value: key.Name, hidden: true}, {label: "Directory", placeholder: "~/Desktop"}, {label: "Type EXPORT"}})
+		m.openForm("Export key — "+key.Name, "key_export", []field{
+			{label: "Key", value: key.Name, hidden: true},
+			{label: "Directory", description: descKeyExportDir, placeholder: "~/Desktop"},
+			{label: "Type EXPORT", description: descKeyExportConfirm},
+		})
 	}
 }
 func (m *App) openInstallKeyForm() {
@@ -433,7 +464,7 @@ func (m *App) openInstallKeyForm() {
 	}
 	server := field{
 		label:       "Server",
-		description: "SSH may ask for the server password. Existing authorized keys are left unchanged.",
+		description: descKeyServer,
 	}
 	for _, host := range m.hosts {
 		label := m.hostLabel(host)
@@ -462,7 +493,7 @@ func (m *App) openKnownHostForm() {
 func (m *App) identityField(current string, passwordOnly bool) field {
 	item := field{
 		label:       "Identity file",
-		description: "Choose password authentication, a key, or let OpenSSH and ssh-agent decide.",
+		description: descHostIdentity,
 		placeholder: "~/.ssh/id_ed25519",
 		optional:    true,
 	}
