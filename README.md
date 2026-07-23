@@ -20,7 +20,7 @@ Bast is a lightweight terminal interface for native OpenSSH. It gives you a sear
 - Clear the shell before and after SSH sessions, with a connection banner and stuck-session reminder
 - Return to Bast when the native SSH process exits
 - Automatically dismiss ordinary status notifications after four seconds
-- No accounts, network service, telemetry, or custom host/key database
+- Optional anonymous telemetry (version, platform, and usage events). Opt out with `BAST_NO_TELEMETRY=1`
 
 ## Requirements
 

@@ -12,6 +12,7 @@ import (
 	"bast/internal/openssh"
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
+	"bast/internal/telemetry"
 	"bast/internal/ui"
 )
 
@@ -52,8 +53,10 @@ func run(args []string) error {
 		return err
 	}
 	if len(args) == 1 {
+		telemetry.Track("direct_connect", buildVersion())
 		return directConnect(p, client, args[0])
 	}
+	telemetry.Track("tui_open", buildVersion())
 	model, err := ui.New(p, client)
 	if err != nil {
 		return err
