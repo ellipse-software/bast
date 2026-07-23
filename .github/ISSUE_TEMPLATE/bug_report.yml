@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible problem in Bast
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include private keys, passphrases, real hostnames, IP addresses, or complete SSH configuration files.
+  - type: input
+    id: version
+    attributes:
+      label: Bast version
+      placeholder: Output from bast --version
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, terminal, shell, and whether tmux is involved
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use disposable example hosts and keys only.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true

@@ -1,0 +1,145 @@
+package sshconfig
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func testManager(t *testing.T) Manager {
+	t.Helper()
+	home := t.TempDir()
+	sshDir := filepath.Join(home, ".ssh")
+	return Manager{
+		Home: home, MainConfig: filepath.Join(sshDir, "config"),
+		ManagedDir: filepath.Join(sshDir, "bast"), ManagedConfig: filepath.Join(sshDir, "bast", "config"),
+		ManagedKeys: filepath.Join(sshDir, "bast", "keys"),
+	}
+}
+
+func writeTestFile(t *testing.T, path, content string, mode os.FileMode) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDiscoverIncludesAndLiteralAliases(t *testing.T) {
+	m := testManager(t)
+	writeTestFile(t, m.MainConfig, "# main\nHost prod *.wild !blocked\n  HostName prod.example\nInclude conf.d/*.conf\n", 0600)
+	writeTestFile(t, filepath.Join(filepath.Dir(m.MainConfig), "conf.d", "team.conf"), "Host staging other\n  User deploy\n", 0600)
+	hosts, err := m.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		got = append(got, host.Alias)
+	}
+	if strings.Join(got, ",") != "other,prod,staging" {
+		t.Fatalf("aliases = %v", got)
+	}
+}
+
+func TestDiscoverRejectsIncludeCycle(t *testing.T) {
+	m := testManager(t)
+	writeTestFile(t, m.MainConfig, "Include loop.conf\n", 0600)
+	writeTestFile(t, filepath.Join(filepath.Dir(m.MainConfig), "loop.conf"), "Include config\n", 0600)
+	if _, err := m.Discover(); err == nil || !strings.Contains(err.Error(), "cyclic") {
+		t.Fatalf("expected cycle error, got %v", err)
+	}
+}
+
+func TestManagedHostLifecyclePreservesExternalConfig(t *testing.T) {
+	m := testManager(t)
+	original := "# hand-written config\nHost legacy\n  HostName old.example\n"
+	writeTestFile(t, m.MainConfig, original, 0640)
+	host, err := m.Add(HostInput{Alias: "prod", HostName: "prod.example", User: "deploy", Port: "2222", IdentityFile: "~/.ssh/bast/keys/work", IdentitiesOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	main, _ := os.ReadFile(m.MainConfig)
+	if strings.Count(string(main), "Include ~/.ssh/bast/config") != 1 || !strings.Contains(string(main), original) {
+		t.Fatalf("main config was not preserved:\n%s", main)
+	}
+	info, _ := os.Stat(m.MainConfig)
+	if info.Mode().Perm() != 0640 {
+		t.Fatalf("mode = %o", info.Mode().Perm())
+	}
+	hosts, err := m.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var managed Host
+	for _, item := range hosts {
+		if item.Alias == "prod" {
+			managed = item
+		}
+	}
+	if !managed.Managed || managed.ManagedID != host.ManagedID {
+		t.Fatalf("managed host not recognized: %+v", managed)
+	}
+	if err := m.Update(host.ManagedID, HostInput{Alias: "production", HostName: "new.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Delete(host.ManagedID); err != nil {
+		t.Fatal(err)
+	}
+	managedData, _ := os.ReadFile(m.ManagedConfig)
+	if len(managedData) != 0 {
+		t.Fatalf("managed config not empty: %q", managedData)
+	}
+	main, _ = os.ReadFile(m.MainConfig)
+	if strings.Count(string(main), "Include ~/.ssh/bast/config") != 1 {
+		t.Fatalf("include duplicated:\n%s", main)
+	}
+}
+
+func TestManagedAliasesCannotCollide(t *testing.T) {
+	m := testManager(t)
+	writeTestFile(t, m.MainConfig, "Host external\n  HostName x\n", 0600)
+	if _, err := m.Add(HostInput{Alias: "external", HostName: "different"}); err == nil {
+		t.Fatal("expected add collision")
+	}
+	first, err := m.Add(HostInput{Alias: "one", HostName: "one.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Add(HostInput{Alias: "two", HostName: "two.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Update(first.ManagedID, HostInput{Alias: "two", HostName: "collision"}); err == nil {
+		t.Fatal("expected update collision")
+	}
+}
+
+func TestConditionalIncludeDoesNotSuppressTopLevelInclude(t *testing.T) {
+	m := testManager(t)
+	writeTestFile(t, m.MainConfig, "Host only-this-one\n  Include ~/.ssh/bast/config\n", 0600)
+	if err := m.EnsureManaged(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(m.MainConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(b), "Include ~/.ssh/bast/config") != 2 || !strings.HasPrefix(string(b), "# Added by Bast") {
+		t.Fatalf("expected a new top-level include:\n%s", b)
+	}
+}
+
+func TestValidateHost(t *testing.T) {
+	bad := []HostInput{{Alias: "-oProxyCommand=x", HostName: "x"}, {Alias: "*.example", HostName: "x"}, {Alias: "ok", HostName: "x", Port: "70000"}, {Alias: "ok", HostName: "x\nHost evil"}}
+	for _, input := range bad {
+		if Validate(input) == nil {
+			t.Fatalf("expected invalid: %+v", input)
+		}
+	}
+	if err := Validate(HostInput{Alias: "good", HostName: "example.com", Port: "22"}); err != nil {
+		t.Fatal(err)
+	}
+}

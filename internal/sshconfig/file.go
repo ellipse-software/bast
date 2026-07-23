@@ -1,0 +1,212 @@
+package sshconfig
+
+import (
+	"bufio"
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+func renderBlock(id string, input HostInput) []byte {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s%s\nHost %s\n", markerPrefix, id, input.Alias)
+	fmt.Fprintf(&b, "    HostName %s\n", input.HostName)
+	if input.User != "" {
+		fmt.Fprintf(&b, "    User %s\n", input.User)
+	}
+	if input.Port != "" {
+		fmt.Fprintf(&b, "    Port %s\n", input.Port)
+	}
+	if input.IdentityFile != "" {
+		fmt.Fprintf(&b, "    IdentityFile %s\n", input.IdentityFile)
+	}
+	if input.IdentitiesOnly {
+		b.WriteString("    IdentitiesOnly yes\n")
+	}
+	if input.ProxyJump != "" {
+		fmt.Fprintf(&b, "    ProxyJump %s\n", input.ProxyJump)
+	}
+	b.WriteString(markerEnd + "\n")
+	return []byte(b.String())
+}
+
+func replaceBlock(data []byte, id string, replacement []byte) ([]byte, bool) {
+	startMarker := []byte(markerPrefix + id)
+	start := bytes.Index(data, startMarker)
+	if start < 0 || (start > 0 && data[start-1] != '\n') {
+		return data, false
+	}
+	endRel := bytes.Index(data[start:], []byte(markerEnd))
+	if endRel < 0 {
+		return data, false
+	}
+	end := start + endRel + len(markerEnd)
+	if end < len(data) && data[end] == '\r' {
+		end++
+	}
+	if end < len(data) && data[end] == '\n' {
+		end++
+	}
+	out := make([]byte, 0, len(data)-end+start+len(replacement))
+	out = append(out, data[:start]...)
+	out = append(out, replacement...)
+	out = append(out, data[end:]...)
+	return out, true
+}
+
+func hasInclude(data []byte, target, home, base string) bool {
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	topLevel := true
+	for scanner.Scan() {
+		parts, _ := fields(strings.TrimSpace(scanner.Text()))
+		if len(parts) == 0 {
+			continue
+		}
+		if strings.EqualFold(parts[0], "host") || strings.EqualFold(parts[0], "match") {
+			topLevel = false
+		}
+		if topLevel && len(parts) > 1 && strings.EqualFold(parts[0], "include") {
+			for _, part := range parts[1:] {
+				if cleanPath(expandPath(part, home, base)) == cleanPath(target) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func expandPath(path, home, base string) string {
+	if path == "~" {
+		return home
+	}
+	if strings.HasPrefix(path, "~/") {
+		return filepath.Join(home, strings.TrimPrefix(path, "~/"))
+	}
+	if !filepath.IsAbs(path) {
+		return filepath.Join(base, path)
+	}
+	return path
+}
+
+func cleanPath(path string) string {
+	abs, err := filepath.Abs(filepath.Clean(path))
+	if err == nil {
+		return abs
+	}
+	return filepath.Clean(path)
+}
+
+func selectableAlias(alias string) bool {
+	return alias != "" && !strings.HasPrefix(alias, "!") && !strings.ContainsAny(alias, "*?% 	\r\n")
+}
+
+func fields(line string) ([]string, error) {
+	var result []string
+	var current strings.Builder
+	var quote rune
+	escaped := false
+	flush := func() {
+		if current.Len() > 0 {
+			result = append(result, current.String())
+			current.Reset()
+		}
+	}
+	for _, r := range line {
+		if escaped {
+			current.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				current.WriteRune(r)
+			}
+			continue
+		}
+		if r == '\'' || r == '"' {
+			quote = r
+			continue
+		}
+		if r == '#' {
+			break
+		}
+		if r == ' ' || r == '\t' {
+			flush()
+			continue
+		}
+		current.WriteRune(r)
+	}
+	if escaped || quote != 0 {
+		return nil, errors.New("unterminated escape or quote")
+	}
+	flush()
+	return result, nil
+}
+
+func newID() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+func atomicWrite(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".bast-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(mode.Perm()); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
+func atomicWriteChecked(path string, original, updated []byte, mode os.FileMode) error {
+	current, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(current, original) {
+		return fmt.Errorf("%s changed while Bast was editing it; reload and try again", path)
+	}
+	return atomicWrite(path, updated, mode)
+}
+
+func fileMode(path string, fallback os.FileMode) os.FileMode {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fallback
+	}
+	return info.Mode().Perm()
+}

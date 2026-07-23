@@ -1,0 +1,125 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - run: go mod verify
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - run: go test -race ./...
+      - run: go vet ./...
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Build archive
+        id: build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version="dev-${GITHUB_SHA:0:7}"
+          fi
+
+          bundle="bast_${version#v}_${GOOS}_${GOARCH}"
+          mkdir -p "dist/$bundle"
+
+          go build \
+            -trimpath \
+            -ldflags "-s -w -X main.version=$version" \
+            -o "dist/$bundle/bast" \
+            .
+
+          cp LICENSE README.md "dist/$bundle/"
+          tar -C dist -czf "dist/$bundle.tar.gz" "$bundle"
+          (cd dist && shasum -a 256 "$bundle.tar.gz" > "$bundle.tar.gz.sha256")
+
+          echo "artifact=$bundle" >> "$GITHUB_OUTPUT"
+      - name: Upload archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build.outputs.artifact }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: bast_*
+          path: dist
+          merge-multiple: true
+      - name: Create combined checksums
+        run: (cd dist && shasum -a 256 *.tar.gz > SHA256SUMS)
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/*.tar.gz \
+            dist/*.tar.gz.sha256 \
+            dist/SHA256SUMS \
+            --verify-tag \
+            --generate-notes \
+            --title "Bast $GITHUB_REF_NAME"

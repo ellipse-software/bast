@@ -1,0 +1,261 @@
+package ui
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+
+	keymodel "bast/internal/keys"
+	"bast/internal/metadata"
+	"bast/internal/openssh"
+	"bast/internal/paths"
+	"bast/internal/sshconfig"
+)
+
+func testApp(t *testing.T) *App {
+	t.Helper()
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(filepath.Join(home, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &App{paths: p, openSSH: openssh.Default(), metadata: store, hosts: []sshconfig.Host{{Alias: "alpha"}, {Alias: "beta"}}, width: 100, height: 30, dark: true}
+}
+func press(text string) tea.KeyPressMsg {
+	return tea.KeyPressMsg(tea.Key{Code: []rune(text)[0], Text: text})
+}
+
+func TestNumberedNavigationAndSearch(t *testing.T) {
+	m := testApp(t)
+	m.section = hostsSection
+	m.Update(press("2"))
+	if m.section != keysSection {
+		t.Fatal("2 did not open keys")
+	}
+	m.Update(press("1"))
+	m.Update(press("/"))
+	m.Update(press("b"))
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if got := m.filteredHosts(); len(got) != 1 || got[0].Alias != "beta" {
+		t.Fatalf("filter = %+v", got)
+	}
+}
+
+func TestMouseSelectsTabsAndListRowsOnly(t *testing.T) {
+	m := testApp(t)
+	if m.View().MouseMode != tea.MouseModeCellMotion {
+		t.Fatal("mouse reporting is not enabled")
+	}
+
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 21, Y: 0, Button: tea.MouseLeft}))
+	if m.section != keysSection {
+		t.Fatal("clicking the Keys tab did not switch sections")
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 9, Y: 0, Button: tea.MouseLeft}))
+	if m.section != hostsSection {
+		t.Fatal("clicking the Hosts tab did not switch sections")
+	}
+
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: 3, Button: tea.MouseLeft}))
+	if m.cursor != 1 {
+		t.Fatalf("clicking the second host selected row %d", m.cursor)
+	}
+	listWidth, _, _ := m.columnDimensions()
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: listWidth + 2, Y: 2, Button: tea.MouseLeft}))
+	if m.cursor != 1 {
+		t.Fatal("clicking the details panel changed the selection")
+	}
+}
+func TestExternalHostEditOnlyOffersMetadata(t *testing.T) {
+	m := testApp(t)
+	m.openEditHostForm()
+	if m.form == nil || m.form.action != "metadata_edit" {
+		t.Fatalf("form = %+v", m.form)
+	}
+	rendered := m.renderForm(m.styles())
+	if !strings.Contains(rendered, "Group") || strings.Contains(rendered, "Tags") || strings.Contains(rendered, "Label") {
+		t.Fatalf("metadata editor did not start progressively:\n%s", rendered)
+	}
+}
+
+func TestFormRevealsFieldsProgressivelyAndRevisitsThem(t *testing.T) {
+	m := testApp(t)
+	m.openAddHostForm()
+	initial := m.renderForm(m.styles())
+	if !strings.Contains(initial, "Label") || strings.Contains(initial, "Hostname") {
+		t.Fatalf("initial form exposed future fields:\n%s", initial)
+	}
+	m.form.input.SetValue("prod")
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	second := m.renderForm(m.styles())
+	if !strings.Contains(second, "Label  prod") || !strings.Contains(second, "Hostname") || strings.Contains(second, "User") {
+		t.Fatalf("Enter did not reveal exactly one new field:\n%s", second)
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	if m.form.index != 0 {
+		t.Fatalf("up did not revisit the previous field: index=%d", m.form.index)
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if m.form.index != 1 {
+		t.Fatalf("down did not return to the revealed field: index=%d", m.form.index)
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if m.form.index != 1 || strings.Contains(m.renderForm(m.styles()), "User") {
+		t.Fatal("down revealed a future field without Enter")
+	}
+}
+
+func TestImportFormDetectsPastedPrivateKey(t *testing.T) {
+	m := testApp(t)
+	m.openImportForm()
+	content := "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret-data\n-----END OPENSSH PRIVATE KEY-----\n"
+	m.Update(tea.PasteMsg{Content: content})
+	if m.form.pastedPrivateKey != content || m.form.fields[m.form.index].label != "Public key" {
+		t.Fatal("pasted private key was not detected and advanced to the public-key field")
+	}
+	view := m.renderForm(m.styles())
+	if strings.Contains(view, "secret-data") || !strings.Contains(view, "Pasted private key") {
+		t.Fatal("the form exposed pasted key contents")
+	}
+	public := "ssh-ed25519 AAA-public imported\n"
+	m.Update(tea.PasteMsg{Content: public})
+	if m.form.pastedPublicKey != public || m.form.fields[m.form.index].label != "Comment" {
+		t.Fatal("pasted public key was not detected and advanced to the comment field")
+	}
+
+	m = testApp(t)
+	m.openImportForm()
+	m.Update(tea.PasteMsg{Content: content})
+	m.Update(tea.PasteMsg{Content: "ssh-ed25519 AAA-public existing comment"})
+	if m.form.input.Value() != "existing comment" {
+		t.Fatalf("existing public-key comment was not offered for editing: %q", m.form.input.Value())
+	}
+}
+
+func TestKeysDoNotPresentAgentLoadingAsAPrimaryAction(t *testing.T) {
+	m := testApp(t)
+	m.section = keysSection
+	m.keys = []keymodel.Key{{Name: "work", PrivatePath: "/tmp/work"}}
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if cmd != nil {
+		t.Fatal("Enter unexpectedly created an ssh-agent command")
+	}
+	help := m.renderHelp(m.styles())
+	if strings.Contains(help, "load/unload") || strings.Contains(help, "l load") {
+		t.Fatal("agent loading is still presented as a key action")
+	}
+}
+
+func TestManagedKeyCommentCanBeEditedAfterImport(t *testing.T) {
+	m := testApp(t)
+	m.section = keysSection
+	m.keys = []keymodel.Key{{Name: "work", Comment: "old comment", Managed: true, PublicPath: filepath.Join(m.paths.ManagedKeys, "work.pub")}}
+	m.Update(press("e"))
+	if m.form == nil || m.form.action != "key_comment" || m.form.input.Value() != "old comment" {
+		t.Fatalf("key comment form was not opened: %+v", m.form)
+	}
+	m.form = nil
+	m.Update(press("d"))
+	deleteForm := m.renderForm(m.styles())
+	if !strings.Contains(deleteForm, "Type the name to confirm") || !strings.Contains(deleteForm, "󰌑 delete") || strings.Contains(deleteForm, "󰌑 save") {
+		t.Fatalf("delete confirmation copy is incorrect:\n%s", deleteForm)
+	}
+}
+
+func TestHostsCanBeHiddenAndTemporarilyShown(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetHost("alpha", metadata.Host{Hidden: true}); err != nil {
+		t.Fatal(err)
+	}
+	visible := m.filteredHosts()
+	if len(visible) != 1 || visible[0].Alias != "beta" {
+		t.Fatalf("hidden host remained visible: %+v", visible)
+	}
+	m.Update(press("."))
+	if !m.showHidden || len(m.filteredHosts()) != 2 {
+		t.Fatal(". did not reveal hidden hosts")
+	}
+	if !strings.Contains(m.renderHosts(m.styles()), "◌ alpha") {
+		t.Fatal("hidden host was not marked in the list")
+	}
+	m.cursor = 0
+	m.Update(press("h"))
+	if m.metadata.Host("alpha").Hidden {
+		t.Fatal("h did not restore the selected host")
+	}
+}
+
+func TestHiddenHostsConcealedStatusClears(t *testing.T) {
+	m := testApp(t)
+	m.showHidden = true
+	_, cmd := m.Update(press("."))
+	if cmd == nil || m.status != "Hidden hosts concealed" {
+		t.Fatal("concealing hidden hosts did not schedule the status to clear")
+	}
+	statusID := m.statusID
+	m.Update(clearStatusMsg(statusID - 1))
+	if m.status == "" {
+		t.Fatal("a stale timer cleared the current status")
+	}
+	m.Update(clearStatusMsg(statusID))
+	if m.status != "" {
+		t.Fatalf("status was not cleared: %q", m.status)
+	}
+}
+
+func TestMainLayoutKeepsDetailsRightAndFooterAtBottom(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 80, 24
+	body := m.renderHosts(m.styles())
+	if strings.Count(body, "│") != m.height-3 {
+		t.Fatalf("divider height = %d, want %d", strings.Count(body, "│"), m.height-3)
+	}
+	firstAlias := strings.Index(body, "alpha")
+	divider := strings.Index(body, "│")
+	secondAlias := strings.Index(body[firstAlias+len("alpha"):], "alpha")
+	if firstAlias < 0 || divider < firstAlias || secondAlias < 0 {
+		t.Fatalf("host list and details were not rendered side by side:\n%s", body)
+	}
+	rendered := m.render()
+	if strings.Count(rendered, "┬") != 1 {
+		t.Fatalf("header rule is missing its column junction:\n%s", rendered)
+	}
+	if lipgloss.Height(rendered) != m.height {
+		t.Fatalf("render height = %d, want %d", lipgloss.Height(rendered), m.height)
+	}
+	lines := strings.Split(rendered, "\n")
+	if !strings.Contains(lines[len(lines)-1], "? help") {
+		t.Fatalf("footer was not on the bottom row: %q", lines[len(lines)-1])
+	}
+}
+
+func TestEmptyHostListInvitesFirstHost(t *testing.T) {
+	m := testApp(t)
+	m.hosts = nil
+	view := m.renderHosts(m.styles())
+	if !strings.Contains(view, "No hosts yet") || !strings.Contains(view, "Press a to add your first destination") {
+		t.Fatalf("empty host state is not helpful:\n%s", view)
+	}
+}
+
+func TestDetailsAreCompactAndOmitEmptyMetadata(t *testing.T) {
+	m := testApp(t)
+	host := m.renderHostDetail(m.styles(), m.hosts[0], 50)
+	if strings.Contains(host, "Label") || strings.Contains(host, "Color") || strings.Contains(host, "Group") {
+		t.Fatalf("host details contain redundant or empty fields:\n%s", host)
+	}
+	if lipgloss.Height(host) > 8 {
+		t.Fatalf("host details are too tall: %d lines\n%s", lipgloss.Height(host), host)
+	}
+	key := m.renderKeyDetail(m.styles(), keymodel.Key{Name: "work", Algorithm: "ED25519", Fingerprint: "SHA256:test", PrivatePath: "/tmp/work"}, 50)
+	if strings.Contains(key, "Name") || strings.Contains(key, "Public") || strings.Contains(key, "Used by") {
+		t.Fatalf("key details contain redundant or empty fields:\n%s", key)
+	}
+	if lipgloss.Height(key) > 6 {
+		t.Fatalf("key details are too tall: %d lines\n%s", lipgloss.Height(key), key)
+	}
+}
