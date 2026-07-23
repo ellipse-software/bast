@@ -25,8 +25,8 @@ func renderBlock(id string, input HostInput) []byte {
 	if input.IdentityFile != "" {
 		fmt.Fprintf(&b, "    IdentityFile %s\n", configValue(input.IdentityFile))
 	}
-	if input.IdentitiesOnly {
-		b.WriteString("    IdentitiesOnly yes\n")
+	for _, option := range input.ExtraOptions {
+		fmt.Fprintf(&b, "    %s\n", option)
 	}
 	if input.PasswordOnly {
 		b.WriteString("    PubkeyAuthentication no\n")
@@ -222,4 +222,111 @@ func fileMode(path string, fallback os.FileMode) os.FileMode {
 		return fallback
 	}
 	return info.Mode().Perm()
+}
+
+var (
+	managedDirectives = map[string]bool{
+		"hostname": true, "user": true, "port": true,
+		"identityfile": true, "proxyjump": true,
+		"pubkeyauthentication": true, "passwordauthentication": true,
+		"preferredauthentications": true,
+	}
+	forbiddenDirectives = map[string]bool{
+		"host": true, "match": true, "include": true,
+		"proxycommand": true, "remotecommand": true, "localcommand": true,
+	}
+)
+
+func extractBlockExtras(data []byte, id string) []string {
+	block := findManagedBlock(data, id)
+	if block == nil {
+		return nil
+	}
+	var extras []string
+	for _, line := range strings.Split(string(block), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts, err := fields(line)
+		if err != nil || len(parts) == 0 {
+			continue
+		}
+		if strings.EqualFold(parts[0], "Host") || managedDirectives[strings.ToLower(parts[0])] {
+			continue
+		}
+		extras = append(extras, line)
+	}
+	return extras
+}
+
+func findManagedBlock(data []byte, id string) []byte {
+	startMarker := []byte(markerPrefix + id)
+	start := bytes.Index(data, startMarker)
+	if start < 0 || (start > 0 && data[start-1] != '\n') {
+		return nil
+	}
+	endRel := bytes.Index(data[start:], []byte(markerEnd))
+	if endRel < 0 {
+		return nil
+	}
+	end := start + endRel + len(markerEnd)
+	return data[start:end]
+}
+
+func ParseSSHFlags(input string) []string {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return nil
+	}
+	var options []string
+	for _, chunk := range strings.FieldsFunc(input, func(r rune) bool { return r == '\n' || r == ';' }) {
+		if line := strings.TrimSpace(chunk); line != "" {
+			options = append(options, line)
+		}
+	}
+	return options
+}
+
+func FormatSSHFlags(options []string) string {
+	return strings.Join(options, "; ")
+}
+
+func validateExtraOptions(options []string) error {
+	for _, option := range options {
+		parts, err := fields(strings.TrimSpace(option))
+		if err != nil {
+			return fmt.Errorf("invalid SSH flag %q: %w", option, err)
+		}
+		if len(parts) == 0 {
+			return errors.New("SSH flags cannot be empty")
+		}
+		name := strings.ToLower(parts[0])
+		if forbiddenDirectives[name] {
+			return fmt.Errorf("SSH flag %q is not allowed", parts[0])
+		}
+		if managedDirectives[name] {
+			return fmt.Errorf("use the dedicated field for %s instead of SSH flags", parts[0])
+		}
+		for _, value := range parts[1:] {
+			if strings.ContainsAny(value, "\r\n\x00") {
+				return fmt.Errorf("SSH flag %q cannot contain a newline or null byte", option)
+			}
+		}
+	}
+	return nil
+}
+
+func HasDirective(options []string, name string) bool {
+	lower := strings.ToLower(name)
+	for _, option := range options {
+		parts, err := fields(strings.TrimSpace(option))
+		if err != nil || len(parts) == 0 {
+			continue
+		}
+		if strings.EqualFold(parts[0], lower) {
+			return true
+		}
+	}
+	return false
 }

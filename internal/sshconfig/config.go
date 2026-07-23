@@ -40,14 +40,14 @@ type Resolved struct {
 }
 
 type HostInput struct {
-	Alias          string
-	HostName       string
-	User           string
-	Port           string
-	IdentityFile   string
-	IdentitiesOnly bool
-	PasswordOnly   bool
-	ProxyJump      string
+	Alias        string
+	HostName     string
+	User         string
+	Port         string
+	IdentityFile string
+	ExtraOptions []string
+	PasswordOnly bool
+	ProxyJump    string
 }
 
 type Manager struct {
@@ -249,6 +249,17 @@ func (m Manager) Update(id string, input HostInput) error {
 	return atomicWriteChecked(m.ManagedConfig, b, updated, 0600)
 }
 
+func (m Manager) ManagedExtras(id string) ([]string, error) {
+	if id == "" {
+		return nil, nil
+	}
+	b, err := os.ReadFile(m.ManagedConfig)
+	if err != nil {
+		return nil, err
+	}
+	return extractBlockExtras(b, id), nil
+}
+
 func (m Manager) Delete(id string) error {
 	if id == "" {
 		return errors.New("cannot delete an externally managed host")
@@ -291,7 +302,7 @@ func Validate(input HostInput) error {
 			return errors.New("port must be between 1 and 65535")
 		}
 	}
-	return nil
+	return validateExtraOptions(input.ExtraOptions)
 }
 
 func NormalizeAlias(label string) string {

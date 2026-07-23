@@ -58,7 +58,7 @@ func TestManagedHostLifecyclePreservesExternalConfig(t *testing.T) {
 	m := testManager(t)
 	original := "# hand-written config\nHost legacy\n  HostName old.example\n"
 	writeTestFile(t, m.MainConfig, original, 0640)
-	host, err := m.Add(HostInput{Alias: "prod", HostName: "prod.example", User: "deploy", Port: "2222", IdentityFile: "~/.ssh/bast/keys/work", IdentitiesOnly: true})
+	host, err := m.Add(HostInput{Alias: "prod", HostName: "prod.example", User: "deploy", Port: "2222", IdentityFile: "~/.ssh/bast/keys/work", ExtraOptions: []string{"IdentitiesOnly yes"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,5 +188,67 @@ func TestRenderBlockSupportsPasswordOnlyAuthentication(t *testing.T) {
 	}
 	if strings.Contains(block, "IdentityFile") {
 		t.Fatalf("password-only block unexpectedly contains an identity file:\n%s", block)
+	}
+}
+
+func TestRenderBlockWritesExtraOptions(t *testing.T) {
+	block := string(renderBlock("test", HostInput{Alias: "prod", HostName: "prod.example", ExtraOptions: []string{"IdentitiesOnly yes", "ForwardAgent yes"}}))
+	for _, directive := range []string{"IdentitiesOnly yes", "ForwardAgent yes"} {
+		if !strings.Contains(block, directive) {
+			t.Fatalf("block is missing %q:\n%s", directive, block)
+		}
+	}
+}
+
+func TestParseSSHFlags(t *testing.T) {
+	got := ParseSSHFlags("IdentitiesOnly yes; ForwardAgent yes")
+	if len(got) != 2 || got[0] != "IdentitiesOnly yes" || got[1] != "ForwardAgent yes" {
+		t.Fatalf("ParseSSHFlags() = %#v", got)
+	}
+	got = ParseSSHFlags("IdentitiesOnly yes\nForwardAgent yes")
+	if len(got) != 2 {
+		t.Fatalf("ParseSSHFlags(newline) = %#v", got)
+	}
+}
+
+func TestValidateExtraOptionsRejectsManagedAndForbiddenDirectives(t *testing.T) {
+	bad := [][]string{
+		{"HostName evil.example"},
+		{"ProxyCommand /bin/sh"},
+		{""},
+	}
+	for _, options := range bad {
+		if err := validateExtraOptions(options); err == nil {
+			t.Fatalf("expected invalid: %#v", options)
+		}
+	}
+	if err := validateExtraOptions([]string{"IdentitiesOnly yes", "ServerAliveInterval 60"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExtractBlockExtras(t *testing.T) {
+	block := renderBlock("abc123", HostInput{
+		Alias: "prod", HostName: "prod.example", User: "deploy",
+		IdentityFile: "~/.ssh/work", ExtraOptions: []string{"IdentitiesOnly yes", "ForwardAgent yes"},
+	})
+	extras := extractBlockExtras(block, "abc123")
+	if len(extras) != 2 || extras[0] != "IdentitiesOnly yes" || extras[1] != "ForwardAgent yes" {
+		t.Fatalf("extractBlockExtras() = %#v", extras)
+	}
+}
+
+func TestManagedExtras(t *testing.T) {
+	m := testManager(t)
+	host, err := m.Add(HostInput{Alias: "prod", HostName: "prod.example", ExtraOptions: []string{"ForwardAgent yes"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	extras, err := m.ManagedExtras(host.ManagedID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(extras) != 1 || extras[0] != "ForwardAgent yes" {
+		t.Fatalf("ManagedExtras() = %#v", extras)
 	}
 }

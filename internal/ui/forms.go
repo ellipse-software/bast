@@ -18,7 +18,7 @@ const (
 	descHostUser         = "Optional - Remote username; blank uses SSH default"
 	descHostPort         = "Optional - Port number; blank defaults to 22"
 	descHostIdentity     = "Optional - Key file, password auth, or agent defaults"
-	descHostIdentities   = "Optional - Only listed keys, not all in agent"
+	descHostSSHFlags     = "Optional - Extra OpenSSH options, separated by ; or newlines"
 	descHostProxyJump    = "Optional - Route connection through a jump host"
 	descHostGroup        = "Optional - Group header for sorting and search"
 	descHostTags         = "Optional - Comma-separated tags included in search"
@@ -181,7 +181,10 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		}
 		input := sshconfig.HostInput{
 			Alias: sshconfig.NormalizeAlias(label), HostName: values["Hostname"], User: values["User"], Port: values["Port"],
-			IdentityFile: identityFile, IdentitiesOnly: !passwordOnly && strings.EqualFold(values["Identities only"], "yes"), PasswordOnly: passwordOnly, ProxyJump: values["Proxy jump"],
+			IdentityFile: identityFile, ExtraOptions: sshconfig.ParseSSHFlags(values["SSH flags"]), PasswordOnly: passwordOnly, ProxyJump: values["Proxy jump"],
+		}
+		if identityFile != "" && !passwordOnly && !sshconfig.HasDirective(input.ExtraOptions, "IdentitiesOnly") {
+			input.ExtraOptions = append([]string{"IdentitiesOnly yes"}, input.ExtraOptions...)
 		}
 		oldAlias := values["Original label"]
 		var err error
@@ -351,7 +354,7 @@ func (m *App) openAddHostForm() {
 		{label: "User", description: descHostUser, placeholder: "ubuntu", optional: true},
 		{label: "Port", description: descHostPort, placeholder: "22", optional: true},
 		m.identityField("", false),
-		{label: "Identities only", description: descHostIdentities, placeholder: "yes or no", optional: true},
+		{label: "SSH flags", description: descHostSSHFlags, placeholder: "IdentitiesOnly yes; ForwardAgent yes", optional: true},
 		{label: "Proxy jump", description: descHostProxyJump, placeholder: "bastion", optional: true},
 		{label: "Group", description: descHostGroup, optional: true},
 		{label: "Tags", description: descHostTags, placeholder: "web, production", optional: true},
@@ -385,6 +388,7 @@ func (m *App) openEditHostForm() {
 	if !isPasswordOnly && len(host.Resolved.IdentityFiles) > 0 {
 		identity = host.Resolved.IdentityFiles[0]
 	}
+	extras, _ := m.config.ManagedExtras(host.ManagedID)
 	m.openForm("Edit host — "+m.hostLabel(host), "host_edit", []field{
 		{label: "Original label", value: host.Alias, hidden: true},
 		{label: "Label", description: descHostLabel, value: m.hostLabel(host)},
@@ -392,7 +396,7 @@ func (m *App) openEditHostForm() {
 		{label: "User", description: descHostUser, value: host.Resolved.User, optional: true},
 		{label: "Port", description: descHostPort, value: host.Resolved.Port, optional: true},
 		m.identityField(identity, isPasswordOnly),
-		{label: "Identities only", description: descHostIdentities, value: host.Resolved.IdentitiesOnly, optional: true, hidden: isPasswordOnly},
+		{label: "SSH flags", description: descHostSSHFlags, value: sshconfig.FormatSSHFlags(extras), optional: true},
 		{label: "Proxy jump", description: descHostProxyJump, value: emptyIfNone(host.Resolved.ProxyJump), optional: true},
 		{label: "Group", description: descHostGroup, value: meta.Group, optional: true},
 		{label: "Tags", description: descHostTags, value: strings.Join(meta.Tags, ", "), optional: true},
@@ -591,14 +595,6 @@ func (m *App) commitFormField() {
 		}
 	} else {
 		item.value = strings.TrimSpace(m.form.input.Value())
-	}
-	if item.label == "Identity file" {
-		for i := range m.form.fields {
-			if m.form.fields[i].label == "Identities only" {
-				m.form.fields[i].hidden = item.value == passwordOnlyIdentity
-				break
-			}
-		}
 	}
 }
 

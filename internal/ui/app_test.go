@@ -377,9 +377,14 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 		t.Fatalf("j did not select password-only authentication: %+v", option)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if m.form.fields[m.form.index].label != "Proxy jump" || !m.form.fields[5].hidden {
-		t.Fatal("password-only selection did not skip the irrelevant identities-only field")
+	if m.form.fields[m.form.index].label != "SSH flags" {
+		t.Fatal("password-only selection did not advance to SSH flags")
 	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.form.fields[m.form.index].label != "Proxy jump" {
+		t.Fatal("SSH flags did not advance to proxy jump")
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
 	if m.form.fields[m.form.index].label != "Identity file" {
 		t.Fatal("up did not return to the password-only identity choice")
@@ -395,14 +400,11 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 	}
 	m.updateForm(press("j"))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if m.form.fields[5].hidden {
-		t.Fatal("selecting a key did not restore the identities-only field")
-	}
 	if got := m.form.fields[4].value; got != "~/.ssh/bast/keys/work" {
 		t.Fatalf("selected identity = %q", got)
 	}
-	if m.form.fields[m.form.index].label != "Identities only" {
-		t.Fatalf("selecting a key did not advance: index=%d", m.form.index)
+	if m.form.fields[m.form.index].label != "SSH flags" {
+		t.Fatalf("selecting a key did not advance: index=%d label=%q", m.form.index, m.form.fields[m.form.index].label)
 	}
 
 	m = testApp(t)
