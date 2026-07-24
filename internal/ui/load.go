@@ -2,11 +2,31 @@ package ui
 
 import (
 	"context"
+	"net/http"
+	"os"
 	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"bast/internal/updater"
 )
+
+func (m *App) checkForUpdateCmd() tea.Cmd {
+	if !updater.IsStable(m.version) {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		latest, err := updater.Check(ctx, &http.Client{Timeout: 4 * time.Second}, m.version)
+		if err != nil || latest == "" {
+			return nil
+		}
+		executable, _ := os.Executable()
+		return updateAvailableMsg{version: latest, suggestion: updater.Suggestion(executable)}
+	}
+}
 
 func (m *App) loadCmd() tea.Cmd {
 	return func() tea.Msg {

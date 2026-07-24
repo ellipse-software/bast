@@ -62,6 +62,11 @@ type processDoneMsg struct {
 
 type clearStatusMsg uint64
 
+type updateAvailableMsg struct {
+	version    string
+	suggestion string
+}
+
 type App struct {
 	paths    paths.Paths
 	config   sshconfig.Manager
@@ -69,24 +74,26 @@ type App struct {
 	keyring  keys.Manager
 	metadata *metadata.Store
 
-	section         section
-	hosts           []sshconfig.Host
-	keys            []keys.Key
-	cursor          int
-	search          string
-	form            *form
-	help            bool
-	credits         bool
-	showHidden      bool
-	loading         bool
-	status          string
-	statusError     bool
-	statusID        uint64
-	width           int
-	height          int
-	dark            bool
-	version         string
-	collapsedGroups map[string]bool
+	section          section
+	hosts            []sshconfig.Host
+	keys             []keys.Key
+	cursor           int
+	search           string
+	form             *form
+	help             bool
+	credits          bool
+	showHidden       bool
+	loading          bool
+	status           string
+	statusError      bool
+	statusID         uint64
+	width            int
+	height           int
+	dark             bool
+	version          string
+	latestVersion    string
+	updateSuggestion string
+	collapsedGroups  map[string]bool
 
 	selectAfterLoadSection section
 	selectAfterLoadName    string
@@ -115,6 +122,9 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 }
 
 func (m *App) Init() tea.Cmd {
+	if updateCmd := m.checkForUpdateCmd(); updateCmd != nil {
+		return tea.Batch(m.loadCmd(), tea.RequestBackgroundColor, updateCmd)
+	}
 	return tea.Batch(m.loadCmd(), tea.RequestBackgroundColor)
 }
 
@@ -151,6 +161,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if uint64(msg) == m.statusID && !m.statusError {
 			m.status = ""
 		}
+		return m, nil
+	case updateAvailableMsg:
+		m.latestVersion, m.updateSuggestion = msg.version, msg.suggestion
 		return m, nil
 	case tea.MouseClickMsg:
 		return m.updateMouse(msg)

@@ -852,6 +852,34 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 	}
 }
 
+func TestAvailableUpdateAppearsInFooterAndCredits(t *testing.T) {
+	m := testApp(t)
+	m.version = "v1.2.3"
+	if m.checkForUpdateCmd() == nil {
+		t.Fatal("stable release did not schedule an update check")
+	}
+	m.Update(updateAvailableMsg{version: "v1.3.0", suggestion: "https://bast.sh"})
+	footer := m.renderFooter(m.styles())
+	if !strings.Contains(footer, "Update v1.3.0 · https://bast.sh") || lipgloss.Width(footer) > m.width {
+		t.Fatalf("update reminder width=%d, terminal width=%d: %q", lipgloss.Width(footer), m.width, footer)
+	}
+	m.credits = true
+	credits := m.renderCredits(m.styles())
+	if !strings.Contains(credits, "Update") || !strings.Contains(credits, "v1.3.0 · https://bast.sh") {
+		t.Fatalf("update reminder is missing from credits:\n%s", credits)
+	}
+	for _, line := range strings.Split(credits, "\n") {
+		if strings.Contains(line, "Update") && lipgloss.Width(strings.TrimSpace(line)) != 52 {
+			t.Fatalf("Update row is not fixed width:\n%s", line)
+		}
+	}
+
+	m.version = "dev"
+	if m.checkForUpdateCmd() != nil {
+		t.Fatal("development build scheduled an update check")
+	}
+}
+
 func TestEmptyHostListInvitesFirstHost(t *testing.T) {
 	m := testApp(t)
 	m.hosts = nil

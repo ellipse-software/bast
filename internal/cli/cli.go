@@ -28,6 +28,7 @@ Usage:
   bast                         Open the TUI
   bast <label>                 Connect directly using a host label
   bast tui                     Open the TUI explicitly
+  bast update                  Update installer-managed copies of Bast
   bast connect <host>          Connect using an alias or display label
   bast hosts <command>         Manage SSH hosts
   bast keys <command>          Manage SSH keys
@@ -94,7 +95,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "connect", "hosts", "keys":
+	case "tui", "update", "connect", "hosts", "keys":
 		return true
 	}
 	return false
@@ -126,21 +127,27 @@ func (r *Runner) Run(args []string) error {
 		fmt.Fprintln(r.Out, commandUsage(args[0], command))
 		return nil
 	}
-	store, err := metadata.Open(r.Paths.StateFile)
-	if err == nil {
-		r.store = store
-		err = r.OpenSSH.Check()
-	}
-	if err == nil {
-		switch args[0] {
-		case "connect":
-			err = r.connect(args[1:])
-		case "hosts":
-			err = r.hosts(args[1:])
-		case "keys":
-			err = r.keys(args[1:])
-		default:
-			err = usagef("unknown command %q", args[0])
+	var err error
+	if args[0] == "update" {
+		err = r.update(args[1:])
+	} else {
+		store, openErr := metadata.Open(r.Paths.StateFile)
+		err = openErr
+		if err == nil {
+			r.store = store
+			err = r.OpenSSH.Check()
+		}
+		if err == nil {
+			switch args[0] {
+			case "connect":
+				err = r.connect(args[1:])
+			case "hosts":
+				err = r.hosts(args[1:])
+			case "keys":
+				err = r.keys(args[1:])
+			default:
+				err = usagef("unknown command %q", args[0])
+			}
 		}
 	}
 	if err == nil {
@@ -161,6 +168,7 @@ func (r *Runner) Run(args []string) error {
 
 func commandUsage(resource, command string) string {
 	usage := map[string]string{
+		"update --help":   "Usage: bast update",
 		"hosts list":      "Usage: bast hosts list [--search text] [--sort smart|label|recent|group] [--all]",
 		"hosts show":      "Usage: bast hosts show <host>",
 		"hosts add":       "Usage: bast hosts add [label] --hostname host [connection and metadata options]",

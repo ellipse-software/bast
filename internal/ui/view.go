@@ -473,6 +473,9 @@ func (m *App) renderCredits(s styleSet) string {
 		"\n" + row("Repository", "github.com/ellipse-software/bast") +
 		"\n" + row("License", "MIT License") +
 		"\n" + row("Version", version)
+	if m.latestVersion != "" {
+		content += "\n" + row("Update", m.latestVersion+" · "+m.updateSuggestion)
+	}
 	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, content)
 }
 
@@ -501,6 +504,8 @@ func (m *App) renderFooter(s styleSet) string {
 		} else {
 			left += s.success.Render(m.status)
 		}
+	} else if left == "" && m.latestVersion != "" {
+		left = s.active.Render("Update " + m.latestVersion + " · " + m.updateSuggestion)
 	}
 	hint := "v about • ? help"
 	if m.form != nil {

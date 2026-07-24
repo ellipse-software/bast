@@ -126,7 +126,7 @@ func TestKeyCommandsImportEditExportAndDelete(t *testing.T) {
 }
 
 func TestInvocationAndCommandHelp(t *testing.T) {
-	if !IsInvocation([]string{"--json", "hosts", "list"}) || !IsInvocation([]string{"connect", "prod"}) || IsInvocation([]string{"prod"}) {
+	if !IsInvocation([]string{"--json", "hosts", "list"}) || !IsInvocation([]string{"connect", "prod"}) || !IsInvocation([]string{"update"}) || IsInvocation([]string{"prod"}) {
 		t.Fatal("command invocation detection is incorrect")
 	}
 	out, errOut, err := runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "hosts", "add", "--help")

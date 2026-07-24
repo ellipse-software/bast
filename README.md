@@ -57,6 +57,7 @@ bast
 | Command | What it does |
 | --- | --- |
 | `bast` | Open the host picker |
+| `bast update` | Update Bast when it was installed with the bast.sh installer |
 | `bast <label>` | Connect directly to a host label |
 | `bast "Production web"` | Labels with spaces work. Bast maps them to safe OpenSSH names |
 | `bast hosts list` | List hosts without opening the TUI |
@@ -66,7 +67,9 @@ Inside the TUI, press `?` for the full keybinding reference.
 
 ## Command-line interface
 
-Bare `bast` still opens the TUI. The `hosts` and `keys` commands expose the same management operations directly to people, scripts, and AI agents.
+Bare `bast` still opens the TUI. Tagged builds check GitHub for a newer stable release in the background and show a reminder without delaying startup. Installer-managed copies suggest `bast update`, Homebrew copies suggest `brew upgrade bast`, and source builds link back to bast.sh. Network failures are ignored.
+
+`bast update` only runs when the bast.sh installer receipt is present beside the executable. It will not overwrite Homebrew-managed or source-built copies. The `hosts` and `keys` commands expose the same management operations directly to people, scripts, and AI agents.
 
 ```sh
 # Hosts
