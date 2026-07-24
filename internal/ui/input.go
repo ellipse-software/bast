@@ -71,12 +71,11 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	layout := m.panelLayout()
 	listWidth := layout.listWidth
 
-	if layout.mobile && m.section == hostsSection {
+	if m.section == hostsSection {
 		if _, ok := m.selectedHost(); ok {
-			btnY := layout.detailTop + connectActionRow
-			btnX := 2
-			btnWidth := lipgloss.Width(m.styles().active.Render(connectAction)) + 2
-			if mouse.Y == btnY && mouse.X >= btnX && mouse.X < btnX+btnWidth {
+			btnX, btnY, btnWidth := m.connectButtonBounds(layout)
+			inDetail := layout.mobile || mouse.X > listWidth
+			if inDetail && mouse.Y == btnY && mouse.X >= btnX && mouse.X < btnX+btnWidth {
 				return m.connectSelected()
 			}
 		}

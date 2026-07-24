@@ -15,11 +15,19 @@ import (
 
 const (
 	connectAction    = " Connect "
-	connectActionRow = 3
+	connectActionRow = 0
 
 	keyInstallAction    = "[u] Add to server"
 	keyInstallActionRow = 4
 )
+
+func (m *App) connectButtonBounds(layout panelLayout) (x, y, width int) {
+	btn := m.styles().title.Render(connectAction)
+	width = lipgloss.Width(btn)
+	y = layout.detailTop + connectActionRow
+	x = max(0, m.terminalWidth()-width-2)
+	return x, y, width
+}
 
 func (m *App) render() string {
 	styles := m.styles()
@@ -212,25 +220,28 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	}
 	var b strings.Builder
 	label := m.hostLabel(host)
+	connectBtn := s.title.Render(connectAction)
+	connectBtnWidth := lipgloss.Width(connectBtn)
 	titleStyle := s.active
-	title := truncate(label, max(4, width-3))
+	titleMax := max(4, width-connectBtnWidth-4)
+	title := truncate(label, titleMax)
 	if foreground, ok := contrastingTextColor(meta.Color); ok {
 		titleStyle = lipgloss.NewStyle().Bold(true).
 			Foreground(lipgloss.Color(foreground)).
 			Background(lipgloss.Color(meta.Color)).
 			Padding(0, 1)
-		title = truncate(label, max(4, width-5))
+		titleMax = max(4, width-connectBtnWidth-6)
+		title = truncate(label, titleMax)
 	}
 	destination := destination(host)
 	if destination == "" {
 		destination = host.Alias
 	}
-	b.WriteString("  " + titleStyle.Render(title) + "\n")
+	titlePart := titleStyle.Render(title)
+	gap := max(1, width-2-lipgloss.Width(titlePart)-connectBtnWidth)
+	b.WriteString("  " + titlePart + strings.Repeat(" ", gap) + connectBtn + "\n")
 	b.WriteString("  " + s.value.Render(truncate(destination, max(4, width-3))) + "\n")
 	b.WriteString("  " + s.muted.Render(truncate(owner+" · "+trust, max(4, width-3))) + "\n")
-	if m.isMobileLayout() {
-		b.WriteString("  " + s.active.Render(connectAction) + "\n")
-	}
 	b.WriteString("\n")
 	b.WriteString(compactRow(s, "Source", shortPath(host.Source, m.paths.Home)+":"+strconv.Itoa(host.Line), width))
 	if label != host.Alias {

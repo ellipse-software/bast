@@ -820,12 +820,35 @@ func TestMobileListScrollsWithArrowKeys(t *testing.T) {
 	}
 }
 
+func TestDesktopConnectButtonIsVisible(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 80, 24
+	body := m.renderHosts(m.styles())
+	if !strings.Contains(body, connectAction) {
+		t.Fatalf("desktop host details are missing the connect button:\n%s", body)
+	}
+}
+
+func TestDesktopConnectButtonIsClickable(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 80, 24
+	layout := m.panelLayout()
+	btnX, btnY, _ := m.connectButtonBounds(layout)
+	if btnX <= layout.listWidth {
+		t.Fatalf("connect button x=%d should be in the detail panel (listWidth=%d)", btnX, layout.listWidth)
+	}
+	_, cmd := m.Update(tea.MouseClickMsg(tea.Mouse{X: btnX, Y: btnY, Button: tea.MouseLeft}))
+	if cmd == nil {
+		t.Fatal("desktop connect button click did not trigger connect")
+	}
+}
+
 func TestMobileConnectButtonIsClickable(t *testing.T) {
 	m := testApp(t)
 	m.width, m.height = 40, 24
 	layout := m.panelLayout()
-	btnY := layout.detailTop + connectActionRow
-	m.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: btnY, Button: tea.MouseLeft}))
+	btnX, btnY, _ := m.connectButtonBounds(layout)
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: btnX, Y: btnY, Button: tea.MouseLeft}))
 	m.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: layout.listTop + 1, Button: tea.MouseLeft}))
 	if m.cursor != 1 {
 		t.Fatalf("mobile list click selected row %d, want 1", m.cursor)
