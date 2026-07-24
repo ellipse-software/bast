@@ -3,8 +3,8 @@
 <h1>
   <a href="https://bast.sh">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://cdn.bast.sh/bast-word-dark.png">
-      <img alt="Bast" src="https://cdn.bast.sh/bast-word.png" width="208">
+      <source media="(prefers-color-scheme: dark)" srcset="https://cdn.bast.sh/bast-word-dark.png?c">
+      <img alt="Bast" src="https://cdn.bast.sh/bast-word.png?c" width="208">
     </picture>
   </a>
 </h1>
