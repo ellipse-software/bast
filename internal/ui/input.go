@@ -68,26 +68,52 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	listWidth, _, bodyHeight := m.columnDimensions()
-	row := mouse.Y - 2
-	if row < 0 || row >= bodyHeight {
-		return m, nil
-	}
-	if m.section == keysSection && mouse.X >= listWidth+3 && row == keyInstallActionRow {
-		key, ok := m.selectedKey()
-		if ok && (key.PublicPath != "" || key.PrivatePath != "") && mouse.X < listWidth+3+len(keyInstallAction) {
-			m.openInstallKeyForm()
+	layout := m.panelLayout()
+	listWidth := layout.listWidth
+
+	if layout.mobile && m.section == hostsSection {
+		if _, ok := m.selectedHost(); ok {
+			btnY := layout.detailTop + connectActionRow
+			btnX := 2
+			btnWidth := lipgloss.Width(m.styles().active.Render(connectAction)) + 2
+			if mouse.Y == btnY && mouse.X >= btnX && mouse.X < btnX+btnWidth {
+				return m.connectSelected()
+			}
 		}
+	}
+
+	if m.section == keysSection {
+		detailX := listWidth + 3
+		if layout.mobile {
+			detailX = 2
+		}
+		detailRow := mouse.Y - layout.detailTop
+		if detailRow == keyInstallActionRow && mouse.X >= detailX {
+			key, ok := m.selectedKey()
+			if ok && (key.PublicPath != "" || key.PrivatePath != "") && mouse.X < detailX+len(keyInstallAction) {
+				m.openInstallKeyForm()
+			}
+			return m, nil
+		}
+	}
+
+	if layout.mobile {
+		if mouse.Y < layout.listTop || mouse.Y >= layout.listTop+layout.listHeight {
+			return m, nil
+		}
+	} else if mouse.X < 0 || mouse.X >= listWidth {
 		return m, nil
 	}
-	if mouse.X < 0 || mouse.X >= listWidth {
-		return m, nil
-	}
+
 	count := m.itemCount()
 	if count == 0 {
 		return m, nil
 	}
-	index := scrollStart(m.cursor, count, bodyHeight) + row
+	row := mouse.Y - layout.listTop
+	if row < 0 || row >= layout.listHeight {
+		return m, nil
+	}
+	index := scrollStart(m.cursor, count, layout.listHeight) + row
 	if index < count {
 		m.cursor = index
 	}

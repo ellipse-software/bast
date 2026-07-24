@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -772,6 +773,62 @@ func TestHiddenHostsConcealedStatusClears(t *testing.T) {
 	m.Update(clearStatusMsg(statusID))
 	if m.status != "" {
 		t.Fatalf("status was not cleared: %q", m.status)
+	}
+}
+
+func TestMobileLayoutStacksPanelsVertically(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 40, 24
+	body := m.renderHosts(m.styles())
+	if strings.Contains(body, "│") {
+		t.Fatalf("mobile layout should not use a vertical divider:\n%s", body)
+	}
+	firstAlpha := strings.Index(body, "alpha")
+	secondAlpha := strings.Index(body[firstAlpha+len("alpha"):], "alpha")
+	if firstAlpha < 0 || secondAlpha < 0 {
+		t.Fatal("host list and details were not rendered")
+	}
+	if secondAlpha <= firstAlpha {
+		t.Fatalf("details should appear below the list in mobile layout:\n%s", body)
+	}
+	if !strings.Contains(body, connectAction) {
+		t.Fatalf("mobile host details are missing the connect button:\n%s", body)
+	}
+	footer := m.renderFooter(m.styles())
+	if !strings.Contains(footer, "click Connect") {
+		t.Fatalf("mobile footer does not mention connect: %q", footer)
+	}
+}
+
+func TestMobileListScrollsWithArrowKeys(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 40, 24
+	for i := range 20 {
+		m.hosts = append(m.hosts, sshconfig.Host{Alias: fmt.Sprintf("host-%02d", i)})
+	}
+	m.cursor = 0
+	for range 8 {
+		m.Update(press("j"))
+	}
+	if m.cursor != 8 {
+		t.Fatalf("j did not move the cursor in mobile layout: cursor=%d", m.cursor)
+	}
+	layout := m.panelLayout()
+	start := scrollStart(m.cursor, m.itemCount(), layout.listHeight)
+	if start == 0 {
+		t.Fatal("mobile list did not scroll to keep the cursor visible")
+	}
+}
+
+func TestMobileConnectButtonIsClickable(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 40, 24
+	layout := m.panelLayout()
+	btnY := layout.detailTop + connectActionRow
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: btnY, Button: tea.MouseLeft}))
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 2, Y: layout.listTop + 1, Button: tea.MouseLeft}))
+	if m.cursor != 1 {
+		t.Fatalf("mobile list click selected row %d, want 1", m.cursor)
 	}
 }
 
