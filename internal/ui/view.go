@@ -205,7 +205,7 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 	}
 	return "  " + s.active.Render(truncate(row.group, max(4, width-3))) + "\n" +
 		"  " + s.muted.Render(fmt.Sprintf("%d servers · %s", row.count, state)) + "\n\n" +
-		"  " + s.value.Render("Press ␣ to collapse or expand this group.")
+		"  " + s.value.Render("Press ␣ to collapse or expand · e to rename")
 }
 
 func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) string {
@@ -541,7 +541,13 @@ func (m *App) renderFooter(s styleSet) string {
 	if m.form != nil {
 		hint = m.formHint()
 	} else if m.section == hostsSection {
-		if m.isMobileLayout() {
+		if _, groupSelected := m.selectedGroupHeader(); groupSelected {
+			if m.isMobileLayout() {
+				hint = "↑/↓ or j/k move • e rename • ␣ group • a add • v about • ? help"
+			} else {
+				hint = "␣ group • e rename • a add • v about • ? help"
+			}
+		} else if m.isMobileLayout() {
 			hint = "↑/↓ or j/k move • click Connect • a add • v about • ? help"
 		} else {
 			hint = "󰌑 connect • ␣ group • a add • h hide • v about • ? help"

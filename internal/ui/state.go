@@ -273,6 +273,73 @@ func (m *App) selectedGroup() (string, bool) {
 	group := rows[m.cursor].group
 	return group, group != ""
 }
+
+func (m *App) selectedGroupHeader() (string, bool) {
+	rows := m.hostRows()
+	if m.cursor < 0 || m.cursor >= len(rows) || !rows[m.cursor].header {
+		return "", false
+	}
+	return rows[m.cursor].group, true
+}
+
+func groupShortName(path string) string {
+	if slash := strings.LastIndex(path, "/"); slash >= 0 {
+		return path[slash+1:]
+	}
+	return path
+}
+
+func replaceGroupPrefix(group, oldPrefix, newPrefix string) string {
+	if group == oldPrefix {
+		return newPrefix
+	}
+	if strings.HasPrefix(group, oldPrefix+"/") {
+		return newPrefix + group[len(oldPrefix):]
+	}
+	return group
+}
+
+func (m *App) renameGroup(oldPath, newSegment string) (string, error) {
+	newSegment = strings.TrimSpace(newSegment)
+	if newSegment == "" {
+		return "", fmt.Errorf("group name cannot be empty")
+	}
+	parts := groupPathParts(oldPath)
+	parent := strings.Join(parts[:len(parts)-1], "/")
+	newPath := newSegment
+	if parent != "" {
+		newPath = parent + "/" + newSegment
+	}
+	normalized, err := normalizeGroupPath(newPath)
+	if err != nil {
+		return "", err
+	}
+	if normalized == oldPath {
+		return normalized, nil
+	}
+	for _, host := range m.hosts {
+		meta := m.metadata.Host(host.Alias)
+		existing, err := normalizeGroupPath(meta.Group)
+		if err != nil || existing == "" {
+			continue
+		}
+		if existing != oldPath && !strings.HasPrefix(existing, oldPath+"/") {
+			continue
+		}
+		meta.Group = replaceGroupPrefix(existing, oldPath, normalized)
+		if err := m.metadata.SetHost(host.Alias, meta); err != nil {
+			return "", err
+		}
+	}
+	if m.collapsedGroups != nil {
+		updated := map[string]bool{}
+		for path, collapsed := range m.collapsedGroups {
+			updated[replaceGroupPrefix(path, oldPath, normalized)] = collapsed
+		}
+		m.collapsedGroups = updated
+	}
+	return normalized, nil
+}
 func (m *App) selectedKey() (keys.Key, bool) {
 	items := m.filteredKeys()
 	if m.cursor >= 0 && m.cursor < len(items) {

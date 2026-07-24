@@ -196,7 +196,11 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "e":
 		if m.section == hostsSection {
-			m.openEditHostForm()
+			if _, ok := m.selectedGroupHeader(); ok {
+				m.openEditGroupForm()
+			} else {
+				m.openEditHostForm()
+			}
 		} else {
 			m.openEditKeyForm()
 		}

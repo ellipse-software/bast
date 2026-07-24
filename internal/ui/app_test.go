@@ -118,6 +118,68 @@ func TestHostGroupsAreVisuallySeparatedAndCollapsible(t *testing.T) {
 	}
 }
 
+func TestFooterHidesConnectWhenGroupSelected(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	m.sortHosts()
+	m.cursor = 0
+
+	footer := m.renderFooter(m.styles())
+	if strings.Contains(footer, "connect") || strings.Contains(footer, "Connect") {
+		t.Fatalf("group footer should not mention connect: %q", footer)
+	}
+	if !strings.Contains(footer, "rename") {
+		t.Fatalf("group footer should mention rename: %q", footer)
+	}
+
+	m.cursor = 1
+	footer = m.renderFooter(m.styles())
+	if !strings.Contains(footer, "connect") && !strings.Contains(footer, "Connect") {
+		t.Fatalf("host footer should mention connect: %q", footer)
+	}
+}
+
+func TestRenameGroupCascadesToHosts(t *testing.T) {
+	m := testApp(t)
+	m.hosts = append(m.hosts, sshconfig.Host{Alias: "gamma"})
+	for alias, group := range map[string]string{
+		"alpha": "Work/Production",
+		"beta":  "Work/Production/web",
+		"gamma": "Work/Staging",
+	} {
+		if err := m.metadata.SetHost(alias, metadata.Host{Group: group}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.sortHosts()
+	for i, row := range m.hostRows() {
+		if row.header && row.group == "Work/Production" {
+			m.cursor = i
+			break
+		}
+	}
+	m.openEditGroupForm()
+	if m.form == nil || m.form.action != "group_edit" {
+		t.Fatalf("form = %+v", m.form)
+	}
+	m.form.input.SetValue("Prod")
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.form != nil {
+		t.Fatal("Enter did not save and close the group edit form")
+	}
+	if got := m.metadata.Host("alpha").Group; got != "Work/Prod" {
+		t.Fatalf("alpha group = %q", got)
+	}
+	if got := m.metadata.Host("beta").Group; got != "Work/Prod/web" {
+		t.Fatalf("beta group = %q", got)
+	}
+	if got := m.metadata.Host("gamma").Group; got != "Work/Staging" {
+		t.Fatalf("gamma group = %q", got)
+	}
+}
+
 func TestHostGroupsSupportFiveNestedLevels(t *testing.T) {
 	m := testApp(t)
 	m.hosts = append(m.hosts, sshconfig.Host{Alias: "gamma"}, sshconfig.Host{Alias: "delta"})

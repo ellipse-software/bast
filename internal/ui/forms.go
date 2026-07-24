@@ -134,7 +134,7 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func isEditForm(f *form) bool {
-	return f.action == "host_edit" || f.action == "metadata_edit" || f.action == "key_comment"
+	return f.action == "host_edit" || f.action == "metadata_edit" || f.action == "group_edit" || f.action == "key_comment"
 }
 
 func (m *App) updateFormPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
@@ -224,6 +224,13 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			}
 		}
 		return m.finishMutation(err, "Host saved")
+	case "group_edit":
+		oldPath := values["Original path"]
+		newPath, err := m.renameGroup(oldPath, values["Name"])
+		if err == nil {
+			m.selectAfterLoadSection, m.selectAfterLoadName, m.selectAfterLoadGroup = hostsSection, newPath, true
+		}
+		return m.finishMutation(err, "Group renamed")
 	case "metadata_edit":
 		alias := values["Alias"]
 		old := m.metadata.Host(alias)
@@ -367,6 +374,17 @@ func (m *App) openAddHostForm() {
 		{label: "Environment", description: descHostEnvironment, placeholder: "production", optional: true},
 		{label: "Color", description: descHostColor, placeholder: "#7C3AED", optional: true},
 		{label: "Notes", description: descHostNotes, optional: true},
+	})
+}
+
+func (m *App) openEditGroupForm() {
+	group, ok := m.selectedGroupHeader()
+	if !ok {
+		return
+	}
+	m.openForm("Rename group — "+groupShortName(group), "group_edit", []field{
+		{label: "Original path", value: group, hidden: true},
+		{label: "Name", description: "Renames this group for every host inside it", value: groupShortName(group)},
 	})
 }
 
