@@ -22,8 +22,6 @@ Browse SSH hosts, manage keys, and connect from the terminal.
 
 </div>
 
----
-
 ![Bast terminal interface](https://bast.sh/demo.png)
 
 ## Install
