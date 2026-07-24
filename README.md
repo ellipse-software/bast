@@ -1,16 +1,15 @@
 <div align="center">
+  <a href="https://bast.sh">
 <img src="https://cdn.bast.sh/bast-word.png?a=b" alt="Bast" height="200">
-
-
-
-  [![License: MIT](https://img.shields.io/github/license/ellipse-software/bast)](LICENSE)
+  </a>
+  
+[![License: MIT](https://img.shields.io/github/license/ellipse-software/bast)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white)](go.mod)
 [![Release](https://img.shields.io/github/v/release/ellipse-software/bast)](https://github.com/ellipse-software/bast/releases)
 [![Tests](https://github.com/ellipse-software/bast/actions/workflows/test.yml/badge.svg)](https://github.com/ellipse-software/bast/actions/workflows/test.yml)
 [![Website](https://img.shields.io/badge/website-bast.sh-111)](https://bast.sh)
 
 Browse SSH hosts, manage keys, and connect from the terminal. The fast way into the servers you use every day.
-
 </div>
 
 ---
