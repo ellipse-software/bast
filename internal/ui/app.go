@@ -83,6 +83,7 @@ type App struct {
 	width           int
 	height          int
 	dark            bool
+	version         string
 	collapsedGroups map[string]bool
 
 	selectAfterLoadSection section
@@ -90,7 +91,7 @@ type App struct {
 	selectAfterLoadGroup   bool
 }
 
-func New(p paths.Paths, client openssh.Client) (*App, error) {
+func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 	store, err := metadata.Open(p.StateFile)
 	if err != nil {
 		return nil, err
@@ -106,6 +107,7 @@ func New(p paths.Paths, client openssh.Client) (*App, error) {
 		metadata:        store,
 		loading:         true,
 		dark:            true,
+		version:         version,
 		collapsedGroups: map[string]bool{},
 	}, nil
 }

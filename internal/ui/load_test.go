@@ -43,7 +43,7 @@ func TestLoadEnrichesEveryHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	app, err := New(p, openssh.Client{SSH: ssh, SSHKeygen: keygen, SSHAdd: sshAdd})
+	app, err := New(p, openssh.Client{SSH: ssh, SSHKeygen: keygen, SSHAdd: sshAdd}, "dev")
 	if err != nil {
 		t.Fatal(err)
 	}

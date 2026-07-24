@@ -57,7 +57,7 @@ func run(args []string) error {
 		return directConnect(p, client, args[0])
 	}
 	telemetry.Track("tui_open", buildVersion())
-	model, err := ui.New(p, client)
+	model, err := ui.New(p, client, version)
 	if err != nil {
 		return err
 	}

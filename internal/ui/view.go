@@ -26,6 +26,12 @@ func (m *App) render() string {
 	if m.loading {
 		header += "  " + styles.muted.Render("syncing…")
 	}
+	if m.version != "" && m.version != "dev" {
+		space := width - lipgloss.Width(header) - lipgloss.Width(m.version)
+		if space > 0 {
+			header += strings.Repeat(" ", space) + styles.muted.Render(m.version)
+		}
+	}
 	var body string
 	if m.statusError && m.status != "" {
 		body = m.renderError(styles)
