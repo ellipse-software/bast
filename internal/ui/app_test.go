@@ -882,6 +882,55 @@ func TestMobileListScrollsWithArrowKeys(t *testing.T) {
 	}
 }
 
+func TestMobileListHasClickableScrollbar(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 40, 24
+	for i := range 20 {
+		m.hosts = append(m.hosts, sshconfig.Host{Alias: fmt.Sprintf("host-%02d", i)})
+	}
+	layout := m.panelLayout()
+	body := m.renderHosts(m.styles())
+	if !strings.Contains(body, "↑") || !strings.Contains(body, "┃") || !strings.Contains(body, "↓") {
+		t.Fatalf("mobile scrollbar is missing:\n%s", body)
+	}
+
+	x := layout.listWidth - 1
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x, Y: layout.listTop + layout.listHeight - 1, Button: tea.MouseLeft}))
+	if m.cursor != m.itemCount()-1 {
+		t.Fatalf("scrollbar down button selected row %d, want %d", m.cursor, m.itemCount()-1)
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x, Y: layout.listTop + layout.listHeight/2, Button: tea.MouseLeft}))
+	if m.cursor <= 0 || m.cursor >= m.itemCount()-1 {
+		t.Fatalf("scrollbar track selected unexpected row %d", m.cursor)
+	}
+	m.Update(tea.MouseMotionMsg(tea.Mouse{X: x - 2, Y: layout.listTop + layout.listHeight - 2, Button: tea.MouseLeft}))
+	if m.cursor != m.itemCount()-1 {
+		t.Fatalf("dragging the scrollbar selected row %d, want %d", m.cursor, m.itemCount()-1)
+	}
+	m.Update(tea.MouseReleaseMsg(tea.Mouse{X: x - 2, Y: layout.listTop + layout.listHeight - 2, Button: tea.MouseLeft}))
+	m.Update(tea.MouseMotionMsg(tea.Mouse{X: x, Y: layout.listTop + 1, Button: tea.MouseLeft}))
+	if m.cursor != m.itemCount()-1 {
+		t.Fatalf("scrollbar kept dragging after release: row %d", m.cursor)
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x, Y: layout.listTop, Button: tea.MouseLeft}))
+	if m.cursor != 0 {
+		t.Fatalf("scrollbar up button selected row %d, want 0", m.cursor)
+	}
+}
+
+func TestMobileListScrollsWithTouchWheel(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 40, 24
+	m.Update(tea.MouseWheelMsg(tea.Mouse{X: 2, Y: m.panelLayout().listTop, Button: tea.MouseWheelDown}))
+	if m.cursor != 1 {
+		t.Fatalf("wheel down selected row %d, want 1", m.cursor)
+	}
+	m.Update(tea.MouseWheelMsg(tea.Mouse{X: 2, Y: m.panelLayout().listTop, Button: tea.MouseWheelUp}))
+	if m.cursor != 0 {
+		t.Fatalf("wheel up selected row %d, want 0", m.cursor)
+	}
+}
+
 func TestDesktopConnectButtonIsVisible(t *testing.T) {
 	m := testApp(t)
 	m.width, m.height = 80, 24

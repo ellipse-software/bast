@@ -53,6 +53,7 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if mouse.Button != tea.MouseLeft || m.help || m.credits || m.form != nil {
 		return m, nil
 	}
+	m.scrollbarDragging = false
 
 	if mouse.Y == 0 {
 		tabsStart := lipgloss.Width(" BAST ") + 2
@@ -108,6 +109,20 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if count == 0 {
 		return m, nil
 	}
+	if layout.mobile && count > layout.listHeight && mouse.X >= layout.listWidth-mobileScrollbarWidth {
+		row := mouse.Y - layout.listTop
+		switch {
+		case row == 0:
+			m.cursor = 0
+		case row == layout.listHeight-1:
+			m.cursor = count - 1
+		case row > 0 && row < layout.listHeight-1:
+			m.scrollbarDragging = true
+			track := max(1, layout.listHeight-3)
+			m.cursor = ((row-1)*(count-1) + track/2) / track
+		}
+		return m, nil
+	}
 	row := mouse.Y - layout.listTop
 	if row < 0 || row >= layout.listHeight {
 		return m, nil
@@ -115,6 +130,47 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	index := scrollStart(m.cursor, count, layout.listHeight) + row
 	if index < count {
 		m.cursor = index
+	}
+	return m, nil
+}
+
+func (m *App) updateMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
+	if !m.scrollbarDragging || msg.Mouse().Button != tea.MouseLeft {
+		return m, nil
+	}
+	layout := m.panelLayout()
+	count := m.itemCount()
+	if !layout.mobile || count <= layout.listHeight {
+		m.scrollbarDragging = false
+		return m, nil
+	}
+	track := max(1, layout.listHeight-3)
+	row := min(layout.listHeight-2, max(1, msg.Mouse().Y-layout.listTop))
+	m.cursor = ((row-1)*(count-1) + track/2) / track
+	return m, nil
+}
+
+func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	if m.help || m.credits || m.form != nil {
+		return m, nil
+	}
+	mouse := msg.Mouse()
+	layout := m.panelLayout()
+	if mouse.Y < layout.listTop || mouse.Y >= layout.listTop+layout.listHeight {
+		return m, nil
+	}
+	if !layout.mobile && (mouse.X < 0 || mouse.X >= layout.listWidth) {
+		return m, nil
+	}
+	switch mouse.Button {
+	case tea.MouseWheelUp:
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case tea.MouseWheelDown:
+		if m.cursor+1 < m.itemCount() {
+			m.cursor++
+		}
 	}
 	return m, nil
 }

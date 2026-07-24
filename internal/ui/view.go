@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	connectAction    = " Connect "
-	connectActionRow = 0
+	connectAction        = " Connect "
+	connectActionRow     = 0
+	mobileScrollbarWidth = 3
 
 	keyInstallAction    = "[u] Add to server"
 	keyInstallActionRow = 4
@@ -137,6 +138,10 @@ func (m *App) renderHosts(s styleSet) string {
 	listHeight := layout.listHeight
 	detailHeight := layout.detailHeight
 	rowsData := m.hostRows()
+	rowWidth := listWidth
+	if layout.mobile && len(rowsData) > listHeight {
+		rowWidth -= mobileScrollbarWidth
+	}
 	start := scrollStart(m.cursor, len(rowsData), listHeight)
 	var list strings.Builder
 	for i := start; i < min(len(rowsData), start+listHeight); i++ {
@@ -151,11 +156,11 @@ func (m *App) renderHosts(s styleSet) string {
 			if slash := strings.LastIndex(name, "/"); row.depth > 0 && slash >= 0 {
 				name = name[slash+1:]
 			}
-			line := indent + indicator + " " + truncate(name, max(2, listWidth-lipgloss.Width(indent)-8)) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
+			line := indent + indicator + " " + truncate(name, max(2, rowWidth-lipgloss.Width(indent)-8)) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
 			if i == m.cursor {
-				line = s.selected.Width(listWidth).Render(line)
+				line = s.selected.Width(rowWidth).Render(line)
 			} else {
-				line = s.active.Width(listWidth).Render(line)
+				line = s.active.Width(rowWidth).Render(line)
 			}
 			list.WriteString(line + "\n")
 			continue
@@ -169,15 +174,18 @@ func (m *App) renderHosts(s styleSet) string {
 			prefix = "◆ "
 		}
 		indent := strings.Repeat("  ", row.depth)
-		line := indent + prefix + truncate(m.hostLabel(host), max(2, listWidth-lipgloss.Width(indent+prefix)-2))
+		line := indent + prefix + truncate(m.hostLabel(host), max(2, rowWidth-lipgloss.Width(indent+prefix)-2))
 		if i == m.cursor {
-			line = s.selected.Width(listWidth).Render(line)
+			line = s.selected.Width(rowWidth).Render(line)
 		} else {
-			line = lipgloss.NewStyle().Width(listWidth).Render(line)
+			line = lipgloss.NewStyle().Width(rowWidth).Render(line)
 		}
 		list.WriteString(line + "\n")
 	}
-	listPanel := lipgloss.NewStyle().Width(listWidth).Height(listHeight).Render(strings.TrimRight(list.String(), "\n"))
+	listPanel := lipgloss.NewStyle().Width(rowWidth).Height(listHeight).Render(strings.TrimRight(list.String(), "\n"))
+	if layout.mobile && len(rowsData) > listHeight {
+		listPanel = lipgloss.JoinHorizontal(lipgloss.Top, listPanel, m.renderMobileScrollbar(s, len(rowsData), listHeight))
+	}
 	detailContent := ""
 	if m.cursor >= 0 && m.cursor < len(rowsData) {
 		if rowsData[m.cursor].header {
@@ -275,6 +283,10 @@ func (m *App) renderKeys(s styleSet) string {
 	layout := m.panelLayout()
 	listHeight := layout.listHeight
 	detailHeight := layout.detailHeight
+	rowWidth := listWidth
+	if layout.mobile && len(filtered) > listHeight {
+		rowWidth -= mobileScrollbarWidth
+	}
 	start := scrollStart(m.cursor, len(filtered), listHeight)
 	var list strings.Builder
 	for i := start; i < min(len(filtered), start+listHeight); i++ {
@@ -283,15 +295,18 @@ func (m *App) renderKeys(s styleSet) string {
 		if key.InAgent {
 			prefix = "● "
 		}
-		line := prefix + truncate(key.Name, listWidth-4)
+		line := prefix + truncate(key.Name, rowWidth-4)
 		if i == m.cursor {
-			line = s.selected.Width(listWidth).Render(line)
+			line = s.selected.Width(rowWidth).Render(line)
 		} else {
-			line = lipgloss.NewStyle().Width(listWidth).Render(line)
+			line = lipgloss.NewStyle().Width(rowWidth).Render(line)
 		}
 		list.WriteString(line + "\n")
 	}
-	listPanel := lipgloss.NewStyle().Width(listWidth).Height(listHeight).Render(strings.TrimRight(list.String(), "\n"))
+	listPanel := lipgloss.NewStyle().Width(rowWidth).Height(listHeight).Render(strings.TrimRight(list.String(), "\n"))
+	if layout.mobile && len(filtered) > listHeight {
+		listPanel = lipgloss.JoinHorizontal(lipgloss.Top, listPanel, m.renderMobileScrollbar(s, len(filtered), listHeight))
+	}
 	detail := lipgloss.NewStyle().Width(detailWidth).Height(detailHeight).Render(m.renderKeyDetail(s, filtered[m.cursor], detailWidth))
 	if layout.mobile {
 		divider := s.rule.Render(strings.Repeat("─", listWidth))
@@ -299,6 +314,25 @@ func (m *App) renderKeys(s styleSet) string {
 	}
 	divider := s.rule.Render(strings.TrimSuffix(strings.Repeat("│\n", bodyHeight), "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, listPanel, divider, detail)
+}
+
+func (m *App) renderMobileScrollbar(s styleSet, total, height int) string {
+	thumb := 0
+	if total > 1 {
+		track := max(0, height-3)
+		thumb = (m.cursor*track + (total-1)/2) / (total - 1)
+	}
+	var bar strings.Builder
+	bar.WriteString(s.active.Render(" ↑ ") + "\n")
+	for row := range max(0, height-2) {
+		glyph := " │ "
+		if row == thumb {
+			glyph = " ┃ "
+		}
+		bar.WriteString(s.muted.Render(glyph) + "\n")
+	}
+	bar.WriteString(s.active.Render(" ↓ "))
+	return lipgloss.NewStyle().Width(mobileScrollbarWidth).Height(height).Render(bar.String())
 }
 
 func (m *App) renderKeyDetail(s styleSet, key keys.Key, width int) string {

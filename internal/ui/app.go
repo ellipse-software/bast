@@ -74,26 +74,27 @@ type App struct {
 	keyring  keys.Manager
 	metadata *metadata.Store
 
-	section          section
-	hosts            []sshconfig.Host
-	keys             []keys.Key
-	cursor           int
-	search           string
-	form             *form
-	help             bool
-	credits          bool
-	showHidden       bool
-	loading          bool
-	status           string
-	statusError      bool
-	statusID         uint64
-	width            int
-	height           int
-	dark             bool
-	version          string
-	latestVersion    string
-	updateSuggestion string
-	collapsedGroups  map[string]bool
+	section           section
+	hosts             []sshconfig.Host
+	keys              []keys.Key
+	cursor            int
+	search            string
+	form              *form
+	help              bool
+	credits           bool
+	showHidden        bool
+	loading           bool
+	status            string
+	statusError       bool
+	statusID          uint64
+	width             int
+	height            int
+	dark              bool
+	version           string
+	latestVersion     string
+	updateSuggestion  string
+	collapsedGroups   map[string]bool
+	scrollbarDragging bool
 
 	selectAfterLoadSection section
 	selectAfterLoadName    string
@@ -167,6 +168,13 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.MouseClickMsg:
 		return m.updateMouse(msg)
+	case tea.MouseMotionMsg:
+		return m.updateMouseMotion(msg)
+	case tea.MouseReleaseMsg:
+		m.scrollbarDragging = false
+		return m, nil
+	case tea.MouseWheelMsg:
+		return m.updateMouseWheel(msg)
 	case tea.PasteMsg:
 		if m.form != nil {
 			return m.updateFormPaste(msg)
