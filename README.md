@@ -131,6 +131,8 @@ Bast adds presentation metadata (groups, tags, colors, notes, favorites, recency
 
 Press `1` for hosts, `2` for keys. Move with arrow keys or `j`/`k`. `/` searches, `r` reloads.
 
+Press `v` for the version, credits, website, repository, and license.
+
 **Hosts:** Enter to connect · `a` add · `e` edit · `d` delete · `f` favorite · `h` hide · `.` toggle hidden · Space collapse/expand group · `s` sort · `K` remove known-host entry
 
 **Keys:** `a` generate · `i` import · `e` edit comment · `d` delete · `u` add to server · `x` export · `p` change passphrase · `c` copy public key

@@ -35,6 +35,8 @@ func (m *App) render() string {
 	var body string
 	if m.statusError && m.status != "" {
 		body = m.renderError(styles)
+	} else if m.credits {
+		body = m.renderCredits(styles)
 	} else if m.help {
 		body = m.renderHelp(styles)
 	} else if m.form != nil {
@@ -442,13 +444,45 @@ func contrastingTextColor(background string) (string, bool) {
 }
 
 func (m *App) renderHelp(s styleSet) string {
-	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   ?  help         q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand group                  s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "During SSH", "  exit closes Bast; press 󰌑 then ~. to force-close a stuck session"}
+	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   ?  help         v  about       q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand group                  s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "During SSH", "  exit closes Bast; press 󰌑 then ~. to force-close a stuck session"}
 	return "\n  " + s.active.Render("Keyboard help") + "\n\n" + strings.Join(lines, "\n") + "\n\n  " + s.muted.Render("Press ? or Esc to close")
+}
+
+func (m *App) renderCredits(s styleSet) string {
+	const infoWidth = 52
+	banner := strings.Join([]string{
+		"██████╗  █████╗ ███████╗████████╗",
+		"██╔══██╗██╔══██╗██╔════╝╚══██╔══╝",
+		"██████╔╝███████║███████╗   ██║   ",
+		"██╔══██╗██╔══██║╚════██║   ██║   ",
+		"██████╔╝██║  ██║███████║   ██║   ",
+		"╚═════╝ ╚═╝  ╚═╝╚══════╝   ╚═╝   ",
+	}, "\n")
+	version := m.version
+	if version == "" {
+		version = "dev"
+	}
+	row := func(label, value string) string {
+		gap := max(2, infoWidth-lipgloss.Width(label)-lipgloss.Width(value))
+		return s.label.Width(lipgloss.Width(label)).Render(label) + strings.Repeat(" ", gap) + s.value.Render(value)
+	}
+	content := s.active.Width(infoWidth).Align(lipgloss.Center).Render(banner) +
+		"\n\n" + s.muted.Width(infoWidth).Align(lipgloss.Center).Render("Native SSH picker and key manager") +
+		"\n\n" + row("Created by", "tedbrine") +
+		"\n" + row("Website", "https://bast.sh") +
+		"\n" + row("Repository", "github.com/ellipse-software/bast") +
+		"\n" + row("License", "MIT License") +
+		"\n" + row("Version", version)
+	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, content)
 }
 
 func (m *App) renderFooter(s styleSet) string {
 	if m.statusError && m.status != "" {
 		hint := "Enter / Esc return"
+		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
+	}
+	if m.credits {
+		hint := "v / Esc close"
 		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
 	}
 	query := m.searchText()
@@ -468,13 +502,13 @@ func (m *App) renderFooter(s styleSet) string {
 			left += s.success.Render(m.status)
 		}
 	}
-	hint := "? help"
+	hint := "v about • ? help"
 	if m.form != nil {
 		hint = m.formHint()
 	} else if m.section == hostsSection {
-		hint = "󰌑 connect • ␣ group • a add • h hide • ? help"
+		hint = "󰌑 connect • ␣ group • a add • h hide • v about • ? help"
 	} else {
-		hint = "a generate • i import • u add to server • x export • ? help"
+		hint = "a generate • i import • u add to server • x export • v about • ? help"
 	}
 	space := max(1, m.terminalWidth()-lipgloss.Width(left)-lipgloss.Width(hint)-1)
 	return left + strings.Repeat(" ", space) + s.muted.Render(hint)
@@ -482,7 +516,7 @@ func (m *App) renderFooter(s styleSet) string {
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.help || m.form != nil || m.loading || m.itemCount() == 0 {
+	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.itemCount() == 0 {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	listWidth, detailWidth, _ := m.columnDimensions()

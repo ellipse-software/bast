@@ -76,6 +76,7 @@ type App struct {
 	search          string
 	form            *form
 	help            bool
+	credits         bool
 	showHidden      bool
 	loading         bool
 	status          string

@@ -48,7 +48,7 @@ func (c *connectionProcess) SetStderr(output io.Writer) {
 
 func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
-	if mouse.Button != tea.MouseLeft || m.help || m.form != nil {
+	if mouse.Button != tea.MouseLeft || m.help || m.credits || m.form != nil {
 		return m, nil
 	}
 
@@ -94,8 +94,18 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if m.credits {
+		if key == "?" {
+			m.credits, m.help = false, true
+		} else if key == "v" || key == "esc" || key == "q" {
+			m.credits = false
+		}
+		return m, nil
+	}
 	if m.help {
-		if key == "?" || key == "esc" || key == "q" {
+		if key == "v" {
+			m.help, m.credits = false, true
+		} else if key == "?" || key == "esc" || key == "q" {
 			m.help = false
 		}
 		return m, nil
@@ -108,6 +118,8 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "?":
 		m.help = true
+	case "v":
+		m.credits = true
 	case ".":
 		if m.section == hostsSection {
 			m.showHidden = !m.showHidden

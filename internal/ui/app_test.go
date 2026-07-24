@@ -817,6 +817,41 @@ func TestInjectedVersionAppearsAtTopRight(t *testing.T) {
 	}
 }
 
+func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
+	m := testApp(t)
+	m.version = "v1.2.3"
+	m.Update(press("v"))
+	if !m.credits {
+		t.Fatal("v did not open the credits screen")
+	}
+	rendered := m.render()
+	for _, text := range []string{
+		"██████╗  █████╗",
+		"Created by", "tedbrine",
+		"https://bast.sh",
+		"github.com/ellipse-software/bast",
+		"MIT License",
+		"v1.2.3",
+		"v / Esc close",
+	} {
+		if !strings.Contains(rendered, text) {
+			t.Fatalf("credits screen does not contain %q:\n%s", text, rendered)
+		}
+	}
+	for _, label := range []string{"Created by", "Website", "Repository", "License", "Version"} {
+		for _, line := range strings.Split(rendered, "\n") {
+			if strings.Contains(line, label) && lipgloss.Width(strings.TrimSpace(line)) != 52 {
+				t.Fatalf("%s row is not fixed width:\n%s", label, line)
+			}
+		}
+	}
+
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	if m.credits {
+		t.Fatal("Esc did not close the credits screen")
+	}
+}
+
 func TestEmptyHostListInvitesFirstHost(t *testing.T) {
 	m := testApp(t)
 	m.hosts = nil
