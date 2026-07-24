@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"runtime/debug"
@@ -62,9 +61,7 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	_, _ = io.WriteString(os.Stdout, ui.ClearTerminal)
 	_, err = tea.NewProgram(model).Run()
-	_, _ = io.WriteString(os.Stdout, ui.ClearTerminal)
 	return err
 }
 
@@ -102,8 +99,5 @@ func directConnect(p paths.Paths, client openssh.Client, alias string) error {
 	if err != nil {
 		return err
 	}
-	_, _ = io.WriteString(os.Stdout, ui.ClearTerminal)
-	err = cmd.Run()
-	_, _ = io.WriteString(os.Stdout, ui.ClearTerminal)
-	return err
+	return cmd.Run()
 }

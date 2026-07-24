@@ -13,38 +13,34 @@ import (
 const (
 	connectionBanner = "\x1b[1;38;2;139;92;246m BAST \x1b[0m  Connecting to server…\r\n" +
 		"\x1b[38;2;107;114;128m Stuck? Press Enter, then ~. to return to Bast.\x1b[0m\r\n\r\n"
-	// ClearTerminal clears both the visible screen and its scrollback.
-	ClearTerminal = "\x1b[H\x1b[2J\x1b[3J"
 )
 
-type clearAfterProcess struct {
+type connectionProcess struct {
 	cmd *exec.Cmd
 }
 
-func (c *clearAfterProcess) Run() error {
+func (c *connectionProcess) Run() error {
 	output := c.cmd.Stdout
 	if output == nil {
 		output = os.Stdout
 	}
-	_, _ = io.WriteString(output, ClearTerminal+connectionBanner)
-	err := c.cmd.Run()
-	_, _ = io.WriteString(output, ClearTerminal)
-	return err
+	_, _ = io.WriteString(output, connectionBanner)
+	return c.cmd.Run()
 }
 
-func (c *clearAfterProcess) SetStdin(input io.Reader) {
+func (c *connectionProcess) SetStdin(input io.Reader) {
 	if c.cmd.Stdin == nil {
 		c.cmd.Stdin = input
 	}
 }
 
-func (c *clearAfterProcess) SetStdout(output io.Writer) {
+func (c *connectionProcess) SetStdout(output io.Writer) {
 	if c.cmd.Stdout == nil {
 		c.cmd.Stdout = output
 	}
 }
 
-func (c *clearAfterProcess) SetStderr(output io.Writer) {
+func (c *connectionProcess) SetStderr(output io.Writer) {
 	if c.cmd.Stderr == nil {
 		c.cmd.Stderr = output
 	}
@@ -275,7 +271,7 @@ func (m *App) connectSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.status = "Connected to " + m.hostLabel(host) + "; exit closes Bast; 󰌑 then ~. force-closes SSH"
-	return m, tea.Exec(&clearAfterProcess{cmd: cmd}, func(err error) tea.Msg {
+	return m, tea.Exec(&connectionProcess{cmd: cmd}, func(err error) tea.Msg {
 		return processDoneMsg{name: "SSH session", err: err, exitBast: true}
 	})
 }

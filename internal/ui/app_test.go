@@ -517,18 +517,18 @@ func TestKeysDoNotPresentAgentLoadingAsAPrimaryAction(t *testing.T) {
 	}
 }
 
-func TestSSHProcessClearsPreviousSessionOutput(t *testing.T) {
+func TestSSHProcessPreservesTerminalOutput(t *testing.T) {
 	if !strings.Contains(connectionBanner, "Press Enter, then ~.") {
 		t.Fatal("connection banner does not explain how to force-close a stuck session")
 	}
 	var output bytes.Buffer
 	cmd := exec.Command("/bin/sh", "-c", "printf session-output")
 	cmd.Stdout = &output
-	process := &clearAfterProcess{cmd: cmd}
+	process := &connectionProcess{cmd: cmd}
 	if err := process.Run(); err != nil {
 		t.Fatal(err)
 	}
-	if got := output.String(); got != ClearTerminal+connectionBanner+"session-output"+ClearTerminal {
+	if got := output.String(); got != connectionBanner+"session-output" {
 		t.Fatalf("output = %q", got)
 	}
 }
