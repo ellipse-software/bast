@@ -440,7 +440,7 @@ func contrastingTextColor(background string) (string, bool) {
 }
 
 func (m *App) renderHelp(s styleSet) string {
-	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   ?  help         q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand group                  s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "During SSH", "  exit returns normally; press 󰌑 then ~. to force-close a stuck session"}
+	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   ?  help         q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand group                  s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "During SSH", "  exit closes Bast; press 󰌑 then ~. to force-close a stuck session"}
 	return "\n  " + s.active.Render("Keyboard help") + "\n\n" + strings.Join(lines, "\n") + "\n\n  " + s.muted.Render("Press ? or Esc to close")
 }
 

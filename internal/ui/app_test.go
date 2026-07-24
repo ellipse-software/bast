@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -527,8 +528,24 @@ func TestSSHProcessClearsPreviousSessionOutput(t *testing.T) {
 	if err := process.Run(); err != nil {
 		t.Fatal(err)
 	}
-	if got := output.String(); got != clearTerminal+connectionBanner+"session-output"+clearTerminal {
+	if got := output.String(); got != ClearTerminal+connectionBanner+"session-output"+ClearTerminal {
 		t.Fatalf("output = %q", got)
+	}
+}
+
+func TestSuccessfulSSHSessionExitsBast(t *testing.T) {
+	m := testApp(t)
+	_, cmd := m.Update(processDoneMsg{name: "SSH session", exitBast: true})
+	if cmd == nil {
+		t.Fatal("successful SSH session did not request a quit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("successful SSH session did not return tea.Quit")
+	}
+
+	_, cmd = m.Update(processDoneMsg{name: "SSH session", err: errors.New("connection lost"), exitBast: true})
+	if cmd == nil || !m.statusError || !strings.Contains(m.status, "connection lost") {
+		t.Fatal("failed SSH session did not return to Bast with its error")
 	}
 }
 

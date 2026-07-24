@@ -69,7 +69,7 @@ Press `1` for hosts, `2` for keys. Move with arrow keys or `j`/`k`. `/` searches
 
 **Keys:** `a` generate · `i` import · `e` edit comment · `d` delete · `u` add to server · `x` export · `p` change passphrase · `c` copy public key
 
-During an SSH session, `exit` returns to Bast. For a stuck session, press Enter then `~.`.
+During an SSH session, `exit` also closes Bast. For a stuck session, press Enter then `~.` to force-close SSH and return to Bast.
 
 ## Files
 

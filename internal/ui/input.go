@@ -13,7 +13,8 @@ import (
 const (
 	connectionBanner = "\x1b[1;38;2;139;92;246m BAST \x1b[0m  Connecting to server…\r\n" +
 		"\x1b[38;2;107;114;128m Stuck? Press Enter, then ~. to return to Bast.\x1b[0m\r\n\r\n"
-	clearTerminal = "\x1b[H\x1b[2J\x1b[3J"
+	// ClearTerminal clears both the visible screen and its scrollback.
+	ClearTerminal = "\x1b[H\x1b[2J\x1b[3J"
 )
 
 type clearAfterProcess struct {
@@ -25,9 +26,9 @@ func (c *clearAfterProcess) Run() error {
 	if output == nil {
 		output = os.Stdout
 	}
-	_, _ = io.WriteString(output, clearTerminal+connectionBanner)
+	_, _ = io.WriteString(output, ClearTerminal+connectionBanner)
 	err := c.cmd.Run()
-	_, _ = io.WriteString(output, clearTerminal)
+	_, _ = io.WriteString(output, ClearTerminal)
 	return err
 }
 
@@ -273,9 +274,9 @@ func (m *App) connectSelected() (tea.Model, tea.Cmd) {
 		m.setError(err)
 		return m, nil
 	}
-	m.status = "Connected to " + m.hostLabel(host) + "; exit or 󰌑 then ~. to return"
+	m.status = "Connected to " + m.hostLabel(host) + "; exit closes Bast; 󰌑 then ~. force-closes SSH"
 	return m, tea.Exec(&clearAfterProcess{cmd: cmd}, func(err error) tea.Msg {
-		return processDoneMsg{name: "SSH session", err: err}
+		return processDoneMsg{name: "SSH session", err: err, exitBast: true}
 	})
 }
 

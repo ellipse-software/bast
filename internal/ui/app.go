@@ -55,8 +55,9 @@ type loadedMsg struct {
 }
 
 type processDoneMsg struct {
-	name string
-	err  error
+	name     string
+	err      error
+	exitBast bool
 }
 
 type clearStatusMsg uint64
@@ -135,6 +136,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectAfterLoad()
 		return m, nil
 	case processDoneMsg:
+		if msg.err == nil && msg.exitBast {
+			return m, tea.Quit
+		}
 		m.loading = true
 		if msg.err != nil {
 			m.statusID++
