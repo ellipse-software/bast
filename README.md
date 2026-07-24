@@ -26,15 +26,13 @@ Browse SSH hosts, manage keys, and connect from the terminal.
 
 ## Install
 
-**Installer script** (macOS and Linux):
+**macOS and Linux:**
 
 ```sh
 curl -fsSL https://bast.sh/install | sh
 ```
 
-The [bast.sh](https://bast.sh) installer downloads the latest macOS or Linux build for your architecture, verifies the SHA-256 checksum, and installs `bast` to `~/.local/bin` by default. Run the same command again to update; it skips the download when you're already on the latest version.
-
-Set `BAST_INSTALL_DIR` to install somewhere else.
+Puts `bast` in `~/.local/bin` by default. Run the same command to update. Set `BAST_INSTALL_DIR` to install somewhere else.
 
 **Homebrew:**
 
@@ -43,7 +41,7 @@ brew tap ellipse-software/tap
 brew install bast
 ```
 
-**Build from source** (requires Go 1.26+):
+**From source** (Go 1.26+):
 
 ```sh
 git clone https://github.com/ellipse-software/bast.git
@@ -51,117 +49,97 @@ cd bast
 go build -trimpath -o bast .
 ```
 
-Make sure the install directory is on your `PATH`, then run:
-
-```sh
-bast
-```
+Put the binary on your `PATH`, then run `bast`.
 
 ## Quick start
 
-| Command | What it does |
-| --- | --- |
-| `bast` | Open the host picker |
-| `bast update` | Update Bast when it was installed with the bast.sh installer |
-| `bast <label>` | Connect directly to a host label |
-| `bast "Production web"` | Labels with spaces work. Bast maps them to safe OpenSSH names |
-| `bast hosts list` | List hosts without opening the TUI |
-| `bast keys list` | List SSH keys without opening the TUI |
+```sh
+bast                    # open the host picker
+bast update             # update (script installs only)
+bast production         # connect by label
+bast "Production web"   # labels with spaces work too
+bast hosts list         # list hosts without the TUI
+bast keys list          # list keys without the TUI
+```
 
-Inside the TUI, press `?` for the full keybinding reference.
+Press `?` in the TUI for keybindings. Installed via Homebrew? Use `brew upgrade bast` instead of `bast update`.
 
-## Command-line interface
+## CLI
 
-Bare `bast` still opens the TUI. Tagged builds check GitHub for a newer stable release in the background and show a reminder without delaying startup. Installer-managed copies suggest `bast update`, Homebrew copies suggest `brew upgrade bast`, and source builds link back to bast.sh. Network failures are ignored.
-
-`bast update` only runs when the bast.sh installer receipt is present beside the executable. It will not overwrite Homebrew-managed or source-built copies. The `hosts` and `keys` commands expose the same management operations directly to people, scripts, and AI agents.
+No args opens the TUI. Host and key management lives under `bast hosts` and `bast keys`:
 
 ```sh
-# Hosts
 bast hosts list --sort group
-bast hosts show production
-bast hosts add "Production web" --hostname prod.example.com --user deploy --group Work/Production --tag web
-bast hosts edit Production_web --notes "Primary application server"
-bast hosts favorite Production_web
-bast hosts hide old_server
-bast hosts known-host remove Production_web
+bast hosts add "Production web" --hostname prod.example.com --user deploy
+bast hosts edit Production_web --notes "Primary app server"
 bast hosts delete Production_web
 
-# Keys
-bast keys list
 bast keys generate work --algorithm ed25519
 bast keys import work --private ~/.ssh/id_ed25519
-bast keys comment work --comment "Work laptop"
-bast keys public work
 bast keys install work --host production
-bast keys export work --directory ~/Desktop
-bast keys passphrase work
 bast keys delete work
 ```
 
-Run `bast hosts <command> --help` or `bast keys <command> --help` for command-specific usage. Host edits are patches: omitted fields stay unchanged, while flags such as `--clear-group`, `--clear-notes`, and `--clear-identity` remove values. Externally managed OpenSSH hosts allow Bast metadata edits but not connection-setting changes or deletion.
+Run `bast hosts <command> --help` or `bast keys <command> --help` for the full flag list.
 
-Commands prompt for missing input and sensitive confirmations when attached to a terminal. Pass `--yes` to explicitly approve deletion, known-host removal, or private-key export in unattended use. Private keys can be imported from stdin without placing their contents in shell history:
+Edits are patches — only the flags you pass change. `--clear-group`, `--clear-notes`, and similar flags remove values. Hosts that only exist in your main SSH config can get Bast metadata edits, but Bast won't touch their connection settings or delete them.
+
+Commands prompt when they need input. `--yes` skips confirmations for delete, known-host removal, and key export. Import from stdin without putting the key in shell history:
 
 ```sh
 bast keys import work --private - < id_ed25519
 ```
 
-Use global `--json` for a stable machine-readable result. It can appear anywhere in the command and disables prompts:
+`--json` anywhere in the command gives script-friendly output and turns off prompts:
 
 ```sh
 bast hosts list --json
-bast --json hosts show Production_web
 bast keys generate automation --no-passphrase --json
 ```
 
-Successful commands return `{"ok":true,"data":...}`. Errors return `{"ok":false,"error":{"code":"...","message":"..."}}` on stderr and a non-zero exit status. Commands that require an interactive SSH session or passphrase terminal reject `--json` with `interactive_required`.
+Success: `{"ok":true,"data":...}`. Errors go to stderr as `{"ok":false,"error":{...}}` with a non-zero exit code.
 
 ## What Bast does
 
-**Hosts.** Reads your existing `~/.ssh/config` (including `Include` files). Add and edit OpenSSH host blocks, favorite and tag them, group them under collapsible headers and slash-delimited subgroups up to five levels deep, hide hosts you rarely use, and search or sort the list.
+Bast is a terminal UI for the SSH config and keys you already have. It reads `~/.ssh/config` (including `Include` files), lets you organize hosts with groups, tags, favorites, and notes, and connects by launching your system `ssh`.
 
-**Keys.** Generate, import, export, inspect, and delete native SSH keys. Import from a file path or pasted PEM. Verify keypairs, edit public-key comments, and push a public key to a server's `~/.ssh/authorized_keys`.
+You can generate and manage keys, push public keys to servers, and do most of it from the CLI if you'd rather skip the TUI.
 
-**Connections.** Launches your system's `ssh` binary with the host's config. Clears the shell before and after sessions, shows a connection banner, and returns you to the picker when the session ends.
-
-Bast adds presentation metadata (groups, tags, colors, notes, favorites, recency) in your OS user config directory. It does not replace OpenSSH as the source of truth for hosts and keys.
+Groups can nest up to five levels (`Work/Production/web`). Bast stores presentation metadata in your user config directory. OpenSSH stays the source of truth for hosts and keys.
 
 ## Requirements
 
 - macOS or Linux
-- OpenSSH: `ssh`, `ssh-keygen`, `ssh-add`
-- For the installer: `curl`, `tar`, and `shasum` or `sha256sum`
-- Go 1.26+ when building from source
-- A Nerd Font is recommended for some glyphs; Bast works without one
+- OpenSSH (`ssh`, `ssh-keygen`, `ssh-add`)
+- `curl`, `tar`, and `shasum` or `sha256sum` for the installer
+- Go 1.26+ to build from source
+- A Nerd Font helps with some icons but isn't required
 
 ## Keyboard shortcuts
 
-Press `1` for hosts, `2` for keys. Move with arrow keys or `j`/`k`. `/` searches, `r` reloads.
+`1` hosts · `2` keys · arrows or `j`/`k` to move · `/` search · `r` reload · `v` version info
 
-Press `v` for the version, credits, website, repository, and license.
+**Hosts:** Enter connect · `a` add · `e` edit · `d` delete · `f` favorite · `h` hide · `.` show hidden · Space collapse group · `s` sort · `K` drop known-host entry
 
-**Hosts:** Enter to connect · `a` add · `e` edit · `d` delete · `f` favorite · `h` hide · `.` toggle hidden · Space collapse/expand group · `s` sort · `K` remove known-host entry
+**Keys:** `a` generate · `i` import · `e` edit comment · `d` delete · `u` push to server · `x` export · `p` passphrase · `c` copy public key
 
-**Keys:** `a` generate · `i` import · `e` edit comment · `d` delete · `u` add to server · `x` export · `p` change passphrase · `c` copy public key
-
-During an SSH session, `exit` also closes Bast. For a stuck session, press Enter then `~.` to force-close SSH and return to Bast.
+During a session, `exit` closes Bast too. Stuck? Enter, then `~.` to force SSH closed.
 
 ## Files
 
-On first use, Bast prepends one `Include ~/.ssh/bast/config` directive to your main SSH config and writes managed host blocks there. Generated and imported keys live in `~/.ssh/bast/keys` (private keys at mode `0600`). Metadata lives in `bast/state.json` under your user config directory.
+On first run Bast adds `Include ~/.ssh/bast/config` to your SSH config and writes managed host blocks there. Keys live in `~/.ssh/bast/keys`. Metadata is in `bast/state.json` under your user config dir.
 
-Back up `~/.ssh` before testing unreleased builds against production config. Never paste real private keys into issues or bug reports.
+Back up `~/.ssh` before trying unreleased builds on a real config. Don't paste private keys in issues.
 
 ## Telemetry
 
-Bast sends optional anonymous telemetry (version, platform, usage events) to help improve the tool. Opt out with:
+Anonymous usage telemetry (version, platform, events) is on by default. Opt out:
 
 ```sh
 export BAST_NO_TELEMETRY=1
 ```
 
-The [bast.sh](https://bast.sh) site and installer use the same opt-out. Website source: [ellipse-software/bast-web](https://github.com/ellipse-software/bast-web).
+Same opt-out on [bast.sh](https://bast.sh). Website repo: [ellipse-software/bast-web](https://github.com/ellipse-software/bast-web).
 
 ## Development
 
@@ -172,7 +150,7 @@ go test -race ./...
 go vet ./...
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for project layout and contribution guidelines. Report security issues via [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md).
 
 ## License
 
