@@ -1,5 +1,5 @@
 <div align="center">
-<img src="https://cdn.bast.sh/bast-word.png" alt="Bast" height="50">
+<img src="https://cdn.bast.sh/bast-word.png?a=b" alt="Bast" height="200">
 
 
 
