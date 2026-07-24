@@ -103,7 +103,7 @@ jobs:
       - name: Download archives
         uses: actions/download-artifact@v8
         with:
-          pattern: bast_nightly_*
+          pattern: bast_nightly.*
           path: dist
           merge-multiple: true
       - name: Resolve nightly version
@@ -115,7 +115,7 @@ jobs:
           version="${version%_*_*}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Create combined checksums
-        run: (cd dist && shasum -a 256 bast_nightly_*.tar.gz > SHA256SUMS)
+        run: (cd dist && shasum -a 256 bast_nightly.*.tar.gz > SHA256SUMS)
       - name: Publish nightly release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -124,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          assets=(dist/bast_nightly_*.tar.gz dist/bast_nightly_*.tar.gz.sha256 dist/SHA256SUMS)
+          assets=(dist/bast_nightly.*.tar.gz dist/bast_nightly.*.tar.gz.sha256 dist/SHA256SUMS)
           title="Bast nightly (${VERSION})"
 
           if gh release view nightly >/dev/null 2>&1; then
