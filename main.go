@@ -9,9 +9,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"bast/internal/cli"
 	"bast/internal/openssh"
 	"bast/internal/paths"
-	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
 	"bast/internal/ui"
 )
@@ -20,6 +20,9 @@ var version = "dev"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		if code, ok := cli.ExitCode(err); ok {
+			os.Exit(code)
+		}
 		fmt.Fprintln(os.Stderr, "bast:", err)
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
@@ -30,18 +33,23 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) > 1 {
-		return errors.New("usage: bast [label]")
-	}
-	if len(args) == 1 {
-		switch args[0] {
-		case "-h", "--help":
-			fmt.Println("Bast — native SSH picker and key manager\n\nUsage:\n  bast          Open the TUI\n  bast <label>  Connect directly using a host label\n  bast --help\n  bast --version")
-			return nil
-		case "-v", "--version":
-			fmt.Println("bast", buildVersion())
-			return nil
+	jsonOutput := false
+	for _, arg := range args {
+		if arg == "--json" {
+			jsonOutput = true
 		}
+	}
+	if len(args) == 1 && (args[0] == "-v" || args[0] == "--version") {
+		fmt.Println("bast", buildVersion())
+		return nil
+	}
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		cli.PrintHelp(os.Stdout)
+		return nil
+	}
+	if len(args) == 2 && jsonOutput && (args[0] == "-v" || args[0] == "--version" || args[1] == "-v" || args[1] == "--version") {
+		fmt.Printf("{\"ok\":true,\"data\":{\"version\":%q}}\n", buildVersion())
+		return nil
 	}
 
 	p, err := paths.Default()
@@ -49,12 +57,30 @@ func run(args []string) error {
 		return err
 	}
 	client := openssh.Default()
+	if cli.IsInvocation(args) {
+		if len(args) == 1 && args[0] == "tui" {
+			args = nil
+		} else {
+			runner, err := cli.New(p, client, os.Stdin, os.Stdout, os.Stderr)
+			if err != nil {
+				return err
+			}
+			return runner.Run(args)
+		}
+	}
 	if err := client.Check(); err != nil {
 		return err
 	}
+	if len(args) > 1 {
+		return errors.New("usage: bast [label]")
+	}
 	if len(args) == 1 {
 		telemetry.Track("direct_connect", buildVersion())
-		return directConnect(p, client, args[0])
+		runner, err := cli.New(p, client, os.Stdin, os.Stdout, os.Stderr)
+		if err != nil {
+			return err
+		}
+		return runner.Run([]string{"connect", args[0]})
 	}
 	telemetry.Track("tui_open", buildVersion())
 	model, err := ui.New(p, client, version)
@@ -73,31 +99,4 @@ func buildVersion() string {
 		return info.Main.Version
 	}
 	return version
-}
-
-func directConnect(p paths.Paths, client openssh.Client, alias string) error {
-	alias = sshconfig.NormalizeAlias(alias)
-	manager := sshconfig.Manager{
-		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
-		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-	}
-	hosts, err := manager.Discover()
-	if err != nil {
-		return err
-	}
-	found := false
-	for _, host := range hosts {
-		if host.Alias == alias {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return fmt.Errorf("unknown host label %q", alias)
-	}
-	cmd, err := client.SSHCommand(alias)
-	if err != nil {
-		return err
-	}
-	return cmd.Run()
 }

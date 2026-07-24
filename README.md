@@ -40,8 +40,55 @@ bast
 | `bast` | Open the host picker |
 | `bast <label>` | Connect directly to a host label |
 | `bast "Production web"` | Labels with spaces work. Bast maps them to safe OpenSSH names |
+| `bast hosts list` | List hosts without opening the TUI |
+| `bast keys list` | List SSH keys without opening the TUI |
 
 Inside the TUI, press `?` for the full keybinding reference.
+
+## Command-line interface
+
+Bare `bast` still opens the TUI. The `hosts` and `keys` commands expose the same management operations directly to people, scripts, and AI agents.
+
+```sh
+# Hosts
+bast hosts list --sort group
+bast hosts show production
+bast hosts add "Production web" --hostname prod.example.com --user deploy --group Work/Production --tag web
+bast hosts edit Production_web --notes "Primary application server"
+bast hosts favorite Production_web
+bast hosts hide old_server
+bast hosts known-host remove Production_web
+bast hosts delete Production_web
+
+# Keys
+bast keys list
+bast keys generate work --algorithm ed25519
+bast keys import work --private ~/.ssh/id_ed25519
+bast keys comment work --comment "Work laptop"
+bast keys public work
+bast keys install work --host production
+bast keys export work --directory ~/Desktop
+bast keys passphrase work
+bast keys delete work
+```
+
+Run `bast hosts <command> --help` or `bast keys <command> --help` for command-specific usage. Host edits are patches: omitted fields stay unchanged, while flags such as `--clear-group`, `--clear-notes`, and `--clear-identity` remove values. Externally managed OpenSSH hosts allow Bast metadata edits but not connection-setting changes or deletion.
+
+Commands prompt for missing input and sensitive confirmations when attached to a terminal. Pass `--yes` to explicitly approve deletion, known-host removal, or private-key export in unattended use. Private keys can be imported from stdin without placing their contents in shell history:
+
+```sh
+bast keys import work --private - < id_ed25519
+```
+
+Use global `--json` for a stable machine-readable result. It can appear anywhere in the command and disables prompts:
+
+```sh
+bast hosts list --json
+bast --json hosts show Production_web
+bast keys generate automation --no-passphrase --json
+```
+
+Successful commands return `{"ok":true,"data":...}`. Errors return `{"ok":false,"error":{"code":"...","message":"..."}}` on stderr and a non-zero exit status. Commands that require an interactive SSH session or passphrase terminal reject `--json` with `interactive_required`.
 
 ## What Bast does
 
@@ -94,12 +141,6 @@ go build -trimpath -o bast .
 ./bast
 ```
 
-Release builds can inject a version:
-
-```sh
-go build -trimpath -ldflags "-X main.version=v1.0.0" -o bast .
-```
-
 ## Development
 
 ```sh
@@ -109,15 +150,6 @@ go vet ./...
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for project layout and contribution guidelines. Report security issues via [SECURITY.md](SECURITY.md).
-
-## Releases
-
-Tagged releases (`v*`) are built for macOS and Linux on amd64 and arm64, with SHA-256 checksums attached. Push a tag to publish:
-
-```sh
-git tag -a v0.1.0 -m "v0.1.0"
-git push origin v0.1.0
-```
 
 ## License
 

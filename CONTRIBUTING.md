@@ -18,6 +18,7 @@ Run `gofmt` on changed Go files before opening a pull request. Include tests for
 ## Project layout
 
 - `internal/ui`: TUI lifecycle, loading, input, forms, state, and rendering
+- `internal/cli`: non-TUI command dispatch, prompts, text/JSON output, and command tests
 - `internal/sshconfig`: native SSH config discovery and Bast-managed host blocks
 - `internal/keys`: native key discovery and key operations
 - `internal/openssh`: calls to installed OpenSSH tools
