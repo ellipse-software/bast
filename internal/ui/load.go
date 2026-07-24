@@ -13,13 +13,19 @@ import (
 )
 
 func (m *App) checkForUpdateCmd() tea.Cmd {
-	if !updater.IsStable(m.version) {
+	var check func(context.Context, *http.Client, string) (string, error)
+	switch {
+	case updater.IsStable(m.version):
+		check = updater.Check
+	case updater.IsNightly(m.version):
+		check = updater.CheckNightly
+	default:
 		return nil
 	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 		defer cancel()
-		latest, err := updater.Check(ctx, &http.Client{Timeout: 4 * time.Second}, m.version)
+		latest, err := check(ctx, &http.Client{Timeout: 4 * time.Second}, m.version)
 		if err != nil || latest == "" {
 			return nil
 		}

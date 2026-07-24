@@ -41,6 +41,16 @@ brew tap ellipse-software/tap
 brew install bast
 ```
 
+**Nightly** (latest `master`; cannot coexist with stable):
+
+```sh
+curl -fsSL https://bast.sh/install-nightly | sh
+```
+
+```sh
+brew install bast-nightly
+```
+
 **From source** (Go 1.26+):
 
 ```sh

@@ -25,3 +25,19 @@ Run `gofmt` on changed Go files before opening a pull request. Include tests for
 - `internal/metadata`: Bast-only presentation metadata
 
 Never include real hostnames, private keys, fingerprints, or production SSH configuration in issues, fixtures, screenshots, or pull requests.
+
+## Release channels
+
+Every push to `master` publishes a rolling nightly pre-release via `.github/workflows/nightly.yml`. Tagged releases (`v*`) are stable and use `.github/workflows/release.yml` instead.
+
+Nightly builds use version strings like `nightly.YYYYMMDD.<sha>`, update the rolling GitHub release tagged `nightly`, and bump the `bast-nightly` Homebrew formula in `ellipse-software/homebrew-tap`.
+
+Stable and nightly installs are mutually exclusive. Script installs use separate receipts (`https://bast.sh/install` vs `https://bast.sh/install-nightly`), and the Homebrew formulae declare `conflicts_with` each other.
+
+Try nightly builds with:
+
+```sh
+curl -fsSL https://bast.sh/install-nightly | sh
+# or
+brew install bast-nightly
+```

@@ -15,9 +15,21 @@ import (
 )
 
 const (
-	InstallerURL     = "https://bast.sh/install"
-	LatestReleaseURL = "https://api.github.com/repos/ellipse-software/bast/releases/latest"
-	receiptSuffix    = ".install-receipt"
+	InstallerURL        = "https://bast.sh/install"
+	NightlyInstallerURL = "https://bast.sh/install-nightly"
+	LatestReleaseURL    = "https://api.github.com/repos/ellipse-software/bast/releases/latest"
+	NightlyReleaseURL   = "https://api.github.com/repos/ellipse-software/bast/releases/tags/nightly"
+	receiptSuffix       = ".install-receipt"
+)
+
+type Channel int
+
+const (
+	ChannelOther Channel = iota
+	ChannelScriptStable
+	ChannelScriptNightly
+	ChannelHomebrewStable
+	ChannelHomebrewNightly
 )
 
 func IsStable(version string) bool {
@@ -25,12 +37,79 @@ func IsStable(version string) bool {
 	return ok
 }
 
-func Check(ctx context.Context, client *http.Client, current string) (string, error) {
-	return checkFrom(ctx, client, current, LatestReleaseURL)
+func IsNightly(version string) bool {
+	return strings.HasPrefix(version, "nightly.")
 }
 
-func checkFrom(ctx context.Context, client *http.Client, current, url string) (string, error) {
-	currentVersion, ok := parseVersion(current)
+func ChannelFor(executable string) Channel {
+	resolved := resolveExecutable(executable)
+	path := filepath.ToSlash(resolved)
+	switch {
+	case strings.Contains(path, "/Cellar/bast-nightly/"):
+		return ChannelHomebrewNightly
+	case strings.Contains(path, "/Cellar/bast/"):
+		return ChannelHomebrewStable
+	case scriptInstalled(resolved, NightlyInstallerURL):
+		return ChannelScriptNightly
+	case scriptInstalled(resolved, InstallerURL):
+		return ChannelScriptStable
+	default:
+		return ChannelOther
+	}
+}
+
+func ScriptInstalled(executable string) bool {
+	return scriptInstalled(resolveExecutable(executable), InstallerURL)
+}
+
+func NightlyScriptInstalled(executable string) bool {
+	return scriptInstalled(resolveExecutable(executable), NightlyInstallerURL)
+}
+
+func Check(ctx context.Context, client *http.Client, current string) (string, error) {
+	return checkFrom(ctx, client, current, LatestReleaseURL, parseVersion, compareStable)
+}
+
+func CheckNightly(ctx context.Context, client *http.Client, current string) (string, error) {
+	return checkFrom(ctx, client, current, NightlyReleaseURL, parseNightlyVersion, compareNightly)
+}
+
+func Suggestion(executable string) string {
+	switch ChannelFor(executable) {
+	case ChannelScriptStable, ChannelScriptNightly:
+		return "bast update"
+	case ChannelHomebrewStable:
+		return "brew upgrade bast"
+	case ChannelHomebrewNightly:
+		return "brew upgrade bast-nightly"
+	default:
+		return "https://bast.sh"
+	}
+}
+
+func Update(ctx context.Context, client *http.Client, executable string, stdout, stderr io.Writer) error {
+	switch ChannelFor(executable) {
+	case ChannelScriptStable:
+		return updateFrom(ctx, client, InstallerURL, executable, stdout, stderr)
+	case ChannelScriptNightly:
+		return updateFrom(ctx, client, NightlyInstallerURL, executable, stdout, stderr)
+	case ChannelHomebrewStable:
+		return errors.New("this Bast installation is managed by Homebrew; run \"brew upgrade bast\"")
+	case ChannelHomebrewNightly:
+		return errors.New("this Bast installation is managed by Homebrew; run \"brew upgrade bast-nightly\"")
+	default:
+		return errors.New("self-update is only available for installs from https://bast.sh/install or https://bast.sh/install-nightly")
+	}
+}
+
+func checkFrom(
+	ctx context.Context,
+	client *http.Client,
+	current, url string,
+	parse func(string) (any, bool),
+	compare func(any, any) int,
+) (string, error) {
+	currentVersion, ok := parse(current)
 	if !ok {
 		return "", nil
 	}
@@ -38,19 +117,16 @@ func checkFrom(ctx context.Context, client *http.Client, current, url string) (s
 	if err != nil {
 		return "", err
 	}
-	latestVersion, ok := parseVersion(latest)
+	latestVersion, ok := parse(latest)
 	if !ok {
 		return "", fmt.Errorf("latest release has unsupported version %q", latest)
 	}
-	for i := range currentVersion {
-		if latestVersion[i] > currentVersion[i] {
-			return latest, nil
-		}
-		if latestVersion[i] < currentVersion[i] {
-			return "", nil
-		}
+	switch compare(latestVersion, currentVersion) {
+	case 1:
+		return latest, nil
+	default:
+		return "", nil
 	}
-	return "", nil
 }
 
 func latestFrom(ctx context.Context, client *http.Client, url string) (string, error) {
@@ -71,41 +147,34 @@ func latestFrom(ctx context.Context, client *http.Client, url string) (string, e
 	}
 	var release struct {
 		TagName string `json:"tag_name"`
+		Name    string `json:"name"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&release); err != nil {
 		return "", fmt.Errorf("decode GitHub release: %w", err)
 	}
+	if url == NightlyReleaseURL {
+		if version := nightlyVersionFromReleaseName(release.Name); version != "" {
+			return version, nil
+		}
+	}
 	return release.TagName, nil
 }
 
-func Suggestion(executable string) string {
-	resolved := resolveExecutable(executable)
-	if ScriptInstalled(resolved) {
-		return "bast update"
+func nightlyVersionFromReleaseName(name string) string {
+	const prefix = "Bast nightly ("
+	const suffix = ")"
+	if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
+		return ""
 	}
-	if strings.Contains(filepath.ToSlash(resolved), "/Cellar/bast/") {
-		return "brew upgrade bast"
+	version := strings.TrimSuffix(strings.TrimPrefix(name, prefix), suffix)
+	if IsNightly(version) {
+		return version
 	}
-	return "https://bast.sh"
-}
-
-func ScriptInstalled(executable string) bool {
-	b, err := os.ReadFile(resolveExecutable(executable) + receiptSuffix)
-	return err == nil && strings.TrimSpace(string(b)) == InstallerURL
-}
-
-func Update(ctx context.Context, client *http.Client, executable string, stdout, stderr io.Writer) error {
-	return updateFrom(ctx, client, InstallerURL, executable, stdout, stderr)
+	return ""
 }
 
 func updateFrom(ctx context.Context, client *http.Client, installerURL, executable string, stdout, stderr io.Writer) error {
 	executable = resolveExecutable(executable)
-	if !ScriptInstalled(executable) {
-		if strings.Contains(filepath.ToSlash(executable), "/Cellar/bast/") {
-			return errors.New("this Bast installation is managed by Homebrew; run \"brew upgrade bast\"")
-		}
-		return errors.New("self-update is only available for installs from https://bast.sh/install")
-	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, installerURL, nil)
 	if err != nil {
 		return err
@@ -149,6 +218,11 @@ func updateFrom(ctx context.Context, client *http.Client, installerURL, executab
 	return nil
 }
 
+func scriptInstalled(executable, installerURL string) bool {
+	b, err := os.ReadFile(executable + receiptSuffix)
+	return err == nil && strings.TrimSpace(string(b)) == installerURL
+}
+
 func resolveExecutable(executable string) string {
 	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
 		return resolved
@@ -156,7 +230,7 @@ func resolveExecutable(executable string) string {
 	return executable
 }
 
-func parseVersion(version string) ([3]int, bool) {
+func parseVersion(version string) (any, bool) {
 	var parsed [3]int
 	if !strings.HasPrefix(version, "v") {
 		return parsed, false
@@ -173,4 +247,56 @@ func parseVersion(version string) ([3]int, bool) {
 		parsed[i] = value
 	}
 	return parsed, true
+}
+
+type nightlyVersion struct {
+	date string
+	sha  string
+}
+
+func parseNightlyVersion(version string) (any, bool) {
+	if !IsNightly(version) {
+		return nightlyVersion{}, false
+	}
+	parts := strings.Split(strings.TrimPrefix(version, "nightly."), ".")
+	if len(parts) != 2 || len(parts[0]) != 8 || len(parts[1]) != 7 {
+		return nightlyVersion{}, false
+	}
+	for _, digit := range parts[0] {
+		if digit < '0' || digit > '9' {
+			return nightlyVersion{}, false
+		}
+	}
+	return nightlyVersion{date: parts[0], sha: parts[1]}, true
+}
+
+func compareStable(latest, current any) int {
+	latestParts := latest.([3]int)
+	currentParts := current.([3]int)
+	for i := range latestParts {
+		if latestParts[i] > currentParts[i] {
+			return 1
+		}
+		if latestParts[i] < currentParts[i] {
+			return -1
+		}
+	}
+	return 0
+}
+
+func compareNightly(latest, current any) int {
+	latestParts := latest.(nightlyVersion)
+	currentParts := current.(nightlyVersion)
+	switch {
+	case latestParts.date > currentParts.date:
+		return 1
+	case latestParts.date < currentParts.date:
+		return -1
+	case latestParts.sha > currentParts.sha:
+		return 1
+	case latestParts.sha < currentParts.sha:
+		return -1
+	default:
+		return 0
+	}
 }
