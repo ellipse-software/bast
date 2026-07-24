@@ -21,13 +21,32 @@ Browse SSH hosts, manage keys, and connect from the terminal. The fast way into 
 
 ## Install
 
+**Installer script** (macOS and Linux):
+
 ```sh
 curl -fsSL https://bast.sh/install | sh
 ```
 
 The [bast.sh](https://bast.sh) installer downloads the latest macOS or Linux build for your architecture, verifies the SHA-256 checksum, and installs `bast` to `~/.local/bin` by default. Run the same command again to update; it skips the download when you're already on the latest version.
 
-Set `BAST_INSTALL_DIR` to install somewhere else. Make sure that directory is on your `PATH`, then run:
+Set `BAST_INSTALL_DIR` to install somewhere else.
+
+**Homebrew:**
+
+```sh
+brew tap ellipse-software/tap
+brew install bast
+```
+
+**Build from source** (requires Go 1.26+):
+
+```sh
+git clone https://github.com/ellipse-software/bast.git
+cd bast
+go build -trimpath -o bast .
+```
+
+Make sure the install directory is on your `PATH`, then run:
 
 ```sh
 bast
@@ -134,17 +153,11 @@ export BAST_NO_TELEMETRY=1
 
 The [bast.sh](https://bast.sh) site and installer use the same opt-out. Website source: [ellipse-software/bast-web](https://github.com/ellipse-software/bast-web).
 
-## Build from source
-
-```sh
-go build -trimpath -o bast .
-./bast
-```
-
 ## Development
 
 ```sh
 go mod download
+go build -trimpath -o bast .
 go test -race ./...
 go vet ./...
 ```

@@ -123,3 +123,16 @@ jobs:
             --verify-tag \
             --generate-notes \
             --title "Bast $GITHUB_REF_NAME"
+
+  bump-homebrew:
+    name: Bump Homebrew formula
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Update homebrew tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: bash .github/scripts/bump-homebrew-tap.sh "$GITHUB_REF_NAME"
