@@ -8,6 +8,8 @@
 
 Browse SSH hosts, manage keys, and connect from the terminal. The fast way into the servers you use every day.
 
+![Bast terminal interface](https://bast.sh/demo.png)
+
 **Website:** [bast.sh](https://bast.sh) · **Releases:** [github.com/ellipse-software/bast](https://github.com/ellipse-software/bast/releases)
 
 ## Install
