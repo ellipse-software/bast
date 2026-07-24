@@ -8,6 +8,7 @@ import (
 
 	"bast/internal/metadata"
 	"bast/internal/sshconfig"
+	"bast/internal/telemetry"
 )
 
 func (r *Runner) hosts(args []string) error {
@@ -636,6 +637,7 @@ func (r *Runner) connect(args []string) error {
 	if err != nil {
 		return err
 	}
+	telemetry.Track("connect", r.Version)
 	return r.runProcess(cmd, false)
 }
 

@@ -65,6 +65,7 @@ func run(args []string) error {
 			if err != nil {
 				return err
 			}
+			runner.Version = buildVersion()
 			return runner.Run(args)
 		}
 	}
@@ -75,11 +76,11 @@ func run(args []string) error {
 		return errors.New("usage: bast [label]")
 	}
 	if len(args) == 1 {
-		telemetry.Track("direct_connect", buildVersion())
 		runner, err := cli.New(p, client, os.Stdin, os.Stdout, os.Stderr)
 		if err != nil {
 			return err
 		}
+		runner.Version = buildVersion()
 		return runner.Run([]string{"connect", args[0]})
 	}
 	telemetry.Track("tui_open", buildVersion())

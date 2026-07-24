@@ -8,6 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"bast/internal/telemetry"
 )
 
 const (
@@ -282,6 +284,7 @@ func (m *App) connectSelected() (tea.Model, tea.Cmd) {
 		m.setError(err)
 		return m, nil
 	}
+	telemetry.Track("connect", m.version)
 	m.status = "Connected to " + m.hostLabel(host) + "; exit closes Bast; 󰌑 then ~. force-closes SSH"
 	return m, tea.Exec(&connectionProcess{cmd: cmd}, func(err error) tea.Msg {
 		return processDoneMsg{name: "SSH session", err: err, exitBast: true}

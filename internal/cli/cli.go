@@ -53,6 +53,7 @@ func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
 type Runner struct {
 	Paths   paths.Paths
 	OpenSSH openssh.Client
+	Version string
 	In      io.Reader
 	Out     io.Writer
 	Err     io.Writer
@@ -87,7 +88,7 @@ func fail(code, message string) error { return &commandError{code: code, message
 
 func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writer) (*Runner, error) {
 	return &Runner{
-		Paths: p, OpenSSH: client, In: in, Out: out, Err: errOut,
+		Paths: p, OpenSSH: client, Version: "dev", In: in, Out: out, Err: errOut,
 		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys},
 		keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
 	}, nil

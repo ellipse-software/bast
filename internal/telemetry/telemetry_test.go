@@ -45,11 +45,11 @@ func TestTrackSendsCliPayload(t *testing.T) {
 	endpoint = server.URL
 	t.Cleanup(func() { endpoint = original })
 
-	Track("tui_open", "v1.2.3")
+	Track("connect", "v1.2.3")
 
 	select {
 	case body := <-got:
-		if body.Event != "tui_open" || body.Version != "v1.2.3" || body.Source != "cli" {
+		if body.Event != "connect" || body.Version != "v1.2.3" || body.Source != "cli" {
 			t.Fatalf("unexpected payload: %+v", body)
 		}
 		if body.OS == "" || body.Arch == "" {
