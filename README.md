@@ -1,4 +1,4 @@
-# Bast
+![Bast](https://cdn.bast.sh/bast-word.png)
 
 [![License: MIT](https://img.shields.io/github/license/ellipse-software/bast)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white)](go.mod)
