@@ -18,6 +18,19 @@ const noticeDuration = 4 * time.Second
 
 const maxGroupDepth = 5
 
+const mobileBreakpoint = 60
+
+type panelLayout struct {
+	mobile       bool
+	listWidth    int
+	detailWidth  int
+	bodyHeight   int
+	listHeight   int
+	detailHeight int
+	listTop      int
+	detailTop    int
+}
+
 func (m *App) terminalWidth() int {
 	if m.width > 0 {
 		return m.width
@@ -32,15 +45,53 @@ func (m *App) terminalHeight() int {
 	return 24
 }
 
-func (m *App) columnDimensions() (listWidth, detailWidth, bodyHeight int) {
+func (m *App) isMobileLayout() bool {
+	return m.terminalWidth() < mobileBreakpoint
+}
+
+func (m *App) panelLayout() panelLayout {
 	width := m.terminalWidth()
-	bodyHeight = max(1, m.terminalHeight()-3)
-	listWidth = min(36, max(12, width/3))
-	if listWidth > width-10 {
-		listWidth = max(8, width-10)
+	bodyHeight := max(1, m.terminalHeight()-3)
+	const contentTop = 2
+
+	if !m.isMobileLayout() {
+		listWidth := min(36, max(12, width/3))
+		if listWidth > width-10 {
+			listWidth = max(8, width-10)
+		}
+		detailWidth := max(1, width-listWidth-1)
+		return panelLayout{
+			mobile:       false,
+			listWidth:    listWidth,
+			detailWidth:  detailWidth,
+			bodyHeight:   bodyHeight,
+			listHeight:   bodyHeight,
+			detailHeight: bodyHeight,
+			listTop:      contentTop,
+			detailTop:    contentTop,
+		}
 	}
-	detailWidth = max(1, width-listWidth-1)
-	return listWidth, detailWidth, bodyHeight
+
+	listHeight := max(6, bodyHeight/2)
+	if listHeight > bodyHeight-4 {
+		listHeight = max(4, bodyHeight-4)
+	}
+	detailHeight := max(1, bodyHeight-listHeight-1)
+	return panelLayout{
+		mobile:       true,
+		listWidth:    width,
+		detailWidth:  width,
+		bodyHeight:   bodyHeight,
+		listHeight:   listHeight,
+		detailHeight: detailHeight,
+		listTop:      contentTop,
+		detailTop:    contentTop + listHeight + 1,
+	}
+}
+
+func (m *App) columnDimensions() (listWidth, detailWidth, bodyHeight int) {
+	layout := m.panelLayout()
+	return layout.listWidth, layout.detailWidth, layout.bodyHeight
 }
 
 func (m *App) filteredHosts() []sshconfig.Host {

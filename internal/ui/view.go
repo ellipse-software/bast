@@ -14,6 +14,9 @@ import (
 )
 
 const (
+	connectAction    = " Connect "
+	connectActionRow = 3
+
 	keyInstallAction    = "[u] Add to server"
 	keyInstallActionRow = 4
 )
@@ -122,11 +125,13 @@ func (m *App) renderHosts(s styleSet) string {
 			"\n  " + s.muted.Render("Press a to add your first destination.")
 	}
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
+	layout := m.panelLayout()
+	listHeight := layout.listHeight
+	detailHeight := layout.detailHeight
 	rowsData := m.hostRows()
-	rows := bodyHeight
-	start := scrollStart(m.cursor, len(rowsData), rows)
+	start := scrollStart(m.cursor, len(rowsData), listHeight)
 	var list strings.Builder
-	for i := start; i < min(len(rowsData), start+rows); i++ {
+	for i := start; i < min(len(rowsData), start+listHeight); i++ {
 		row := rowsData[i]
 		if row.header {
 			indent := strings.Repeat("  ", row.depth)
@@ -164,7 +169,7 @@ func (m *App) renderHosts(s styleSet) string {
 		}
 		list.WriteString(line + "\n")
 	}
-	listPanel := lipgloss.NewStyle().Width(listWidth).Height(bodyHeight).Render(strings.TrimRight(list.String(), "\n"))
+	listPanel := lipgloss.NewStyle().Width(listWidth).Height(listHeight).Render(strings.TrimRight(list.String(), "\n"))
 	detailContent := ""
 	if m.cursor >= 0 && m.cursor < len(rowsData) {
 		if rowsData[m.cursor].header {
@@ -173,7 +178,11 @@ func (m *App) renderHosts(s styleSet) string {
 			detailContent = m.renderHostDetail(s, rowsData[m.cursor].host, detailWidth)
 		}
 	}
-	detail := lipgloss.NewStyle().Width(detailWidth).Height(bodyHeight).Render(detailContent)
+	detail := lipgloss.NewStyle().Width(detailWidth).Height(detailHeight).Render(detailContent)
+	if layout.mobile {
+		divider := s.rule.Render(strings.Repeat("─", listWidth))
+		return lipgloss.JoinVertical(lipgloss.Left, listPanel, divider, detail)
+	}
 	divider := s.rule.Render(strings.TrimSuffix(strings.Repeat("│\n", bodyHeight), "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, listPanel, divider, detail)
 }
@@ -218,7 +227,11 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	}
 	b.WriteString("  " + titleStyle.Render(title) + "\n")
 	b.WriteString("  " + s.value.Render(truncate(destination, max(4, width-3))) + "\n")
-	b.WriteString("  " + s.muted.Render(truncate(owner+" · "+trust, max(4, width-3))) + "\n\n")
+	b.WriteString("  " + s.muted.Render(truncate(owner+" · "+trust, max(4, width-3))) + "\n")
+	if m.isMobileLayout() {
+		b.WriteString("  " + s.active.Render(connectAction) + "\n")
+	}
+	b.WriteString("\n")
 	b.WriteString(compactRow(s, "Source", shortPath(host.Source, m.paths.Home)+":"+strconv.Itoa(host.Line), width))
 	if label != host.Alias {
 		b.WriteString(compactRow(s, "SSH name", host.Alias, width))
@@ -248,10 +261,12 @@ func (m *App) renderKeys(s styleSet) string {
 		return "\n  " + s.muted.Render("No keys found. Press a to generate or i to import one.")
 	}
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
-	rows := bodyHeight
-	start := scrollStart(m.cursor, len(filtered), rows)
+	layout := m.panelLayout()
+	listHeight := layout.listHeight
+	detailHeight := layout.detailHeight
+	start := scrollStart(m.cursor, len(filtered), listHeight)
 	var list strings.Builder
-	for i := start; i < min(len(filtered), start+rows); i++ {
+	for i := start; i < min(len(filtered), start+listHeight); i++ {
 		key := filtered[i]
 		prefix := "  "
 		if key.InAgent {
@@ -265,8 +280,12 @@ func (m *App) renderKeys(s styleSet) string {
 		}
 		list.WriteString(line + "\n")
 	}
-	listPanel := lipgloss.NewStyle().Width(listWidth).Height(bodyHeight).Render(strings.TrimRight(list.String(), "\n"))
-	detail := lipgloss.NewStyle().Width(detailWidth).Height(bodyHeight).Render(m.renderKeyDetail(s, filtered[m.cursor], detailWidth))
+	listPanel := lipgloss.NewStyle().Width(listWidth).Height(listHeight).Render(strings.TrimRight(list.String(), "\n"))
+	detail := lipgloss.NewStyle().Width(detailWidth).Height(detailHeight).Render(m.renderKeyDetail(s, filtered[m.cursor], detailWidth))
+	if layout.mobile {
+		divider := s.rule.Render(strings.Repeat("─", listWidth))
+		return lipgloss.JoinVertical(lipgloss.Left, listPanel, divider, detail)
+	}
 	divider := s.rule.Render(strings.TrimSuffix(strings.Repeat("│\n", bodyHeight), "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, listPanel, divider, detail)
 }
@@ -511,7 +530,11 @@ func (m *App) renderFooter(s styleSet) string {
 	if m.form != nil {
 		hint = m.formHint()
 	} else if m.section == hostsSection {
-		hint = "󰌑 connect • ␣ group • a add • h hide • v about • ? help"
+		if m.isMobileLayout() {
+			hint = "↑/↓ or j/k move • click Connect • a add • v about • ? help"
+		} else {
+			hint = "󰌑 connect • ␣ group • a add • h hide • v about • ? help"
+		}
 	} else {
 		hint = "a generate • i import • u add to server • x export • v about • ? help"
 	}
@@ -522,6 +545,9 @@ func (m *App) renderFooter(s styleSet) string {
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
 	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.itemCount() == 0 {
+		return s.rule.Render(strings.Repeat("─", width))
+	}
+	if m.isMobileLayout() {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	listWidth, detailWidth, _ := m.columnDimensions()
