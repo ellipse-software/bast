@@ -1,23 +1,30 @@
 <div align="center">
+
+<h1>
   <a href="https://bast.sh">
-<img src="https://cdn.bast.sh/bast-word.png?a=b" alt="Bast" height="200">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://cdn.bast.sh/bast-word-dark.png">
+      <img alt="Bast" src="https://cdn.bast.sh/bast-word.png" width="208">
+    </picture>
   </a>
-  
+</h1>
+
+**The fast way into the servers you use every day.**
+
+Browse SSH hosts, manage keys, and connect from the terminal.
+
+[Home](https://bast.sh) · [Releases](https://github.com/ellipse-software/bast/releases) · [Contributing](./CONTRIBUTING.md) · [Security](./SECURITY.md)
+
 [![License: MIT](https://img.shields.io/github/license/ellipse-software/bast)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white)](go.mod)
 [![Release](https://img.shields.io/github/v/release/ellipse-software/bast)](https://github.com/ellipse-software/bast/releases)
 [![Tests](https://github.com/ellipse-software/bast/actions/workflows/test.yml/badge.svg)](https://github.com/ellipse-software/bast/actions/workflows/test.yml)
-[![Website](https://img.shields.io/badge/website-bast.sh-111)](https://bast.sh)
 
-Browse SSH hosts, manage keys, and connect from the terminal. The fast way into the servers you use every day.
 </div>
 
 ---
 
-
 ![Bast terminal interface](https://bast.sh/demo.png)
-
-**Website:** [bast.sh](https://bast.sh) · **Releases:** [github.com/ellipse-software/bast](https://github.com/ellipse-software/bast/releases)
 
 ## Install
 
