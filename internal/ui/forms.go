@@ -20,7 +20,7 @@ const (
 	descHostIdentity     = "Optional - Key file, password auth, or agent defaults"
 	descHostSSHFlags     = "Optional - Extra OpenSSH options, separated by ; or newlines"
 	descHostProxyJump    = "Optional - Route connection through a jump host"
-	descHostGroup        = "Optional - Group header for sorting and search"
+	descHostGroup        = "Optional - Use / for subgroups, up to 5 levels"
 	descHostTags         = "Optional - Comma-separated tags included in search"
 	descHostEnvironment  = "Optional - Environment name like production or staging"
 	descHostColor        = "Optional - Hex colour for the host label"
@@ -172,7 +172,10 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 	switch f.action {
 	case "host_add", "host_edit":
 		label := strings.TrimSpace(values["Label"])
-		group := strings.TrimSpace(values["Group"])
+		group, groupErr := normalizeGroupPath(values["Group"])
+		if groupErr != nil {
+			return m.formError(groupErr.Error())
+		}
 		groupCreated := group != "" && !m.groupExists(group)
 		identityFile := values["Identity file"]
 		passwordOnly := identityFile == passwordOnlyIdentity
@@ -224,13 +227,16 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 	case "metadata_edit":
 		alias := values["Alias"]
 		old := m.metadata.Host(alias)
-		group := strings.TrimSpace(values["Group"])
+		group, err := normalizeGroupPath(values["Group"])
+		if err != nil {
+			return m.formError(err.Error())
+		}
 		groupCreated := group != "" && !m.groupExists(group)
 		old.Label, old.Group, old.Tags, old.Environment, old.Color, old.Notes = values["Label"], group, splitCSV(values["Tags"]), values["Environment"], values["Color"], values["Notes"]
 		if old.Label == alias {
 			old.Label = ""
 		}
-		err := m.metadata.SetHost(alias, old)
+		err = m.metadata.SetHost(alias, old)
 		if err == nil && groupCreated {
 			m.selectAfterLoadSection, m.selectAfterLoadName, m.selectAfterLoadGroup = hostsSection, group, true
 		}
@@ -356,7 +362,7 @@ func (m *App) openAddHostForm() {
 		m.identityField("", false),
 		{label: "SSH flags", description: descHostSSHFlags, placeholder: "IdentitiesOnly yes; ForwardAgent yes", optional: true},
 		{label: "Proxy jump", description: descHostProxyJump, placeholder: "bastion", optional: true},
-		{label: "Group", description: descHostGroup, optional: true},
+		{label: "Group", description: descHostGroup, placeholder: "Work/Production", optional: true},
 		{label: "Tags", description: descHostTags, placeholder: "web, production", optional: true},
 		{label: "Environment", description: descHostEnvironment, placeholder: "production", optional: true},
 		{label: "Color", description: descHostColor, placeholder: "#7C3AED", optional: true},
@@ -374,7 +380,7 @@ func (m *App) openEditHostForm() {
 		m.openForm("Edit metadata — "+m.hostLabel(host), "metadata_edit", []field{
 			{label: "Alias", value: host.Alias, hidden: true},
 			{label: "Label", description: "Optional - Display name; SSH alias stays " + host.Alias, value: m.hostLabel(host), optional: true},
-			{label: "Group", description: descHostGroup, value: meta.Group, optional: true},
+			{label: "Group", description: descHostGroup, value: meta.Group, placeholder: "Work/Production", optional: true},
 			{label: "Tags", description: descHostTags, value: strings.Join(meta.Tags, ", "), optional: true},
 			{label: "Environment", description: descHostEnvironment, value: meta.Environment, optional: true},
 			{label: "Color", description: descHostColor, value: meta.Color, optional: true},
@@ -398,7 +404,7 @@ func (m *App) openEditHostForm() {
 		m.identityField(identity, isPasswordOnly),
 		{label: "SSH flags", description: descHostSSHFlags, value: sshconfig.FormatSSHFlags(extras), optional: true},
 		{label: "Proxy jump", description: descHostProxyJump, value: emptyIfNone(host.Resolved.ProxyJump), optional: true},
-		{label: "Group", description: descHostGroup, value: meta.Group, optional: true},
+		{label: "Group", description: descHostGroup, value: meta.Group, placeholder: "Work/Production", optional: true},
 		{label: "Tags", description: descHostTags, value: strings.Join(meta.Tags, ", "), optional: true},
 		{label: "Environment", description: descHostEnvironment, value: meta.Environment, optional: true},
 		{label: "Color", description: descHostColor, value: meta.Color, optional: true},

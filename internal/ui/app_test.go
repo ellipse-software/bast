@@ -117,6 +117,117 @@ func TestHostGroupsAreVisuallySeparatedAndCollapsible(t *testing.T) {
 	}
 }
 
+func TestHostGroupsSupportFiveNestedLevels(t *testing.T) {
+	m := testApp(t)
+	m.hosts = append(m.hosts, sshconfig.Host{Alias: "gamma"}, sshconfig.Host{Alias: "delta"})
+	groups := map[string]string{
+		"alpha": "test/abc",
+		"beta":  "test/def",
+		"gamma": "test",
+		"delta": "one/two/three/four/five",
+	}
+	for alias, group := range groups {
+		if err := m.metadata.SetHost(alias, metadata.Host{Group: group}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.sortHosts()
+
+	rows := m.hostRows()
+	want := []struct {
+		group  string
+		alias  string
+		header bool
+		depth  int
+		count  int
+	}{
+		{group: "test", header: true, depth: 0, count: 3},
+		{group: "test", alias: "gamma", depth: 1},
+		{group: "test/abc", header: true, depth: 1, count: 1},
+		{group: "test/abc", alias: "alpha", depth: 2},
+		{group: "test/def", header: true, depth: 1, count: 1},
+		{group: "test/def", alias: "beta", depth: 2},
+		{group: "one", header: true, depth: 0, count: 1},
+		{group: "one/two", header: true, depth: 1, count: 1},
+		{group: "one/two/three", header: true, depth: 2, count: 1},
+		{group: "one/two/three/four", header: true, depth: 3, count: 1},
+		{group: "one/two/three/four/five", header: true, depth: 4, count: 1},
+		{group: "one/two/three/four/five", alias: "delta", depth: 5},
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("nested rows = %+v", rows)
+	}
+	for i, expected := range want {
+		if rows[i].group != expected.group || rows[i].host.Alias != expected.alias || rows[i].header != expected.header || rows[i].depth != expected.depth || rows[i].count != expected.count {
+			t.Fatalf("row %d = %+v, want %+v", i, rows[i], expected)
+		}
+	}
+
+	rendered := m.renderHosts(m.styles())
+	if !strings.Contains(rendered, "▾ test") || !strings.Contains(rendered, "  ▾ abc") {
+		t.Fatalf("nested group indentation is missing:\n%s", rendered)
+	}
+
+	m.cursor = 3
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	if !m.collapsedGroups["test/abc"] || m.cursor != 2 {
+		t.Fatalf("subgroup did not collapse independently: collapsed=%v cursor=%d", m.collapsedGroups, m.cursor)
+	}
+	siblingVisible := false
+	for _, row := range m.hostRows() {
+		if row.host.Alias == "alpha" {
+			t.Fatal("collapsed subgroup still shows its host")
+		}
+		if row.host.Alias == "beta" {
+			siblingVisible = true
+		}
+	}
+	if !siblingVisible {
+		t.Fatal("collapsing test/abc also hid test/def")
+	}
+	m.cursor = 0
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	if !m.collapsedGroups["test"] {
+		t.Fatal("parent group did not collapse")
+	}
+	for _, row := range m.hostRows() {
+		if strings.HasPrefix(row.group, "test/") || row.host.Alias == "gamma" {
+			t.Fatalf("collapsed parent still shows a descendant: %+v", row)
+		}
+	}
+}
+
+func TestGroupPathsAreNormalizedAndLimitedToFiveLevels(t *testing.T) {
+	m := testApp(t)
+	m.openEditHostForm()
+	for i := range m.form.fields {
+		if m.form.fields[i].label == "Group" {
+			m.form.fields[i].value = "one/two/three/four/five/six"
+		}
+	}
+	m.submitForm()
+	if !m.statusError || m.form == nil || !strings.Contains(m.status, "at most 5 levels") {
+		t.Fatalf("six-level group was accepted: status=%q", m.status)
+	}
+	if got := m.metadata.Host("alpha").Group; got != "" {
+		t.Fatalf("invalid group was saved as %q", got)
+	}
+
+	m.status, m.statusError = "", false
+	for i := range m.form.fields {
+		if m.form.fields[i].label == "Group" {
+			m.form.fields[i].value = " one / two / three / four / five "
+		}
+	}
+	m.submitForm()
+	if m.form != nil || m.statusError {
+		t.Fatalf("five-level group was rejected: %q", m.status)
+	}
+	if got := m.metadata.Host("alpha").Group; got != "one/two/three/four/five" {
+		t.Fatalf("normalized group = %q", got)
+	}
+}
+
 func TestMouseSelectsTabsAndListRowsOnly(t *testing.T) {
 	m := testApp(t)
 	if m.View().MouseMode != tea.MouseModeCellMotion {

@@ -127,11 +127,16 @@ func (m *App) renderHosts(s styleSet) string {
 	for i := start; i < min(len(rowsData), start+rows); i++ {
 		row := rowsData[i]
 		if row.header {
+			indent := strings.Repeat("  ", row.depth)
 			indicator := "▾"
 			if m.collapsedGroups[row.group] && m.searchText() == "" {
 				indicator = "▸"
 			}
-			line := indicator + " " + truncate(row.group, max(2, listWidth-8)) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
+			name := row.group
+			if slash := strings.LastIndex(name, "/"); row.depth > 0 && slash >= 0 {
+				name = name[slash+1:]
+			}
+			line := indent + indicator + " " + truncate(name, max(2, listWidth-lipgloss.Width(indent)-8)) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
 			if i == m.cursor {
 				line = s.selected.Width(listWidth).Render(line)
 			} else {
@@ -148,10 +153,7 @@ func (m *App) renderHosts(s styleSet) string {
 		} else if meta.Favorite {
 			prefix = "◆ "
 		}
-		indent := ""
-		if row.group != "" {
-			indent = "  "
-		}
+		indent := strings.Repeat("  ", row.depth)
 		line := indent + prefix + truncate(m.hostLabel(host), max(2, listWidth-lipgloss.Width(indent+prefix)-2))
 		if i == m.cursor {
 			line = s.selected.Width(listWidth).Render(line)

@@ -16,6 +16,8 @@ import (
 
 const noticeDuration = 4 * time.Second
 
+const maxGroupDepth = 5
+
 func (m *App) terminalWidth() int {
 	if m.width > 0 {
 		return m.width
@@ -66,35 +68,115 @@ type hostRow struct {
 	host   sshconfig.Host
 	header bool
 	count  int
+	depth  int
+}
+
+type hostGroup struct {
+	path     string
+	hosts    []sshconfig.Host
+	children []*hostGroup
+	count    int
 }
 
 func (m *App) hostRows() []hostRow {
 	hosts := m.filteredHosts()
-	grouped := map[string][]sshconfig.Host{}
-	order := make([]string, 0)
-	seen := map[string]bool{}
+	groups := map[string]*hostGroup{}
+	ungrouped := []sshconfig.Host{}
+	topLevelOrder := []string{}
+	seenTopLevel := map[string]bool{}
 	for _, host := range hosts {
-		group := strings.TrimSpace(m.metadata.Host(host.Alias).Group)
-		if !seen[group] {
-			seen[group] = true
-			order = append(order, group)
-		}
-		grouped[group] = append(grouped[group], host)
-	}
-	rows := make([]hostRow, 0, len(hosts)+len(order))
-	for _, group := range order {
-		members := grouped[group]
-		if group != "" {
-			rows = append(rows, hostRow{group: group, header: true, count: len(members)})
-			if m.collapsedGroups[group] && m.searchText() == "" {
-				continue
+		parts := groupPathParts(m.metadata.Host(host.Alias).Group)
+		if len(parts) == 0 {
+			if !seenTopLevel[""] {
+				seenTopLevel[""] = true
+				topLevelOrder = append(topLevelOrder, "")
 			}
+			ungrouped = append(ungrouped, host)
+			continue
 		}
-		for _, host := range members {
-			rows = append(rows, hostRow{group: group, host: host})
+		if !seenTopLevel[parts[0]] {
+			seenTopLevel[parts[0]] = true
+			topLevelOrder = append(topLevelOrder, parts[0])
 		}
+		path := ""
+		var parent *hostGroup
+		for _, part := range parts {
+			if path == "" {
+				path = part
+			} else {
+				path += "/" + part
+			}
+			node := groups[path]
+			if node == nil {
+				node = &hostGroup{path: path}
+				groups[path] = node
+				if parent != nil {
+					parent.children = append(parent.children, node)
+				}
+			}
+			node.count++
+			parent = node
+		}
+		parent.hosts = append(parent.hosts, host)
+	}
+	rows := make([]hostRow, 0, len(hosts)+len(groups))
+	for _, group := range topLevelOrder {
+		if group == "" {
+			for _, host := range ungrouped {
+				rows = append(rows, hostRow{host: host})
+			}
+			continue
+		}
+		rows = m.appendGroupRows(rows, groups[group], 0)
 	}
 	return rows
+}
+
+func (m *App) appendGroupRows(rows []hostRow, group *hostGroup, depth int) []hostRow {
+	rows = append(rows, hostRow{group: group.path, header: true, count: group.count, depth: depth})
+	if m.collapsedGroups[group.path] && m.searchText() == "" {
+		return rows
+	}
+	for _, host := range group.hosts {
+		rows = append(rows, hostRow{group: group.path, host: host, depth: depth + 1})
+	}
+	for _, child := range group.children {
+		rows = m.appendGroupRows(rows, child, depth+1)
+	}
+	return rows
+}
+
+func normalizeGroupPath(group string) (string, error) {
+	group = strings.TrimSpace(group)
+	if group == "" {
+		return "", nil
+	}
+	parts := strings.Split(group, "/")
+	if len(parts) > maxGroupDepth {
+		return "", fmt.Errorf("groups can be at most %d levels deep", maxGroupDepth)
+	}
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+		if parts[i] == "" {
+			return "", fmt.Errorf("group levels cannot be empty")
+		}
+	}
+	return strings.Join(parts, "/"), nil
+}
+
+func groupPathParts(group string) []string {
+	normalized, err := normalizeGroupPath(group)
+	if err != nil {
+		group = strings.TrimSpace(group)
+		if group == "" {
+			return nil
+		}
+		return []string{group}
+	}
+	if normalized == "" {
+		return nil
+	}
+	return strings.Split(normalized, "/")
 }
 
 func (m *App) hasHiddenHosts() bool {
@@ -218,7 +300,8 @@ func (m *App) selectAfterLoad() {
 
 func (m *App) groupExists(group string) bool {
 	for _, host := range m.hosts {
-		if strings.TrimSpace(m.metadata.Host(host.Alias).Group) == group {
+		existing, err := normalizeGroupPath(m.metadata.Host(host.Alias).Group)
+		if err == nil && (existing == group || strings.HasPrefix(existing, group+"/")) {
 			return true
 		}
 	}

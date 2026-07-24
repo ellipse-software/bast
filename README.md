@@ -45,7 +45,7 @@ Inside the TUI, press `?` for the full keybinding reference.
 
 ## What Bast does
 
-**Hosts.** Reads your existing `~/.ssh/config` (including `Include` files). Add and edit OpenSSH host blocks, favorite and tag them, group them under collapsible headers, hide hosts you rarely use, and search or sort the list.
+**Hosts.** Reads your existing `~/.ssh/config` (including `Include` files). Add and edit OpenSSH host blocks, favorite and tag them, group them under collapsible headers and slash-delimited subgroups up to five levels deep, hide hosts you rarely use, and search or sort the list.
 
 **Keys.** Generate, import, export, inspect, and delete native SSH keys. Import from a file path or pasted PEM. Verify keypairs, edit public-key comments, and push a public key to a server's `~/.ssh/authorized_keys`.
 
