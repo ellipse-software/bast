@@ -1,4 +1,6 @@
-![Bast](https://cdn.bast.sh/bast-word.png)
+<img src="https://cdn.bast.sh/bast-word.png" alt="Bast" height="100" align="center">
+
+---
 
 [![License: MIT](https://img.shields.io/github/license/ellipse-software/bast)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white)](go.mod)
