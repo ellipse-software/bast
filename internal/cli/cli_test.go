@@ -133,6 +133,11 @@ func TestInvocationAndCommandHelp(t *testing.T) {
 	if err != nil || errOut != "" || !strings.Contains(out, "Usage: bast hosts add") {
 		t.Fatalf("output=%q stderr=%q err=%v", out, errOut, err)
 	}
+	for _, option := range []string{"--forward-agent", "--request-tty", "--local-forward", "--ssh-option"} {
+		if !strings.Contains(out, option) {
+			t.Fatalf("host add help missing %q:\n%s", option, out)
+		}
+	}
 }
 
 func runTestCLI(t *testing.T, home string, client openssh.Client, args ...string) (string, string, error) {

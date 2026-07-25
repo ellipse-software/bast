@@ -302,7 +302,32 @@ func Validate(input HostInput) error {
 			return errors.New("port must be between 1 and 65535")
 		}
 	}
-	return validateExtraOptions(input.ExtraOptions)
+	return validateHostExtraOptions(input.ExtraOptions)
+}
+
+func validateHostExtraOptions(options []string) error {
+	for _, option := range options {
+		parts, err := fields(strings.TrimSpace(option))
+		if err != nil {
+			return fmt.Errorf("invalid SSH flag %q: %w", option, err)
+		}
+		if len(parts) == 0 {
+			return errors.New("SSH flags cannot be empty")
+		}
+		name := strings.ToLower(parts[0])
+		if forbiddenDirectives[name] {
+			return fmt.Errorf("SSH flag %q is not allowed", parts[0])
+		}
+		if coreManagedDirectives[name] {
+			return fmt.Errorf("use the dedicated field for %s instead of SSH flags", parts[0])
+		}
+		for _, value := range parts[1:] {
+			if strings.ContainsAny(value, "\r\n\x00") {
+				return fmt.Errorf("SSH flag %q cannot contain a newline or null byte", option)
+			}
+		}
+	}
+	return nil
 }
 
 func NormalizeAlias(label string) string {

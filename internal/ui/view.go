@@ -381,6 +381,9 @@ func (m *App) renderKeyDetail(s styleSet, key keys.Key, width int) string {
 }
 
 func (m *App) renderForm(s styleSet) string {
+	if isHostForm(m.form) {
+		return m.renderHostForm(s)
+	}
 	f := m.form
 	var b strings.Builder
 	current, total := formProgress(f)
@@ -443,6 +446,9 @@ func (m *App) renderForm(s styleSet) string {
 }
 
 func (m *App) formHint() string {
+	if isHostForm(m.form) {
+		return hostFormHint(m.form)
+	}
 	f := m.form
 	action := "󰌑 next"
 	if isEditForm(f) && !f.selecting {

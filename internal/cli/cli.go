@@ -169,11 +169,26 @@ func (r *Runner) Run(args []string) error {
 
 func commandUsage(resource, command string) string {
 	usage := map[string]string{
-		"update --help":   "Usage: bast update",
-		"hosts list":      "Usage: bast hosts list [--search text] [--sort smart|label|recent|group] [--all]",
-		"hosts show":      "Usage: bast hosts show <host>",
-		"hosts add":       "Usage: bast hosts add [label] --hostname host [connection and metadata options]",
-		"hosts edit":      "Usage: bast hosts edit <host> [patch options|--clear-*]",
+		"update --help": "Usage: bast update",
+		"hosts list":    "Usage: bast hosts list [--search text] [--sort smart|label|recent|group] [--all]",
+		"hosts show":    "Usage: bast hosts show <host>",
+		"hosts add": `Usage: bast hosts add [label] --hostname host [options]
+
+Connection: --user, --port, --identity, --password-only, --proxy-jump
+Advanced: --forward-agent, --startup-command, --request-tty, --set-env,
+          --local-forward, --remote-forward, --dynamic-forward, --compression,
+          --keepalive, --ssh-option
+Metadata: --group, --tag, --environment, --color, --notes`,
+		"hosts edit": `Usage: bast hosts edit <host> [options]
+
+Connection: --label, --hostname, --user, --port, --identity, --password-only,
+            --proxy-jump
+Advanced: --forward-agent, --startup-command, --request-tty, --set-env,
+          --local-forward, --remote-forward, --dynamic-forward, --compression,
+          --keepalive, --ssh-option
+Metadata: --group, --tag, --environment, --color, --notes
+Repeat list options to provide multiple values. Use the corresponding --clear-*
+option to restore a default or remove values.`,
 		"hosts delete":    "Usage: bast hosts delete <host> [--yes]",
 		"keys list":       "Usage: bast keys list [--search text]",
 		"keys show":       "Usage: bast keys show <name>",
@@ -220,26 +235,27 @@ func (r *Runner) success(data any, message string) error {
 }
 
 type hostRecord struct {
-	Alias           string     `json:"alias"`
-	Label           string     `json:"label"`
-	Hostname        string     `json:"hostname"`
-	User            string     `json:"user"`
-	Port            string     `json:"port"`
-	IdentityFiles   []string   `json:"identityFiles"`
-	Authentication  string     `json:"authentication"`
-	ProxyJump       string     `json:"proxyJump"`
-	Group           string     `json:"group"`
-	Tags            []string   `json:"tags"`
-	Environment     string     `json:"environment"`
-	Color           string     `json:"color"`
-	Notes           string     `json:"notes"`
-	Favorite        bool       `json:"favorite"`
-	Hidden          bool       `json:"hidden"`
-	Managed         bool       `json:"managed"`
-	Source          string     `json:"source"`
-	KnownHost       bool       `json:"knownHost"`
-	LastUsedAt      *time.Time `json:"lastUsedAt,omitempty"`
-	ConnectionCount int        `json:"connectionCount"`
+	Alias           string                     `json:"alias"`
+	Label           string                     `json:"label"`
+	Hostname        string                     `json:"hostname"`
+	User            string                     `json:"user"`
+	Port            string                     `json:"port"`
+	IdentityFiles   []string                   `json:"identityFiles"`
+	Authentication  string                     `json:"authentication"`
+	ProxyJump       string                     `json:"proxyJump"`
+	Advanced        sshconfig.AdvancedSettings `json:"advanced"`
+	Group           string                     `json:"group"`
+	Tags            []string                   `json:"tags"`
+	Environment     string                     `json:"environment"`
+	Color           string                     `json:"color"`
+	Notes           string                     `json:"notes"`
+	Favorite        bool                       `json:"favorite"`
+	Hidden          bool                       `json:"hidden"`
+	Managed         bool                       `json:"managed"`
+	Source          string                     `json:"source"`
+	KnownHost       bool                       `json:"knownHost"`
+	LastUsedAt      *time.Time                 `json:"lastUsedAt,omitempty"`
+	ConnectionCount int                        `json:"connectionCount"`
 	raw             sshconfig.Host
 	meta            metadata.Host
 }
@@ -285,10 +301,15 @@ func (r *Runner) load(ctx context.Context) ([]hostRecord, []keyRecord, error) {
 		} else if (strings.EqualFold(resolved.IdentitiesOnly, "yes") || strings.EqualFold(resolved.IdentitiesOnly, "true")) && len(resolved.IdentityFiles) > 0 {
 			auth = "identity"
 		}
+		adv, advErr := loadHostAdvanced(r.config, hosts[i], emptyNone(resolved.ProxyJump))
+		if advErr != nil {
+			return nil, nil, advErr
+		}
 		hostRecords = append(hostRecords, hostRecord{
 			Alias: hosts[i].Alias, Label: label, Hostname: resolved.HostName, User: resolved.User, Port: resolved.Port,
-			IdentityFiles: nonNil(resolved.IdentityFiles), Authentication: auth, ProxyJump: emptyNone(resolved.ProxyJump), Group: meta.Group,
-			Tags: nonNil(meta.Tags), Environment: meta.Environment, Color: meta.Color, Notes: meta.Notes, Favorite: meta.Favorite,
+			IdentityFiles: nonNil(resolved.IdentityFiles), Authentication: auth, ProxyJump: emptyNone(resolved.ProxyJump), Advanced: adv,
+			Group: meta.Group,
+			Tags:  nonNil(meta.Tags), Environment: meta.Environment, Color: meta.Color, Notes: meta.Notes, Favorite: meta.Favorite,
 			Hidden: meta.Hidden, Managed: hosts[i].Managed, Source: hosts[i].Source, KnownHost: hosts[i].KnownHost,
 			LastUsedAt: meta.LastUsedAt, ConnectionCount: meta.ConnectionCount, raw: hosts[i], meta: meta,
 		})
@@ -362,6 +383,12 @@ func isPasswordOnly(resolved sshconfig.Resolved) bool {
 func emptyNone(value string) string {
 	if value == "none" {
 		return ""
+	}
+	return value
+}
+func emptyDefault(value string) string {
+	if value == "" {
+		return "default"
 	}
 	return value
 }

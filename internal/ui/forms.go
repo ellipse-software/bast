@@ -13,32 +13,93 @@ import (
 )
 
 const (
-	descHostLabel        = "Required - Display name; spaces become SSH underscores"
-	descHostHostname     = "Required - Server hostname or IP address"
-	descHostUser         = "Optional - Remote username; blank uses SSH default"
-	descHostPort         = "Optional - Port number; blank defaults to 22"
-	descHostIdentity     = "Optional - Key file, password auth, or agent defaults"
-	descHostSSHFlags     = "Optional - Extra OpenSSH options, separated by ; or newlines"
-	descHostProxyJump    = "Optional - Route connection through a jump host"
-	descHostGroup        = "Optional - Use / for subgroups, up to 5 levels"
-	descHostTags         = "Optional - Comma-separated tags included in search"
-	descHostEnvironment  = "Optional - Environment name like production or staging"
-	descHostColor        = "Optional - Hex colour for the host label"
-	descHostNotes        = "Optional - Short note in details and search"
-	descKeyName          = "Required - Short name for this keypair"
-	descKeyAlgorithm     = "Required - Key algorithm: ed25519 or rsa"
-	descKeyPrivate       = "Required - Private key path or pasted PEM"
-	descKeyPublic        = "Optional - Public key; blank derives from private"
-	descKeyComment       = "Optional - Public key comment; blank keeps existing"
-	descKeyCommentEdit   = "Optional - Public key comment; blank removes it"
-	descKeyExportDir     = "Required - Directory to write exported key files"
-	descKeyExportConfirm = "Required - Type EXPORT to confirm export"
-	descKeyServer        = "Required - Target server; may prompt for password"
+	descHostLabel          = "Required - Display name shown in Bast"
+	descHostHostname       = "Required - Server hostname or IP address"
+	descHostUser           = "Optional - Remote username; blank uses SSH default"
+	descHostPort           = "Optional - Port number; blank defaults to 22"
+	descHostIdentity       = "Optional - Key file, password auth, or agent defaults"
+	descHostProxyJump      = "Optional - Route through a jump host (ProxyJump)"
+	descHostRemoteCommand  = "Optional - Command to run after connecting (RemoteCommand)"
+	descHostRequestTTY     = "Optional - Allocate a TTY for the startup command"
+	descHostForwardAgent   = "Optional - Forward your local SSH agent to the server"
+	descHostLocalForward   = "Optional - Local port forwards; use port target pairs separated by ;"
+	descHostRemoteForward  = "Optional - Remote port forwards; use port target pairs separated by ;"
+	descHostDynamicForward = "Optional - SOCKS proxy port (DynamicForward)"
+	descHostKeepalive      = "Optional - ServerAliveInterval in seconds"
+	descHostCompression    = "Optional - Enable SSH compression"
+	descHostSetEnv         = "Optional - SetEnv pairs like FOO=bar, separated by ;"
+	descHostSSHFlags       = "Optional - Any other OpenSSH options, separated by ;"
+	descHostGroup          = "Optional - Use / for subgroups, up to 5 levels"
+	descHostTags           = "Optional - Comma-separated tags included in search"
+	descHostEnvironment    = "Optional - Environment name like production or staging"
+	descHostColor          = "Optional - Hex colour for the host label"
+	descHostNotes          = "Optional - Short note in details and search"
+	descKeyName            = "Required - Short name for this keypair"
+	descKeyAlgorithm       = "Required - Key algorithm: ed25519 or rsa"
+	descKeyPrivate         = "Required - Private key path or pasted PEM"
+	descKeyPublic          = "Optional - Public key; blank derives from private"
+	descKeyComment         = "Optional - Public key comment; blank keeps existing"
+	descKeyCommentEdit     = "Optional - Public key comment; blank removes it"
+	descKeyExportDir       = "Required - Directory to write exported key files"
+	descKeyExportConfirm   = "Required - Type EXPORT to confirm export"
+	descKeyServer          = "Required - Target server; may prompt for password"
 )
 
 const passwordOnlyIdentity = "\x00password-only"
 
+func (m *App) formTextInputActive() bool {
+	f := m.form
+	if f == nil {
+		return false
+	}
+	if isHostForm(f) {
+		if f.selecting {
+			return false
+		}
+		if f.screen != "" && f.screen != "hub" {
+			if f.screen == formScreenAdvancedHub {
+				return false
+			}
+			item := &f.fields[f.index]
+			if f.selecting {
+				return false
+			}
+			return len(item.options) == 0 || item.options[item.selected].custom
+		}
+		items := hostHubItems(f)
+		if f.hubIndex >= 0 && f.hubIndex < len(items) {
+			switch items[f.hubIndex].id {
+			case "label", "hostname":
+				return true
+			}
+		}
+		return false
+	}
+	item := &f.fields[f.index]
+	if f.selecting {
+		return false
+	}
+	return len(item.options) == 0 || item.options[item.selected].custom
+}
+
+func (m *App) updateFormQuit(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	key := msg.String()
+	if key == "ctrl+c" {
+		return m, tea.Quit, true
+	}
+	if key == "q" && !m.formTextInputActive() {
+		return m, tea.Quit, true
+	}
+	return m, nil, false
+}
+
 func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if model, cmd, quit := m.updateFormQuit(msg); quit {
+		return model, cmd
+	}
+	if isHostForm(m.form) {
+		return m.updateHostForm(msg)
+	}
 	key := msg.String()
 	f := m.form
 	item := &f.fields[f.index]
@@ -134,7 +195,7 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func isEditForm(f *form) bool {
-	return f.action == "host_edit" || f.action == "metadata_edit" || f.action == "group_edit" || f.action == "key_comment"
+	return f.action == "group_edit" || f.action == "key_comment"
 }
 
 func (m *App) updateFormPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
@@ -177,6 +238,10 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			return m.formError(groupErr.Error())
 		}
 		groupCreated := group != "" && !m.groupExists(group)
+		adv := advancedSettingsFromForm(values)
+		if err := sshconfig.ValidateAdvanced(adv); err != nil {
+			return m.formError(err.Error())
+		}
 		identityFile := values["Identity file"]
 		passwordOnly := identityFile == passwordOnlyIdentity
 		if passwordOnly {
@@ -184,7 +249,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		}
 		input := sshconfig.HostInput{
 			Alias: sshconfig.NormalizeAlias(label), HostName: values["Hostname"], User: values["User"], Port: values["Port"],
-			IdentityFile: identityFile, ExtraOptions: sshconfig.ParseSSHFlags(values["SSH flags"]), PasswordOnly: passwordOnly, ProxyJump: values["Proxy jump"],
+			IdentityFile: identityFile, ExtraOptions: adv.ExtraOptions(), PasswordOnly: passwordOnly, ProxyJump: adv.ProxyJump,
 		}
 		if identityFile != "" && !passwordOnly && !sshconfig.HasDirective(input.ExtraOptions, "IdentitiesOnly") {
 			input.ExtraOptions = append([]string{"IdentitiesOnly yes"}, input.ExtraOptions...)
@@ -361,20 +426,8 @@ func (m *App) formError(message string) (tea.Model, tea.Cmd) {
 }
 
 func (m *App) openAddHostForm() {
-	m.openForm("Add host", "host_add", []field{
-		{label: "Label", description: descHostLabel, placeholder: "Production web"},
-		{label: "Hostname", description: descHostHostname, placeholder: "server.example.com"},
-		{label: "User", description: descHostUser, placeholder: "ubuntu", optional: true},
-		{label: "Port", description: descHostPort, placeholder: "22", optional: true},
-		m.identityField("", false),
-		{label: "SSH flags", description: descHostSSHFlags, placeholder: "IdentitiesOnly yes; ForwardAgent yes", optional: true},
-		{label: "Proxy jump", description: descHostProxyJump, placeholder: "bastion", optional: true},
-		{label: "Group", description: descHostGroup, placeholder: "Work/Production", optional: true},
-		{label: "Tags", description: descHostTags, placeholder: "web, production", optional: true},
-		{label: "Environment", description: descHostEnvironment, placeholder: "production", optional: true},
-		{label: "Color", description: descHostColor, placeholder: "#7C3AED", optional: true},
-		{label: "Notes", description: descHostNotes, optional: true},
-	})
+	group := m.defaultAddGroup()
+	m.openHostForm("Add host", "host_add", hostFormFields(m, metadataHostValues{group: group}, hostConnectionValues{includeConnection: true}, nil))
 }
 
 func (m *App) openEditGroupForm() {
@@ -395,16 +448,11 @@ func (m *App) openEditHostForm() {
 	}
 	meta := m.metadata.Host(host.Alias)
 	if !host.Managed {
-		m.openForm("Edit metadata — "+m.hostLabel(host), "metadata_edit", []field{
-			{label: "Alias", value: host.Alias, hidden: true},
-			{label: "Label", description: "Optional - Display name; SSH alias stays " + host.Alias, value: m.hostLabel(host), optional: true},
-			{label: "Group", description: descHostGroup, value: meta.Group, placeholder: "Work/Production", optional: true},
-			{label: "Tags", description: descHostTags, value: strings.Join(meta.Tags, ", "), optional: true},
-			{label: "Environment", description: descHostEnvironment, value: meta.Environment, optional: true},
-			{label: "Color", description: descHostColor, value: meta.Color, optional: true},
-			{label: "Notes", description: descHostNotes, value: meta.Notes, optional: true},
-		})
-		m.form.revealed = len(m.form.fields) - 1
+		m.openHostForm("Edit metadata — "+m.hostLabel(host), "metadata_edit", hostFormFields(m, metadataHostValues{
+			label: m.hostLabel(host), group: meta.Group, tags: strings.Join(meta.Tags, ", "),
+			environment: meta.Environment, color: meta.Color, notes: meta.Notes,
+			labelDesc: "Optional - Display name; SSH alias stays " + host.Alias,
+		}, hostConnectionValues{}, []field{{label: "Alias", value: host.Alias, hidden: true}}))
 		return
 	}
 	identity := ""
@@ -413,22 +461,19 @@ func (m *App) openEditHostForm() {
 		identity = host.Resolved.IdentityFiles[0]
 	}
 	extras, _ := m.config.ManagedExtras(host.ManagedID)
-	m.openForm("Edit host — "+m.hostLabel(host), "host_edit", []field{
-		{label: "Original label", value: host.Alias, hidden: true},
-		{label: "Label", description: descHostLabel, value: m.hostLabel(host)},
-		{label: "Hostname", description: descHostHostname, value: host.Resolved.HostName},
-		{label: "User", description: descHostUser, value: host.Resolved.User, optional: true},
-		{label: "Port", description: descHostPort, value: host.Resolved.Port, optional: true},
-		m.identityField(identity, isPasswordOnly),
-		{label: "SSH flags", description: descHostSSHFlags, value: sshconfig.FormatSSHFlags(extras), optional: true},
-		{label: "Proxy jump", description: descHostProxyJump, value: emptyIfNone(host.Resolved.ProxyJump), optional: true},
-		{label: "Group", description: descHostGroup, value: meta.Group, placeholder: "Work/Production", optional: true},
-		{label: "Tags", description: descHostTags, value: strings.Join(meta.Tags, ", "), optional: true},
-		{label: "Environment", description: descHostEnvironment, value: meta.Environment, optional: true},
-		{label: "Color", description: descHostColor, value: meta.Color, optional: true},
-		{label: "Notes", description: descHostNotes, value: meta.Notes, optional: true},
-	})
-	m.form.revealed = len(m.form.fields) - 1
+	adv := sshconfig.ParseAdvanced(extras, emptyIfNone(host.Resolved.ProxyJump))
+	m.openHostForm("Edit host — "+m.hostLabel(host), "host_edit", hostFormFields(m, metadataHostValues{
+		label: m.hostLabel(host), group: meta.Group, tags: strings.Join(meta.Tags, ", "),
+		environment: meta.Environment, color: meta.Color, notes: meta.Notes,
+	}, hostConnectionValues{
+		includeConnection: true,
+		hostname:          host.Resolved.HostName,
+		user:              host.Resolved.User,
+		port:              host.Resolved.Port,
+		identity:          identity,
+		passwordOnly:      isPasswordOnly,
+		advanced:          adv,
+	}, []field{{label: "Original label", value: host.Alias, hidden: true}}))
 }
 
 func (m *App) openDeleteHostForm() {
@@ -608,6 +653,9 @@ func (m *App) focusFormField() {
 }
 
 func (m *App) commitFormField() {
+	if m.form == nil || m.form.index < 0 || m.form.index >= len(m.form.fields) {
+		return
+	}
 	item := &m.form.fields[m.form.index]
 	if len(item.options) > 0 {
 		option := item.options[item.selected]
