@@ -92,6 +92,7 @@ func run(args []string) error {
 	return err
 }
 
+
 func buildVersion() string {
 	if version != "dev" {
 		return version

@@ -41,7 +41,9 @@ brew tap ellipse-software/tap
 brew install bast
 ```
 
-**Nightly** (latest `master`; cannot coexist with stable):
+### Nightly
+
+Make sure you uninstall the stable version before using the nightly version.
 
 ```sh
 curl -fsSL https://bast.sh/install-nightly | sh
@@ -51,7 +53,7 @@ curl -fsSL https://bast.sh/install-nightly | sh
 brew install bast-nightly
 ```
 
-**From source** (Go 1.26+):
+### From Source
 
 ```sh
 git clone https://github.com/ellipse-software/bast.git
@@ -76,7 +78,7 @@ Press `?` in the TUI for keybindings. Installed via Homebrew? Use `brew upgrade 
 
 ## CLI
 
-No args opens the TUI. Host and key management lives under `bast hosts` and `bast keys`:
+If you aren't a fan of the TUI, you can also use bast directly in your terminal.
 
 ```sh
 bast hosts list --sort group
@@ -84,7 +86,7 @@ bast hosts add "Production web" --hostname prod.example.com --user deploy
 bast hosts edit Production_web --notes "Primary app server"
 bast hosts delete Production_web
 
-bast keys generate work --algorithm ed25519
+bast keys generate work --algorithm ed25519       # 
 bast keys import work --private ~/.ssh/id_ed25519
 bast keys install work --host production
 bast keys delete work
@@ -92,7 +94,7 @@ bast keys delete work
 
 Run `bast hosts <command> --help` or `bast keys <command> --help` for the full flag list.
 
-Edits are patches — only the flags you pass change. `--clear-group`, `--clear-notes`, and similar flags remove values. Hosts that only exist in your main SSH config can get Bast metadata edits, but Bast won't touch their connection settings or delete them.
+Edits are patches. Only the flags you pass change. `--clear-group`, `--clear-notes`, and similar flags remove values. Hosts that only exist in your main SSH config can get Bast metadata edits, but Bast won't touch their connection settings or delete them.
 
 Commands prompt when they need input. `--yes` skips confirmations for delete, known-host removal, and key export. Import from stdin without putting the key in shell history:
 
@@ -148,8 +150,6 @@ Anonymous usage telemetry (version, platform, events) is on by default. Opt out:
 ```sh
 export BAST_NO_TELEMETRY=1
 ```
-
-Same opt-out on [bast.sh](https://bast.sh). Website repo: [ellipse-software/bast-web](https://github.com/ellipse-software/bast-web).
 
 ## Development
 
