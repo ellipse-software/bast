@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	descHostLabel        = "Required - Display name; spaces become SSH underscores"
+	descHostLabel        = "Required - Display name shown in Bast"
 	descHostHostname     = "Required - Server hostname or IP address"
 	descHostUser         = "Optional - Remote username; blank uses SSH default"
 	descHostPort         = "Optional - Port number; blank defaults to 22"
@@ -38,7 +38,53 @@ const (
 
 const passwordOnlyIdentity = "\x00password-only"
 
+func (m *App) formTextInputActive() bool {
+	f := m.form
+	if f == nil {
+		return false
+	}
+	if isHostForm(f) {
+		if f.selecting {
+			return false
+		}
+		if f.screen != "" && f.screen != "hub" {
+			item := &f.fields[f.index]
+			return len(item.options) == 0 || item.options[item.selected].custom
+		}
+		items := hostHubItems(f)
+		if f.hubIndex >= 0 && f.hubIndex < len(items) {
+			switch items[f.hubIndex].id {
+			case "label", "hostname":
+				return true
+			}
+		}
+		return false
+	}
+	item := &f.fields[f.index]
+	if f.selecting {
+		return false
+	}
+	return len(item.options) == 0 || item.options[item.selected].custom
+}
+
+func (m *App) updateFormQuit(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	key := msg.String()
+	if key == "ctrl+c" {
+		return m, tea.Quit, true
+	}
+	if key == "q" && !m.formTextInputActive() {
+		return m, tea.Quit, true
+	}
+	return m, nil, false
+}
+
 func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if model, cmd, quit := m.updateFormQuit(msg); quit {
+		return model, cmd
+	}
+	if isHostForm(m.form) {
+		return m.updateHostForm(msg)
+	}
 	key := msg.String()
 	f := m.form
 	item := &f.fields[f.index]
@@ -134,7 +180,7 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func isEditForm(f *form) bool {
-	return f.action == "host_edit" || f.action == "metadata_edit" || f.action == "group_edit" || f.action == "key_comment"
+	return f.action == "group_edit" || f.action == "key_comment"
 }
 
 func (m *App) updateFormPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
@@ -361,20 +407,8 @@ func (m *App) formError(message string) (tea.Model, tea.Cmd) {
 }
 
 func (m *App) openAddHostForm() {
-	m.openForm("Add host", "host_add", []field{
-		{label: "Label", description: descHostLabel, placeholder: "Production web"},
-		{label: "Hostname", description: descHostHostname, placeholder: "server.example.com"},
-		{label: "User", description: descHostUser, placeholder: "ubuntu", optional: true},
-		{label: "Port", description: descHostPort, placeholder: "22", optional: true},
-		m.identityField("", false),
-		{label: "SSH flags", description: descHostSSHFlags, placeholder: "IdentitiesOnly yes; ForwardAgent yes", optional: true},
-		{label: "Proxy jump", description: descHostProxyJump, placeholder: "bastion", optional: true},
-		{label: "Group", description: descHostGroup, placeholder: "Work/Production", optional: true},
-		{label: "Tags", description: descHostTags, placeholder: "web, production", optional: true},
-		{label: "Environment", description: descHostEnvironment, placeholder: "production", optional: true},
-		{label: "Color", description: descHostColor, placeholder: "#7C3AED", optional: true},
-		{label: "Notes", description: descHostNotes, optional: true},
-	})
+	group := m.defaultAddGroup()
+	m.openHostForm("Add host", "host_add", hostFormFields(m, metadataHostValues{group: group}, hostConnectionValues{includeConnection: true}, nil))
 }
 
 func (m *App) openEditGroupForm() {
@@ -395,16 +429,11 @@ func (m *App) openEditHostForm() {
 	}
 	meta := m.metadata.Host(host.Alias)
 	if !host.Managed {
-		m.openForm("Edit metadata — "+m.hostLabel(host), "metadata_edit", []field{
-			{label: "Alias", value: host.Alias, hidden: true},
-			{label: "Label", description: "Optional - Display name; SSH alias stays " + host.Alias, value: m.hostLabel(host), optional: true},
-			{label: "Group", description: descHostGroup, value: meta.Group, placeholder: "Work/Production", optional: true},
-			{label: "Tags", description: descHostTags, value: strings.Join(meta.Tags, ", "), optional: true},
-			{label: "Environment", description: descHostEnvironment, value: meta.Environment, optional: true},
-			{label: "Color", description: descHostColor, value: meta.Color, optional: true},
-			{label: "Notes", description: descHostNotes, value: meta.Notes, optional: true},
-		})
-		m.form.revealed = len(m.form.fields) - 1
+		m.openHostForm("Edit metadata — "+m.hostLabel(host), "metadata_edit", hostFormFields(m, metadataHostValues{
+			label: m.hostLabel(host), group: meta.Group, tags: strings.Join(meta.Tags, ", "),
+			environment: meta.Environment, color: meta.Color, notes: meta.Notes,
+			labelDesc: "Optional - Display name; SSH alias stays " + host.Alias,
+		}, hostConnectionValues{}, []field{{label: "Alias", value: host.Alias, hidden: true}}))
 		return
 	}
 	identity := ""
@@ -413,22 +442,19 @@ func (m *App) openEditHostForm() {
 		identity = host.Resolved.IdentityFiles[0]
 	}
 	extras, _ := m.config.ManagedExtras(host.ManagedID)
-	m.openForm("Edit host — "+m.hostLabel(host), "host_edit", []field{
-		{label: "Original label", value: host.Alias, hidden: true},
-		{label: "Label", description: descHostLabel, value: m.hostLabel(host)},
-		{label: "Hostname", description: descHostHostname, value: host.Resolved.HostName},
-		{label: "User", description: descHostUser, value: host.Resolved.User, optional: true},
-		{label: "Port", description: descHostPort, value: host.Resolved.Port, optional: true},
-		m.identityField(identity, isPasswordOnly),
-		{label: "SSH flags", description: descHostSSHFlags, value: sshconfig.FormatSSHFlags(extras), optional: true},
-		{label: "Proxy jump", description: descHostProxyJump, value: emptyIfNone(host.Resolved.ProxyJump), optional: true},
-		{label: "Group", description: descHostGroup, value: meta.Group, placeholder: "Work/Production", optional: true},
-		{label: "Tags", description: descHostTags, value: strings.Join(meta.Tags, ", "), optional: true},
-		{label: "Environment", description: descHostEnvironment, value: meta.Environment, optional: true},
-		{label: "Color", description: descHostColor, value: meta.Color, optional: true},
-		{label: "Notes", description: descHostNotes, value: meta.Notes, optional: true},
-	})
-	m.form.revealed = len(m.form.fields) - 1
+	m.openHostForm("Edit host — "+m.hostLabel(host), "host_edit", hostFormFields(m, metadataHostValues{
+		label: m.hostLabel(host), group: meta.Group, tags: strings.Join(meta.Tags, ", "),
+		environment: meta.Environment, color: meta.Color, notes: meta.Notes,
+	}, hostConnectionValues{
+		includeConnection: true,
+		hostname:          host.Resolved.HostName,
+		user:              host.Resolved.User,
+		port:              host.Resolved.Port,
+		identity:          identity,
+		passwordOnly:      isPasswordOnly,
+		sshFlags:          sshconfig.FormatSSHFlags(extras),
+		proxyJump:         emptyIfNone(host.Resolved.ProxyJump),
+	}, []field{{label: "Original label", value: host.Alias, hidden: true}}))
 }
 
 func (m *App) openDeleteHostForm() {

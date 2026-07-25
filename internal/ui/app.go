@@ -25,6 +25,7 @@ type field struct {
 	placeholder string
 	optional    bool
 	hidden      bool
+	section     string
 	options     []fieldOption
 	selected    int
 	customValue string
@@ -42,6 +43,8 @@ type form struct {
 	fields           []field
 	index            int
 	revealed         int
+	screen           string
+	hubIndex         int
 	pastedPrivateKey string
 	pastedPublicKey  string
 	selecting        bool
