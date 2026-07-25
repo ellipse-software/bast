@@ -103,8 +103,11 @@ func (r *Runner) hostShow(args []string) error {
 	if r.JSON {
 		return r.success(host, "")
 	}
-	fmt.Fprintf(r.Out, "Alias: %s\nLabel: %s\nDestination: %s@%s:%s\nAuthentication: %s\nGroup: %s\nTags: %s\nEnvironment: %s\nNotes: %s\nManaged: %t\nSource: %s\nKnown host: %t\nFavorite: %t\nHidden: %t\nConnections: %d\n",
-		host.Alias, host.Label, host.User, host.Hostname, host.Port, host.Authentication, host.Group, strings.Join(host.Tags, ", "), host.Environment, host.Notes, host.Managed, host.Source, host.KnownHost, host.Favorite, host.Hidden, host.ConnectionCount)
+	fmt.Fprintf(r.Out, "Alias: %s\nLabel: %s\nDestination: %s@%s:%s\nAuthentication: %s\nProxy jump: %s\nGroup: %s\nTags: %s\nEnvironment: %s\nNotes: %s\nManaged: %t\nSource: %s\nKnown host: %t\nFavorite: %t\nHidden: %t\nConnections: %d\n",
+		host.Alias, host.Label, host.User, host.Hostname, host.Port, host.Authentication, emptyDefault(host.ProxyJump), host.Group, strings.Join(host.Tags, ", "), host.Environment, host.Notes, host.Managed, host.Source, host.KnownHost, host.Favorite, host.Hidden, host.ConnectionCount)
+	if summary := formatAdvancedSummary(host.Advanced); summary != "" {
+		fmt.Fprintf(r.Out, "Advanced:\n%s\n", summary)
+	}
 	return nil
 }
 
@@ -120,9 +123,10 @@ func (r *Runner) hostAdd(args []string) error {
 	environment := fs.String("environment", "", "environment")
 	color := fs.String("color", "", "label colour")
 	notes := fs.String("notes", "", "notes")
-	var tags, options stringsFlag
+	var tags stringsFlag
+	var advanced hostAdvancedAddFlags
 	fs.Var(&tags, "tag", "tag (repeatable)")
-	fs.Var(&options, "ssh-option", "OpenSSH option (repeatable)")
+	advanced.register(fs)
 	args = positionalFirst(args)
 	if err := fs.Parse(args); err != nil {
 		return usagef("%v", err)
@@ -171,15 +175,14 @@ func (r *Runner) hostAdd(args []string) error {
 		} else {
 			*identity = auth
 		}
-		optionText, promptErr := r.prompt("SSH options (; separated)", strings.Join(options, "; "), false)
-		if promptErr != nil {
-			return promptErr
-		}
-		options = sshconfig.ParseSSHFlags(optionText)
-		*proxy, err = r.prompt("Proxy jump", *proxy, false)
+	}
+	var adv sshconfig.AdvancedSettings
+	if wizard && r.interactive() && !r.NoInput {
+		adv, err = promptAdvancedSettings(r, sshconfig.AdvancedSettings{ProxyJump: *proxy})
 		if err != nil {
 			return err
 		}
+		*proxy = adv.ProxyJump
 		*group, err = r.prompt("Group", *group, false)
 		if err != nil {
 			return err
@@ -209,10 +212,16 @@ func (r *Runner) hostAdd(args []string) error {
 	if err != nil {
 		return err
 	}
-	input := sshconfig.HostInput{Alias: sshconfig.NormalizeAlias(strings.TrimSpace(label)), HostName: *hostname, User: *user, Port: *port, IdentityFile: *identity, PasswordOnly: *passwordOnly, ProxyJump: *proxy, ExtraOptions: options}
-	if input.IdentityFile != "" && !sshconfig.HasDirective(input.ExtraOptions, "IdentitiesOnly") {
-		input.ExtraOptions = append([]string{"IdentitiesOnly yes"}, input.ExtraOptions...)
+	if !(wizard && r.interactive() && !r.NoInput) {
+		adv, err = advanced.settings(*proxy, nil)
+		if err != nil {
+			return err
+		}
 	}
+	input := hostInputFromAdvanced(sshconfig.HostInput{
+		Alias: sshconfig.NormalizeAlias(strings.TrimSpace(label)), HostName: *hostname, User: *user, Port: *port,
+		IdentityFile: *identity, PasswordOnly: *passwordOnly,
+	}, adv)
 	host, err := r.config.Add(input)
 	if err != nil {
 		return err
@@ -250,10 +259,10 @@ func (r *Runner) hostEdit(args []string) error {
 	clearEnvironment := fs.Bool("clear-environment", false, "clear environment")
 	clearColor := fs.Bool("clear-color", false, "clear colour")
 	clearNotes := fs.Bool("clear-notes", false, "clear notes")
-	clearOptions := fs.Bool("clear-ssh-options", false, "clear extra OpenSSH options")
-	var tags, options stringsFlag
+	var tags stringsFlag
+	var advanced hostAdvancedEditFlags
 	fs.Var(&tags, "tag", "replacement tag (repeatable)")
-	fs.Var(&options, "ssh-option", "replacement OpenSSH option (repeatable)")
+	advanced.register(fs)
 	if err := fs.Parse(positionalFirst(args)); err != nil {
 		return usagef("%v", err)
 	}
@@ -267,10 +276,13 @@ func (r *Runner) hostEdit(args []string) error {
 		set   bool
 		clear bool
 		name  string
-	}{{user.set, *clearUser, "user"}, {port.set, *clearPort, "port"}, {proxy.set, *clearProxy, "proxy-jump"}, {group.set, *clearGroup, "group"}, {environment.set, *clearEnvironment, "environment"}, {color.set, *clearColor, "color"}, {notes.set, *clearNotes, "notes"}, {len(tags) > 0, *clearTags, "tags"}, {len(options) > 0, *clearOptions, "ssh-options"}} {
+	}{{user.set, *clearUser, "user"}, {port.set, *clearPort, "port"}, {proxy.set, *clearProxy, "proxy-jump"}, {group.set, *clearGroup, "group"}, {environment.set, *clearEnvironment, "environment"}, {color.set, *clearColor, "color"}, {notes.set, *clearNotes, "notes"}, {len(tags) > 0, *clearTags, "tags"}} {
 		if conflict.set && conflict.clear {
 			return usagef("cannot set and clear %s in the same command", conflict.name)
 		}
+	}
+	if err := advanced.conflicts(); err != nil {
+		return err
 	}
 	hosts, _, err := r.snapshot()
 	if err != nil {
@@ -280,8 +292,9 @@ func (r *Runner) hostEdit(args []string) error {
 	if err != nil {
 		return err
 	}
-	configChanged := hostname.set || user.set || port.set || identity.set || proxy.set || *passwordOnly || *clearUser || *clearPort || *clearIdentity || *clearProxy || len(options) > 0 || *clearOptions
+	configChanged := hostname.set || user.set || port.set || identity.set || proxy.set || *passwordOnly || *clearUser || *clearPort || *clearIdentity || *clearProxy || advanced.changed()
 	metadataChanged := label.set || group.set || environment.set || color.set || notes.set || len(tags) > 0 || *clearGroup || *clearTags || *clearEnvironment || *clearColor || *clearNotes
+	var wizardAdvanced *sshconfig.AdvancedSettings
 	if !configChanged && !metadataChanged {
 		if r.NoInput || !r.interactive() {
 			return usagef("no changes supplied")
@@ -325,23 +338,16 @@ func (r *Runner) hostEdit(args []string) error {
 			default:
 				identity.value, identity.set = auth, true
 			}
-			existingOptions, optionErr := r.config.ManagedExtras(host.raw.ManagedID)
-			if optionErr != nil {
-				return optionErr
+			currentAdv, advErr := loadHostAdvanced(r.config, host.raw, host.ProxyJump)
+			if advErr != nil {
+				return advErr
 			}
-			optionText, promptErr := r.prompt("SSH options (; separated)", sshconfig.FormatSSHFlags(existingOptions), false)
+			nextAdv, promptErr := promptAdvancedSettings(r, currentAdv)
 			if promptErr != nil {
 				return promptErr
 			}
-			options = sshconfig.ParseSSHFlags(optionText)
-			if optionText == "" {
-				*clearOptions = true
-			}
-			proxy.value, err = r.prompt("Proxy jump", host.ProxyJump, false)
-			if err != nil {
-				return err
-			}
-			proxy.set = true
+			wizardAdvanced = &nextAdv
+			proxy.value, proxy.set = nextAdv.ProxyJump, true
 		}
 		group.value, err = r.prompt("Group", host.Group, false)
 		if err != nil {
@@ -428,11 +434,24 @@ func (r *Runner) hostEdit(args []string) error {
 		if host.Authentication == "identity" && len(host.IdentityFiles) > 0 {
 			currentIdentity = host.IdentityFiles[0]
 		}
-		extras, extraErr := r.config.ManagedExtras(host.raw.ManagedID)
-		if extraErr != nil {
-			return extraErr
+		var nextAdv sshconfig.AdvancedSettings
+		if wizardAdvanced != nil {
+			nextAdv = *wizardAdvanced
+		} else {
+			currentAdv, advErr := loadHostAdvanced(r.config, host.raw, host.ProxyJump)
+			if advErr != nil {
+				return advErr
+			}
+			var advErr2 error
+			nextAdv, advErr2 = advanced.apply(currentAdv, proxy.value, proxy.set, *clearProxy)
+			if advErr2 != nil {
+				return advErr2
+			}
 		}
-		input := sshconfig.HostInput{Alias: newAlias, HostName: host.Hostname, User: host.User, Port: host.Port, IdentityFile: currentIdentity, ProxyJump: host.ProxyJump, ExtraOptions: extras, PasswordOnly: host.Authentication == "password"}
+		input := hostInputFromAdvanced(sshconfig.HostInput{
+			Alias: newAlias, HostName: host.Hostname, User: host.User, Port: host.Port,
+			IdentityFile: currentIdentity, PasswordOnly: host.Authentication == "password",
+		}, nextAdv)
 		if hostname.set {
 			input.HostName = hostname.value
 		}
@@ -445,9 +464,6 @@ func (r *Runner) hostEdit(args []string) error {
 		if identity.set {
 			input.IdentityFile, input.PasswordOnly = identity.value, false
 		}
-		if proxy.set {
-			input.ProxyJump = proxy.value
-		}
 		if *passwordOnly {
 			input.IdentityFile, input.PasswordOnly = "", true
 		}
@@ -459,18 +475,6 @@ func (r *Runner) hostEdit(args []string) error {
 		}
 		if *clearIdentity {
 			input.IdentityFile, input.PasswordOnly = "", false
-		}
-		if *clearProxy {
-			input.ProxyJump = ""
-		}
-		if len(options) > 0 {
-			input.ExtraOptions = options
-		}
-		if *clearOptions {
-			input.ExtraOptions = nil
-		}
-		if input.IdentityFile != "" && !sshconfig.HasDirective(input.ExtraOptions, "IdentitiesOnly") {
-			input.ExtraOptions = append([]string{"IdentitiesOnly yes"}, input.ExtraOptions...)
 		}
 		if err := r.config.Update(host.raw.ManagedID, input); err != nil {
 			return err

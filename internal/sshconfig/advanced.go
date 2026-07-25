@@ -6,19 +6,18 @@ import (
 )
 
 type AdvancedSettings struct {
-	ProxyJump           string
-	ForwardAgent        string
-	RemoteCommand       string
-	RequestTTY          string
-	SetEnv              []string
-	LocalForwards       []string
-	RemoteForwards      []string
-	DynamicForward      string
-	ServerAliveInterval string
-	Compression         string
-	Custom              []string
+	ProxyJump           string   `json:"proxyJump,omitempty"`
+	ForwardAgent        string   `json:"forwardAgent,omitempty"`
+	RemoteCommand       string   `json:"remoteCommand,omitempty"`
+	RequestTTY          string   `json:"requestTTY,omitempty"`
+	SetEnv              []string `json:"setEnv,omitempty"`
+	LocalForwards       []string `json:"localForwards,omitempty"`
+	RemoteForwards      []string `json:"remoteForwards,omitempty"`
+	DynamicForward      string   `json:"dynamicForward,omitempty"`
+	ServerAliveInterval string   `json:"serverAliveInterval,omitempty"`
+	Compression         string   `json:"compression,omitempty"`
+	Custom              []string `json:"custom,omitempty"`
 }
-
 
 func ParseAdvanced(extras []string, proxyJump string) AdvancedSettings {
 	settings := AdvancedSettings{ProxyJump: strings.TrimSpace(proxyJump)}

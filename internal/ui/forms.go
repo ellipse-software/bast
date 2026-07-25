@@ -13,36 +13,36 @@ import (
 )
 
 const (
-	descHostLabel        = "Required - Display name shown in Bast"
-	descHostHostname     = "Required - Server hostname or IP address"
-	descHostUser         = "Optional - Remote username; blank uses SSH default"
-	descHostPort         = "Optional - Port number; blank defaults to 22"
-	descHostIdentity     = "Optional - Key file, password auth, or agent defaults"
-	descHostProxyJump    = "Optional - Route through a jump host (ProxyJump)"
-	descHostRemoteCommand = "Optional - Command to run after connecting (RemoteCommand)"
-	descHostRequestTTY   = "Optional - Allocate a TTY for the startup command"
-	descHostForwardAgent = "Optional - Forward your local SSH agent to the server"
-	descHostLocalForward = "Optional - Local port forwards; use port target pairs separated by ;"
-	descHostRemoteForward = "Optional - Remote port forwards; use port target pairs separated by ;"
+	descHostLabel          = "Required - Display name shown in Bast"
+	descHostHostname       = "Required - Server hostname or IP address"
+	descHostUser           = "Optional - Remote username; blank uses SSH default"
+	descHostPort           = "Optional - Port number; blank defaults to 22"
+	descHostIdentity       = "Optional - Key file, password auth, or agent defaults"
+	descHostProxyJump      = "Optional - Route through a jump host (ProxyJump)"
+	descHostRemoteCommand  = "Optional - Command to run after connecting (RemoteCommand)"
+	descHostRequestTTY     = "Optional - Allocate a TTY for the startup command"
+	descHostForwardAgent   = "Optional - Forward your local SSH agent to the server"
+	descHostLocalForward   = "Optional - Local port forwards; use port target pairs separated by ;"
+	descHostRemoteForward  = "Optional - Remote port forwards; use port target pairs separated by ;"
 	descHostDynamicForward = "Optional - SOCKS proxy port (DynamicForward)"
-	descHostKeepalive    = "Optional - ServerAliveInterval in seconds"
-	descHostCompression  = "Optional - Enable SSH compression"
-	descHostSetEnv       = "Optional - SetEnv pairs like FOO=bar, separated by ;"
-	descHostSSHFlags     = "Optional - Any other OpenSSH options, separated by ;"
-	descHostGroup        = "Optional - Use / for subgroups, up to 5 levels"
-	descHostTags         = "Optional - Comma-separated tags included in search"
-	descHostEnvironment  = "Optional - Environment name like production or staging"
-	descHostColor        = "Optional - Hex colour for the host label"
-	descHostNotes        = "Optional - Short note in details and search"
-	descKeyName          = "Required - Short name for this keypair"
-	descKeyAlgorithm     = "Required - Key algorithm: ed25519 or rsa"
-	descKeyPrivate       = "Required - Private key path or pasted PEM"
-	descKeyPublic        = "Optional - Public key; blank derives from private"
-	descKeyComment       = "Optional - Public key comment; blank keeps existing"
-	descKeyCommentEdit   = "Optional - Public key comment; blank removes it"
-	descKeyExportDir     = "Required - Directory to write exported key files"
-	descKeyExportConfirm = "Required - Type EXPORT to confirm export"
-	descKeyServer        = "Required - Target server; may prompt for password"
+	descHostKeepalive      = "Optional - ServerAliveInterval in seconds"
+	descHostCompression    = "Optional - Enable SSH compression"
+	descHostSetEnv         = "Optional - SetEnv pairs like FOO=bar, separated by ;"
+	descHostSSHFlags       = "Optional - Any other OpenSSH options, separated by ;"
+	descHostGroup          = "Optional - Use / for subgroups, up to 5 levels"
+	descHostTags           = "Optional - Comma-separated tags included in search"
+	descHostEnvironment    = "Optional - Environment name like production or staging"
+	descHostColor          = "Optional - Hex colour for the host label"
+	descHostNotes          = "Optional - Short note in details and search"
+	descKeyName            = "Required - Short name for this keypair"
+	descKeyAlgorithm       = "Required - Key algorithm: ed25519 or rsa"
+	descKeyPrivate         = "Required - Private key path or pasted PEM"
+	descKeyPublic          = "Optional - Public key; blank derives from private"
+	descKeyComment         = "Optional - Public key comment; blank keeps existing"
+	descKeyCommentEdit     = "Optional - Public key comment; blank removes it"
+	descKeyExportDir       = "Required - Directory to write exported key files"
+	descKeyExportConfirm   = "Required - Type EXPORT to confirm export"
+	descKeyServer          = "Required - Target server; may prompt for password"
 )
 
 const passwordOnlyIdentity = "\x00password-only"
@@ -653,6 +653,9 @@ func (m *App) focusFormField() {
 }
 
 func (m *App) commitFormField() {
+	if m.form == nil || m.form.index < 0 || m.form.index >= len(m.form.fields) {
+		return
+	}
 	item := &m.form.fields[m.form.index]
 	if len(item.options) > 0 {
 		option := item.options[item.selected]

@@ -530,6 +530,69 @@ func TestHostFormBackspaceNavigatesSubmenus(t *testing.T) {
 	if m.form.hubIndex != 2 {
 		t.Fatalf("backspace on hub menu should move to previous row: hubIndex=%d", m.form.hubIndex)
 	}
+
+	enterHostFormSection(t, m, formSectionAdvanced)
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Enter open section") || !strings.Contains(footer, "⌫ back") {
+		t.Fatalf("advanced hub footer = %q", footer)
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if m.form.screen != "hub" {
+		t.Fatalf("backspace on the first advanced row did not return to the host hub: screen=%q", m.form.screen)
+	}
+}
+
+func TestAdvancedHubCanRenderAndSaveWithoutAnActiveField(t *testing.T) {
+	m := testApp(t)
+	m.openAddHostForm()
+	enterHostFormSection(t, m, formSectionAdvanced)
+
+	if m.form.index != -1 {
+		t.Fatalf("advanced hub index = %d, want -1", m.form.index)
+	}
+	_ = m.render()
+	m.updateForm(ctrlEnter())
+	if !m.statusError || !strings.Contains(m.status, "label") {
+		t.Fatalf("Ctrl+Enter should validate the form without panicking: status=%q", m.status)
+	}
+}
+
+func TestAdvancedHostFormSavesEverySection(t *testing.T) {
+	m := testApp(t)
+	m.config = sshconfig.Manager{
+		Home: m.paths.Home, MainConfig: m.paths.MainConfig, ManagedDir: m.paths.ManagedDir,
+		ManagedConfig: m.paths.ManagedConfig, ManagedKeys: m.paths.ManagedKeys,
+	}
+	m.openAddHostForm()
+	values := map[string]string{
+		"Label": "Advanced host", "Hostname": "advanced.example", "Proxy jump": "bastion",
+		"Agent forwarding": "yes", "Startup command": "tmux attach", "Request TTY": "force",
+		"Local forwards": "8080 localhost:80", "Remote forwards": "9090 localhost:90",
+		"Dynamic forward": "1080", "Compression": "yes", "Keepalive (seconds)": "30",
+		"Environment variables": "FOO=bar; CSV=a,b", "Custom SSH flags": "TCPKeepAlive yes",
+	}
+	for label, value := range values {
+		item := m.form.fieldByLabel(label)
+		if item == nil {
+			t.Fatalf("missing form field %q", label)
+		}
+		item.value = value
+	}
+	m.submitForm()
+
+	config, err := os.ReadFile(m.paths.ManagedConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Host Advanced_host", "ProxyJump bastion", "ForwardAgent yes", `RemoteCommand "tmux attach"`,
+		"RequestTTY force", "LocalForward 8080 localhost:80", "RemoteForward 9090 localhost:90",
+		"DynamicForward 1080", "Compression yes", "ServerAliveInterval 30", "SetEnv FOO=bar",
+		"SetEnv CSV=a,b", "TCPKeepAlive yes",
+	} {
+		if !strings.Contains(string(config), want) {
+			t.Fatalf("managed config missing %q:\n%s", want, config)
+		}
+	}
 }
 
 func TestFormRevealsFieldsProgressivelyAndRevisitsThem(t *testing.T) {

@@ -672,6 +672,9 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 }
 
 func hostFormHint(f *form) string {
+	if f.screen == formScreenAdvancedHub {
+		return "Enter open section • ↑/↓ or j/k move • ⌫ back • Ctrl+Enter save • q/Esc back"
+	}
 	if f.screen != "" && f.screen != "hub" {
 		if f.selecting {
 			return "↑/↓ or j/k choose • Enter select • q/Esc back"
@@ -688,7 +691,7 @@ func hostFormHint(f *form) string {
 	}
 
 	items := hostHubItems(f)
-	if f.hubIndex < len(items) {
+	if f.hubIndex >= 0 && f.hubIndex < len(items) {
 		hub := items[f.hubIndex]
 		if hub.id == "label" || hub.id == "hostname" {
 			return "Enter next • ↑/↓ or Tab move • ⌫ back when empty • Ctrl+Enter save • q/Esc cancel"
