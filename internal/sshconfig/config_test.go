@@ -222,7 +222,7 @@ func TestValidateExtraOptionsRejectsManagedAndForbiddenDirectives(t *testing.T) 
 			t.Fatalf("expected invalid: %#v", options)
 		}
 	}
-	if err := validateExtraOptions([]string{"IdentitiesOnly yes", "ServerAliveInterval 60"}); err != nil {
+	if err := validateExtraOptions([]string{"IdentitiesOnly yes", "TCPKeepAlive yes"}); err != nil {
 		t.Fatal(err)
 	}
 }

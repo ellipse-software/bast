@@ -6,6 +6,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"bast/internal/sshconfig"
 )
 
 const (
@@ -98,17 +100,7 @@ func (m *App) hostFormSummary(section string) string {
 		}
 		return strings.Join(parts, " · ")
 	case formSectionAdvanced:
-		parts := []string{}
-		if jump := fieldDisplay(f, "Proxy jump"); jump != "" && jump != "—" {
-			parts = append(parts, "jump "+jump)
-		}
-		if flags := fieldDisplay(f, "SSH flags"); flags != "" && flags != "—" {
-			parts = append(parts, "custom flags")
-		}
-		if len(parts) == 0 {
-			return "—"
-		}
-		return strings.Join(parts, " · ")
+		return m.hostAdvancedSummary()
 	case formSectionMetadata:
 		parts := []string{}
 		if group := fieldDisplay(f, "Group"); group != "" && group != "—" {
@@ -211,6 +203,10 @@ func (m *App) focusHostHubItem() {
 }
 
 func (m *App) enterHostSection(section string) {
+	if section == formSectionAdvanced {
+		m.enterAdvancedHub()
+		return
+	}
 	f := m.form
 	indices := f.sectionFieldIndices(section)
 	if len(indices) == 0 {
@@ -225,6 +221,22 @@ func (m *App) enterHostSection(section string) {
 
 func (m *App) exitHostSection() {
 	f := m.form
+	if isAdvancedSubsection(f.screen) {
+		m.commitFormField()
+		m.exitAdvancedSubsection()
+		return
+	}
+	if f.screen == formScreenAdvancedHub {
+		f.screen = "hub"
+		for i, item := range hostHubItems(f) {
+			if item.id == "advanced" {
+				f.hubIndex = i
+				break
+			}
+		}
+		m.focusHostHubItem()
+		return
+	}
 	if f.screen == "" || f.screen == "hub" {
 		return
 	}
@@ -360,6 +372,12 @@ func (m *App) updateHostForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.submitForm()
 	}
 
+	if f.screen == formScreenAdvancedHub {
+		return m.updateAdvancedHubForm(msg)
+	}
+	if isAdvancedSubsection(f.screen) {
+		return m.updateHostSectionForm(msg)
+	}
 	if f.screen != "" && f.screen != "hub" {
 		return m.updateHostSectionForm(msg)
 	}
@@ -504,6 +522,9 @@ func (m *App) updateHostSectionForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m *App) renderHostForm(s styleSet) string {
 	f := m.form
+	if f.screen == formScreenAdvancedHub {
+		return m.renderAdvancedHubForm(s)
+	}
 	if f.screen != "" && f.screen != "hub" {
 		return m.renderHostSectionForm(s)
 	}
@@ -576,16 +597,25 @@ func (m *App) renderHostHubMenuRow(b *strings.Builder, s styleSet, hub hostHubIt
 func (m *App) renderHostSectionForm(s styleSet) string {
 	f := m.form
 	sectionTitle := f.screen
+	breadcrumb := "› " + sectionTitle
 	switch f.screen {
 	case formSectionAuth:
-		sectionTitle = "Authentication"
-	case formSectionAdvanced:
-		sectionTitle = "Advanced"
+		sectionTitle, breadcrumb = "Authentication", "› Authentication"
+	case formSectionAdvancedJump:
+		sectionTitle, breadcrumb = "Jump & proxy", "› Advanced › Jump & proxy"
+	case formSectionAdvancedSession:
+		sectionTitle, breadcrumb = "Session", "› Advanced › Session"
+	case formSectionAdvancedForwarding:
+		sectionTitle, breadcrumb = "Forwarding", "› Advanced › Forwarding"
+	case formSectionAdvancedEnv:
+		sectionTitle, breadcrumb = "Environment", "› Advanced › Environment"
+	case formSectionAdvancedCustom:
+		sectionTitle, breadcrumb = "Custom flags", "› Advanced › Custom flags"
 	case formSectionMetadata:
-		sectionTitle = "Metadata"
+		sectionTitle, breadcrumb = "Metadata", "› Metadata"
 	}
 	var b strings.Builder
-	b.WriteString("\n  " + s.active.Render(f.title) + "  " + s.muted.Render("› "+sectionTitle) + "\n\n")
+	b.WriteString("\n  " + s.active.Render(f.title) + "  " + s.muted.Render(breadcrumb) + "\n\n")
 
 	indices := f.sectionFieldIndices(f.screen)
 	for _, idx := range indices {
@@ -684,10 +714,7 @@ func hostFormFields(m *App, meta metadataHostValues, conn hostConnectionValues, 
 		)
 		fields = append(fields, m.identityField(conn.identity, conn.passwordOnly))
 		fields[len(fields)-1].section = formSectionAuth
-		fields = append(fields,
-			field{label: "SSH flags", section: formSectionAdvanced, description: descHostSSHFlags, value: conn.sshFlags, placeholder: "IdentitiesOnly yes; ForwardAgent yes", optional: true},
-			field{label: "Proxy jump", section: formSectionAdvanced, description: descHostProxyJump, value: conn.proxyJump, placeholder: "bastion", optional: true},
-		)
+		fields = append(fields, advancedFormFields(m, conn.advanced)...)
 	}
 	fields = append(fields,
 		field{label: "Group", section: formSectionMetadata, description: descHostGroup, value: meta.group, placeholder: "Work/Production", optional: true},
@@ -708,7 +735,7 @@ type hostConnectionValues struct {
 	hostname, user, port string
 	identity             string
 	passwordOnly         bool
-	sshFlags, proxyJump  string
+	advanced             sshconfig.AdvancedSettings
 }
 
 func (m *App) defaultAddGroup() string {

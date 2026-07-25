@@ -225,17 +225,28 @@ func fileMode(path string, fallback os.FileMode) os.FileMode {
 }
 
 var (
-	managedDirectives = map[string]bool{
+	coreManagedDirectives = map[string]bool{
 		"hostname": true, "user": true, "port": true,
 		"identityfile": true, "proxyjump": true,
 		"pubkeyauthentication": true, "passwordauthentication": true,
 		"preferredauthentications": true,
 	}
+	managedDirectives = map[string]bool{
+		"forwardagent": true, "remotecommand": true, "requesttty": true,
+		"setenv": true, "localforward": true, "remoteforward": true,
+		"dynamicforward": true, "serveraliveinterval": true, "compression": true,
+	}
 	forbiddenDirectives = map[string]bool{
 		"host": true, "match": true, "include": true,
-		"proxycommand": true, "remotecommand": true, "localcommand": true,
+		"proxycommand": true, "localcommand": true,
 	}
 )
+
+func init() {
+	for name := range coreManagedDirectives {
+		managedDirectives[name] = true
+	}
+}
 
 func extractBlockExtras(data []byte, id string) []string {
 	block := findManagedBlock(data, id)
@@ -252,7 +263,7 @@ func extractBlockExtras(data []byte, id string) []string {
 		if err != nil || len(parts) == 0 {
 			continue
 		}
-		if strings.EqualFold(parts[0], "Host") || managedDirectives[strings.ToLower(parts[0])] {
+		if strings.EqualFold(parts[0], "Host") || coreManagedDirectives[strings.ToLower(parts[0])] {
 			continue
 		}
 		extras = append(extras, line)

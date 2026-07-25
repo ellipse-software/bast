@@ -55,6 +55,19 @@ func enterHostFormSection(t *testing.T, m *App, section string) {
 	t.Fatalf("section %q not found in host form", section)
 }
 
+func enterAdvancedSubsection(t *testing.T, m *App, section string) {
+	t.Helper()
+	enterHostFormSection(t, m, formSectionAdvanced)
+	for i, item := range advancedHubItems() {
+		if item.section == section {
+			m.form.hubIndex = i
+			m.enterAdvancedSubsection(section)
+			return
+		}
+	}
+	t.Fatalf("advanced subsection %q not found", section)
+}
+
 func formFieldByLabel(m *App, label string) field {
 	t := m.form.fieldByLabel(label)
 	if t == nil {
@@ -556,12 +569,9 @@ func TestHostFormExplainsOptionalConnectionFields(t *testing.T) {
 		t.Fatalf("label description is missing:\n%s", initial)
 	}
 
-	enterHostFormSection(t, m, formSectionAdvanced)
-	m.form.index = m.form.fieldIndex("Proxy jump")
-	m.form.revealed = m.form.index
-	m.focusFormField()
+	enterAdvancedSubsection(t, m, formSectionAdvancedJump)
 	proxy := m.renderForm(m.styles())
-	if !strings.Contains(proxy, "Optional - Route connection through a jump host") {
+	if !strings.Contains(proxy, "Route through a jump host") {
 		t.Fatalf("proxy jump is not clearly explained as optional:\n%s", proxy)
 	}
 }
@@ -673,13 +683,9 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 	if m.form.screen != "hub" {
 		t.Fatal("password-only selection did not return to the hub")
 	}
-	enterHostFormSection(t, m, formSectionAdvanced)
-	if m.form.fields[m.form.index].label != "SSH flags" {
-		t.Fatal("advanced section did not open on SSH flags")
-	}
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	enterAdvancedSubsection(t, m, formSectionAdvancedJump)
 	if m.form.fields[m.form.index].label != "Proxy jump" {
-		t.Fatal("SSH flags did not advance to proxy jump")
+		t.Fatal("jump subsection did not open on proxy jump")
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
 	enterHostFormSection(t, m, formSectionAuth)
