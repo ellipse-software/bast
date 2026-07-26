@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const CurrentVersion = 2
+const CurrentVersion = 3
 
 type Host struct {
 	Label           string     `json:"label,omitempty"`
@@ -29,10 +29,26 @@ type Preferences struct {
 	Sort string `json:"sort,omitempty"`
 }
 
+type GCPIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	ServiceAccounts   []string   `json:"serviceAccounts,omitempty"`
+	ProjectFilter     []string   `json:"projectFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
+type Integrations struct {
+	GCP *GCPIntegration `json:"gcp,omitempty"`
+}
+
 type State struct {
-	Version     int             `json:"version"`
-	Hosts       map[string]Host `json:"hosts"`
-	Preferences Preferences     `json:"preferences,omitempty"`
+	Version      int             `json:"version"`
+	Hosts        map[string]Host `json:"hosts"`
+	Preferences  Preferences     `json:"preferences,omitempty"`
+	Integrations Integrations    `json:"integrations,omitempty"`
 }
 
 type Store struct {
@@ -63,6 +79,14 @@ func Open(path string) (*Store, error) {
 }
 
 func (s *Store) Host(alias string) Host { return s.state.Hosts[alias] }
+
+func (s *Store) Hosts() map[string]Host {
+	out := make(map[string]Host, len(s.state.Hosts))
+	for k, v := range s.state.Hosts {
+		out[k] = v
+	}
+	return out
+}
 
 func (s *Store) SetHost(alias string, host Host) error {
 	host.Tags = cleanTags(host.Tags)
@@ -111,6 +135,27 @@ func (s *Store) Preferences() Preferences { return s.state.Preferences }
 
 func (s *Store) SetSort(sortOrder string) error {
 	s.state.Preferences.Sort = sortOrder
+	return s.save()
+}
+
+func (s *Store) Integrations() Integrations { return s.state.Integrations }
+
+func (s *Store) GCP() GCPIntegration {
+	if s.state.Integrations.GCP == nil {
+		return GCPIntegration{}
+	}
+	return *s.state.Integrations.GCP
+}
+
+func (s *Store) SetGCP(gcp GCPIntegration) error {
+	if !gcp.Enabled && len(gcp.ServiceAccounts) == 0 && len(gcp.ProjectFilter) == 0 &&
+		gcp.DefaultSSHUser == "" && !gcp.AutoSync && gcp.LastSyncAt == nil &&
+		gcp.LastSyncError == "" && gcp.LastInstanceCount == 0 {
+		s.state.Integrations.GCP = nil
+	} else {
+		copy := gcp
+		s.state.Integrations.GCP = &copy
+	}
 	return s.save()
 }
 

@@ -40,6 +40,167 @@ func renderBlock(id string, input HostInput) []byte {
 	return []byte(b.String())
 }
 
+func RenderSyncBlock(input SyncHostInput) []byte {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s%s=%s\nHost %s\n", syncMarkerPrefix, input.SyncSource, input.SyncID, input.Alias)
+	fmt.Fprintf(&b, "    HostName %s\n", configValue(input.HostName))
+	if input.User != "" {
+		fmt.Fprintf(&b, "    User %s\n", configValue(input.User))
+	}
+	if input.Port != "" {
+		fmt.Fprintf(&b, "    Port %s\n", configValue(input.Port))
+	}
+	if input.IdentityFile != "" {
+		fmt.Fprintf(&b, "    IdentityFile %s\n", configValue(input.IdentityFile))
+		if input.IdentitiesOnly && !HasDirective(input.ExtraOptions, "IdentitiesOnly") {
+			b.WriteString("    IdentitiesOnly yes\n")
+		}
+	}
+	if input.ProxyCommand != "" {
+		fmt.Fprintf(&b, "    ProxyCommand %s\n", input.ProxyCommand)
+	}
+	for _, option := range input.ExtraOptions {
+		fmt.Fprintf(&b, "    %s\n", option)
+	}
+	b.WriteString(syncMarkerEnd + "\n")
+	return []byte(b.String())
+}
+
+// WriteSyncConfig atomically replaces a provider sync SSH config file.
+func WriteSyncConfig(path string, blocks []SyncHostInput) error {
+	var b strings.Builder
+	b.WriteString("# Managed by Bast cloud sync — do not edit by hand\n")
+	for i, block := range blocks {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.Write(RenderSyncBlock(block))
+	}
+	return atomicWrite(path, []byte(b.String()), 0600)
+}
+
+// EnsureSyncInclude adds Include for the GCP sync config at the top of the managed Bast config.
+// Include must come before any Host/Match blocks; otherwise OpenSSH treats it as part of the
+// preceding host and synced hosts never apply.
+func (m Manager) EnsureSyncInclude() error {
+	if m.SyncGCPConfig == "" {
+		return errors.New("sync GCP config path is not configured")
+	}
+	if err := m.EnsureManaged(); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(m.SyncGCPConfig), 0700); err != nil {
+		return fmt.Errorf("create sync directory: %w", err)
+	}
+	if _, err := os.Stat(m.SyncGCPConfig); errors.Is(err, os.ErrNotExist) {
+		if err := atomicWrite(m.SyncGCPConfig, []byte("# Managed by Bast cloud sync — do not edit by hand\n"), 0600); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	b, err := os.ReadFile(m.ManagedConfig)
+	if err != nil {
+		return err
+	}
+	original := append([]byte(nil), b...)
+	base := filepath.Dir(m.ManagedConfig)
+	cleaned := removeIncludeLines(b, m.SyncGCPConfig, m.Home, base)
+	includeLine := []byte("Include " + m.syncIncludePath() + "\n")
+	if hasLeadingInclude(cleaned, m.SyncGCPConfig, m.Home, base) {
+		if bytes.Equal(cleaned, original) {
+			return nil
+		}
+		return atomicWriteChecked(m.ManagedConfig, original, cleaned, 0600)
+	}
+	updated := append(includeLine, cleaned...)
+	if bytes.Equal(updated, original) {
+		return nil
+	}
+	return atomicWriteChecked(m.ManagedConfig, original, updated, 0600)
+}
+
+func (m Manager) syncIncludePath() string {
+	sshDir := filepath.Join(m.Home, ".ssh")
+	if rel, err := filepath.Rel(sshDir, m.SyncGCPConfig); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "~/.ssh/" + filepath.ToSlash(rel)
+	}
+	return m.SyncGCPConfig
+}
+
+func hasLeadingInclude(data []byte, target, home, base string) bool {
+	target = cleanPath(target)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		raw := strings.TrimSpace(scanner.Text())
+		if raw == "" || strings.HasPrefix(raw, "#") {
+			continue
+		}
+		parts, err := fields(raw)
+		if err != nil || len(parts) == 0 {
+			return false
+		}
+		if !strings.EqualFold(parts[0], "include") {
+			return false
+		}
+		for _, part := range parts[1:] {
+			if cleanPath(expandPath(part, home, base)) == target {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// RemoveSyncInclude removes the GCP sync Include from the managed Bast config and clears the sync file.
+func (m Manager) RemoveSyncInclude() error {
+	if m.SyncGCPConfig == "" {
+		return nil
+	}
+	b, err := os.ReadFile(m.ManagedConfig)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	updated := removeIncludeLines(b, m.SyncGCPConfig, m.Home, filepath.Dir(m.ManagedConfig))
+	if !bytes.Equal(b, updated) {
+		if err := atomicWriteChecked(m.ManagedConfig, b, updated, 0600); err != nil {
+			return err
+		}
+	}
+	_ = os.Remove(m.SyncGCPConfig)
+	return nil
+}
+
+func removeIncludeLines(data []byte, target, home, base string) []byte {
+	target = cleanPath(target)
+	var out bytes.Buffer
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts, err := fields(strings.TrimSpace(line))
+		if err == nil && len(parts) > 1 && strings.EqualFold(parts[0], "include") {
+			kept := []string{}
+			for _, part := range parts[1:] {
+				if cleanPath(expandPath(part, home, base)) != target {
+					kept = append(kept, part)
+				}
+			}
+			if len(kept) == 0 {
+				continue
+			}
+			fmt.Fprintf(&out, "Include %s\n", strings.Join(kept, " "))
+			continue
+		}
+		out.WriteString(line)
+		out.WriteByte('\n')
+	}
+	return out.Bytes()
+}
+
 func configValue(value string) string {
 	if !strings.ContainsAny(value, " \t#\\\"") {
 		return value

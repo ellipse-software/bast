@@ -919,6 +919,13 @@ func TestSuccessfulSSHSessionExitsBast(t *testing.T) {
 	if cmd == nil || !m.statusError || !strings.Contains(m.status, "connection lost") {
 		t.Fatal("failed SSH session did not return to Bast with its error")
 	}
+
+	exitCmd := exec.Command("/bin/sh", "-c", "exit 255")
+	exitErr := exitCmd.Run()
+	_, cmd = m.Update(processDoneMsg{name: "SSH session", err: exitErr, exitBast: true})
+	if cmd == nil || !m.statusError || m.status != "SSH session: connection failed, refused, or interrupted" {
+		t.Fatalf("SSH exit 255 status = %q", m.status)
+	}
 }
 
 func TestManagedKeyCommentCanBeEditedAfterImport(t *testing.T) {
@@ -1216,7 +1223,7 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 	rendered := m.render()
 	for _, text := range []string{
 		"██████╗  █████╗",
-		"Created by", "tedbrine",
+		"Created by", "@tedbrine",
 		"https://bast.sh",
 		"github.com/ellipse-software/bast",
 		"MIT License",
@@ -1296,5 +1303,102 @@ func TestDetailsAreCompactAndOmitEmptyMetadata(t *testing.T) {
 	}
 	if lipgloss.Height(key) > 8 {
 		t.Fatalf("key details are too tall: %d lines\n%s", lipgloss.Height(key), key)
+	}
+}
+
+func TestSyncedAuthSummary(t *testing.T) {
+	if got := syncedAuthSummary(sshconfig.Host{}); got != "user unknown — set default SSH user in Sync" {
+		t.Fatalf("empty = %q", got)
+	}
+	got := syncedAuthSummary(sshconfig.Host{Resolved: sshconfig.Resolved{
+		User: "ubuntu", IdentityFiles: []string{"~/.ssh/bast/keys/IRIS"},
+	}})
+	if got != "ubuntu · ~/.ssh/bast/keys/IRIS" {
+		t.Fatalf("matched = %q", got)
+	}
+}
+
+func TestSyncedHostsAreReadOnly(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "gcp_demo_web", Synced: true, SyncSource: "gcp",
+		SyncID:   "projects/demo/zones/us-central1-a/instances/web",
+		Resolved: sshconfig.Resolved{HostName: "web", User: "ubuntu"},
+	}}
+	_ = m.metadata.SetHost("gcp_demo_web", metadata.Host{Label: "web", Group: "GCP/Demo"})
+	m.cursor = -1
+	for i, row := range m.hostRows() {
+		if !row.header && row.host.Alias == "gcp_demo_web" {
+			m.cursor = i
+			break
+		}
+	}
+	if m.cursor < 0 {
+		t.Fatal("synced host row not found")
+	}
+	m.openEditHostForm()
+	if m.form != nil {
+		t.Fatal("expected synced host edit to be blocked")
+	}
+	if !m.statusError || !strings.Contains(m.status, "read-only") {
+		t.Fatalf("status = %q", m.status)
+	}
+	m.status, m.statusError = "", false
+	m.openDeleteHostForm()
+	if m.form != nil || !strings.Contains(m.status, "cannot be deleted") {
+		t.Fatalf("delete status = %q form=%v", m.status, m.form != nil)
+	}
+	detail := m.renderHostDetail(m.styles(), m.hosts[0], 60)
+	if !strings.Contains(detail, "GCP synced") {
+		t.Fatalf("detail missing owner:\n%s", detail)
+	}
+}
+
+func TestSyncedGroupRenameBlocked(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{Alias: "gcp_demo_web", Synced: true, SyncSource: "gcp"}}
+	_ = m.metadata.SetHost("gcp_demo_web", metadata.Host{Label: "web", Group: "GCP/Demo"})
+	m.collapsedGroups = map[string]bool{}
+	rows := m.hostRows()
+	for i, row := range rows {
+		if row.header && row.group == "GCP/Demo" {
+			m.cursor = i
+			break
+		}
+	}
+	m.openEditGroupForm()
+	if m.form != nil || !strings.Contains(m.status, "cannot be renamed") {
+		t.Fatalf("status = %q form=%v", m.status, m.form != nil)
+	}
+}
+
+func TestSyncTabRenders(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	body := m.renderSync(m.styles())
+	if !strings.Contains(body, "Providers") || !strings.Contains(body, "GCP") {
+		t.Fatalf("provider list body:\n%s", body)
+	}
+	if strings.Contains(body, "Sync now") {
+		t.Fatalf("provider list should not show submenu actions:\n%s", body)
+	}
+	if !strings.Contains(body, "AWS") || !strings.Contains(body, "coming soon") {
+		t.Fatalf("expected future providers:\n%s", body)
+	}
+	m.updateSyncKeys("enter")
+	if m.syncProvider != "gcp" {
+		t.Fatalf("syncProvider = %q", m.syncProvider)
+	}
+	body = m.renderSync(m.styles())
+	if !strings.Contains(body, "Sync now") || !strings.Contains(body, "Connect") {
+		t.Fatalf("gcp submenu body:\n%s", body)
+	}
+	m.updateSyncKeys("esc")
+	if m.syncProvider != "" {
+		t.Fatalf("expected esc to return to providers, got %q", m.syncProvider)
+	}
+	tabs := m.renderTabs(m.styles())
+	if !strings.Contains(tabs, "[3] Sync") {
+		t.Fatalf("tabs = %q", tabs)
 	}
 }

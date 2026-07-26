@@ -60,17 +60,26 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		hostsEnd := tabsStart + lipgloss.Width("[1] Hosts")
 		keysStart := hostsEnd + 3
 		keysEnd := keysStart + lipgloss.Width("[2] Keys")
+		syncStart := keysEnd + 3
+		syncEnd := syncStart + lipgloss.Width("[3] Sync")
 		switch {
 		case mouse.X >= tabsStart && mouse.X < hostsEnd:
 			m.section, m.cursor, m.search = hostsSection, 0, ""
 		case mouse.X >= keysStart && mouse.X < keysEnd:
 			m.section, m.cursor, m.search = keysSection, 0, ""
+		case mouse.X >= syncStart && mouse.X < syncEnd:
+			m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
+			return m, m.syncStatusCmd()
 		}
 		return m, nil
 	}
 
 	layout := m.panelLayout()
 	listWidth := layout.listWidth
+
+	if m.section == syncSection {
+		return m, nil
+	}
 
 	if m.section == hostsSection {
 		if _, ok := m.selectedHost(); ok {
@@ -216,24 +225,49 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.section, m.cursor, m.search = hostsSection, 0, ""
 	case "2":
 		m.section, m.cursor, m.search = keysSection, 0, ""
+	case "3":
+		m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
+		return m, m.syncStatusCmd()
+	case "esc":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 	case "up", "k":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.cursor > 0 {
 			m.cursor--
 		}
 	case "down", "j":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.cursor+1 < m.itemCount() {
 			m.cursor++
 		}
 	case "home", "g":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		m.cursor = 0
 	case "end", "G":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.itemCount() > 0 {
 			m.cursor = m.itemCount() - 1
 		}
 	case "/":
+		if m.section == syncSection {
+			return m, nil
+		}
 		m.search = "\x00"
 		m.cursor = 0
 	case "r":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		m.loading = true
 		return m, tea.Batch(m.loadCmd(), m.setNotice("Reloading OpenSSH files…"))
 	case "s":
@@ -245,12 +279,18 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.toggleSelectedGroup()
 		}
 	case "a":
+		if m.section == syncSection {
+			return m, nil
+		}
 		if m.section == hostsSection {
 			m.openAddHostForm()
 		} else {
 			m.openGenerateForm()
 		}
 	case "e":
+		if m.section == syncSection {
+			return m, nil
+		}
 		if m.section == hostsSection {
 			if _, ok := m.selectedGroupHeader(); ok {
 				m.openEditGroupForm()
@@ -261,6 +301,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.openEditKeyForm()
 		}
 	case "d":
+		if m.section == syncSection {
+			return m, nil
+		}
 		if m.section == hostsSection {
 			m.openDeleteHostForm()
 		} else {
@@ -327,6 +370,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "enter":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.section == hostsSection {
 			return m.connectSelected()
 		}

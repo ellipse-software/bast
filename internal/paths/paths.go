@@ -13,6 +13,8 @@ type Paths struct {
 	ManagedDir    string
 	ManagedConfig string
 	ManagedKeys   string
+	SyncDir       string
+	SyncGCPConfig string
 	StateFile     string
 }
 
@@ -22,13 +24,17 @@ func ForHome(home string) Paths {
 	if err != nil || home != userHome() {
 		configDir = filepath.Join(home, ".config")
 	}
+	managedDir := filepath.Join(sshDir, "bast")
+	syncDir := filepath.Join(managedDir, "sync")
 	return Paths{
 		Home:          home,
 		SSHDir:        sshDir,
 		MainConfig:    filepath.Join(sshDir, "config"),
-		ManagedDir:    filepath.Join(sshDir, "bast"),
-		ManagedConfig: filepath.Join(sshDir, "bast", "config"),
-		ManagedKeys:   filepath.Join(sshDir, "bast", "keys"),
+		ManagedDir:    managedDir,
+		ManagedConfig: filepath.Join(managedDir, "config"),
+		ManagedKeys:   filepath.Join(managedDir, "keys"),
+		SyncDir:       syncDir,
+		SyncGCPConfig: filepath.Join(syncDir, "gcp", "config"),
 		StateFile:     filepath.Join(configDir, "bast", "state.json"),
 	}
 }

@@ -379,6 +379,9 @@ func (r *Runner) hostEdit(args []string) error {
 		notes.set = true
 		configChanged, metadataChanged = host.Managed, true
 	}
+	if host.Synced && (configChanged || metadataChanged || label.set) {
+		return fail("synced_host", "synced hosts are read-only; manage them with bast sync")
+	}
 	if host.Managed && label.set {
 		configChanged = true
 	}
@@ -507,6 +510,9 @@ func (r *Runner) hostDelete(args []string) error {
 	host, err := r.findHost(fs.Arg(0), hosts)
 	if err != nil {
 		return err
+	}
+	if host.Synced {
+		return fail("synced_host", "synced hosts cannot be deleted; use bast sync disable gcp")
 	}
 	if !host.Managed {
 		return fail("external_host", "externally managed hosts cannot be deleted by Bast")

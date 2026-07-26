@@ -152,3 +152,63 @@ func expandHome(path string) string {
 	}
 	return path
 }
+
+// FormatError returns a user-facing description for OpenSSH process failures.
+// ssh(1) uses exit 255 for its own errors (connection, auth, or interrupt);
+// other non-zero codes are typically the remote command's exit status, including
+// the conventional 128+signal form used by shells.
+func FormatError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return err.Error()
+	}
+	code := exitErr.ExitCode()
+	if code <= 0 {
+		return "interrupted before completion"
+	}
+	if msg, ok := exitMessages[code]; ok {
+		return msg
+	}
+	if code > 128 && code < 255 {
+		sig := code - 128
+		if name := signalName(sig); name != "" {
+			return fmt.Sprintf("terminated by %s", name)
+		}
+		return fmt.Sprintf("terminated by signal %d", sig)
+	}
+	return fmt.Sprintf("exited with status %d", code)
+}
+
+var exitMessages = map[int]string{
+	1:   "command failed",
+	2:   "invalid arguments or misuse",
+	126: "command not executable",
+	127: "command not found",
+	128: "invalid exit status",
+	129: "terminated by SIGHUP (hangup)",
+	130: "interrupted (Ctrl-C)",
+	131: "terminated by SIGQUIT",
+	137: "killed",
+	143: "terminated",
+	255: "connection failed, refused, or interrupted",
+}
+
+func signalName(sig int) string {
+	switch sig {
+	case 1:
+		return "SIGHUP"
+	case 2:
+		return "SIGINT"
+	case 3:
+		return "SIGQUIT"
+	case 9:
+		return "SIGKILL"
+	case 15:
+		return "SIGTERM"
+	default:
+		return ""
+	}
+}

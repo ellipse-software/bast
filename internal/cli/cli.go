@@ -32,6 +32,7 @@ Usage:
   bast connect <host>          Connect using an alias or display label
   bast hosts <command>         Manage SSH hosts
   bast keys <command>          Manage SSH keys
+  bast sync <command>          Sync cloud VMs into Bast
 
 Host commands:
   list, show, add, edit, delete, favorite, unfavorite, hide, show-hidden,
@@ -40,6 +41,9 @@ Host commands:
 Key commands:
   list, show, generate, import, comment, export, install, passphrase,
   public, copy, delete
+
+Sync commands:
+  gcp, status, disable
 
 Global options:
   --json                      Emit structured JSON
@@ -89,14 +93,14 @@ func fail(code, message string) error { return &commandError{code: code, message
 func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writer) (*Runner, error) {
 	return &Runner{
 		Paths: p, OpenSSH: client, Version: "dev", In: in, Out: out, Err: errOut,
-		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys},
+		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig},
 		keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
 	}, nil
 }
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "connect", "hosts", "keys":
+	case "tui", "update", "connect", "hosts", "keys", "sync":
 		return true
 	}
 	return false
@@ -146,6 +150,8 @@ func (r *Runner) Run(args []string) error {
 				err = r.hosts(args[1:])
 			case "keys":
 				err = r.keys(args[1:])
+			case "sync":
+				err = r.sync(args[1:])
 			default:
 				err = usagef("unknown command %q", args[0])
 			}
@@ -202,6 +208,10 @@ option to restore a default or remove values.`,
 		"keys copy":       "Usage: bast keys copy <name>",
 		"keys delete":     "Usage: bast keys delete <name> [--yes]",
 		"connect --help":  "Usage: bast connect <host>",
+		"sync gcp":        "Usage: bast sync gcp",
+		"sync status":     "Usage: bast sync status",
+		"sync disable":    "Usage: bast sync disable <gcp>",
+		"sync --help":     "Usage: bast sync <gcp|status|disable>",
 	}
 	if value := usage[resource+" "+command]; value != "" {
 		return value
@@ -252,6 +262,9 @@ type hostRecord struct {
 	Favorite        bool                       `json:"favorite"`
 	Hidden          bool                       `json:"hidden"`
 	Managed         bool                       `json:"managed"`
+	Synced          bool                       `json:"synced"`
+	SyncSource      string                     `json:"syncSource,omitempty"`
+	SyncID          string                     `json:"syncId,omitempty"`
 	Source          string                     `json:"source"`
 	KnownHost       bool                       `json:"knownHost"`
 	LastUsedAt      *time.Time                 `json:"lastUsedAt,omitempty"`
@@ -310,7 +323,8 @@ func (r *Runner) load(ctx context.Context) ([]hostRecord, []keyRecord, error) {
 			IdentityFiles: nonNil(resolved.IdentityFiles), Authentication: auth, ProxyJump: emptyNone(resolved.ProxyJump), Advanced: adv,
 			Group: meta.Group,
 			Tags:  nonNil(meta.Tags), Environment: meta.Environment, Color: meta.Color, Notes: meta.Notes, Favorite: meta.Favorite,
-			Hidden: meta.Hidden, Managed: hosts[i].Managed, Source: hosts[i].Source, KnownHost: hosts[i].KnownHost,
+			Hidden: meta.Hidden, Managed: hosts[i].Managed, Synced: hosts[i].Synced, SyncSource: hosts[i].SyncSource,
+			SyncID: hosts[i].SyncID, Source: hosts[i].Source, KnownHost: hosts[i].KnownHost,
 			LastUsedAt: meta.LastUsedAt, ConnectionCount: meta.ConnectionCount, raw: hosts[i], meta: meta,
 		})
 	}
@@ -489,7 +503,10 @@ func (r *Runner) runProcess(cmd *exec.Cmd, interactiveOnly bool) error {
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) && exitErr.ExitCode() > 0 {
-		return &commandError{code: "process_failed", message: err.Error(), exit: exitErr.ExitCode()}
+		return &commandError{code: "process_failed", message: openssh.FormatError(err), exit: exitErr.ExitCode()}
+	}
+	if errors.As(err, &exitErr) {
+		return &commandError{code: "process_failed", message: openssh.FormatError(err), exit: 1}
 	}
 	return err
 }
