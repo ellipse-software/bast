@@ -32,7 +32,7 @@ Every push to `master` publishes a rolling nightly pre-release via `.github/work
 
 Nightly builds use version strings like `nightly.YYYYMMDD.<sha>`, update the rolling GitHub release tagged `nightly`, and bump the `bast-nightly` Homebrew formula in `ellipse-software/homebrew-tap`.
 
-Stable and nightly installs are mutually exclusive. Script installs use separate receipts (`https://bast.sh/install` vs `https://bast.sh/install-nightly`), and the Homebrew formulae declare `conflicts_with` each other.
+Stable and nightly installs are mutually exclusive at the same path. Script installs use separate receipts (`https://bast.sh/install` vs `https://bast.sh/install-nightly`); running either installer uninstalls the other channel first (including a Homebrew install of the other formula). The Homebrew formulae also declare `conflicts_with` each other.
 
 Try nightly builds with:
 

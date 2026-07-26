@@ -43,8 +43,6 @@ brew install bast
 
 ### Nightly
 
-Make sure you uninstall the stable version before using the nightly version.
-
 ```sh
 curl -fsSL https://bast.sh/install-nightly | sh
 ```
@@ -52,6 +50,8 @@ curl -fsSL https://bast.sh/install-nightly | sh
 ```sh
 brew install bast-nightly
 ```
+
+Script installs switch channels automatically: installing nightly removes a stable install at the same path (and vice versa), including Homebrew installs of the other formula.
 
 ### From Source
 
