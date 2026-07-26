@@ -1307,8 +1307,11 @@ func TestEmptyHostListInvitesFirstHost(t *testing.T) {
 func TestDetailsAreCompactAndOmitEmptyMetadata(t *testing.T) {
 	m := testApp(t)
 	host := m.renderHostDetail(m.styles(), m.hosts[0], 50)
-	if strings.Contains(host, "Label") || strings.Contains(host, "Color") || strings.Contains(host, "Group") {
+	if strings.Contains(host, "Label") || strings.Contains(host, "Color") || strings.Contains(host, "Group") || strings.Contains(host, "About") {
 		t.Fatalf("host details contain redundant or empty fields:\n%s", host)
+	}
+	if !strings.Contains(host, "Access") || !strings.Contains(host, "Auth") {
+		t.Fatalf("host details missing Access section:\n%s", host)
 	}
 	if lipgloss.Height(host) > 8 {
 		t.Fatalf("host details are too tall: %d lines\n%s", lipgloss.Height(host), host)
@@ -1322,6 +1325,52 @@ func TestDetailsAreCompactAndOmitEmptyMetadata(t *testing.T) {
 	}
 	if lipgloss.Height(key) > 8 {
 		t.Fatalf("key details are too tall: %d lines\n%s", lipgloss.Height(key), key)
+	}
+}
+
+func TestHostDetailShowsConnectReadySections(t *testing.T) {
+	m := testApp(t)
+	used := time.Date(2026, 7, 20, 14, 2, 0, 0, time.Local)
+	if err := m.metadata.SetHost("alpha", metadata.Host{
+		Label: "Prod API", Favorite: true, Group: "Work/Prod", Environment: "production",
+		Tags: []string{"web", "api"}, Notes: "via jump", LastUsedAt: &used, ConnectionCount: 12,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	host := sshconfig.Host{
+		Alias: "alpha", Managed: true, KnownHost: true,
+		Resolved: sshconfig.Resolved{
+			HostName: "api.prod.example", User: "ubuntu", Port: "22",
+			IdentityFiles: []string{"~/.ssh/id_ed25519"}, ProxyJump: "bastion",
+		},
+	}
+	detail := m.renderHostDetail(m.styles(), host, 60)
+	for _, want := range []string{
+		"Prod API", "ubuntu@api.prod.example", "◆ favorite", "Bast managed", "known host",
+		"Access", "Auth", "~/.ssh/id_ed25519", "Jump", "bastion", "SSH name", "alpha",
+		"About", "Group", "Work/Prod", "Env", "production", "Tags", "api, web", "Used", "Notes", "via jump",
+	} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("detail missing %q:\n%s", want, detail)
+		}
+	}
+	if strings.Contains(detail, "Source") || strings.Contains(detail, "Meta") {
+		t.Fatalf("detail still shows demoted fields:\n%s", detail)
+	}
+}
+
+func TestHostAuthSummary(t *testing.T) {
+	if got := hostAuthSummary(sshconfig.Host{}); got != "agent/defaults" {
+		t.Fatalf("empty = %q", got)
+	}
+	if got := hostAuthSummary(sshconfig.Host{Synced: true}); got != "SSH access ensured on connect" {
+		t.Fatalf("synced empty = %q", got)
+	}
+	got := hostAuthSummary(sshconfig.Host{Synced: true, Resolved: sshconfig.Resolved{
+		User: "ubuntu", IdentityFiles: []string{"~/.ssh/bast/keys/IRIS"},
+	}})
+	if got != "~/.ssh/bast/keys/IRIS" {
+		t.Fatalf("synced key = %q", got)
 	}
 }
 

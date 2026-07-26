@@ -542,6 +542,42 @@ func hostIdentity(h sshconfig.Host) string {
 	return joinOr(h.Resolved.IdentityFiles, "agent/defaults")
 }
 
+func hostAuthSummary(h sshconfig.Host) string {
+	if !h.Synced {
+		return hostIdentity(h)
+	}
+	if len(h.Resolved.IdentityFiles) > 0 {
+		return h.Resolved.IdentityFiles[0]
+	}
+	return "SSH access ensured on connect"
+}
+
+func hostStatusLine(h sshconfig.Host, meta metadata.Host) string {
+	parts := make([]string, 0, 4)
+	switch {
+	case meta.Hidden:
+		parts = append(parts, "◌ hidden")
+	case meta.Favorite:
+		parts = append(parts, "◆ favorite")
+	}
+	switch {
+	case h.Synced && h.SyncSource == "gcp":
+		parts = append(parts, "GCP synced")
+	case h.Synced:
+		parts = append(parts, h.SyncSource+" synced")
+	case h.Managed:
+		parts = append(parts, "Bast managed")
+	default:
+		parts = append(parts, "external")
+	}
+	if h.KnownHost {
+		parts = append(parts, "known host")
+	} else {
+		parts = append(parts, "not in known_hosts")
+	}
+	return strings.Join(parts, " · ")
+}
+
 func syncedAuthSummary(h sshconfig.Host) string {
 	user := strings.TrimSpace(h.Resolved.User)
 	key := ""

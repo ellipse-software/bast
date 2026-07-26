@@ -10,7 +10,6 @@ import (
 
 	"bast/internal/cloud/sync"
 	"bast/internal/keys"
-	"bast/internal/metadata"
 	"bast/internal/sshconfig"
 )
 
@@ -222,13 +221,13 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 			state = "expanded for search"
 		}
 	}
-	hint := "Press ␣ to collapse or expand · e to rename"
+	hint := "␣ collapse/expand · e rename"
 	if sync.IsSyncedGroup(row.group) {
-		hint = "Press ␣ to collapse or expand · cloud sync group (read-only)"
+		hint = "␣ collapse/expand · cloud sync (read-only)"
 	}
 	return "  " + renderGoogleCloudGroupName(truncate(row.group, max(4, width-3)), s.active) + "\n" +
 		"  " + s.muted.Render(fmt.Sprintf("%d servers · %s", row.count, state)) + "\n\n" +
-		"  " + s.value.Render(hint)
+		"  " + s.muted.Render(truncate(hint, max(4, width-3)))
 }
 
 func renderGoogleCloudGroupName(name string, restStyle lipgloss.Style) string {
@@ -249,19 +248,6 @@ func renderGoogleCloudGroupName(name string, restStyle lipgloss.Style) string {
 
 func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) string {
 	meta := m.metadata.Host(host.Alias)
-	owner := "external"
-	switch {
-	case host.Synced && host.SyncSource == "gcp":
-		owner = "GCP synced"
-	case host.Synced:
-		owner = host.SyncSource + " synced"
-	case host.Managed:
-		owner = "Bast managed"
-	}
-	trust := "not in known_hosts"
-	if host.KnownHost {
-		trust = "known host"
-	}
 	var b strings.Builder
 	label := m.hostLabel(host)
 	connectBtn := s.title.Render(connectAction)
@@ -277,37 +263,46 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 		titleMax = max(4, width-connectBtnWidth-6)
 		title = truncate(label, titleMax)
 	}
-	destination := destination(host)
-	if destination == "" {
-		destination = host.Alias
+	dest := destination(host)
+	if dest == "" {
+		dest = host.Alias
 	}
 	titlePart := titleStyle.Render(title)
 	gap := max(1, width-2-lipgloss.Width(titlePart)-connectBtnWidth)
 	b.WriteString("  " + titlePart + strings.Repeat(" ", gap) + connectBtn + "\n")
-	b.WriteString("  " + s.value.Render(truncate(destination, max(4, width-3))) + "\n")
-	b.WriteString("  " + s.muted.Render(truncate(owner+" · "+trust, max(4, width-3))) + "\n")
+	b.WriteString("  " + s.value.Render(truncate(dest, max(4, width-3))) + "\n")
+	b.WriteString("  " + s.muted.Render(truncate(hostStatusLine(host, meta), max(4, width-3))) + "\n")
+
 	b.WriteString("\n")
-	b.WriteString(compactRow(s, "Source", shortPath(host.Source, m.paths.Home)+":"+strconv.Itoa(host.Line), width))
-	if label != host.Alias {
-		// Shown only when the friendly label differs from the Host alias used by `ssh`.
-		b.WriteString(compactRow(s, "SSH name", host.Alias, width))
-	}
-	if host.Synced {
-		b.WriteString(compactRow(s, "Auth", syncedAuthSummary(host), width))
-	} else {
-		b.WriteString(compactRow(s, "Key", hostIdentity(host), width))
-	}
+	b.WriteString("  " + s.muted.Render("Access") + "\n")
+	b.WriteString(compactRow(s, "Auth", hostAuthSummary(host), width))
 	if host.Resolved.ProxyJump != "" && host.Resolved.ProxyJump != "none" {
 		b.WriteString(compactRow(s, "Jump", host.Resolved.ProxyJump, width))
 	}
-	if inventory := inventorySummary(meta); inventory != "" {
-		b.WriteString(compactRow(s, "Meta", inventory, width))
+	if label != host.Alias {
+		b.WriteString(compactRow(s, "SSH name", host.Alias, width))
+	}
+
+	var about strings.Builder
+	if meta.Group != "" {
+		about.WriteString(compactRow(s, "Group", meta.Group, width))
+	}
+	if meta.Environment != "" {
+		about.WriteString(compactRow(s, "Env", meta.Environment, width))
+	}
+	if len(meta.Tags) > 0 {
+		about.WriteString(compactRow(s, "Tags", strings.Join(meta.Tags, ", "), width))
 	}
 	if meta.LastUsedAt != nil {
-		b.WriteString(compactRow(s, "Used", usage(meta), width))
+		about.WriteString(compactRow(s, "Used", usage(meta), width))
 	}
 	if meta.Notes != "" {
-		b.WriteString(compactRow(s, "Notes", meta.Notes, width))
+		about.WriteString(compactRow(s, "Notes", meta.Notes, width))
+	}
+	if about.Len() > 0 {
+		b.WriteString("\n")
+		b.WriteString("  " + s.muted.Render("About") + "\n")
+		b.WriteString(about.String())
 	}
 	return b.String()
 }
@@ -661,16 +656,3 @@ func compactRow(s styleSet, label, value string, width int) string {
 	return "  " + s.label.Width(labelWidth).Render(label) + s.value.Render(truncate(value, max(4, width-labelWidth-3))) + "\n"
 }
 
-func inventorySummary(host metadata.Host) string {
-	parts := make([]string, 0, 3)
-	if host.Group != "" {
-		parts = append(parts, host.Group)
-	}
-	if host.Environment != "" {
-		parts = append(parts, host.Environment)
-	}
-	if len(host.Tags) > 0 {
-		parts = append(parts, strings.Join(host.Tags, ", "))
-	}
-	return strings.Join(parts, " · ")
-}
