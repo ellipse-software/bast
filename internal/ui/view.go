@@ -655,4 +655,3 @@ func compactRow(s styleSet, label, value string, width int) string {
 	labelWidth := min(10, max(7, width/4))
 	return "  " + s.label.Width(labelWidth).Render(label) + s.value.Render(truncate(value, max(4, width-labelWidth-3))) + "\n"
 }
-
