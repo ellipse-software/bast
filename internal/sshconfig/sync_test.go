@@ -19,13 +19,13 @@ func TestWriteAndDiscoverSyncBlocks(t *testing.T) {
 	blocks := []SyncHostInput{
 		{
 			Alias: "gcp_proj_web", SyncSource: "gcp",
-			SyncID: "projects/proj/zones/us-central1-a/instances/web",
+			SyncID:   "projects/proj/zones/us-central1-a/instances/web",
 			HostName: "web", User: "ubuntu",
 			ProxyCommand: "gcloud compute start-iap-tunnel web %p --listen-on-stdin --project=proj --zone=us-central1-a --verbosity=warning",
 		},
 		{
 			Alias: "gcp_proj_api", SyncSource: "gcp",
-			SyncID: "projects/proj/zones/us-central1-a/instances/api",
+			SyncID:   "projects/proj/zones/us-central1-a/instances/api",
 			HostName: "1.2.3.4", User: "ubuntu",
 		},
 	}
@@ -119,7 +119,7 @@ func TestUpdateSyncHostAuth(t *testing.T) {
 	path := filepath.Join(dir, "config")
 	if err := WriteSyncConfig(path, []SyncHostInput{{
 		Alias: "gcp_p_web", SyncSource: "gcp", SyncID: "projects/p/zones/z/instances/web",
-		HostName: "1.2.3.4",
+		HostName:     "1.2.3.4",
 		ProxyCommand: "gcloud compute start-iap-tunnel web %p --listen-on-stdin --project=p --zone=z --verbosity=warning",
 	}}); err != nil {
 		t.Fatal(err)
