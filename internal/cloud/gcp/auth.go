@@ -1,9 +1,12 @@
 package gcp
 
 import (
+	"encoding/json"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"bast/internal/cloud"
 )
@@ -17,6 +20,20 @@ func ResolveAuth(inst *cloud.Instance, home, managedKeys, osLoginUser string) {
 		return
 	}
 	settingsUser := strings.TrimSpace(inst.User)
+	if inst.OSLogin {
+		inst.User = strings.TrimSpace(osLoginUser)
+		if inst.User == "" {
+			inst.User = settingsUser
+		}
+		inst.IdentityFile = ""
+		inst.IdentitiesOnly = false
+		if home != "" {
+			if _, err := os.Stat(filepath.Join(home, ".ssh", "google_compute_engine")); err == nil {
+				inst.IdentityFile = gcloudIdentityFile
+			}
+		}
+		return
+	}
 
 	if user, identity := matchSSHKeyEntry(inst.SSHKeys, home, managedKeys); identity != "" {
 		if user == "" {
@@ -28,14 +45,14 @@ func ResolveAuth(inst *cloud.Instance, home, managedKeys, osLoginUser string) {
 		return
 	}
 
-	user := settingsUser
-	if user == "" {
-		user = osLoginUser
+	userName := settingsUser
+	if userName == "" {
+		userName = imageSSHUser(inst.Image)
 	}
-	if user == "" {
-		user = imageSSHUser(inst.Image)
+	if userName == "" {
+		userName = firstSSHKeyUser(inst.SSHKeys)
 	}
-	inst.User = user
+	inst.User = userName
 	inst.IdentityFile = ""
 	inst.IdentitiesOnly = false
 	if home != "" {
@@ -75,6 +92,9 @@ func matchSSHKeyEntry(keys []cloud.SSHKey, home, managedKeys string) (user, iden
 				continue
 			}
 			for _, key := range keys {
+				if key.Expired {
+					continue
+				}
 				if publicKeyBlob(key.PublicKey) != blob {
 					continue
 				}
@@ -87,6 +107,16 @@ func matchSSHKeyEntry(keys []cloud.SSHKey, home, managedKeys string) (user, iden
 		}
 	}
 	return "", ""
+}
+
+func firstSSHKeyUser(keys []cloud.SSHKey) string {
+	for _, key := range keys {
+		if key.Expired || key.User == "" {
+			continue
+		}
+		return key.User
+	}
+	return ""
 }
 
 func imageSSHUser(image string) string {
@@ -147,22 +177,71 @@ func parseSSHKeys(raw string) []cloud.SSHKey {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		user, key, ok := strings.Cut(line, ":")
+		userName, key, ok := strings.Cut(line, ":")
 		if !ok {
 			key = line
-			user = ""
+			userName = ""
 		}
-		user = strings.TrimSpace(user)
+		userName = strings.TrimSpace(userName)
 		key = strings.TrimSpace(key)
 		if key == "" {
 			continue
 		}
-		if user != "" && strings.Contains(user, " ") {
+		if userName != "" && strings.Contains(userName, " ") {
 			// malformed; treat whole line as key
-			user = ""
+			userName = ""
 			key = line
 		}
-		keys = append(keys, cloud.SSHKey{User: user, PublicKey: key})
+		keys = append(keys, cloud.SSHKey{
+			User:      userName,
+			PublicKey: key,
+			Expired:   sshKeyExpired(key),
+		})
 	}
 	return keys
+}
+
+func sshKeyExpired(publicKey string) bool {
+	idx := strings.Index(publicKey, "google-ssh")
+	if idx < 0 {
+		return false
+	}
+	rest := strings.TrimSpace(publicKey[idx+len("google-ssh"):])
+	if rest == "" || rest[0] != '{' {
+		return false
+	}
+	var meta struct {
+		ExpireOn string `json:"expireOn"`
+	}
+	if err := json.Unmarshal([]byte(rest), &meta); err != nil {
+		return false
+	}
+	expireOn := strings.TrimSpace(meta.ExpireOn)
+	if expireOn == "" {
+		return false
+	}
+	// gcloud uses RFC3339-ish values, sometimes without colon in the zone offset.
+	for _, layout := range []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05-0700",
+		"2006-01-02T15:04:05+0000",
+		"2006-01-02T15:04:05Z07:00",
+	} {
+		if ts, err := time.Parse(layout, expireOn); err == nil {
+			return !ts.After(time.Now().UTC())
+		}
+	}
+	return false
+}
+
+func localUsername() string {
+	if u, err := user.Current(); err == nil {
+		if name := strings.TrimSpace(u.Username); name != "" {
+			if i := strings.LastIndex(name, `\`); i >= 0 {
+				name = name[i+1:]
+			}
+			return name
+		}
+	}
+	return ""
 }

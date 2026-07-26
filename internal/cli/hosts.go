@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"bast/internal/cloud/sync"
+	"bast/internal/connectbanner"
 	"bast/internal/metadata"
 	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
@@ -639,6 +641,18 @@ func (r *Runner) connect(args []string) error {
 	host, err := r.findHost(fs.Arg(0), hosts)
 	if err != nil {
 		return err
+	}
+	connectbanner.Write(r.Out)
+	if host.Synced && host.SyncSource == "gcp" && host.SyncID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if err := engine.EnsureGCPAccess(ctx, sshconfig.Host{
+			Alias: host.Alias, Synced: host.Synced, SyncSource: host.SyncSource, SyncID: host.SyncID,
+		}, connectbanner.Status(r.Out)); err != nil {
+			return fail("gcp_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
 	}
 	if err := r.store.RecordUse(host.Alias); err != nil {
 		return err

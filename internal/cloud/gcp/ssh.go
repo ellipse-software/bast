@@ -62,12 +62,24 @@ func shortenHomePath(path, home string) string {
 
 // IAPProxyCommand builds a gcloud IAP tunnel ProxyCommand.
 func IAPProxyCommand(inst cloud.Instance) string {
-	return fmt.Sprintf(
-		"gcloud compute start-iap-tunnel %s %%p --listen-on-stdin --project=%s --zone=%s --verbosity=warning",
-		shellSafe(inst.Name),
-		shellSafe(inst.ProjectID),
-		shellSafe(inst.Zone),
-	)
+	args := []string{
+		"gcloud", "compute", "start-iap-tunnel", proxyLiteral(inst.Name), "%p",
+		"--listen-on-stdin",
+		"--project=" + proxyLiteral(inst.ProjectID),
+		"--zone=" + proxyLiteral(inst.Zone),
+		"--verbosity=warning",
+	}
+	if inst.CredentialAccount != "" {
+		args = append(args, "--account="+proxyLiteral(inst.CredentialAccount))
+	}
+	for i := range args {
+		args[i] = shellQuote(args[i])
+	}
+	command := strings.Join(args, " ")
+	if inst.CredentialFile != "" {
+		command = "env CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=" + shellQuote(proxyLiteral(inst.CredentialFile)) + " " + command
+	}
+	return command
 }
 
 // GroupPath returns the Bast group path for a GCP instance.
@@ -77,10 +89,10 @@ func GroupPath(inst cloud.Instance) string {
 		name = strings.TrimSpace(inst.ProjectID)
 	}
 	if name == "" {
-		return "GCP"
+		return "Google Cloud"
 	}
 	name = strings.ReplaceAll(name, "/", "-")
-	return "GCP/" + name
+	return "Google Cloud/" + name
 }
 
 // AliasFor returns the preferred SSH alias for an instance.
@@ -119,15 +131,16 @@ func sanitizeAliasPart(value string) string {
 	return value
 }
 
-func shellSafe(value string) string {
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-			return r
-		case r == '-' || r == '_' || r == '.' || r == ':':
-			return r
-		default:
-			return -1
-		}
-	}, value)
+func proxyLiteral(value string) string {
+	return strings.ReplaceAll(value, "%", "%%")
+}
+
+func shellQuote(value string) string {
+	if value != "" && strings.IndexFunc(value, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || strings.ContainsRune("-_=./:@%+", r))
+	}) < 0 {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }

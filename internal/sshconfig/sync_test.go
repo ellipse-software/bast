@@ -114,6 +114,38 @@ func TestEnsureSyncIncludeIsBeforeHostBlocks(t *testing.T) {
 	}
 }
 
+func TestUpdateSyncHostAuth(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config")
+	if err := WriteSyncConfig(path, []SyncHostInput{{
+		Alias: "gcp_p_web", SyncSource: "gcp", SyncID: "projects/p/zones/z/instances/web",
+		HostName: "1.2.3.4",
+		ProxyCommand: "gcloud compute start-iap-tunnel web %p --listen-on-stdin --project=p --zone=z --verbosity=warning",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateSyncHostAuth(path, "gcp_p_web", "debian", "~/.ssh/google_compute_engine", true); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "User debian") || !strings.Contains(text, "IdentityFile ~/.ssh/google_compute_engine") {
+		t.Fatalf("auth missing:\n%s", text)
+	}
+	if !strings.Contains(text, "IdentitiesOnly yes") || !strings.Contains(text, "ProxyCommand gcloud") {
+		t.Fatalf("expected IdentitiesOnly + ProxyCommand preserved:\n%s", text)
+	}
+	if !strings.Contains(text, "# bast:sync:gcp=projects/p/zones/z/instances/web") {
+		t.Fatalf("sync marker lost:\n%s", text)
+	}
+	if strings.Count(text, syncMarkerEnd) != 1 {
+		t.Fatalf("duplicate sync end markers:\n%s", text)
+	}
+}
+
 func TestRenderSyncBlockIdentitiesOnlyOnlyWhenConfident(t *testing.T) {
 	soft := string(RenderSyncBlock(SyncHostInput{
 		Alias: "gcp_p_web", SyncSource: "gcp", SyncID: "id",

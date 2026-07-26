@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"bast/internal/connectbanner"
 	keymodel "bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/openssh"
@@ -890,18 +891,36 @@ func TestKeysDoNotPresentAgentLoadingAsAPrimaryAction(t *testing.T) {
 }
 
 func TestSSHProcessPreservesTerminalOutput(t *testing.T) {
-	if !strings.Contains(connectionBanner, "Press Enter, then ~.") {
+	if !strings.Contains(connectbanner.Banner, "Press Enter, then ~.") {
 		t.Fatal("connection banner does not explain how to force-close a stuck session")
 	}
 	var output bytes.Buffer
 	cmd := exec.Command("/bin/sh", "-c", "printf session-output")
 	cmd.Stdout = &output
-	process := &connectionProcess{cmd: cmd}
+	prepared := false
+	process := &connectionProcess{cmd: cmd, prepare: func(status func(string)) error {
+		if got := output.String(); got != connectbanner.Banner {
+			t.Fatalf("connection banner was not shown before preparation: %q", got)
+		}
+		status("Publishing Google SSH key to the VM — this can take a few seconds…")
+		prepared = true
+		return nil
+	}}
 	if err := process.Run(); err != nil {
 		t.Fatal(err)
 	}
-	if got := output.String(); got != connectionBanner+"session-output" {
-		t.Fatalf("output = %q", got)
+	if !prepared {
+		t.Fatal("connection preparation did not run")
+	}
+	var want bytes.Buffer
+	connectbanner.Write(&want)
+	connectbanner.Status(&want)("Publishing Google SSH key to the VM — this can take a few seconds…")
+	want.WriteString("\r\nsession-output")
+	if got := output.String(); got != want.String() {
+		t.Fatalf("output = %q\nwant %q", got, want.String())
+	}
+	if !strings.Contains(output.String(), "\x1b[38;2;107;114;128m Publishing") {
+		t.Fatal("status line should be muted and indented with a leading space")
 	}
 }
 
@@ -1307,7 +1326,7 @@ func TestDetailsAreCompactAndOmitEmptyMetadata(t *testing.T) {
 }
 
 func TestSyncedAuthSummary(t *testing.T) {
-	if got := syncedAuthSummary(sshconfig.Host{}); got != "user unknown — set default SSH user in Sync" {
+	if got := syncedAuthSummary(sshconfig.Host{}); got != "SSH access ensured on connect" {
 		t.Fatalf("empty = %q", got)
 	}
 	got := syncedAuthSummary(sshconfig.Host{Resolved: sshconfig.Resolved{
@@ -1325,7 +1344,7 @@ func TestSyncedHostsAreReadOnly(t *testing.T) {
 		SyncID:   "projects/demo/zones/us-central1-a/instances/web",
 		Resolved: sshconfig.Resolved{HostName: "web", User: "ubuntu"},
 	}}
-	_ = m.metadata.SetHost("gcp_demo_web", metadata.Host{Label: "web", Group: "GCP/Demo"})
+	_ = m.metadata.SetHost("gcp_demo_web", metadata.Host{Label: "web", Group: "Google Cloud/Demo"})
 	m.cursor = -1
 	for i, row := range m.hostRows() {
 		if !row.header && row.host.Alias == "gcp_demo_web" {
@@ -1357,11 +1376,11 @@ func TestSyncedHostsAreReadOnly(t *testing.T) {
 func TestSyncedGroupRenameBlocked(t *testing.T) {
 	m := testApp(t)
 	m.hosts = []sshconfig.Host{{Alias: "gcp_demo_web", Synced: true, SyncSource: "gcp"}}
-	_ = m.metadata.SetHost("gcp_demo_web", metadata.Host{Label: "web", Group: "GCP/Demo"})
+	_ = m.metadata.SetHost("gcp_demo_web", metadata.Host{Label: "web", Group: "Google Cloud/Demo"})
 	m.collapsedGroups = map[string]bool{}
 	rows := m.hostRows()
 	for i, row := range rows {
-		if row.header && row.group == "GCP/Demo" {
+		if row.header && row.group == "Google Cloud/Demo" {
 			m.cursor = i
 			break
 		}
@@ -1369,6 +1388,55 @@ func TestSyncedGroupRenameBlocked(t *testing.T) {
 	m.openEditGroupForm()
 	if m.form != nil || !strings.Contains(m.status, "cannot be renamed") {
 		t.Fatalf("status = %q form=%v", m.status, m.form != nil)
+	}
+}
+
+func TestEnterTogglesSelectedGroup(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("beta", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	m.collapsedGroups = map[string]bool{}
+	for i, row := range m.hostRows() {
+		if row.header && row.group == "Work" {
+			m.cursor = i
+			break
+		}
+	}
+
+	enter := tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter})
+	m.updateKeys(enter)
+	if !m.collapsedGroups["Work"] {
+		t.Fatal("Enter did not collapse the selected group")
+	}
+	m.updateKeys(enter)
+	if m.collapsedGroups["Work"] {
+		t.Fatal("Enter did not expand the selected group")
+	}
+
+	footer := m.renderFooter(m.styles())
+	if !strings.Contains(footer, "␣ collapse/expand") || strings.Contains(footer, "␣ group") {
+		t.Fatalf("footer = %q", footer)
+	}
+}
+
+func TestGoogleCloudGroupNameUsesGoogleColors(t *testing.T) {
+	rendered := renderGoogleCloudGroupName("Google Cloud", lipgloss.NewStyle())
+	if !strings.Contains(rendered, "\x1b[") {
+		t.Fatalf("expected ANSI colours: %q", rendered)
+	}
+	whiteCloud := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(" Cloud")
+	if !strings.Contains(rendered, whiteCloud) {
+		t.Fatalf("Cloud is not white: %q", rendered)
+	}
+	if width := lipgloss.Width(rendered); width != len("Google Cloud") {
+		t.Fatalf("width = %d", width)
+	}
+	if got := renderGoogleCloudGroupName("Work", lipgloss.NewStyle()); got != "Work" {
+		t.Fatalf("ordinary group changed: %q", got)
 	}
 }
 
@@ -1400,5 +1468,18 @@ func TestSyncTabRenders(t *testing.T) {
 	tabs := m.renderTabs(m.styles())
 	if !strings.Contains(tabs, "[3] Sync") {
 		t.Fatalf("tabs = %q", tabs)
+	}
+}
+
+func TestSyncActionIgnoredWhileSyncing(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "gcp"
+	m.syncCursor = 0
+	m.syncing = true
+
+	_, cmd := m.updateSyncKeys("enter")
+	if cmd != nil {
+		t.Fatal("sync action should be disabled while a sync is running")
 	}
 }

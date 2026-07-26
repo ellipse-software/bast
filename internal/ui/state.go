@@ -550,7 +550,7 @@ func syncedAuthSummary(h sshconfig.Host) string {
 	}
 	switch {
 	case user == "" && key == "":
-		return "user unknown — set default SSH user in Sync"
+		return "SSH access ensured on connect"
 	case user == "":
 		return "user unknown · " + key
 	case key == "":

@@ -13,11 +13,11 @@ import (
 )
 
 type syncMenuItem struct {
-	label       string
-	detail      string
-	action      string
-	provider    string
-	disabled    bool
+	label    string
+	detail   string
+	action   string
+	provider string
+	disabled bool
 }
 
 func (m *App) syncProviders() []syncMenuItem {
@@ -238,6 +238,9 @@ func (m *App) updateSyncKeys(key string) (tea.Model, tea.Cmd) {
 			m.syncCursor = 0
 			return m, m.syncStatusCmd()
 		}
+		if m.syncing {
+			return m, nil
+		}
 		return m.runSyncAction(item.action)
 	}
 	return m, nil
@@ -280,6 +283,9 @@ func prevEnabledSyncItem(items []syncMenuItem, current int) int {
 }
 
 func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
+	if m.syncing {
+		return m, nil
+	}
 	switch action {
 	case "sync", "enable":
 		m.syncing = true

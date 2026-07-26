@@ -18,7 +18,7 @@ func TestAliasAndGroup(t *testing.T) {
 	if got := AliasFor(inst); got != "gcp_my-prod_web-01" {
 		t.Fatalf("AliasFor = %q", got)
 	}
-	if got := GroupPath(inst); got != "GCP/My Production" {
+	if got := GroupPath(inst); got != "Google Cloud/My Production" {
 		t.Fatalf("GroupPath = %q", got)
 	}
 	used := map[string]bool{"gcp_my-prod_web-01": true}
@@ -65,6 +65,24 @@ func TestToSyncHostIAP(t *testing.T) {
 	}
 	if block.ProxyCommand == "" || block.SyncSource != "gcp" {
 		t.Fatalf("unexpected block: %+v", block)
+	}
+}
+
+func TestIAPProxyCommandUsesDiscoveryCredential(t *testing.T) {
+	account := IAPProxyCommand(cloud.Instance{
+		Name: "web", ProjectID: "p", Zone: "us-central1-a",
+		CredentialAccount: "secondary@example.com",
+	})
+	if !strings.Contains(account, "--account=secondary@example.com") {
+		t.Fatalf("account credential missing: %s", account)
+	}
+
+	serviceAccount := IAPProxyCommand(cloud.Instance{
+		Name: "web", ProjectID: "p", Zone: "us-central1-a",
+		CredentialFile: "/tmp/service account%prod.json",
+	})
+	if !strings.Contains(serviceAccount, "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE='/tmp/service account%%prod.json'") {
+		t.Fatalf("service-account credential missing or unsafe: %s", serviceAccount)
 	}
 }
 
@@ -127,14 +145,14 @@ func TestMergeSSHKeysInstanceWins(t *testing.T) {
 
 func TestImageSSHUser(t *testing.T) {
 	cases := map[string]string{
-		"ubuntu-2204-lts":             "ubuntu",
-		"debian-12-bookworm":          "debian",
-		"centos-7":                    "centos",
-		"rhel-9":                      "cloud-user",
-		"rocky-linux-9":               "cloud-user",
-		"cos-105-lts":                 "cloud-user",
-		"fedora-cloud-39":             "fedora",
-		"projects/x/global/images/y":  "",
+		"ubuntu-2204-lts":            "ubuntu",
+		"debian-12-bookworm":         "debian",
+		"centos-7":                   "centos",
+		"rhel-9":                     "cloud-user",
+		"rocky-linux-9":              "cloud-user",
+		"cos-105-lts":                "cloud-user",
+		"fedora-cloud-39":            "fedora",
+		"projects/x/global/images/y": "",
 	}
 	for image, want := range cases {
 		if got := imageSSHUser(image); got != want {
@@ -181,6 +199,40 @@ func TestMapInstanceMergesProjectKeys(t *testing.T) {
 	}, "")
 	if len(mapped.SSHKeys) != 2 {
 		t.Fatalf("SSHKeys = %+v", mapped.SSHKeys)
+	}
+}
+
+func TestMapInstanceHonorsEffectiveSSHMetadata(t *testing.T) {
+	inst := decodeInstance(t, `{
+		"name":"web","zone":"zones/us-central1-a",
+		"metadata":{"items":[
+			{"key":"enable-oslogin","value":"FALSE"},
+			{"key":"block-project-ssh-keys","value":"TRUE"},
+			{"key":"ssh-keys","value":"instance:ssh-ed25519 AAAAinstance"}
+		]}
+	}`)
+	mapped := mapInstance(inst, project{
+		ID: "p", SSHKeys: "project:ssh-ed25519 AAAAproject",
+	}, "")
+	if !mapped.BlockProjectSSHKeys || len(mapped.SSHKeys) != 1 || mapped.SSHKeys[0].User != "instance" {
+		t.Fatalf("blocked project keys were merged: %+v", mapped)
+	}
+
+	osLogin := mapInstance(inst, project{ID: "p", EnableOSLogin: true}, "")
+	if osLogin.OSLogin {
+		t.Fatal("instance metadata should override project OS Login")
+	}
+
+	osLoginInst := decodeInstance(t, `{
+		"name":"web","zone":"zones/us-central1-a",
+		"metadata":{"items":[
+			{"key":"enable-oslogin","value":"TRUE"},
+			{"key":"ssh-keys","value":"instance:ssh-ed25519 AAAAinstance"}
+		]}
+	}`)
+	osLogin = mapInstance(osLoginInst, project{ID: "p", SSHKeys: "project:ssh-ed25519 AAAAproject"}, "")
+	if !osLogin.OSLogin || len(osLogin.SSHKeys) != 0 {
+		t.Fatalf("OS Login should ignore metadata keys: %+v", osLogin)
 	}
 }
 

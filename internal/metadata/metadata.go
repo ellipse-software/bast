@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -52,6 +54,7 @@ type State struct {
 }
 
 type Store struct {
+	mu    sync.RWMutex
 	path  string
 	state State
 }
@@ -74,32 +77,52 @@ func Open(path string) (*Store, error) {
 	if s.state.Hosts == nil {
 		s.state.Hosts = map[string]Host{}
 	}
+	for alias, host := range s.state.Hosts {
+		if host.Group == "GCP" {
+			host.Group = "Google Cloud"
+		} else if strings.HasPrefix(host.Group, "GCP/") {
+			host.Group = "Google Cloud/" + strings.TrimPrefix(host.Group, "GCP/")
+		}
+		s.state.Hosts[alias] = host
+	}
 	s.state.Version = CurrentVersion
 	return s, nil
 }
 
-func (s *Store) Host(alias string) Host { return s.state.Hosts[alias] }
+func (s *Store) Host(alias string) Host {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneHost(s.state.Hosts[alias])
+}
 
 func (s *Store) Hosts() map[string]Host {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	out := make(map[string]Host, len(s.state.Hosts))
 	for k, v := range s.state.Hosts {
-		out[k] = v
+		out[k] = cloneHost(v)
 	}
 	return out
 }
 
 func (s *Store) SetHost(alias string, host Host) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	host.Tags = cleanTags(host.Tags)
 	s.state.Hosts[alias] = host
 	return s.save()
 }
 
 func (s *Store) DeleteHost(alias string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	delete(s.state.Hosts, alias)
 	return s.save()
 }
 
 func (s *Store) RenameHost(from, to string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	host, ok := s.state.Hosts[from]
 	if ok {
 		delete(s.state.Hosts, from)
@@ -109,6 +132,8 @@ func (s *Store) RenameHost(from, to string) error {
 }
 
 func (s *Store) ToggleFavorite(alias string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	host := s.state.Hosts[alias]
 	host.Favorite = !host.Favorite
 	s.state.Hosts[alias] = host
@@ -116,6 +141,8 @@ func (s *Store) ToggleFavorite(alias string) (bool, error) {
 }
 
 func (s *Store) ToggleHidden(alias string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	host := s.state.Hosts[alias]
 	host.Hidden = !host.Hidden
 	s.state.Hosts[alias] = host
@@ -123,6 +150,8 @@ func (s *Store) ToggleHidden(alias string) (bool, error) {
 }
 
 func (s *Store) RecordUse(alias string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	host := s.state.Hosts[alias]
 	now := time.Now().UTC()
 	host.LastUsedAt = &now
@@ -131,32 +160,73 @@ func (s *Store) RecordUse(alias string) error {
 	return s.save()
 }
 
-func (s *Store) Preferences() Preferences { return s.state.Preferences }
+func (s *Store) Preferences() Preferences {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.Preferences
+}
 
 func (s *Store) SetSort(sortOrder string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.state.Preferences.Sort = sortOrder
 	return s.save()
 }
 
-func (s *Store) Integrations() Integrations { return s.state.Integrations }
+func (s *Store) Integrations() Integrations {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneIntegrations(s.state.Integrations)
+}
 
 func (s *Store) GCP() GCPIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if s.state.Integrations.GCP == nil {
 		return GCPIntegration{}
 	}
-	return *s.state.Integrations.GCP
+	return cloneGCP(*s.state.Integrations.GCP)
 }
 
 func (s *Store) SetGCP(gcp GCPIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if !gcp.Enabled && len(gcp.ServiceAccounts) == 0 && len(gcp.ProjectFilter) == 0 &&
 		gcp.DefaultSSHUser == "" && !gcp.AutoSync && gcp.LastSyncAt == nil &&
 		gcp.LastSyncError == "" && gcp.LastInstanceCount == 0 {
 		s.state.Integrations.GCP = nil
 	} else {
-		copy := gcp
+		copy := cloneGCP(gcp)
 		s.state.Integrations.GCP = &copy
 	}
 	return s.save()
+}
+
+func cloneHost(host Host) Host {
+	host.Tags = append([]string(nil), host.Tags...)
+	if host.LastUsedAt != nil {
+		lastUsedAt := *host.LastUsedAt
+		host.LastUsedAt = &lastUsedAt
+	}
+	return host
+}
+
+func cloneGCP(gcp GCPIntegration) GCPIntegration {
+	gcp.ServiceAccounts = append([]string(nil), gcp.ServiceAccounts...)
+	gcp.ProjectFilter = append([]string(nil), gcp.ProjectFilter...)
+	if gcp.LastSyncAt != nil {
+		lastSyncAt := *gcp.LastSyncAt
+		gcp.LastSyncAt = &lastSyncAt
+	}
+	return gcp
+}
+
+func cloneIntegrations(integrations Integrations) Integrations {
+	if integrations.GCP == nil {
+		return Integrations{}
+	}
+	gcp := cloneGCP(*integrations.GCP)
+	return Integrations{GCP: &gcp}
 }
 
 func (s *Store) save() error {

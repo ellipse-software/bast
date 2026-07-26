@@ -166,7 +166,8 @@ func (m *App) renderHosts(s styleSet) string {
 			if slash := strings.LastIndex(name, "/"); row.depth > 0 && slash >= 0 {
 				name = name[slash+1:]
 			}
-			line := indent + indicator + " " + truncate(name, max(2, rowWidth-lipgloss.Width(indent)-8)) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
+			name = truncate(name, max(2, rowWidth-lipgloss.Width(indent)-8))
+			line := indent + indicator + " " + renderGoogleCloudGroupName(name, s.active) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
 			if i == m.cursor {
 				line = s.selected.Width(rowWidth).Render(line)
 			} else {
@@ -225,9 +226,25 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 	if sync.IsSyncedGroup(row.group) {
 		hint = "Press ␣ to collapse or expand · cloud sync group (read-only)"
 	}
-	return "  " + s.active.Render(truncate(row.group, max(4, width-3))) + "\n" +
+	return "  " + renderGoogleCloudGroupName(truncate(row.group, max(4, width-3)), s.active) + "\n" +
 		"  " + s.muted.Render(fmt.Sprintf("%d servers · %s", row.count, state)) + "\n\n" +
 		"  " + s.value.Render(hint)
+}
+
+func renderGoogleCloudGroupName(name string, restStyle lipgloss.Style) string {
+	if name != "Google Cloud" && !strings.HasPrefix(name, "Google Cloud/") {
+		return name
+	}
+	colors := []string{"#4285F4", "#EA4335", "#FBBC05", "#4285F4", "#34A853", "#EA4335"}
+	var rendered strings.Builder
+	for i, letter := range "Google" {
+		rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colors[i])).Render(string(letter)))
+	}
+	remainder := name[len("Google"):]
+	cloud := " Cloud"
+	rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(cloud))
+	rendered.WriteString(restStyle.Render(strings.TrimPrefix(remainder, cloud)))
+	return rendered.String()
 }
 
 func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) string {
@@ -271,10 +288,8 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	b.WriteString("  " + s.muted.Render(truncate(owner+" · "+trust, max(4, width-3))) + "\n")
 	b.WriteString("\n")
 	b.WriteString(compactRow(s, "Source", shortPath(host.Source, m.paths.Home)+":"+strconv.Itoa(host.Line), width))
-	if host.Synced && host.SyncID != "" {
-		b.WriteString(compactRow(s, "Sync ID", host.SyncID, width))
-	}
 	if label != host.Alias {
+		// Shown only when the friendly label differs from the Host alias used by `ssh`.
 		b.WriteString(compactRow(s, "SSH name", host.Alias, width))
 	}
 	if host.Synced {
@@ -540,7 +555,7 @@ func contrastingTextColor(background string) (string, bool) {
 }
 
 func (m *App) renderHelp(s styleSet) string {
-	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   3  sync   ?  help         v  about       q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand group                  s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "Sync", "  󰌑 open provider / run action   Esc back   r refresh", "", "During SSH", "  exit closes Bast; press 󰌑 then ~. to force-close a stuck session"}
+	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   3  sync   ?  help         v  about       q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand                        s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "Sync", "  󰌑 open provider / run action   Esc back   r refresh", "", "During SSH", "  exit closes Bast; press 󰌑 then ~. to force-close a stuck session"}
 	return "\n  " + s.active.Render("Keyboard help") + "\n\n" + strings.Join(lines, "\n") + "\n\n  " + s.muted.Render("Press ? or Esc to close")
 }
 
@@ -609,14 +624,14 @@ func (m *App) renderFooter(s styleSet) string {
 	} else if m.section == hostsSection {
 		if _, groupSelected := m.selectedGroupHeader(); groupSelected {
 			if m.isMobileLayout() {
-				hint = "↑/↓ or j/k move • e rename • ␣ group • a add • v about • ? help"
+				hint = "↑/↓ or j/k move • e rename • ␣ collapse/expand • a add • v about • ? help"
 			} else {
-				hint = "␣ group • e rename • a add • v about • ? help"
+				hint = "␣ collapse/expand • e rename • a add • v about • ? help"
 			}
 		} else if m.isMobileLayout() {
 			hint = "↑/↓ or j/k move • click Connect • a add • v about • ? help"
 		} else {
-			hint = "󰌑 connect • ␣ group • a add • h hide • v about • ? help"
+			hint = "󰌑 connect • ␣ collapse/expand • a add • h hide • v about • ? help"
 		}
 	} else if m.section == keysSection {
 		hint = "a generate • i import • u add to server • x export • v about • ? help"

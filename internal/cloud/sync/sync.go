@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	stdsync "sync"
 	"time"
 
 	"bast/internal/cloud"
@@ -24,11 +25,16 @@ type Result struct {
 
 // Engine reconciles cloud instances into Bast SSH config + metadata.
 type Engine struct {
+	mu       stdsync.Mutex
 	Paths    paths.Paths
 	Config   sshconfig.Manager
 	Store    *metadata.Store
 	GCP      *gcp.Client
 	Discover func(ctx context.Context) ([]sshconfig.Host, error)
+
+	// EnsureAccessWait overrides the guest-agent propagation pause after publishing a key.
+	// Zero keeps the GCP client default; negative skips the wait (tests).
+	EnsureAccessWait time.Duration
 }
 
 func New(p paths.Paths, store *metadata.Store) *Engine {
@@ -50,6 +56,9 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 
 // SyncGCP discovers GCP instances and writes the sync SSH config.
 func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	integration := e.Store.GCP()
 	instances, err := e.GCP.Discover(ctx, cloud.DiscoverConfig{
 		ProjectFilter:   integration.ProjectFilter,
@@ -60,10 +69,11 @@ func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
 	})
 	now := time.Now().UTC()
 	if err != nil {
-		integration.Enabled = true
-		integration.LastSyncAt = &now
-		integration.LastSyncError = err.Error()
-		_ = e.Store.SetGCP(integration)
+		latest := e.Store.GCP()
+		latest.Enabled = true
+		latest.LastSyncAt = &now
+		latest.LastSyncError = err.Error()
+		_ = e.Store.SetGCP(latest)
 		return Result{Provider: gcp.ProviderName, SyncedAt: now, Error: err.Error()}, err
 	}
 
@@ -126,11 +136,12 @@ func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
 		_ = e.Store.DeleteHost(host.Alias)
 	}
 
-	integration.Enabled = true
-	integration.LastSyncAt = &now
-	integration.LastSyncError = ""
-	integration.LastInstanceCount = len(instances)
-	if err := e.Store.SetGCP(integration); err != nil {
+	latest := e.Store.GCP()
+	latest.Enabled = true
+	latest.LastSyncAt = &now
+	latest.LastSyncError = ""
+	latest.LastInstanceCount = len(instances)
+	if err := e.Store.SetGCP(latest); err != nil {
 		return Result{}, err
 	}
 	return Result{
@@ -152,8 +163,45 @@ func (e *Engine) applyMetadata(alias string, inst cloud.Instance, previousAlias 
 	return e.Store.SetHost(alias, meta)
 }
 
+// EnsureGCPAccess prepares SSH auth for a GCP-synced host (gcloud-style key ensure)
+// and updates the sync SSH config block so the subsequent ssh uses the right User/key.
+// status, when non-nil, receives short progress messages for interactive connects.
+func (e *Engine) EnsureGCPAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if !host.Synced || host.SyncSource != gcp.ProviderName || host.SyncID == "" {
+		return nil
+	}
+	integration := e.Store.GCP()
+	cfg := gcp.EnsureConfig{
+		Home:            e.Paths.Home,
+		ManagedKeys:     e.Paths.ManagedKeys,
+		DefaultSSHUser:  integration.DefaultSSHUser,
+		ServiceAccounts: integration.ServiceAccounts,
+		Status:          status,
+	}
+	if e.EnsureAccessWait != 0 {
+		cfg.PropagationWait = e.EnsureAccessWait
+	}
+	result, err := e.GCP.EnsureAccess(ctx, host.SyncID, cfg)
+	if err != nil {
+		return err
+	}
+	return sshconfig.UpdateSyncHostAuth(
+		e.Paths.SyncGCPConfig,
+		host.Alias,
+		result.User,
+		result.IdentityFile,
+		result.IdentitiesOnly,
+	)
+}
+
 // DisableGCP turns off GCP sync and removes generated SSH config.
 func (e *Engine) DisableGCP(ctx context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	existing, err := e.Discover(ctx)
 	if err != nil {
 		return err
@@ -175,6 +223,9 @@ func (e *Engine) DisableGCP(ctx context.Context) error {
 
 // Status returns a human-readable sync status snapshot.
 func (e *Engine) Status(ctx context.Context) (Status, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	integration := e.Store.GCP()
 	status := Status{
 		GCP: GCPStatus{
@@ -225,7 +276,8 @@ type GCPStatus struct {
 // IsSyncedGroup reports whether a group path is owned by cloud sync.
 func IsSyncedGroup(group string) bool {
 	group = strings.TrimSpace(group)
-	return group == "GCP" || strings.HasPrefix(group, "GCP/")
+	return group == "Google Cloud" || strings.HasPrefix(group, "Google Cloud/") ||
+		group == "GCP" || strings.HasPrefix(group, "GCP/")
 }
 
 // ValidateServiceAccountPath checks a key file path can be stored.

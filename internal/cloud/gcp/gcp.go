@@ -10,7 +10,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"bast/internal/cloud"
 )
@@ -127,9 +129,11 @@ func (c *Client) ListAccounts(ctx context.Context) ([]Account, error) {
 }
 
 type credential struct {
-	label string
-	env   []string
-	args  []string
+	label          string
+	account        string
+	credentialFile string
+	env            []string
+	args           []string
 }
 
 func (c *Client) Discover(ctx context.Context, cfg cloud.DiscoverConfig) ([]cloud.Instance, error) {
@@ -137,51 +141,32 @@ func (c *Client) Discover(ctx context.Context, cfg cloud.DiscoverConfig) ([]clou
 		return nil, err
 	}
 
-	creds := []credential{}
-	accounts, err := c.ListAccounts(ctx)
+	creds, err := c.credentials(ctx, cfg.ServiceAccounts, cfg.Home)
 	if err != nil {
 		return nil, err
-	}
-	for _, account := range accounts {
-		creds = append(creds, credential{
-			label: account.Account,
-			args:  []string{"--account=" + account.Account},
-		})
-	}
-	for _, keyPath := range cfg.ServiceAccounts {
-		expanded := expandHome(keyPath)
-		if _, err := os.Stat(expanded); err != nil {
-			return nil, fmt.Errorf("service account key %q: %w", keyPath, err)
-		}
-		creds = append(creds, credential{
-			label: "sa:" + filepath.Base(expanded),
-			env:   []string{"CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=" + expanded},
-		})
-	}
-	if len(creds) == 0 {
-		return nil, fmt.Errorf("no GCP credentials; run gcloud auth login or add a service account key")
-	}
-
-	osLoginUser := ""
-	if cfg.DefaultSSHUser == "" {
-		osLoginUser, _ = c.osLoginUsername(ctx, creds[0])
 	}
 
 	seen := map[string]bool{}
 	var instances []cloud.Instance
-	var lastErr error
+	var discoveryErrors []error
+	failedProjects := map[string]error{}
+	successfulProjects := map[string]bool{}
 	for _, cred := range creds {
 		projects, err := c.listProjects(ctx, cred, cfg.ProjectFilter)
 		if err != nil {
-			lastErr = err
+			discoveryErrors = append(discoveryErrors, fmt.Errorf("list projects for %s: %w", cred.label, err))
 			continue
 		}
 		for _, project := range projects {
-			found, err := c.listInstances(ctx, cred, project, cfg, osLoginUser)
+			found, err := c.listInstances(ctx, cred, project, cfg)
 			if err != nil {
-				lastErr = err
+				if !successfulProjects[project.ID] {
+					failedProjects[project.ID] = fmt.Errorf("list instances in %s using %s: %w", project.ID, cred.label, err)
+				}
 				continue
 			}
+			successfulProjects[project.ID] = true
+			delete(failedProjects, project.ID)
 			for _, inst := range found {
 				if seen[inst.SyncID] {
 					continue
@@ -191,8 +176,11 @@ func (c *Client) Discover(ctx context.Context, cfg cloud.DiscoverConfig) ([]clou
 			}
 		}
 	}
-	if len(instances) == 0 && lastErr != nil {
-		return nil, lastErr
+	for _, err := range failedProjects {
+		discoveryErrors = append(discoveryErrors, err)
+	}
+	if len(discoveryErrors) > 0 {
+		return nil, fmt.Errorf("incomplete GCP discovery: %w", errors.Join(discoveryErrors...))
 	}
 	sort.Slice(instances, func(i, j int) bool {
 		if instances[i].ProjectName != instances[j].ProjectName {
@@ -204,10 +192,11 @@ func (c *Client) Discover(ctx context.Context, cfg cloud.DiscoverConfig) ([]clou
 }
 
 type project struct {
-	ID      string
-	Name    string
-	SSHKeys string
-	SSHUser string
+	ID            string
+	Name          string
+	SSHKeys       string
+	SSHUser       string
+	EnableOSLogin bool
 }
 
 func (c *Client) listProjects(ctx context.Context, cred credential, filter []string) ([]project, error) {
@@ -251,7 +240,7 @@ func (c *Client) listProjects(ctx context.Context, cred credential, filter []str
 	return projects, nil
 }
 
-func (c *Client) loadProjectSSHMetadata(ctx context.Context, cred credential, projectID string) (sshKeys, sshUser string) {
+func (c *Client) loadProjectSSHMetadata(ctx context.Context, cred credential, projectID string) (sshKeys, sshUser string, enableOSLogin bool, err error) {
 	args := append([]string{
 		"compute", "project-info", "describe",
 		"--project=" + projectID,
@@ -259,7 +248,7 @@ func (c *Client) loadProjectSSHMetadata(ctx context.Context, cred credential, pr
 	}, cred.args...)
 	out, err := c.run(ctx, args, cred.env)
 	if err != nil {
-		return "", ""
+		return "", "", false, err
 	}
 	var info struct {
 		CommonInstanceMetadata *struct {
@@ -269,8 +258,11 @@ func (c *Client) loadProjectSSHMetadata(ctx context.Context, cred credential, pr
 			} `json:"items"`
 		} `json:"commonInstanceMetadata"`
 	}
-	if err := json.Unmarshal(out, &info); err != nil || info.CommonInstanceMetadata == nil {
-		return "", ""
+	if err := json.Unmarshal(out, &info); err != nil {
+		return "", "", false, fmt.Errorf("parse project metadata for %s: %w", projectID, err)
+	}
+	if info.CommonInstanceMetadata == nil {
+		return "", "", false, nil
 	}
 	for _, item := range info.CommonInstanceMetadata.Items {
 		switch strings.ToLower(item.Key) {
@@ -278,13 +270,19 @@ func (c *Client) loadProjectSSHMetadata(ctx context.Context, cred credential, pr
 			sshKeys = strings.TrimSpace(item.Value)
 		case "ssh-user":
 			sshUser = strings.TrimSpace(item.Value)
+		case "enable-oslogin":
+			enableOSLogin = metadataEnabled(item.Value)
 		}
 	}
-	return sshKeys, sshUser
+	return sshKeys, sshUser, enableOSLogin, nil
 }
 
-func (c *Client) listInstances(ctx context.Context, cred credential, project project, cfg cloud.DiscoverConfig, osLoginUser string) ([]cloud.Instance, error) {
-	project.SSHKeys, project.SSHUser = c.loadProjectSSHMetadata(ctx, cred, project.ID)
+func (c *Client) listInstances(ctx context.Context, cred credential, project project, cfg cloud.DiscoverConfig) ([]cloud.Instance, error) {
+	var err error
+	project.SSHKeys, project.SSHUser, project.EnableOSLogin, err = c.loadProjectSSHMetadata(ctx, cred, project.ID)
+	if err != nil {
+		return nil, fmt.Errorf("load project metadata: %w", err)
+	}
 
 	args := append([]string{
 		"compute", "instances", "list",
@@ -299,6 +297,10 @@ func (c *Client) listInstances(ctx context.Context, cred credential, project pro
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil, fmt.Errorf("parse gcloud compute instances list: %w", err)
 	}
+	osLoginUser := ""
+	if cfg.DefaultSSHUser == "" && projectUsesOSLogin(raw, project.EnableOSLogin) {
+		osLoginUser, _ = c.osLoginUsername(ctx, cred, project.ID)
+	}
 	instances := make([]cloud.Instance, 0, len(raw))
 	for _, inst := range raw {
 		if skipInstanceStatus(inst.Status) {
@@ -311,6 +313,8 @@ func (c *Client) listInstances(ctx context.Context, cred credential, project pro
 		if mapped.SyncID == "" {
 			continue
 		}
+		mapped.CredentialAccount = cred.account
+		mapped.CredentialFile = cred.credentialFile
 		ResolveAuth(&mapped, cfg.Home, cfg.ManagedKeys, osLoginUser)
 		instances = append(instances, mapped)
 	}
@@ -326,35 +330,80 @@ func skipInstanceStatus(status string) bool {
 	}
 }
 
-func (c *Client) osLoginUsername(ctx context.Context, cred credential) (string, error) {
+type osLoginProfile struct {
+	Username string
+	SSHKeys  []cloud.SSHKey
+}
+
+func (c *Client) osLoginUsername(ctx context.Context, cred credential, projectID string) (string, error) {
+	profile, err := c.describeOSLoginProfile(ctx, cred, projectID)
+	if err != nil {
+		return "", err
+	}
+	return profile.Username, nil
+}
+
+func (c *Client) describeOSLoginProfile(ctx context.Context, cred credential, projectID string) (osLoginProfile, error) {
 	args := append([]string{
 		"compute", "os-login", "describe-profile",
+		"--project=" + projectID,
 		"--format=json",
 	}, cred.args...)
 	out, err := c.run(ctx, args, cred.env)
 	if err != nil {
-		return "", err
+		return osLoginProfile{}, err
 	}
-	var profile struct {
+	var raw struct {
 		POSIXAccounts []struct {
 			Username string `json:"username"`
 			Primary  bool   `json:"primary"`
 		} `json:"posixAccounts"`
+		SSHPublicKeys map[string]struct {
+			Key                string `json:"key"`
+			ExpirationTimeUsec string `json:"expirationTimeUsec"`
+		} `json:"sshPublicKeys"`
 	}
-	if err := json.Unmarshal(out, &profile); err != nil {
-		return "", err
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return osLoginProfile{}, err
 	}
-	for _, account := range profile.POSIXAccounts {
+	profile := osLoginProfile{}
+	for _, account := range raw.POSIXAccounts {
 		if account.Primary && account.Username != "" {
-			return account.Username, nil
+			profile.Username = account.Username
+			break
 		}
 	}
-	for _, account := range profile.POSIXAccounts {
-		if account.Username != "" {
-			return account.Username, nil
+	if profile.Username == "" {
+		for _, account := range raw.POSIXAccounts {
+			if account.Username != "" {
+				profile.Username = account.Username
+				break
+			}
 		}
 	}
-	return "", nil
+	for _, key := range raw.SSHPublicKeys {
+		pub := strings.TrimSpace(key.Key)
+		if pub == "" {
+			continue
+		}
+		profile.SSHKeys = append(profile.SSHKeys, cloud.SSHKey{
+			PublicKey: pub,
+			Expired:   sshKeyExpired(pub) || osLoginKeyExpired(key.ExpirationTimeUsec),
+		})
+	}
+	return profile, nil
+}
+
+func osLoginKeyExpired(expirationTimeUsec string) bool {
+	expirationTimeUsec = strings.TrimSpace(expirationTimeUsec)
+	if expirationTimeUsec == "" {
+		return false
+	}
+	usec, err := strconv.ParseInt(expirationTimeUsec, 10, 64)
+	if err != nil || usec <= 0 {
+		return false
+	}
+	return !time.Unix(0, usec*int64(time.Microsecond)).After(time.Now().UTC())
 }
 
 type gceInstance struct {
@@ -375,18 +424,20 @@ type gceInstance struct {
 			NatIP string `json:"natIP"`
 		} `json:"accessConfigs"`
 	} `json:"networkInterfaces"`
-	Disks []struct {
-		Boot             bool     `json:"boot"`
-		Licenses         []string `json:"licenses"`
-		Source           string   `json:"source"`
-		GuestOsFeatures  []struct {
-			Type string `json:"type"`
-		} `json:"guestOsFeatures"`
-		InitializeParams *struct {
-			SourceImage string `json:"sourceImage"`
-		} `json:"initializeParams"`
-	} `json:"disks"`
+	Disks  []gceDisk         `json:"disks"`
 	Labels map[string]string `json:"labels"`
+}
+
+type gceDisk struct {
+	Boot            bool     `json:"boot"`
+	Licenses        []string `json:"licenses"`
+	Source          string   `json:"source"`
+	GuestOsFeatures []struct {
+		Type string `json:"type"`
+	} `json:"guestOsFeatures"`
+	InitializeParams *struct {
+		SourceImage string `json:"sourceImage"`
+	} `json:"initializeParams"`
 }
 
 func mapInstance(inst gceInstance, project project, defaultUser string) cloud.Instance {
@@ -427,14 +478,23 @@ func mapInstance(inst gceInstance, project project, defaultUser string) cloud.In
 		}
 	}
 
+	osLogin := effectiveMetadataEnabled(inst, "enable-oslogin", project.EnableOSLogin)
+	blockProjectSSHKeys := effectiveMetadataEnabled(inst, "block-project-ssh-keys", false)
 	instanceKeys := metadataValue(inst, "ssh-keys")
-	keys := mergeSSHKeys(instanceKeys, project.SSHKeys)
+	var keys []cloud.SSHKey
+	if !osLogin {
+		if blockProjectSSHKeys {
+			keys = parseSSHKeys(instanceKeys)
+		} else {
+			keys = mergeSSHKeys(instanceKeys, project.SSHKeys)
+		}
+	}
 
 	user := strings.TrimSpace(defaultUser)
-	if user == "" {
+	if user == "" && !osLogin {
 		user = metadataValue(inst, "ssh-user")
 	}
-	if user == "" {
+	if user == "" && !osLogin {
 		user = project.SSHUser
 	}
 
@@ -449,17 +509,19 @@ func mapInstance(inst gceInstance, project project, defaultUser string) cloud.In
 	}
 
 	return cloud.Instance{
-		SyncID:      syncID,
-		Name:        inst.Name,
-		ProjectID:   project.ID,
-		ProjectName: project.Name,
-		Zone:        zone,
-		User:        user,
-		HostName:    hostName,
-		UseIAP:      useIAP,
-		SSHKeys:     keys,
-		Image:       bootImage(inst),
-		Tags:        tags,
+		SyncID:              syncID,
+		Name:                inst.Name,
+		ProjectID:           project.ID,
+		ProjectName:         project.Name,
+		Zone:                zone,
+		User:                user,
+		HostName:            hostName,
+		UseIAP:              useIAP,
+		OSLogin:             osLogin,
+		BlockProjectSSHKeys: blockProjectSSHKeys,
+		SSHKeys:             keys,
+		Image:               bootImage(inst),
+		Tags:                tags,
 	}
 }
 
@@ -490,34 +552,65 @@ func bootImage(inst gceInstance) string {
 		if !disk.Boot {
 			continue
 		}
-		if disk.InitializeParams != nil && disk.InitializeParams.SourceImage != "" {
-			return disk.InitializeParams.SourceImage
-		}
-		if disk.Source != "" {
-			return disk.Source
+		if hint := diskImageHint(disk); hint != "" {
+			return hint
 		}
 	}
 	for _, disk := range inst.Disks {
-		if disk.InitializeParams != nil && disk.InitializeParams.SourceImage != "" {
-			return disk.InitializeParams.SourceImage
-		}
-		if disk.Source != "" {
-			return disk.Source
+		if hint := diskImageHint(disk); hint != "" {
+			return hint
 		}
 	}
 	return ""
 }
 
+func diskImageHint(disk gceDisk) string {
+	if disk.InitializeParams != nil && disk.InitializeParams.SourceImage != "" {
+		return disk.InitializeParams.SourceImage
+	}
+	// Prefer licenses over the persistent-disk URL — source is often
+	// .../disks/<name> with no distro hint, while licenses carry debian/ubuntu/etc.
+	if len(disk.Licenses) > 0 {
+		return strings.Join(disk.Licenses, " ")
+	}
+	return disk.Source
+}
+
 func metadataValue(inst gceInstance, key string) string {
+	value, _ := metadataValueOK(inst, key)
+	return value
+}
+
+func metadataValueOK(inst gceInstance, key string) (string, bool) {
 	if inst.Metadata == nil {
-		return ""
+		return "", false
 	}
 	for _, item := range inst.Metadata.Items {
 		if strings.EqualFold(item.Key, key) {
-			return strings.TrimSpace(item.Value)
+			return strings.TrimSpace(item.Value), true
 		}
 	}
-	return ""
+	return "", false
+}
+
+func metadataEnabled(value string) bool {
+	return strings.EqualFold(strings.TrimSpace(value), "true")
+}
+
+func effectiveMetadataEnabled(inst gceInstance, key string, projectValue bool) bool {
+	if value, ok := metadataValueOK(inst, key); ok {
+		return metadataEnabled(value)
+	}
+	return projectValue
+}
+
+func projectUsesOSLogin(instances []gceInstance, projectEnabled bool) bool {
+	for _, inst := range instances {
+		if effectiveMetadataEnabled(inst, "enable-oslogin", projectEnabled) {
+			return true
+		}
+	}
+	return false
 }
 
 func zoneShort(zone string) string {
@@ -540,13 +633,17 @@ func normalizeSelfLink(link string) string {
 	return strings.TrimPrefix(link, "https://www.googleapis.com/compute/v1/")
 }
 
-func expandHome(path string) string {
+func expandHomeAt(path, home string) string {
 	if path == "~" {
-		home, _ := os.UserHomeDir()
+		if home == "" {
+			home, _ = os.UserHomeDir()
+		}
 		return home
 	}
 	if strings.HasPrefix(path, "~/") {
-		home, _ := os.UserHomeDir()
+		if home == "" {
+			home, _ = os.UserHomeDir()
+		}
 		return filepath.Join(home, strings.TrimPrefix(path, "~/"))
 	}
 	return path
