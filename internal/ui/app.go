@@ -1,14 +1,18 @@
 package ui
 
 import (
+	"fmt"
+
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
+	"bast/internal/cloud/sync"
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/openssh"
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
+	"bast/internal/telemetry"
 )
 
 type section int
@@ -16,6 +20,7 @@ type section int
 const (
 	hostsSection section = iota
 	keysSection
+	syncSection
 )
 
 type field struct {
@@ -57,6 +62,16 @@ type loadedMsg struct {
 	err   error
 }
 
+type syncDoneMsg struct {
+	result sync.Result
+	err    error
+}
+
+type syncStatusMsg struct {
+	status sync.Status
+	err    error
+}
+
 type processDoneMsg struct {
 	name     string
 	err      error
@@ -76,6 +91,7 @@ type App struct {
 	openSSH  openssh.Client
 	keyring  keys.Manager
 	metadata *metadata.Store
+	syncer   *sync.Engine
 
 	section           section
 	hosts             []sshconfig.Host
@@ -87,6 +103,7 @@ type App struct {
 	credits           bool
 	showHidden        bool
 	loading           bool
+	syncing           bool
 	status            string
 	statusError       bool
 	statusID          uint64
@@ -98,6 +115,9 @@ type App struct {
 	updateSuggestion  string
 	collapsedGroups   map[string]bool
 	scrollbarDragging bool
+	syncStatus        sync.Status
+	syncProvider      string
+	syncCursor        int
 
 	selectAfterLoadSection section
 	selectAfterLoadName    string
@@ -114,10 +134,12 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
+			SyncGCPConfig: p.SyncGCPConfig,
 		},
 		openSSH:         client,
 		keyring:         keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
 		metadata:        store,
+		syncer:          sync.New(p, store),
 		loading:         true,
 		dark:            true,
 		version:         version,
@@ -126,10 +148,15 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 }
 
 func (m *App) Init() tea.Cmd {
+	cmds := []tea.Cmd{m.loadCmd(), tea.RequestBackgroundColor, m.syncStatusCmd()}
 	if updateCmd := m.checkForUpdateCmd(); updateCmd != nil {
-		return tea.Batch(m.loadCmd(), tea.RequestBackgroundColor, updateCmd)
+		cmds = append(cmds, updateCmd)
 	}
-	return tea.Batch(m.loadCmd(), tea.RequestBackgroundColor)
+	if m.metadata.GCP().Enabled && m.metadata.GCP().AutoSync {
+		m.syncing = true
+		cmds = append(cmds, m.syncGCPCmd())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -150,6 +177,27 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.sortHosts()
 		m.selectAfterLoad()
 		return m, nil
+	case syncDoneMsg:
+		m.syncing = false
+		if msg.err != nil {
+			telemetry.Track("sync_gcp_fail", m.version)
+			m.setError(msg.err)
+			return m, m.syncStatusCmd()
+		}
+		notice := fmt.Sprintf("Synced %d GCP instances", msg.result.Count)
+		if msg.result.Error == "disabled" {
+			notice = "GCP sync disconnected"
+			telemetry.Track("sync_gcp_disable", m.version)
+		} else {
+			telemetry.Track("sync_gcp", m.version)
+		}
+		m.loading = true
+		return m, tea.Batch(m.loadCmd(), m.syncStatusCmd(), m.setNotice(notice))
+	case syncStatusMsg:
+		if msg.err == nil {
+			m.syncStatus = msg.status
+		}
+		return m, nil
 	case processDoneMsg:
 		if msg.err == nil && msg.exitBast {
 			return m, tea.Quit
@@ -157,7 +205,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = true
 		if msg.err != nil {
 			m.statusID++
-			m.status, m.statusError = msg.name+": "+msg.err.Error(), true
+			m.status, m.statusError = msg.name+": "+openssh.FormatError(msg.err), true
 			return m, m.loadCmd()
 		}
 		return m, tea.Batch(m.loadCmd(), m.setNotice(msg.name+" completed"))

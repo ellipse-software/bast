@@ -40,6 +40,311 @@ func renderBlock(id string, input HostInput) []byte {
 	return []byte(b.String())
 }
 
+func RenderSyncBlock(input SyncHostInput) []byte {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s%s=%s\nHost %s\n", syncMarkerPrefix, input.SyncSource, input.SyncID, input.Alias)
+	fmt.Fprintf(&b, "    HostName %s\n", configValue(input.HostName))
+	if input.User != "" {
+		fmt.Fprintf(&b, "    User %s\n", configValue(input.User))
+	}
+	if input.Port != "" {
+		fmt.Fprintf(&b, "    Port %s\n", configValue(input.Port))
+	}
+	if input.IdentityFile != "" {
+		fmt.Fprintf(&b, "    IdentityFile %s\n", configValue(input.IdentityFile))
+		if input.IdentitiesOnly && !HasDirective(input.ExtraOptions, "IdentitiesOnly") {
+			b.WriteString("    IdentitiesOnly yes\n")
+		}
+	}
+	if input.ProxyCommand != "" {
+		fmt.Fprintf(&b, "    ProxyCommand %s\n", input.ProxyCommand)
+	}
+	for _, option := range input.ExtraOptions {
+		fmt.Fprintf(&b, "    %s\n", option)
+	}
+	b.WriteString(syncMarkerEnd + "\n")
+	return []byte(b.String())
+}
+
+// WriteSyncConfig atomically replaces a provider sync SSH config file.
+func WriteSyncConfig(path string, blocks []SyncHostInput) error {
+	var b strings.Builder
+	b.WriteString("# Managed by Bast cloud sync — do not edit by hand\n")
+	for i, block := range blocks {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.Write(RenderSyncBlock(block))
+	}
+	return atomicWrite(path, []byte(b.String()), 0600)
+}
+
+// UpdateSyncHostAuth sets User / IdentityFile / IdentitiesOnly on an existing synced host block.
+func UpdateSyncHostAuth(path, alias, user, identityFile string, identitiesOnly bool) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	updated, ok := patchSyncHostAuth(data, alias, user, identityFile, identitiesOnly)
+	if !ok {
+		return fmt.Errorf("synced host %q not found in %s", alias, path)
+	}
+	if bytes.Equal(data, updated) {
+		return nil
+	}
+	return atomicWriteChecked(path, data, updated, 0600)
+}
+
+func patchSyncHostAuth(data []byte, alias, user, identityFile string, identitiesOnly bool) ([]byte, bool) {
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return data, false
+	}
+	lines := strings.Split(string(data), "\n")
+	// Track trailing newline so we can restore file shape.
+	trailingNL := len(data) > 0 && data[len(data)-1] == '\n'
+	if trailingNL && len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	hostIdx := -1
+	for i, line := range lines {
+		parts, err := fields(strings.TrimSpace(line))
+		if err != nil || len(parts) < 2 || !strings.EqualFold(parts[0], "host") {
+			continue
+		}
+		for _, candidate := range parts[1:] {
+			if candidate == alias {
+				hostIdx = i
+				break
+			}
+		}
+		if hostIdx >= 0 {
+			break
+		}
+	}
+	if hostIdx < 0 {
+		return data, false
+	}
+
+	endIdx := len(lines)
+	for i := hostIdx + 1; i < len(lines); i++ {
+		raw := strings.TrimSpace(lines[i])
+		if raw == syncMarkerEnd {
+			endIdx = i + 1 // consume the old end marker; RenderSyncBlock writes a new one
+			break
+		}
+		parts, err := fields(raw)
+		if err == nil && len(parts) > 0 && strings.EqualFold(parts[0], "host") {
+			endIdx = i
+			break
+		}
+		if strings.HasPrefix(raw, syncMarkerPrefix) && raw != syncMarkerEnd {
+			endIdx = i
+			break
+		}
+	}
+
+	var kept []string
+	kept = append(kept, lines[hostIdx])
+	var hostname, port, proxyCommand string
+	var extras []string
+	for _, line := range lines[hostIdx+1 : endIdx] {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		parts, err := fields(trimmed)
+		if err != nil || len(parts) == 0 {
+			extras = append(extras, trimmed)
+			continue
+		}
+		switch strings.ToLower(parts[0]) {
+		case "hostname":
+			if len(parts) > 1 {
+				hostname = parts[1]
+			}
+		case "port":
+			if len(parts) > 1 {
+				port = parts[1]
+			}
+		case "proxycommand":
+			if idx := strings.IndexFunc(trimmed, func(r rune) bool { return r == ' ' || r == '\t' }); idx >= 0 {
+				proxyCommand = strings.TrimSpace(trimmed[idx+1:])
+			}
+		case "user", "identityfile", "identitiesonly":
+			// replaced below
+		default:
+			extras = append(extras, trimmed)
+		}
+	}
+
+	input := SyncHostInput{
+		Alias:          alias,
+		User:           user,
+		HostName:       hostname,
+		Port:           port,
+		IdentityFile:   identityFile,
+		IdentitiesOnly: identitiesOnly,
+		ProxyCommand:   proxyCommand,
+		ExtraOptions:   extras,
+	}
+	// Preserve sync marker from the line before Host when present.
+	syncSource, syncID := "", ""
+	if hostIdx > 0 {
+		prev := strings.TrimSpace(lines[hostIdx-1])
+		if strings.HasPrefix(prev, syncMarkerPrefix) && prev != syncMarkerEnd {
+			rest := strings.TrimPrefix(prev, syncMarkerPrefix)
+			if source, id, ok := strings.Cut(rest, "="); ok {
+				syncSource = strings.TrimSpace(source)
+				syncID = strings.TrimSpace(id)
+			}
+		}
+	}
+	input.SyncSource = syncSource
+	input.SyncID = syncID
+
+	block := string(RenderSyncBlock(input))
+	block = strings.TrimSuffix(block, "\n")
+	blockLines := strings.Split(block, "\n")
+
+	startReplace := hostIdx
+	if syncSource != "" && hostIdx > 0 && strings.HasPrefix(strings.TrimSpace(lines[hostIdx-1]), syncMarkerPrefix) {
+		startReplace = hostIdx - 1
+	}
+	out := make([]string, 0, len(lines)-(endIdx-startReplace)+len(blockLines))
+	out = append(out, lines[:startReplace]...)
+	out = append(out, blockLines...)
+	out = append(out, lines[endIdx:]...)
+	result := strings.Join(out, "\n")
+	if trailingNL {
+		result += "\n"
+	}
+	return []byte(result), true
+}
+
+// EnsureSyncInclude adds Include for the GCP sync config at the top of the managed Bast config.
+// Include must come before any Host/Match blocks; otherwise OpenSSH treats it as part of the
+// preceding host and synced hosts never apply.
+func (m Manager) EnsureSyncInclude() error {
+	if m.SyncGCPConfig == "" {
+		return errors.New("sync GCP config path is not configured")
+	}
+	if err := m.EnsureManaged(); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(m.SyncGCPConfig), 0700); err != nil {
+		return fmt.Errorf("create sync directory: %w", err)
+	}
+	if _, err := os.Stat(m.SyncGCPConfig); errors.Is(err, os.ErrNotExist) {
+		if err := atomicWrite(m.SyncGCPConfig, []byte("# Managed by Bast cloud sync — do not edit by hand\n"), 0600); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	b, err := os.ReadFile(m.ManagedConfig)
+	if err != nil {
+		return err
+	}
+	original := append([]byte(nil), b...)
+	base := filepath.Dir(m.ManagedConfig)
+	cleaned := removeIncludeLines(b, m.SyncGCPConfig, m.Home, base)
+	includeLine := []byte("Include " + m.syncIncludePath() + "\n")
+	if hasLeadingInclude(cleaned, m.SyncGCPConfig, m.Home, base) {
+		if bytes.Equal(cleaned, original) {
+			return nil
+		}
+		return atomicWriteChecked(m.ManagedConfig, original, cleaned, 0600)
+	}
+	updated := append(includeLine, cleaned...)
+	if bytes.Equal(updated, original) {
+		return nil
+	}
+	return atomicWriteChecked(m.ManagedConfig, original, updated, 0600)
+}
+
+func (m Manager) syncIncludePath() string {
+	sshDir := filepath.Join(m.Home, ".ssh")
+	if rel, err := filepath.Rel(sshDir, m.SyncGCPConfig); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "~/.ssh/" + filepath.ToSlash(rel)
+	}
+	return m.SyncGCPConfig
+}
+
+func hasLeadingInclude(data []byte, target, home, base string) bool {
+	target = cleanPath(target)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		raw := strings.TrimSpace(scanner.Text())
+		if raw == "" || strings.HasPrefix(raw, "#") {
+			continue
+		}
+		parts, err := fields(raw)
+		if err != nil || len(parts) == 0 {
+			return false
+		}
+		if !strings.EqualFold(parts[0], "include") {
+			return false
+		}
+		for _, part := range parts[1:] {
+			if cleanPath(expandPath(part, home, base)) == target {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// RemoveSyncInclude removes the GCP sync Include from the managed Bast config and clears the sync file.
+func (m Manager) RemoveSyncInclude() error {
+	if m.SyncGCPConfig == "" {
+		return nil
+	}
+	b, err := os.ReadFile(m.ManagedConfig)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	updated := removeIncludeLines(b, m.SyncGCPConfig, m.Home, filepath.Dir(m.ManagedConfig))
+	if !bytes.Equal(b, updated) {
+		if err := atomicWriteChecked(m.ManagedConfig, b, updated, 0600); err != nil {
+			return err
+		}
+	}
+	_ = os.Remove(m.SyncGCPConfig)
+	return nil
+}
+
+func removeIncludeLines(data []byte, target, home, base string) []byte {
+	target = cleanPath(target)
+	var out bytes.Buffer
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts, err := fields(strings.TrimSpace(line))
+		if err == nil && len(parts) > 1 && strings.EqualFold(parts[0], "include") {
+			kept := []string{}
+			for _, part := range parts[1:] {
+				if cleanPath(expandPath(part, home, base)) != target {
+					kept = append(kept, part)
+				}
+			}
+			if len(kept) == 0 {
+				continue
+			}
+			fmt.Fprintf(&out, "Include %s\n", strings.Join(kept, " "))
+			continue
+		}
+		out.WriteString(line)
+		out.WriteByte('\n')
+	}
+	return out.Bytes()
+}
+
 func configValue(value string) string {
 	if !strings.ContainsAny(value, " \t#\\\"") {
 		return value

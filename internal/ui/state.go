@@ -364,10 +364,14 @@ func (m *App) findKey(name string) (keys.Key, bool) {
 	return keys.Key{}, false
 }
 func (m *App) itemCount() int {
-	if m.section == hostsSection {
+	switch m.section {
+	case hostsSection:
 		return len(m.hostRows())
+	case keysSection:
+		return len(m.filteredKeys())
+	default:
+		return len(m.syncMenuItems())
 	}
-	return len(m.filteredKeys())
 }
 func (m *App) clampCursor() {
 	if n := m.itemCount(); n == 0 {
@@ -536,6 +540,24 @@ func hostIdentity(h sshconfig.Host) string {
 		return "password only"
 	}
 	return joinOr(h.Resolved.IdentityFiles, "agent/defaults")
+}
+
+func syncedAuthSummary(h sshconfig.Host) string {
+	user := strings.TrimSpace(h.Resolved.User)
+	key := ""
+	if len(h.Resolved.IdentityFiles) > 0 {
+		key = h.Resolved.IdentityFiles[0]
+	}
+	switch {
+	case user == "" && key == "":
+		return "SSH access ensured on connect"
+	case user == "":
+		return "user unknown · " + key
+	case key == "":
+		return user + " · agent/defaults"
+	default:
+		return user + " · " + key
+	}
 }
 func usage(h metadata.Host) string {
 	if h.LastUsedAt == nil {

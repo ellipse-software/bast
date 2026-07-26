@@ -8,6 +8,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"bast/internal/cloud/sync"
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/sshconfig"
@@ -35,7 +36,7 @@ func (m *App) render() string {
 	width := m.terminalWidth()
 	bodyHeight := max(1, m.terminalHeight()-3)
 	header := styles.title.Render(" BAST ") + "  " + m.renderTabs(styles)
-	if m.loading {
+	if m.loading || m.syncing {
 		header += "  " + styles.muted.Render("syncing…")
 	}
 	if m.version != "" && m.version != "dev" {
@@ -55,8 +56,10 @@ func (m *App) render() string {
 		body = m.renderForm(styles)
 	} else if m.section == hostsSection {
 		body = m.renderHosts(styles)
-	} else {
+	} else if m.section == keysSection {
 		body = m.renderKeys(styles)
+	} else {
+		body = m.renderSync(styles)
 	}
 	body = lipgloss.NewStyle().Width(width).Height(bodyHeight).Render(body)
 	footer := m.renderFooter(styles)
@@ -106,15 +109,22 @@ func (m *App) styles() styleSet {
 }
 
 func (m *App) renderTabs(s styleSet) string {
-	hosts, keyTab := "[1] Hosts", "[2] Keys"
-	if m.section == hostsSection {
+	hosts, keyTab, syncTab := "[1] Hosts", "[2] Keys", "[3] Sync"
+	switch m.section {
+	case hostsSection:
 		hosts = s.active.Render(hosts)
 		keyTab = s.inactive.Render(keyTab)
-	} else {
+		syncTab = s.inactive.Render(syncTab)
+	case keysSection:
 		hosts = s.inactive.Render(hosts)
 		keyTab = s.active.Render(keyTab)
+		syncTab = s.inactive.Render(syncTab)
+	default:
+		hosts = s.inactive.Render(hosts)
+		keyTab = s.inactive.Render(keyTab)
+		syncTab = s.active.Render(syncTab)
 	}
-	return hosts + "   " + keyTab
+	return hosts + "   " + keyTab + "   " + syncTab
 }
 
 func (m *App) renderHosts(s styleSet) string {
@@ -156,7 +166,8 @@ func (m *App) renderHosts(s styleSet) string {
 			if slash := strings.LastIndex(name, "/"); row.depth > 0 && slash >= 0 {
 				name = name[slash+1:]
 			}
-			line := indent + indicator + " " + truncate(name, max(2, rowWidth-lipgloss.Width(indent)-8)) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
+			name = truncate(name, max(2, rowWidth-lipgloss.Width(indent)-8))
+			line := indent + indicator + " " + renderGoogleCloudGroupName(name, s.active) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
 			if i == m.cursor {
 				line = s.selected.Width(rowWidth).Render(line)
 			} else {
@@ -211,15 +222,40 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 			state = "expanded for search"
 		}
 	}
-	return "  " + s.active.Render(truncate(row.group, max(4, width-3))) + "\n" +
+	hint := "Press ␣ to collapse or expand · e to rename"
+	if sync.IsSyncedGroup(row.group) {
+		hint = "Press ␣ to collapse or expand · cloud sync group (read-only)"
+	}
+	return "  " + renderGoogleCloudGroupName(truncate(row.group, max(4, width-3)), s.active) + "\n" +
 		"  " + s.muted.Render(fmt.Sprintf("%d servers · %s", row.count, state)) + "\n\n" +
-		"  " + s.value.Render("Press ␣ to collapse or expand · e to rename")
+		"  " + s.value.Render(hint)
+}
+
+func renderGoogleCloudGroupName(name string, restStyle lipgloss.Style) string {
+	if name != "Google Cloud" && !strings.HasPrefix(name, "Google Cloud/") {
+		return name
+	}
+	colors := []string{"#4285F4", "#EA4335", "#FBBC05", "#4285F4", "#34A853", "#EA4335"}
+	var rendered strings.Builder
+	for i, letter := range "Google" {
+		rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colors[i])).Render(string(letter)))
+	}
+	remainder := name[len("Google"):]
+	cloud := " Cloud"
+	rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(cloud))
+	rendered.WriteString(restStyle.Render(strings.TrimPrefix(remainder, cloud)))
+	return rendered.String()
 }
 
 func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) string {
 	meta := m.metadata.Host(host.Alias)
 	owner := "external"
-	if host.Managed {
+	switch {
+	case host.Synced && host.SyncSource == "gcp":
+		owner = "GCP synced"
+	case host.Synced:
+		owner = host.SyncSource + " synced"
+	case host.Managed:
 		owner = "Bast managed"
 	}
 	trust := "not in known_hosts"
@@ -253,9 +289,14 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	b.WriteString("\n")
 	b.WriteString(compactRow(s, "Source", shortPath(host.Source, m.paths.Home)+":"+strconv.Itoa(host.Line), width))
 	if label != host.Alias {
+		// Shown only when the friendly label differs from the Host alias used by `ssh`.
 		b.WriteString(compactRow(s, "SSH name", host.Alias, width))
 	}
-	b.WriteString(compactRow(s, "Key", hostIdentity(host), width))
+	if host.Synced {
+		b.WriteString(compactRow(s, "Auth", syncedAuthSummary(host), width))
+	} else {
+		b.WriteString(compactRow(s, "Key", hostIdentity(host), width))
+	}
 	if host.Resolved.ProxyJump != "" && host.Resolved.ProxyJump != "none" {
 		b.WriteString(compactRow(s, "Jump", host.Resolved.ProxyJump, width))
 	}
@@ -514,7 +555,7 @@ func contrastingTextColor(background string) (string, bool) {
 }
 
 func (m *App) renderHelp(s styleSet) string {
-	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   ?  help         v  about       q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand group                  s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "During SSH", "  exit closes Bast; press 󰌑 then ~. to force-close a stuck session"}
+	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   3  sync   ?  help         v  about       q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand                        s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "Sync", "  󰌑 open provider / run action   Esc back   r refresh", "", "During SSH", "  exit closes Bast; press 󰌑 then ~. to force-close a stuck session"}
 	return "\n  " + s.active.Render("Keyboard help") + "\n\n" + strings.Join(lines, "\n") + "\n\n  " + s.muted.Render("Press ? or Esc to close")
 }
 
@@ -538,7 +579,7 @@ func (m *App) renderCredits(s styleSet) string {
 	}
 	content := s.active.Width(infoWidth).Align(lipgloss.Center).Render(banner) +
 		"\n\n" + s.muted.Width(infoWidth).Align(lipgloss.Center).Render("Native SSH picker and key manager") +
-		"\n\n" + row("Created by", "tedbrine") +
+		"\n\n" + row("Created by", "@tedbrine") +
 		"\n" + row("Website", "https://bast.sh") +
 		"\n" + row("Repository", "github.com/ellipse-software/bast") +
 		"\n" + row("License", "MIT License") +
@@ -583,17 +624,21 @@ func (m *App) renderFooter(s styleSet) string {
 	} else if m.section == hostsSection {
 		if _, groupSelected := m.selectedGroupHeader(); groupSelected {
 			if m.isMobileLayout() {
-				hint = "↑/↓ or j/k move • e rename • ␣ group • a add • v about • ? help"
+				hint = "↑/↓ or j/k move • e rename • ␣ collapse/expand • a add • v about • ? help"
 			} else {
-				hint = "␣ group • e rename • a add • v about • ? help"
+				hint = "␣ collapse/expand • e rename • a add • v about • ? help"
 			}
 		} else if m.isMobileLayout() {
 			hint = "↑/↓ or j/k move • click Connect • a add • v about • ? help"
 		} else {
-			hint = "󰌑 connect • ␣ group • a add • h hide • v about • ? help"
+			hint = "󰌑 connect • ␣ collapse/expand • a add • h hide • v about • ? help"
 		}
-	} else {
+	} else if m.section == keysSection {
 		hint = "a generate • i import • u add to server • x export • v about • ? help"
+	} else if m.syncProvider == "" {
+		hint = "󰌑 open • j/k move • v about • ? help"
+	} else {
+		hint = "󰌑 run • j/k move • Esc back • r refresh • v about • ? help"
 	}
 	space := max(1, m.terminalWidth()-lipgloss.Width(left)-lipgloss.Width(hint)-1)
 	return left + strings.Repeat(" ", space) + s.muted.Render(hint)
@@ -601,7 +646,7 @@ func (m *App) renderFooter(s styleSet) string {
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.itemCount() == 0 {
+	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.section == syncSection || m.itemCount() == 0 {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	if m.isMobileLayout() {

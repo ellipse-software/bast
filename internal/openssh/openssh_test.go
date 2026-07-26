@@ -2,8 +2,11 @@ package openssh
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -84,5 +87,37 @@ func TestInstallPublicKeyCommandAppendsOnce(t *testing.T) {
 	}
 	if strings.Count(string(authorized), public) != 1 {
 		t.Fatalf("authorized_keys = %q", authorized)
+	}
+}
+
+func TestFormatError(t *testing.T) {
+	if got := FormatError(nil); got != "" {
+		t.Fatalf("nil = %q", got)
+	}
+	if got := FormatError(errors.New("connection lost")); got != "connection lost" {
+		t.Fatalf("plain error = %q", got)
+	}
+
+	cases := []struct {
+		code int
+		want string
+	}{
+		{1, "command failed"},
+		{2, "invalid arguments or misuse"},
+		{7, "exited with status 7"},
+		{126, "command not executable"},
+		{127, "command not found"},
+		{130, "interrupted (Ctrl-C)"},
+		{137, "killed"},
+		{143, "terminated"},
+		{140, "terminated by signal 12"},
+		{255, "connection failed, refused, or interrupted"},
+	}
+	for _, tc := range cases {
+		cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf("exit %d", tc.code))
+		err := cmd.Run()
+		if got := FormatError(err); got != tc.want {
+			t.Fatalf("exit %d = %q, want %q", tc.code, got, tc.want)
+		}
 	}
 }

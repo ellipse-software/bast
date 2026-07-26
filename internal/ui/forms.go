@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
+	"bast/internal/cloud/sync"
 	"bast/internal/metadata"
 	"bast/internal/sshconfig"
 )
@@ -392,6 +393,8 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			return m.formError("key no longer exists")
 		}
 		return m.finishMutation(m.keyring.Delete(key, values["Type the name to confirm"]), "Key permanently deleted")
+	case "sync_gcp_user", "sync_gcp_projects", "sync_gcp_sa_add", "sync_gcp_sa_remove":
+		return m, m.submitSyncForm(f.action, values)
 	case "known_delete":
 		alias := values["Alias"]
 		if values["Type the name to confirm"] != values["Confirmation"] {
@@ -435,6 +438,10 @@ func (m *App) openEditGroupForm() {
 	if !ok {
 		return
 	}
+	if sync.IsSyncedGroup(group) {
+		m.status, m.statusError = "Cloud sync groups cannot be renamed", true
+		return
+	}
 	m.openForm("Rename group — "+groupShortName(group), "group_edit", []field{
 		{label: "Original path", value: group, hidden: true},
 		{label: "Name", description: "Renames this group for every host inside it", value: groupShortName(group)},
@@ -444,6 +451,10 @@ func (m *App) openEditGroupForm() {
 func (m *App) openEditHostForm() {
 	host, ok := m.selectedHost()
 	if !ok {
+		return
+	}
+	if host.Synced {
+		m.status, m.statusError = "Synced hosts are read-only; manage them in the Sync tab", true
 		return
 	}
 	meta := m.metadata.Host(host.Alias)
@@ -479,6 +490,10 @@ func (m *App) openEditHostForm() {
 func (m *App) openDeleteHostForm() {
 	host, ok := m.selectedHost()
 	if !ok {
+		return
+	}
+	if host.Synced {
+		m.status, m.statusError = "Synced hosts cannot be deleted; disconnect the provider in Sync", true
 		return
 	}
 	if !host.Managed {

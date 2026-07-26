@@ -13,18 +13,23 @@ import (
 )
 
 const (
-	markerPrefix = "# bast:id="
-	markerEnd    = "# bast:end"
+	markerPrefix     = "# bast:id="
+	markerEnd        = "# bast:end"
+	syncMarkerPrefix = "# bast:sync:"
+	syncMarkerEnd    = "# bast:sync:end"
 )
 
 type Host struct {
-	Alias     string
-	Source    string
-	Line      int
-	Managed   bool
-	ManagedID string
-	KnownHost bool
-	Resolved  Resolved
+	Alias      string
+	Source     string
+	Line       int
+	Managed    bool
+	ManagedID  string
+	Synced     bool
+	SyncSource string
+	SyncID     string
+	KnownHost  bool
+	Resolved   Resolved
 }
 
 type Resolved struct {
@@ -56,6 +61,21 @@ type Manager struct {
 	ManagedDir    string
 	ManagedConfig string
 	ManagedKeys   string
+	SyncGCPConfig string
+}
+
+// SyncHostInput describes a provider-synced SSH host block.
+type SyncHostInput struct {
+	Alias          string
+	SyncSource     string
+	SyncID         string
+	HostName       string
+	User           string
+	Port           string
+	IdentityFile   string
+	IdentitiesOnly bool
+	ProxyCommand   string
+	ExtraOptions   []string
 }
 
 func (m Manager) Discover() ([]Host, error) {
@@ -105,6 +125,7 @@ func (m Manager) scanFile(path string, depth int, stack map[string]bool, found *
 	defer delete(stack, abs)
 
 	managedID := ""
+	syncSource, syncID := "", ""
 	scanner := bufio.NewScanner(bytes.NewReader(b))
 	lineNo := 0
 	for scanner.Scan() {
@@ -116,6 +137,18 @@ func (m Manager) scanFile(path string, depth int, stack map[string]bool, found *
 		}
 		if raw == markerEnd {
 			managedID = ""
+			continue
+		}
+		if strings.HasPrefix(raw, syncMarkerPrefix) {
+			if raw == syncMarkerEnd {
+				syncSource, syncID = "", ""
+			} else {
+				rest := strings.TrimPrefix(raw, syncMarkerPrefix)
+				if source, id, ok := strings.Cut(rest, "="); ok {
+					syncSource = strings.TrimSpace(source)
+					syncID = strings.TrimSpace(id)
+				}
+			}
 			continue
 		}
 		fields, err := fields(raw)
@@ -143,6 +176,7 @@ func (m Manager) scanFile(path string, depth int, stack map[string]bool, found *
 					*found = append(*found, Host{
 						Alias: alias, Source: path, Line: lineNo,
 						Managed: path == m.ManagedConfig && managedID != "", ManagedID: managedID,
+						Synced: syncID != "", SyncSource: syncSource, SyncID: syncID,
 					})
 				}
 			}

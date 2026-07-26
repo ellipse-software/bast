@@ -1,24 +1,25 @@
 package ui
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"bast/internal/connectbanner"
+	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
 )
 
-const (
-	connectionBanner = "\x1b[1;38;2;139;92;246m BAST \x1b[0m  Connecting to server…\r\n" +
-		"\x1b[38;2;107;114;128m Stuck? Press Enter, then ~. to return to Bast.\x1b[0m\r\n\r\n"
-)
-
 type connectionProcess struct {
-	cmd *exec.Cmd
+	cmd     *exec.Cmd
+	prepare func(status func(string)) error
 }
 
 func (c *connectionProcess) Run() error {
@@ -26,7 +27,13 @@ func (c *connectionProcess) Run() error {
 	if output == nil {
 		output = os.Stdout
 	}
-	_, _ = io.WriteString(output, connectionBanner)
+	connectbanner.Write(output)
+	if c.prepare != nil {
+		if err := c.prepare(connectbanner.Status(output)); err != nil {
+			return fmt.Errorf("prepare connection: %w", err)
+		}
+		_, _ = io.WriteString(output, "\r\n")
+	}
 	return c.cmd.Run()
 }
 
@@ -60,17 +67,26 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		hostsEnd := tabsStart + lipgloss.Width("[1] Hosts")
 		keysStart := hostsEnd + 3
 		keysEnd := keysStart + lipgloss.Width("[2] Keys")
+		syncStart := keysEnd + 3
+		syncEnd := syncStart + lipgloss.Width("[3] Sync")
 		switch {
 		case mouse.X >= tabsStart && mouse.X < hostsEnd:
 			m.section, m.cursor, m.search = hostsSection, 0, ""
 		case mouse.X >= keysStart && mouse.X < keysEnd:
 			m.section, m.cursor, m.search = keysSection, 0, ""
+		case mouse.X >= syncStart && mouse.X < syncEnd:
+			m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
+			return m, m.syncStatusCmd()
 		}
 		return m, nil
 	}
 
 	layout := m.panelLayout()
 	listWidth := layout.listWidth
+
+	if m.section == syncSection {
+		return m, nil
+	}
 
 	if m.section == hostsSection {
 		if _, ok := m.selectedHost(); ok {
@@ -216,24 +232,49 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.section, m.cursor, m.search = hostsSection, 0, ""
 	case "2":
 		m.section, m.cursor, m.search = keysSection, 0, ""
+	case "3":
+		m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
+		return m, m.syncStatusCmd()
+	case "esc":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 	case "up", "k":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.cursor > 0 {
 			m.cursor--
 		}
 	case "down", "j":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.cursor+1 < m.itemCount() {
 			m.cursor++
 		}
 	case "home", "g":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		m.cursor = 0
 	case "end", "G":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.itemCount() > 0 {
 			m.cursor = m.itemCount() - 1
 		}
 	case "/":
+		if m.section == syncSection {
+			return m, nil
+		}
 		m.search = "\x00"
 		m.cursor = 0
 	case "r":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		m.loading = true
 		return m, tea.Batch(m.loadCmd(), m.setNotice("Reloading OpenSSH files…"))
 	case "s":
@@ -245,12 +286,18 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.toggleSelectedGroup()
 		}
 	case "a":
+		if m.section == syncSection {
+			return m, nil
+		}
 		if m.section == hostsSection {
 			m.openAddHostForm()
 		} else {
 			m.openGenerateForm()
 		}
 	case "e":
+		if m.section == syncSection {
+			return m, nil
+		}
 		if m.section == hostsSection {
 			if _, ok := m.selectedGroupHeader(); ok {
 				m.openEditGroupForm()
@@ -261,6 +308,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.openEditKeyForm()
 		}
 	case "d":
+		if m.section == syncSection {
+			return m, nil
+		}
 		if m.section == hostsSection {
 			m.openDeleteHostForm()
 		} else {
@@ -327,7 +377,13 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "enter":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.section == hostsSection {
+			if _, groupSelected := m.selectedGroupHeader(); groupSelected {
+				return m, m.toggleSelectedGroup()
+			}
 			return m.connectSelected()
 		}
 	}
@@ -360,18 +416,34 @@ func (m *App) connectSelected() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	if host.Synced && host.SyncSource == "gcp" && host.SyncID != "" {
+		return m.startSSH(host, func(status func(string)) error {
+			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			defer cancel()
+			if err := m.syncer.EnsureGCPAccess(ctx, host, status); err != nil {
+				return err
+			}
+			return m.metadata.RecordUse(host.Alias)
+		})
+	}
+	return m.startSSH(host, nil)
+}
+
+func (m *App) startSSH(host sshconfig.Host, prepare func(func(string)) error) (tea.Model, tea.Cmd) {
 	cmd, err := m.openSSH.SSHCommand(host.Alias)
 	if err != nil {
 		m.setError(err)
 		return m, nil
 	}
-	if err := m.metadata.RecordUse(host.Alias); err != nil {
-		m.setError(err)
-		return m, nil
+	if prepare == nil {
+		if err := m.metadata.RecordUse(host.Alias); err != nil {
+			m.setError(err)
+			return m, nil
+		}
 	}
 	telemetry.Track("connect", m.version)
 	m.status = "Connected to " + m.hostLabel(host) + "; exit closes Bast; 󰌑 then ~. force-closes SSH"
-	return m, tea.Exec(&connectionProcess{cmd: cmd}, func(err error) tea.Msg {
+	return m, tea.Exec(&connectionProcess{cmd: cmd, prepare: prepare}, func(err error) tea.Msg {
 		return processDoneMsg{name: "SSH session", err: err, exitBast: true}
 	})
 }
