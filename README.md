@@ -117,7 +117,7 @@ Bast is a terminal UI for the SSH config and keys you already have. It reads `~/
 
 You can generate and manage keys, push public keys to servers, and do most of it from the CLI if you'd rather skip the TUI.
 
-Groups can nest up to five levels (`Work/Production/web`). Bast stores presentation metadata in your user config directory. OpenSSH stays the source of truth for hosts and keys.
+Groups can nest up to five levels (`Work/Production/web`). Bast stores presentation metadata in `~/.config/bast`. OpenSSH stays the source of truth for hosts and keys.
 
 ## Requirements
 
@@ -139,7 +139,7 @@ During a session, `exit` closes Bast too. Stuck? Enter, then `~.` to force SSH c
 
 ## Files
 
-On first run Bast adds `Include ~/.ssh/bast/config` to your SSH config and writes managed host blocks there. Keys live in `~/.ssh/bast/keys`. Metadata is in `bast/state.json` under your user config dir.
+On first run Bast adds `Include ~/.ssh/bast/config` to your SSH config and writes managed host blocks there. Keys live in `~/.ssh/bast/keys`. Metadata is in `~/.config/bast/state.json`.
 
 Back up `~/.ssh` before trying unreleased builds on a real config. Don't paste private keys in issues.
 
