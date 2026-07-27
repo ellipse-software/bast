@@ -44,7 +44,11 @@ func (r *Runner) syncGCP(engine *sync.Engine, args []string) error {
 		return fail("sync_failed", err.Error())
 	}
 	telemetry.Track("sync_gcp", r.Version)
-	return r.success(result, fmt.Sprintf("Synced %d GCP instances", result.Count))
+	msg := fmt.Sprintf("Synced %d GCP instances", result.Count)
+	if result.Error != "" {
+		msg += "\nWarning: " + result.Error
+	}
+	return r.success(result, msg)
 }
 
 func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {

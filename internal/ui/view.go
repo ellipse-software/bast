@@ -35,9 +35,6 @@ func (m *App) render() string {
 	width := m.terminalWidth()
 	bodyHeight := max(1, m.terminalHeight()-3)
 	header := styles.title.Render(" BAST ") + "  " + m.renderTabs(styles)
-	if m.loading || m.syncing {
-		header += "  " + styles.muted.Render("syncing…")
-	}
 	if m.version != "" && m.version != "dev" {
 		space := width - lipgloss.Width(header) - lipgloss.Width(m.version)
 		if space > 0 {
@@ -596,12 +593,14 @@ func (m *App) renderFooter(s styleSet) string {
 	}
 	query := m.searchText()
 	left := ""
-	if strings.HasPrefix(m.search, "\x00") {
+	if m.syncing {
+		left = s.muted.Render("syncing…")
+	} else if strings.HasPrefix(m.search, "\x00") {
 		left = "/ " + query + "█"
 	} else if query != "" {
 		left = "filter: " + query
 	}
-	if m.status != "" {
+	if !m.syncing && m.status != "" {
 		if left != "" {
 			left += "  •  "
 		}

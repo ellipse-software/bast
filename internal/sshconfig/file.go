@@ -68,15 +68,117 @@ func RenderSyncBlock(input SyncHostInput) []byte {
 
 // WriteSyncConfig atomically replaces a provider sync SSH config file.
 func WriteSyncConfig(path string, blocks []SyncHostInput) error {
-	var b strings.Builder
-	b.WriteString("# Managed by Bast cloud sync — do not edit by hand\n")
-	for i, block := range blocks {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		b.Write(RenderSyncBlock(block))
+	var body bytes.Buffer
+	body.WriteString("# Managed by Bast cloud sync — do not edit by hand\n")
+	for _, block := range blocks {
+		body.Write(RenderSyncBlock(block))
 	}
-	return atomicWrite(path, []byte(b.String()), 0600)
+	return atomicWrite(path, body.Bytes(), 0600)
+}
+
+// LoadSyncHosts parses an existing provider sync SSH config into host blocks.
+func LoadSyncHosts(path string) ([]SyncHostInput, error) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(string(b), "\n")
+	var hosts []SyncHostInput
+	for i := 0; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if !strings.HasPrefix(trimmed, syncMarkerPrefix) || trimmed == syncMarkerEnd {
+			continue
+		}
+		rest := strings.TrimPrefix(trimmed, syncMarkerPrefix)
+		source, syncID, ok := strings.Cut(rest, "=")
+		if !ok {
+			continue
+		}
+		hostIdx := -1
+		for j := i + 1; j < len(lines); j++ {
+			parts, err := fields(strings.TrimSpace(lines[j]))
+			if err != nil || len(parts) == 0 {
+				continue
+			}
+			if strings.EqualFold(parts[0], "host") && len(parts) > 1 {
+				hostIdx = j
+				break
+			}
+			if strings.HasPrefix(strings.TrimSpace(lines[j]), syncMarkerPrefix) {
+				break
+			}
+		}
+		if hostIdx < 0 {
+			continue
+		}
+		endIdx := len(lines)
+		for j := hostIdx + 1; j < len(lines); j++ {
+			if strings.TrimSpace(lines[j]) == syncMarkerEnd {
+				endIdx = j
+				break
+			}
+			parts, err := fields(strings.TrimSpace(lines[j]))
+			if err == nil && len(parts) > 0 && strings.EqualFold(parts[0], "host") {
+				endIdx = j
+				break
+			}
+			if strings.HasPrefix(strings.TrimSpace(lines[j]), syncMarkerPrefix) {
+				endIdx = j
+				break
+			}
+		}
+		aliasParts, err := fields(strings.TrimSpace(lines[hostIdx]))
+		if err != nil || len(aliasParts) < 2 {
+			continue
+		}
+		input := SyncHostInput{
+			Alias:      aliasParts[1],
+			SyncSource: strings.TrimSpace(source),
+			SyncID:     strings.TrimSpace(syncID),
+		}
+		for _, line := range lines[hostIdx+1 : endIdx] {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			parts, err := fields(trimmed)
+			if err != nil || len(parts) == 0 {
+				continue
+			}
+			switch strings.ToLower(parts[0]) {
+			case "hostname":
+				if len(parts) > 1 {
+					input.HostName = parts[1]
+				}
+			case "user":
+				if len(parts) > 1 {
+					input.User = parts[1]
+				}
+			case "port":
+				if len(parts) > 1 {
+					input.Port = parts[1]
+				}
+			case "identityfile":
+				if len(parts) > 1 {
+					input.IdentityFile = parts[1]
+				}
+			case "identitiesonly":
+				input.IdentitiesOnly = len(parts) > 1 && strings.EqualFold(parts[1], "yes")
+			case "proxycommand":
+				if idx := strings.IndexFunc(trimmed, func(r rune) bool { return r == ' ' || r == '\t' }); idx >= 0 {
+					input.ProxyCommand = strings.TrimSpace(trimmed[idx+1:])
+				}
+			default:
+				input.ExtraOptions = append(input.ExtraOptions, trimmed)
+			}
+		}
+		hosts = append(hosts, input)
+		i = endIdx
+	}
+	return hosts, nil
 }
 
 // UpdateSyncHostAuth sets User / IdentityFile / IdentitiesOnly on an existing synced host block.

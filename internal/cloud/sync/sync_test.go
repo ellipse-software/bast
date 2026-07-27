@@ -180,8 +180,15 @@ func TestSyncGCPPreservesInventoryAfterPartialDiscovery(t *testing.T) {
 	}
 
 	failUnavailable = true
-	if _, err := engine.SyncGCP(context.Background()); err == nil {
-		t.Fatal("expected partial discovery to fail")
+	result, err := engine.SyncGCP(context.Background())
+	if err != nil {
+		t.Fatalf("partial discovery should succeed while preserving hosts: %v", err)
+	}
+	if result.Count != 2 {
+		t.Fatalf("expected preserved inventory count 2, got %d (%+v)", result.Count, result)
+	}
+	if result.Error == "" || !strings.Contains(result.Error, "unavailable") {
+		t.Fatalf("expected warning about unavailable project, got %q", result.Error)
 	}
 	if hosts := mustDiscoverHosts(t, engine); len(hosts) != 2 {
 		t.Fatalf("partial sync replaced inventory: %+v", hosts)

@@ -189,6 +189,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			notice = "GCP sync disconnected"
 			telemetry.Track("sync_gcp_disable", m.version)
 		} else {
+			if msg.result.Error != "" {
+				notice += " (with warnings)"
+			}
 			telemetry.Track("sync_gcp", m.version)
 		}
 		m.loading = true

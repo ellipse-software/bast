@@ -60,7 +60,7 @@ func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
 	defer e.mu.Unlock()
 
 	integration := e.Store.GCP()
-	instances, err := e.GCP.Discover(ctx, cloud.DiscoverConfig{
+	discovery, err := e.GCP.DiscoverAll(ctx, cloud.DiscoverConfig{
 		ProjectFilter:   integration.ProjectFilter,
 		DefaultSSHUser:  integration.DefaultSSHUser,
 		ServiceAccounts: integration.ServiceAccounts,
@@ -82,6 +82,15 @@ func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
 		return Result{}, err
 	}
 
+	previousBlocks := map[string]sshconfig.SyncHostInput{}
+	if loaded, loadErr := sshconfig.LoadSyncHosts(e.Paths.SyncGCPConfig); loadErr == nil {
+		for _, block := range loaded {
+			if block.SyncID != "" {
+				previousBlocks[block.SyncID] = block
+			}
+		}
+	}
+
 	usedAliases := map[string]bool{}
 	previousBySyncID := map[string]sshconfig.Host{}
 	for _, host := range existing {
@@ -92,12 +101,12 @@ func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
 		usedAliases[host.Alias] = true
 	}
 
-	blocks := make([]sshconfig.SyncHostInput, 0, len(instances))
-	aliases := make([]string, 0, len(instances))
+	blocks := make([]sshconfig.SyncHostInput, 0, len(discovery.Instances)+len(previousBySyncID))
+	aliases := make([]string, 0, len(discovery.Instances)+len(previousBySyncID))
 	activeAliases := map[string]bool{}
 	activeSyncIDs := map[string]bool{}
 
-	for _, inst := range instances {
+	for _, inst := range discovery.Instances {
 		activeSyncIDs[inst.SyncID] = true
 		alias := ""
 		if prev, ok := previousBySyncID[inst.SyncID]; ok && !usedAliases[prev.Alias] {
@@ -122,6 +131,38 @@ func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
 		}
 	}
 
+	// Keep hosts from projects we could not re-scan (expired account, permission
+	// denied, transient API errors). Only prune when the project inventory was
+	// confirmed in this sync.
+	for syncID, host := range previousBySyncID {
+		if activeSyncIDs[syncID] {
+			continue
+		}
+		projectID, _, _, parseErr := gcp.ParseSyncID(syncID)
+		if parseErr == nil && discovery.ConfirmedProjects[projectID] {
+			_ = e.Store.DeleteHost(host.Alias)
+			continue
+		}
+		block, ok := previousBlocks[syncID]
+		if !ok {
+			// Fall back to a minimal block so the host stays selectable.
+			block = sshconfig.SyncHostInput{
+				Alias:      host.Alias,
+				SyncSource: host.SyncSource,
+				SyncID:     host.SyncID,
+				HostName:   host.Alias,
+			}
+		}
+		if usedAliases[block.Alias] && block.Alias != host.Alias {
+			block.Alias = gcp.UniqueAlias(block.Alias, usedAliases)
+		}
+		usedAliases[block.Alias] = true
+		activeSyncIDs[syncID] = true
+		blocks = append(blocks, block)
+		aliases = append(aliases, block.Alias)
+		activeAliases[block.Alias] = true
+	}
+
 	if err := e.Config.EnsureSyncInclude(); err != nil {
 		return Result{}, err
 	}
@@ -129,27 +170,24 @@ func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
 		return Result{}, err
 	}
 
-	for syncID, host := range previousBySyncID {
-		if activeSyncIDs[syncID] {
-			continue
-		}
-		_ = e.Store.DeleteHost(host.Alias)
-	}
-
 	latest := e.Store.GCP()
 	latest.Enabled = true
 	latest.LastSyncAt = &now
-	latest.LastSyncError = ""
-	latest.LastInstanceCount = len(instances)
+	latest.LastSyncError = strings.Join(discovery.Warnings, "; ")
+	latest.LastInstanceCount = len(blocks)
 	if err := e.Store.SetGCP(latest); err != nil {
 		return Result{}, err
 	}
-	return Result{
+	result := Result{
 		Provider: gcp.ProviderName,
-		Count:    len(instances),
+		Count:    len(blocks),
 		SyncedAt: now,
 		Aliases:  aliases,
-	}, nil
+	}
+	if len(discovery.Warnings) > 0 {
+		result.Error = strings.Join(discovery.Warnings, "; ")
+	}
+	return result, nil
 }
 
 func (e *Engine) applyMetadata(alias string, inst cloud.Instance, previousAlias string) error {

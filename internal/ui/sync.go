@@ -136,9 +136,6 @@ func (m *App) renderSync(s styleSet) string {
 	for i, item := range items {
 		b.WriteString(m.renderSyncMenuLine(s, i, item) + "\n")
 	}
-	if m.syncing {
-		b.WriteString("\n  " + s.muted.Render("Syncing…") + "\n")
-	}
 	return b.String()
 }
 
@@ -289,7 +286,7 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 	switch action {
 	case "sync", "enable":
 		m.syncing = true
-		return m, tea.Batch(m.syncGCPCmd(), m.setNotice("Syncing GCP…"))
+		return m, m.syncGCPCmd()
 	case "disable":
 		m.syncing = true
 		return m, m.disableGCPCmd()

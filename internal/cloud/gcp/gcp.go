@@ -15,9 +15,14 @@ import (
 	"time"
 
 	"bast/internal/cloud"
+	"golang.org/x/sync/errgroup"
 )
 
-const ProviderName = "gcp"
+const (
+	ProviderName = "gcp"
+	// discoverConcurrency caps parallel gcloud calls during project scans.
+	discoverConcurrency = 8
+)
 
 // Runner executes gcloud commands. Tests can override it.
 type Runner func(ctx context.Context, args []string, env []string) ([]byte, error)
@@ -29,18 +34,17 @@ type Client struct {
 }
 
 func New() *Client {
-	return &Client{
-		GCloud: "gcloud",
-		Run:    defaultRunner,
-	}
+	return &Client{GCloud: "gcloud"}
 }
 
 func (c *Client) Name() string { return ProviderName }
 
 func defaultRunner(ctx context.Context, args []string, env []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	// Never prompt to enable APIs or reauth during Bast sync.
+	cmd.Env = append(os.Environ(), "CLOUDSDK_CORE_DISABLE_PROMPTS=1")
 	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
+		cmd.Env = append(cmd.Env, env...)
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -78,22 +82,14 @@ type Account struct {
 	Active  bool
 }
 
-// CheckAvailable verifies gcloud is installed.
+// CheckAvailable verifies gcloud is installed. Avoids spawning gcloud just to check.
 func (c *Client) CheckAvailable(ctx context.Context) error {
-	_, err := c.run(ctx, []string{"--version"}, nil)
-	if err == nil {
+	if c.Run != nil {
+		// Test harnesses inject a runner; treat gcloud as available.
 		return nil
 	}
-	msg := err.Error()
-	if errors.Is(err, exec.ErrNotFound) || strings.Contains(msg, "executable file not found") || strings.Contains(msg, "not found in $PATH") {
+	if _, err := exec.LookPath(c.bin()); err != nil {
 		return fmt.Errorf("gcloud CLI not found; install Google Cloud SDK and run gcloud auth login")
-	}
-	if _, listErr := c.run(ctx, []string{"auth", "list", "--format=json"}, nil); listErr != nil {
-		listMsg := listErr.Error()
-		if strings.Contains(listMsg, "executable file not found") || strings.Contains(listMsg, "not found in $PATH") {
-			return fmt.Errorf("gcloud CLI not found; install Google Cloud SDK and run gcloud auth login")
-		}
-		return fmt.Errorf("gcloud is not usable: %w", listErr)
 	}
 	return nil
 }
@@ -136,59 +132,256 @@ type credential struct {
 	args           []string
 }
 
+// Discovery is the result of scanning one or more GCP credentials for instances.
+type Discovery struct {
+	Instances []cloud.Instance
+	// ConfirmedProjects are project IDs whose instance inventory was successfully
+	// listed (including empty projects and projects with Compute Engine disabled).
+	// Hosts in projects absent from this set must not be pruned on sync.
+	ConfirmedProjects map[string]bool
+	// Warnings are non-fatal discovery problems (expired account, permission denied
+	// on a project). Sync may still succeed using ConfirmedProjects + Instances.
+	Warnings []string
+}
+
 func (c *Client) Discover(ctx context.Context, cfg cloud.DiscoverConfig) ([]cloud.Instance, error) {
-	if err := c.CheckAvailable(ctx); err != nil {
+	d, err := c.DiscoverAll(ctx, cfg)
+	if err != nil {
 		return nil, err
+	}
+	if len(d.Warnings) > 0 {
+		return nil, fmt.Errorf("incomplete GCP discovery: %s", strings.Join(d.Warnings, "\n"))
+	}
+	return d.Instances, nil
+}
+
+// DiscoverAll scans all configured credentials and returns a partial inventory
+// when some accounts or projects fail. Callers must not prune hosts whose
+// project is missing from ConfirmedProjects.
+func (c *Client) DiscoverAll(ctx context.Context, cfg cloud.DiscoverConfig) (Discovery, error) {
+	if err := c.CheckAvailable(ctx); err != nil {
+		return Discovery{}, err
 	}
 
 	creds, err := c.credentials(ctx, cfg.ServiceAccounts, cfg.Home)
 	if err != nil {
-		return nil, err
+		return Discovery{}, err
+	}
+
+	type projectJob struct {
+		cred    credential
+		project project
+	}
+	type projectResult struct {
+		projectID string
+		instances []cloud.Instance
+		err       error
+		skippable bool
+	}
+
+	var (
+		instances         []cloud.Instance
+		warnings          []string
+		credentialErrors  []error
+		failedProjects    = map[string]error{}
+		confirmedProjects = map[string]bool{}
+		listedAnyProjects bool
+		jobs              []projectJob
+	)
+
+	type credProjects struct {
+		cred     credential
+		projects []project
+		err      error
+	}
+	credResults := make([]credProjects, len(creds))
+	var listGroup errgroup.Group
+	for i, cred := range creds {
+		i, cred := i, cred
+		listGroup.Go(func() error {
+			projects, err := c.listProjects(ctx, cred, cfg.ProjectFilter)
+			credResults[i] = credProjects{cred: cred, projects: projects, err: err}
+			return nil
+		})
+	}
+	_ = listGroup.Wait()
+
+	for _, result := range credResults {
+		if result.err != nil {
+			wrapped := fmt.Errorf("list projects for %s: %w", result.cred.label, result.err)
+			credentialErrors = append(credentialErrors, wrapped)
+			warnings = append(warnings, shortenDiscoveryWarning(wrapped))
+			continue
+		}
+		listedAnyProjects = true
+		for _, project := range result.projects {
+			jobs = append(jobs, projectJob{cred: result.cred, project: project})
+		}
+	}
+
+	if !listedAnyProjects {
+		if len(credentialErrors) > 0 {
+			return Discovery{}, fmt.Errorf("incomplete GCP discovery: %w", errors.Join(credentialErrors...))
+		}
+		return Discovery{}, fmt.Errorf("incomplete GCP discovery: no accessible GCP projects")
+	}
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(discoverConcurrency)
+	results := make(chan projectResult, len(jobs))
+
+	for _, job := range jobs {
+		job := job
+		g.Go(func() error {
+			found, err := c.listInstances(gctx, job.cred, job.project, cfg)
+			res := projectResult{projectID: job.project.ID, instances: found}
+			if err != nil {
+				res.err = fmt.Errorf("list instances in %s using %s: %w", job.project.ID, job.cred.label, err)
+				res.skippable = isSkippableProjectError(err)
+			}
+			select {
+			case results <- res:
+			case <-gctx.Done():
+				return gctx.Err()
+			}
+			return nil
+		})
+	}
+
+	waitErr := g.Wait()
+	close(results)
+	if waitErr != nil && !errors.Is(waitErr, context.Canceled) {
+		return Discovery{}, waitErr
 	}
 
 	seen := map[string]bool{}
-	var instances []cloud.Instance
-	var discoveryErrors []error
-	failedProjects := map[string]error{}
-	successfulProjects := map[string]bool{}
-	for _, cred := range creds {
-		projects, err := c.listProjects(ctx, cred, cfg.ProjectFilter)
-		if err != nil {
-			discoveryErrors = append(discoveryErrors, fmt.Errorf("list projects for %s: %w", cred.label, err))
-			continue
-		}
-		for _, project := range projects {
-			found, err := c.listInstances(ctx, cred, project, cfg)
-			if err != nil {
-				if !successfulProjects[project.ID] {
-					failedProjects[project.ID] = fmt.Errorf("list instances in %s using %s: %w", project.ID, cred.label, err)
-				}
+	for res := range results {
+		if res.err != nil {
+			if res.skippable {
+				confirmedProjects[res.projectID] = true
+				delete(failedProjects, res.projectID)
 				continue
 			}
-			successfulProjects[project.ID] = true
-			delete(failedProjects, project.ID)
-			for _, inst := range found {
-				if seen[inst.SyncID] {
-					continue
-				}
-				seen[inst.SyncID] = true
-				instances = append(instances, inst)
+			if !confirmedProjects[res.projectID] {
+				failedProjects[res.projectID] = res.err
 			}
+			continue
+		}
+		confirmedProjects[res.projectID] = true
+		delete(failedProjects, res.projectID)
+		for _, inst := range res.instances {
+			if seen[inst.SyncID] {
+				continue
+			}
+			seen[inst.SyncID] = true
+			instances = append(instances, inst)
 		}
 	}
+
 	for _, err := range failedProjects {
-		discoveryErrors = append(discoveryErrors, err)
+		warnings = append(warnings, shortenDiscoveryWarning(err))
 	}
-	if len(discoveryErrors) > 0 {
-		return nil, fmt.Errorf("incomplete GCP discovery: %w", errors.Join(discoveryErrors...))
-	}
+
 	sort.Slice(instances, func(i, j int) bool {
 		if instances[i].ProjectName != instances[j].ProjectName {
 			return instances[i].ProjectName < instances[j].ProjectName
 		}
 		return instances[i].Name < instances[j].Name
 	})
-	return instances, nil
+	return Discovery{
+		Instances:         instances,
+		ConfirmedProjects: confirmedProjects,
+		Warnings:          uniqueNonEmpty(warnings),
+	}, nil
+}
+
+func isSkippableProjectError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "service_disabled") ||
+		strings.Contains(msg, "has not been used in project") ||
+		strings.Contains(msg, "api [compute.googleapis.com] not enabled") ||
+		strings.Contains(msg, "compute engine api has not been used") ||
+		strings.Contains(msg, "compute.googleapis.com] not enabled")
+}
+
+func isCredentialError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "reauthentication failed") ||
+		strings.Contains(msg, "cannot prompt during non-interactive") ||
+		strings.Contains(msg, "refresh your current auth tokens") ||
+		strings.Contains(msg, "invalid_grant") ||
+		strings.Contains(msg, "not logged in") ||
+		strings.Contains(msg, "there is no valid ticket")
+}
+
+func shortenDiscoveryWarning(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	if isCredentialError(err) {
+		if account := accountFromDiscoveryError(msg); account != "" {
+			return account + ": credentials expired — run gcloud auth login"
+		}
+		return "GCP credentials expired — run gcloud auth login"
+	}
+	if project := projectFromDiscoveryError(msg); project != "" {
+		if isSkippableProjectError(err) {
+			return ""
+		}
+		firstLine := strings.Split(msg, "\n")[0]
+		if len(firstLine) > 160 {
+			firstLine = firstLine[:157] + "..."
+		}
+		return firstLine
+	}
+	firstLine := strings.Split(msg, "\n")[0]
+	if len(firstLine) > 160 {
+		firstLine = firstLine[:157] + "..."
+	}
+	return firstLine
+}
+
+func accountFromDiscoveryError(msg string) string {
+	const prefix = "list projects for "
+	if i := strings.Index(msg, prefix); i >= 0 {
+		rest := msg[i+len(prefix):]
+		if j := strings.Index(rest, ":"); j >= 0 {
+			return strings.TrimSpace(rest[:j])
+		}
+	}
+	return ""
+}
+
+func projectFromDiscoveryError(msg string) string {
+	const prefix = "list instances in "
+	if i := strings.Index(msg, prefix); i >= 0 {
+		rest := msg[i+len(prefix):]
+		if j := strings.Index(rest, " "); j >= 0 {
+			return strings.TrimSpace(rest[:j])
+		}
+	}
+	return ""
+}
+
+func uniqueNonEmpty(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 type project struct {
@@ -278,12 +471,6 @@ func (c *Client) loadProjectSSHMetadata(ctx context.Context, cred credential, pr
 }
 
 func (c *Client) listInstances(ctx context.Context, cred credential, project project, cfg cloud.DiscoverConfig) ([]cloud.Instance, error) {
-	var err error
-	project.SSHKeys, project.SSHUser, project.EnableOSLogin, err = c.loadProjectSSHMetadata(ctx, cred, project.ID)
-	if err != nil {
-		return nil, fmt.Errorf("load project metadata: %w", err)
-	}
-
 	args := append([]string{
 		"compute", "instances", "list",
 		"--project=" + project.ID,
@@ -297,18 +484,29 @@ func (c *Client) listInstances(ctx context.Context, cred credential, project pro
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil, fmt.Errorf("parse gcloud compute instances list: %w", err)
 	}
+
+	// Empty projects (and already-filtered statuses) do not need project metadata.
+	candidates := make([]gceInstance, 0, len(raw))
+	for _, inst := range raw {
+		if skipInstanceStatus(inst.Status) || isWindowsInstance(inst) {
+			continue
+		}
+		candidates = append(candidates, inst)
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	if sshKeys, sshUser, enableOSLogin, metaErr := c.loadProjectSSHMetadata(ctx, cred, project.ID); metaErr == nil {
+		project.SSHKeys, project.SSHUser, project.EnableOSLogin = sshKeys, sshUser, enableOSLogin
+	}
+
 	osLoginUser := ""
-	if cfg.DefaultSSHUser == "" && projectUsesOSLogin(raw, project.EnableOSLogin) {
+	if cfg.DefaultSSHUser == "" && projectUsesOSLogin(candidates, project.EnableOSLogin) {
 		osLoginUser, _ = c.osLoginUsername(ctx, cred, project.ID)
 	}
-	instances := make([]cloud.Instance, 0, len(raw))
-	for _, inst := range raw {
-		if skipInstanceStatus(inst.Status) {
-			continue
-		}
-		if isWindowsInstance(inst) {
-			continue
-		}
+	instances := make([]cloud.Instance, 0, len(candidates))
+	for _, inst := range candidates {
 		mapped := mapInstance(inst, project, cfg.DefaultSSHUser)
 		if mapped.SyncID == "" {
 			continue
