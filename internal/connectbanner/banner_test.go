@@ -40,4 +40,3 @@ func TestWaitToContinueWritesPromptAndReadsKey(t *testing.T) {
 func TestWaitToContinueNilIO(t *testing.T) {
 	WaitToContinue(nil, nil)
 }
-
