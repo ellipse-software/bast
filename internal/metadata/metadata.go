@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const CurrentVersion = 3
+const CurrentVersion = 5
 
 type Host struct {
 	Label           string     `json:"label,omitempty"`
@@ -42,8 +42,20 @@ type GCPIntegration struct {
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 }
 
+type AWSIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	ProfileFilter     []string   `json:"profileFilter,omitempty"`
+	RegionFilter      []string   `json:"regionFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
 type Integrations struct {
 	GCP *GCPIntegration `json:"gcp,omitempty"`
+	AWS *AWSIntegration `json:"aws,omitempty"`
 }
 
 type State struct {
@@ -82,6 +94,10 @@ func Open(path string) (*Store, error) {
 			host.Group = "Google Cloud"
 		} else if strings.HasPrefix(host.Group, "GCP/") {
 			host.Group = "Google Cloud/" + strings.TrimPrefix(host.Group, "GCP/")
+		} else if host.Group == "AWS" {
+			host.Group = "Amazon EC2"
+		} else if strings.HasPrefix(host.Group, "AWS/") {
+			host.Group = "Amazon EC2/" + strings.TrimPrefix(host.Group, "AWS/")
 		}
 		s.state.Hosts[alias] = host
 	}
@@ -202,6 +218,29 @@ func (s *Store) SetGCP(gcp GCPIntegration) error {
 	return s.save()
 }
 
+func (s *Store) AWS() AWSIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.AWS == nil {
+		return AWSIntegration{}
+	}
+	return cloneAWS(*s.state.Integrations.AWS)
+}
+
+func (s *Store) SetAWS(aws AWSIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !aws.Enabled && len(aws.ProfileFilter) == 0 && len(aws.RegionFilter) == 0 &&
+		aws.DefaultSSHUser == "" && !aws.AutoSync && aws.LastSyncAt == nil &&
+		aws.LastSyncError == "" && aws.LastInstanceCount == 0 {
+		s.state.Integrations.AWS = nil
+	} else {
+		copy := cloneAWS(aws)
+		s.state.Integrations.AWS = &copy
+	}
+	return s.save()
+}
+
 func cloneHost(host Host) Host {
 	host.Tags = append([]string(nil), host.Tags...)
 	if host.LastUsedAt != nil {
@@ -221,12 +260,27 @@ func cloneGCP(gcp GCPIntegration) GCPIntegration {
 	return gcp
 }
 
-func cloneIntegrations(integrations Integrations) Integrations {
-	if integrations.GCP == nil {
-		return Integrations{}
+func cloneAWS(aws AWSIntegration) AWSIntegration {
+	aws.ProfileFilter = append([]string(nil), aws.ProfileFilter...)
+	aws.RegionFilter = append([]string(nil), aws.RegionFilter...)
+	if aws.LastSyncAt != nil {
+		lastSyncAt := *aws.LastSyncAt
+		aws.LastSyncAt = &lastSyncAt
 	}
-	gcp := cloneGCP(*integrations.GCP)
-	return Integrations{GCP: &gcp}
+	return aws
+}
+
+func cloneIntegrations(integrations Integrations) Integrations {
+	out := Integrations{}
+	if integrations.GCP != nil {
+		gcp := cloneGCP(*integrations.GCP)
+		out.GCP = &gcp
+	}
+	if integrations.AWS != nil {
+		aws := cloneAWS(*integrations.AWS)
+		out.AWS = &aws
+	}
+	return out
 }
 
 func (s *Store) save() error {

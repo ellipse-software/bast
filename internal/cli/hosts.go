@@ -514,7 +514,7 @@ func (r *Runner) hostDelete(args []string) error {
 		return err
 	}
 	if host.Synced {
-		return fail("synced_host", "synced hosts cannot be deleted; use bast sync disable gcp")
+		return fail("synced_host", "synced hosts cannot be deleted; use bast sync disable "+host.SyncSource)
 	}
 	if !host.Managed {
 		return fail("external_host", "externally managed hosts cannot be deleted by Bast")
@@ -651,6 +651,16 @@ func (r *Runner) connect(args []string) error {
 			Alias: host.Alias, Synced: host.Synced, SyncSource: host.SyncSource, SyncID: host.SyncID,
 		}, connectbanner.Status(r.Out)); err != nil {
 			return fail("gcp_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "aws" && host.SyncID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if err := engine.EnsureAWSAccess(ctx, sshconfig.Host{
+			Alias: host.Alias, Synced: host.Synced, SyncSource: host.SyncSource, SyncID: host.SyncID,
+		}, connectbanner.Status(r.Out)); err != nil {
+			return fail("aws_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
 	}

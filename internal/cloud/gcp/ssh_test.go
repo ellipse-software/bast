@@ -66,6 +66,9 @@ func TestToSyncHostIAP(t *testing.T) {
 	if block.ProxyCommand == "" || block.SyncSource != "gcp" {
 		t.Fatalf("unexpected block: %+v", block)
 	}
+	if !strings.Contains(block.ProxyCommand, "web %p") || strings.Contains(block.ProxyCommand, "%%p") {
+		t.Fatalf("proxy port token = %q", block.ProxyCommand)
+	}
 }
 
 func TestIAPProxyCommandUsesDiscoveryCredential(t *testing.T) {

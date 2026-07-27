@@ -138,6 +138,10 @@ func TestInvocationAndCommandHelp(t *testing.T) {
 			t.Fatalf("host add help missing %q:\n%s", option, out)
 		}
 	}
+	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "sync", "aws", "--help")
+	if err != nil || errOut != "" || out != "Usage: bast sync aws\n" {
+		t.Fatalf("sync aws help output=%q stderr=%q err=%v", out, errOut, err)
+	}
 }
 
 func runTestCLI(t *testing.T, home string, client openssh.Client, args ...string) (string, string, error) {

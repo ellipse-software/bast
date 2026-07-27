@@ -93,3 +93,21 @@ func TestOpenRenamesLegacyGCPGroups(t *testing.T) {
 		t.Fatalf("group = %q", got)
 	}
 }
+
+func TestOpenRenamesLegacyAWSGroups(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	raw := []byte(`{"version":4,"hosts":{"web":{"group":"AWS/default/eu-west-2"},"root":{"group":"AWS"}},"preferences":{}}`)
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Host("web").Group; got != "Amazon EC2/default/eu-west-2" {
+		t.Fatalf("group = %q", got)
+	}
+	if got := store.Host("root").Group; got != "Amazon EC2" {
+		t.Fatalf("root group = %q", got)
+	}
+}

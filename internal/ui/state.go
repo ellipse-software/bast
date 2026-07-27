@@ -563,6 +563,8 @@ func hostStatusLine(h sshconfig.Host, meta metadata.Host) string {
 	switch {
 	case h.Synced && h.SyncSource == "gcp":
 		parts = append(parts, "GCP synced")
+	case h.Synced && h.SyncSource == "aws":
+		parts = append(parts, "AWS synced")
 	case h.Synced:
 		parts = append(parts, h.SyncSource+" synced")
 	case h.Managed:

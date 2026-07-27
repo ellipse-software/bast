@@ -325,21 +325,21 @@ func patchSyncHostAuth(data []byte, alias, user, identityFile string, identities
 	return []byte(result), true
 }
 
-// EnsureSyncInclude adds Include for the GCP sync config at the top of the managed Bast config.
+// EnsureSyncInclude adds Include for a provider sync config at the top of the managed Bast config.
 // Include must come before any Host/Match blocks; otherwise OpenSSH treats it as part of the
 // preceding host and synced hosts never apply.
-func (m Manager) EnsureSyncInclude() error {
-	if m.SyncGCPConfig == "" {
-		return errors.New("sync GCP config path is not configured")
+func (m Manager) EnsureSyncInclude(path string) error {
+	if path == "" {
+		return errors.New("sync config path is not configured")
 	}
 	if err := m.EnsureManaged(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(m.SyncGCPConfig), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("create sync directory: %w", err)
 	}
-	if _, err := os.Stat(m.SyncGCPConfig); errors.Is(err, os.ErrNotExist) {
-		if err := atomicWrite(m.SyncGCPConfig, []byte("# Managed by Bast cloud sync — do not edit by hand\n"), 0600); err != nil {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		if err := atomicWrite(path, []byte("# Managed by Bast cloud sync — do not edit by hand\n"), 0600); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -351,9 +351,9 @@ func (m Manager) EnsureSyncInclude() error {
 	}
 	original := append([]byte(nil), b...)
 	base := filepath.Dir(m.ManagedConfig)
-	cleaned := removeIncludeLines(b, m.SyncGCPConfig, m.Home, base)
-	includeLine := []byte("Include " + m.syncIncludePath() + "\n")
-	if hasLeadingInclude(cleaned, m.SyncGCPConfig, m.Home, base) {
+	cleaned := removeIncludeLines(b, path, m.Home, base)
+	includeLine := []byte("Include " + m.syncIncludePath(path) + "\n")
+	if hasLeadingInclude(cleaned, path, m.Home, base) {
 		if bytes.Equal(cleaned, original) {
 			return nil
 		}
@@ -366,12 +366,12 @@ func (m Manager) EnsureSyncInclude() error {
 	return atomicWriteChecked(m.ManagedConfig, original, updated, 0600)
 }
 
-func (m Manager) syncIncludePath() string {
+func (m Manager) syncIncludePath(path string) string {
 	sshDir := filepath.Join(m.Home, ".ssh")
-	if rel, err := filepath.Rel(sshDir, m.SyncGCPConfig); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if rel, err := filepath.Rel(sshDir, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "~/.ssh/" + filepath.ToSlash(rel)
 	}
-	return m.SyncGCPConfig
+	return path
 }
 
 func hasLeadingInclude(data []byte, target, home, base string) bool {
@@ -399,9 +399,9 @@ func hasLeadingInclude(data []byte, target, home, base string) bool {
 	return false
 }
 
-// RemoveSyncInclude removes the GCP sync Include from the managed Bast config and clears the sync file.
-func (m Manager) RemoveSyncInclude() error {
-	if m.SyncGCPConfig == "" {
+// RemoveSyncInclude removes a provider sync Include and clears the sync file.
+func (m Manager) RemoveSyncInclude(path string) error {
+	if path == "" {
 		return nil
 	}
 	b, err := os.ReadFile(m.ManagedConfig)
@@ -411,13 +411,13 @@ func (m Manager) RemoveSyncInclude() error {
 		}
 		return err
 	}
-	updated := removeIncludeLines(b, m.SyncGCPConfig, m.Home, filepath.Dir(m.ManagedConfig))
+	updated := removeIncludeLines(b, path, m.Home, filepath.Dir(m.ManagedConfig))
 	if !bytes.Equal(b, updated) {
 		if err := atomicWriteChecked(m.ManagedConfig, b, updated, 0600); err != nil {
 			return err
 		}
 	}
-	_ = os.Remove(m.SyncGCPConfig)
+	_ = os.Remove(path)
 	return nil
 }
 

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -63,8 +64,9 @@ type loadedMsg struct {
 }
 
 type syncDoneMsg struct {
-	result sync.Result
-	err    error
+	provider string
+	result   sync.Result
+	err      error
 }
 
 type syncStatusMsg struct {
@@ -103,7 +105,7 @@ type App struct {
 	credits           bool
 	showHidden        bool
 	loading           bool
-	syncing           bool
+	syncingProviders  map[string]bool
 	status            string
 	statusError       bool
 	statusID          uint64
@@ -134,27 +136,43 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig,
 		},
-		openSSH:         client,
-		keyring:         keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
-		metadata:        store,
-		syncer:          sync.New(p, store),
-		loading:         true,
-		dark:            true,
-		version:         version,
-		collapsedGroups: map[string]bool{},
+		openSSH:          client,
+		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
+		metadata:         store,
+		syncer:           sync.New(p, store),
+		loading:          true,
+		dark:             true,
+		version:          version,
+		collapsedGroups:  map[string]bool{},
+		syncingProviders: map[string]bool{},
 	}, nil
 }
 
+func (m *App) providerSyncing(provider string) bool {
+	return m.syncingProviders[provider]
+}
+
+func (m *App) anySyncing() bool {
+	return len(m.syncingProviders) > 0
+}
+
 func (m *App) Init() tea.Cmd {
+	if m.syncingProviders == nil {
+		m.syncingProviders = map[string]bool{}
+	}
 	cmds := []tea.Cmd{m.loadCmd(), tea.RequestBackgroundColor, m.syncStatusCmd()}
 	if updateCmd := m.checkForUpdateCmd(); updateCmd != nil {
 		cmds = append(cmds, updateCmd)
 	}
 	if m.metadata.GCP().Enabled && m.metadata.GCP().AutoSync {
-		m.syncing = true
+		m.syncingProviders["gcp"] = true
 		cmds = append(cmds, m.syncGCPCmd())
+	}
+	if m.metadata.AWS().Enabled && m.metadata.AWS().AutoSync {
+		m.syncingProviders["aws"] = true
+		cmds = append(cmds, m.syncAWSCmd())
 	}
 	return tea.Batch(cmds...)
 }
@@ -178,21 +196,22 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectAfterLoad()
 		return m, nil
 	case syncDoneMsg:
-		m.syncing = false
+		delete(m.syncingProviders, msg.provider)
 		if msg.err != nil {
-			telemetry.Track("sync_gcp_fail", m.version)
+			telemetry.Track("sync_"+msg.provider+"_fail", m.version)
 			m.setError(msg.err)
 			return m, m.syncStatusCmd()
 		}
-		notice := fmt.Sprintf("Synced %d GCP instances", msg.result.Count)
+		label := strings.ToUpper(msg.provider)
+		notice := fmt.Sprintf("Synced %d %s instances", msg.result.Count, label)
 		if msg.result.Error == "disabled" {
-			notice = "GCP sync disconnected"
-			telemetry.Track("sync_gcp_disable", m.version)
+			notice = label + " sync disconnected"
+			telemetry.Track("sync_"+msg.provider+"_disable", m.version)
 		} else {
 			if msg.result.Error != "" {
 				notice += " (with warnings)"
 			}
-			telemetry.Track("sync_gcp", m.version)
+			telemetry.Track("sync_"+msg.provider, m.version)
 		}
 		m.loading = true
 		return m, tea.Batch(m.loadCmd(), m.syncStatusCmd(), m.setNotice(notice))

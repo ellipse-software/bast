@@ -17,6 +17,7 @@ type Paths struct {
 	ManagedKeys   string
 	SyncDir       string
 	SyncGCPConfig string
+	SyncAWSConfig string
 	StateFile     string
 }
 
@@ -33,6 +34,7 @@ func ForHome(home string) Paths {
 		ManagedKeys:   filepath.Join(managedDir, "keys"),
 		SyncDir:       syncDir,
 		SyncGCPConfig: filepath.Join(syncDir, "gcp", "config"),
+		SyncAWSConfig: filepath.Join(syncDir, "aws", "config"),
 		StateFile:     filepath.Join(home, ".config", "bast", "state.json"),
 	}
 }
