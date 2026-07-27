@@ -919,8 +919,54 @@ func TestSSHProcessPreservesTerminalOutput(t *testing.T) {
 	if got := output.String(); got != want.String() {
 		t.Fatalf("output = %q\nwant %q", got, want.String())
 	}
+	if strings.Contains(output.String(), "Press any key to continue") {
+		t.Fatal("successful session should not show the continue prompt")
+	}
 	if !strings.Contains(output.String(), "\x1b[38;2;107;114;128m Publishing") {
 		t.Fatal("status line should be muted and indented with a leading space")
+	}
+}
+
+func TestSSHProcessPausesOnFailure(t *testing.T) {
+	var output bytes.Buffer
+	cmd := exec.Command("/bin/sh", "-c", "printf 'host key verification failed\\n'; exit 255")
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	cmd.Stdin = strings.NewReader("k")
+	process := &connectionProcess{cmd: cmd}
+	err := process.Run()
+	if err == nil {
+		t.Fatal("expected SSH process failure")
+	}
+	got := output.String()
+	if !strings.Contains(got, "host key verification failed") {
+		t.Fatalf("missing SSH output: %q", got)
+	}
+	idx := strings.Index(got, "host key verification failed")
+	if idx < 0 || !strings.Contains(got[idx:], connectbanner.ContinuePrompt) {
+		t.Fatalf("continue prompt should appear after SSH error output:\n%q", got)
+	}
+}
+
+func TestSSHProcessPausesOnPrepareFailure(t *testing.T) {
+	var output bytes.Buffer
+	cmd := exec.Command("/bin/sh", "-c", "printf should-not-run")
+	cmd.Stdout = &output
+	cmd.Stdin = strings.NewReader("k")
+	process := &connectionProcess{cmd: cmd, prepare: func(status func(string)) error {
+		status("Publishing Google SSH key…")
+		return errors.New("gcp access denied")
+	}}
+	err := process.Run()
+	if err == nil || !strings.Contains(err.Error(), "gcp access denied") {
+		t.Fatalf("prepare error = %v", err)
+	}
+	got := output.String()
+	if strings.Contains(got, "should-not-run") {
+		t.Fatal("ssh should not run after prepare failure")
+	}
+	if !strings.Contains(got, connectbanner.ContinuePrompt) {
+		t.Fatalf("missing continue prompt after prepare failure:\n%q", got)
 	}
 }
 
@@ -934,16 +980,27 @@ func TestSuccessfulSSHSessionExitsBast(t *testing.T) {
 		t.Fatal("successful SSH session did not return tea.Quit")
 	}
 
+	m = testApp(t)
 	_, cmd = m.Update(processDoneMsg{name: "SSH session", err: errors.New("connection lost"), exitBast: true})
-	if cmd == nil || !m.statusError || !strings.Contains(m.status, "connection lost") {
-		t.Fatal("failed SSH session did not return to Bast with its error")
+	if cmd == nil {
+		t.Fatal("failed SSH session did not reload hosts")
+	}
+	if m.statusError || m.status != "" {
+		t.Fatalf("failed SSH session should return quietly to hosts, got status=%q error=%v", m.status, m.statusError)
 	}
 
+	m = testApp(t)
 	exitCmd := exec.Command("/bin/sh", "-c", "exit 255")
 	exitErr := exitCmd.Run()
 	_, cmd = m.Update(processDoneMsg{name: "SSH session", err: exitErr, exitBast: true})
-	if cmd == nil || !m.statusError || m.status != "SSH session: connection failed, refused, or interrupted" {
-		t.Fatalf("SSH exit 255 status = %q", m.status)
+	if cmd == nil || m.statusError || m.status != "" {
+		t.Fatalf("SSH exit 255 should return quietly, status=%q error=%v", m.status, m.statusError)
+	}
+
+	m = testApp(t)
+	_, cmd = m.Update(processDoneMsg{name: "Key generation", err: errors.New("keygen failed")})
+	if cmd == nil || !m.statusError || !strings.Contains(m.status, "keygen failed") {
+		t.Fatalf("non-SSH process failure should still show an error overlay, status=%q", m.status)
 	}
 }
 

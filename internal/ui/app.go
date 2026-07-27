@@ -205,6 +205,11 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = true
 		if msg.err != nil {
 			m.statusID++
+			if msg.exitBast {
+				// SSH already showed its output under a continue prompt; skip the overlay.
+				m.status, m.statusError = "", false
+				return m, m.loadCmd()
+			}
 			m.status, m.statusError = msg.name+": "+openssh.FormatError(msg.err), true
 			return m, m.loadCmd()
 		}
