@@ -13,7 +13,13 @@ go vet ./...
 go build -o bast .
 ```
 
-Run `gofmt` on changed Go files before opening a pull request. Include tests for behavior changes, especially changes that write SSH configuration or private-key files.
+Run `gofmt` on changed Go files before opening a pull request. This repo ships a pre-commit hook that auto-formats staged `.go` files:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+CI still enforces `test -z "$(gofmt -l .)"`. Include tests for behavior changes, especially changes that write SSH configuration or private-key files.
 
 ## Project layout
 

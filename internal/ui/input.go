@@ -27,14 +27,23 @@ func (c *connectionProcess) Run() error {
 	if output == nil {
 		output = os.Stdout
 	}
+	input := c.cmd.Stdin
+	if input == nil {
+		input = os.Stdin
+	}
 	connectbanner.Write(output)
 	if c.prepare != nil {
 		if err := c.prepare(connectbanner.Status(output)); err != nil {
+			connectbanner.WaitToContinue(input, output)
 			return fmt.Errorf("prepare connection: %w", err)
 		}
 		_, _ = io.WriteString(output, "\r\n")
 	}
-	return c.cmd.Run()
+	if err := c.cmd.Run(); err != nil {
+		connectbanner.WaitToContinue(input, output)
+		return err
+	}
+	return nil
 }
 
 func (c *connectionProcess) SetStdin(input io.Reader) {

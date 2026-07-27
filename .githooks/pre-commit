@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Format staged Go files before commit so CI's `gofmt -l` check stays green.
+set -euo pipefail
+
+if ! command -v gofmt >/dev/null 2>&1; then
+	echo "pre-commit: gofmt not found on PATH" >&2
+	exit 1
+fi
+
+gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+if [[ -z "$gofiles" ]]; then
+	exit 0
+fi
+
+# Word-splitting on newlines is intentional: paths from git are newline-separated.
+# shellcheck disable=SC2086
+unformatted=$(gofmt -l $gofiles || true)
+if [[ -z "$unformatted" ]]; then
+	exit 0
+fi
+
+# shellcheck disable=SC2086
+gofmt -w $unformatted
+# shellcheck disable=SC2086
+git add $unformatted
+echo "pre-commit: gofmt fixed:"
+echo "$unformatted"
+exit 0
