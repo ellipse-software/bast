@@ -135,10 +135,19 @@ func (s *Store) HostRevision() uint64 {
 func (s *Store) SetHost(alias string, host Host) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous, existed := s.state.Hosts[alias]
 	host.Tags = cleanTags(host.Tags)
 	s.state.Hosts[alias] = host
+	if err := s.save(); err != nil {
+		if existed {
+			s.state.Hosts[alias] = previous
+		} else {
+			delete(s.state.Hosts, alias)
+		}
+		return err
+	}
 	s.hostRevision.Add(1)
-	return s.save()
+	return nil
 }
 
 // UpdateHosts applies a related set of host metadata changes with one atomic
@@ -166,53 +175,101 @@ func (s *Store) UpdateHosts(update func(map[string]Host)) error {
 func (s *Store) DeleteHost(alias string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous, existed := s.state.Hosts[alias]
 	delete(s.state.Hosts, alias)
+	if err := s.save(); err != nil {
+		if existed {
+			s.state.Hosts[alias] = previous
+		}
+		return err
+	}
 	s.hostRevision.Add(1)
-	return s.save()
+	return nil
 }
 
 func (s *Store) RenameHost(from, to string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	host, ok := s.state.Hosts[from]
+	previousDestination, destinationExisted := s.state.Hosts[to]
 	if ok {
 		delete(s.state.Hosts, from)
 		s.state.Hosts[to] = host
+	}
+	if err := s.save(); err != nil {
+		if ok {
+			s.state.Hosts[from] = host
+			if destinationExisted {
+				s.state.Hosts[to] = previousDestination
+			} else if to != from {
+				delete(s.state.Hosts, to)
+			}
+		}
+		return err
+	}
+	if ok {
 		s.hostRevision.Add(1)
 	}
-	return s.save()
+	return nil
 }
 
 func (s *Store) ToggleFavorite(alias string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	host := s.state.Hosts[alias]
+	host, existed := s.state.Hosts[alias]
+	previous := host
 	host.Favorite = !host.Favorite
 	s.state.Hosts[alias] = host
+	if err := s.save(); err != nil {
+		if existed {
+			s.state.Hosts[alias] = previous
+		} else {
+			delete(s.state.Hosts, alias)
+		}
+		return host.Favorite, err
+	}
 	s.hostRevision.Add(1)
-	return host.Favorite, s.save()
+	return host.Favorite, nil
 }
 
 func (s *Store) ToggleHidden(alias string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	host := s.state.Hosts[alias]
+	host, existed := s.state.Hosts[alias]
+	previous := host
 	host.Hidden = !host.Hidden
 	s.state.Hosts[alias] = host
+	if err := s.save(); err != nil {
+		if existed {
+			s.state.Hosts[alias] = previous
+		} else {
+			delete(s.state.Hosts, alias)
+		}
+		return host.Hidden, err
+	}
 	s.hostRevision.Add(1)
-	return host.Hidden, s.save()
+	return host.Hidden, nil
 }
 
 func (s *Store) RecordUse(alias string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	host := s.state.Hosts[alias]
+	host, existed := s.state.Hosts[alias]
+	previous := host
 	now := time.Now().UTC()
 	host.LastUsedAt = &now
 	host.ConnectionCount++
 	s.state.Hosts[alias] = host
+	if err := s.save(); err != nil {
+		if existed {
+			s.state.Hosts[alias] = previous
+		} else {
+			delete(s.state.Hosts, alias)
+		}
+		return err
+	}
 	s.hostRevision.Add(1)
-	return s.save()
+	return nil
 }
 
 func (s *Store) Preferences() Preferences {

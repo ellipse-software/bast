@@ -2,6 +2,7 @@ package keys
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,6 +70,51 @@ func TestDiscoverImportExportAndDelete(t *testing.T) {
 	}
 	if err := m.Delete(list[0], "work"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDiscoverInspectsMoreCandidatesThanWorkersAndMatchesAgent(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	if err := os.MkdirAll(p.ManagedKeys, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 12 {
+		name := fmt.Sprintf("key-%02d", i)
+		if err := os.WriteFile(filepath.Join(p.ManagedKeys, name+".pub"), []byte("ssh-ed25519 AAA "+name+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	keygen := filepath.Join(bin, "ssh-keygen")
+	keygenScript := "#!/bin/sh\nname=${2##*/}\nname=${name%.pub}\nprintf '256 SHA256:%s %s comment (ED25519)\\n' \"$name\" \"$name\"\n"
+	if err := os.WriteFile(keygen, []byte(keygenScript), 0700); err != nil {
+		t.Fatal(err)
+	}
+	sshAdd := filepath.Join(bin, "ssh-add")
+	if err := os.WriteFile(sshAdd, []byte("#!/bin/sh\nprintf '256 SHA256:key-09 agent-listed (ED25519)\\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := Manager{Paths: p, SSHKeygen: keygen, SSHAdd: sshAdd}
+	keys, err := manager.Discover(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 12 {
+		t.Fatalf("keys = %d, want 12: %+v", len(keys), keys)
+	}
+	for i, key := range keys {
+		name := fmt.Sprintf("key-%02d", i)
+		if key.Name != name || key.Fingerprint != "SHA256:"+name || key.Comment != name+" comment" || key.Algorithm != "ED25519" {
+			t.Fatalf("key %d = %+v", i, key)
+		}
+		if key.InAgent != (name == "key-09") {
+			t.Fatalf("key %s InAgent = %t", name, key.InAgent)
+		}
 	}
 }
 

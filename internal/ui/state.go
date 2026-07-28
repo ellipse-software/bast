@@ -584,7 +584,7 @@ func (m *App) sortHosts() {
 	if order == "" {
 		order = "smart"
 	}
-	hostMetadata := m.refreshHostMetadata()
+	hostMetadata := m.hostMetadata()
 	sort.SliceStable(m.hosts, func(i, j int) bool {
 		a, b := hostMetadata[m.hosts[i].Alias], hostMetadata[m.hosts[j].Alias]
 		switch order {
