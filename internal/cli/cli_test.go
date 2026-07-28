@@ -48,6 +48,19 @@ func TestHostCommandsRoundTripWithJSON(t *testing.T) {
 	}
 }
 
+func TestHostAddLabelPathSetsGroup(t *testing.T) {
+	home := t.TempDir()
+	client := fakeOpenSSH(t)
+	out, errOut, err := runTestCLI(t, home, client, "--json", "hosts", "add", "abc/test", "--hostname", "test.example")
+	if err != nil || errOut != "" || !strings.Contains(out, `"alias":"test"`) {
+		t.Fatalf("add output=%q stderr=%q err=%v", out, errOut, err)
+	}
+	out, _, err = runTestCLI(t, home, client, "--json", "hosts", "show", "test")
+	if err != nil || !strings.Contains(out, `"group":"abc"`) || !strings.Contains(out, `"label":"test"`) {
+		t.Fatalf("show output=%q err=%v", out, err)
+	}
+}
+
 func TestExternalHostAllowsMetadataOnlyEdit(t *testing.T) {
 	home := t.TempDir()
 	sshDir := filepath.Join(home, ".ssh")

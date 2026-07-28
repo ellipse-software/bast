@@ -184,7 +184,7 @@ Connection: --user, --port, --identity, --password-only, --proxy-jump
 Advanced: --forward-agent, --startup-command, --request-tty, --set-env,
           --local-forward, --remote-forward, --dynamic-forward, --compression,
           --keepalive, --ssh-option
-Metadata: --group, --tag, --environment, --color, --notes`,
+Metadata: label paths like Work/api set the group; or --group, --tag, --environment, --color, --notes`,
 		"hosts edit": `Usage: bast hosts edit <host> [options]
 
 Connection: --label, --hostname, --user, --port, --identity, --password-only,
@@ -192,7 +192,8 @@ Connection: --label, --hostname, --user, --port, --identity, --password-only,
 Advanced: --forward-agent, --startup-command, --request-tty, --set-env,
           --local-forward, --remote-forward, --dynamic-forward, --compression,
           --keepalive, --ssh-option
-Metadata: --group, --tag, --environment, --color, --notes
+Metadata: --label paths like Work/api set the group; or --group, --tag,
+          --environment, --color, --notes
 Repeat list options to provide multiple values. Use the corresponding --clear-*
 option to restore a default or remove values.`,
 		"hosts delete":    "Usage: bast hosts delete <host> [--yes]",

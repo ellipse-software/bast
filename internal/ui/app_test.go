@@ -461,6 +461,61 @@ func TestSyncedProviderRootStaysSeparateFromCompactedChildren(t *testing.T) {
 	}
 }
 
+func TestLabelPathSetsGroupAndLeaf(t *testing.T) {
+	m := testApp(t)
+	m.openEditHostForm()
+	for i := range m.form.fields {
+		if m.form.fields[i].label == "Label" {
+			m.form.fields[i].value = "abc/test"
+		}
+	}
+	m.submitForm()
+	if m.form != nil || m.statusError {
+		t.Fatalf("save failed: %q", m.status)
+	}
+	meta := m.metadata.Host("alpha")
+	if meta.Group != "abc" || meta.Label != "test" {
+		t.Fatalf("saved metadata = %+v", meta)
+	}
+}
+
+func TestLabelPathDisplayShowsLeafWhenInactive(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetHost("alpha", metadata.Host{Label: "test", Group: "abc"}); err != nil {
+		t.Fatal(err)
+	}
+	for i, row := range m.hostRows() {
+		if !row.header && row.host.Alias == "alpha" {
+			m.cursor = i
+			break
+		}
+	}
+	m.openEditHostForm()
+	if m.form == nil {
+		t.Fatal("edit form did not open")
+	}
+	if got := formFieldByLabel(m, "Label").value; got != "abc/test" {
+		t.Fatalf("composed label path = %q", got)
+	}
+	m.form.hubIndex = 1
+	m.focusHostHubItem()
+	inactive := m.renderForm(m.styles())
+	if !strings.Contains(inactive, "Label  test") {
+		t.Fatalf("inactive label should show leaf only:\n%s", inactive)
+	}
+	if strings.Contains(inactive, "Label  abc/test") {
+		t.Fatalf("inactive label should not show full path:\n%s", inactive)
+	}
+	m.form.hubIndex = 0
+	m.focusHostHubItem()
+	m.form.input.SetValue("abc/test")
+	m.form.input.SetCursor(len([]rune("abc/test")))
+	focused := m.renderForm(m.styles())
+	if !strings.Contains(focused, "abc") || !strings.Contains(focused, "test") {
+		t.Fatalf("focused label should show full path:\n%s", focused)
+	}
+}
+
 func TestAddHostFormPrefillsGroupFromSelection(t *testing.T) {
 	m := testApp(t)
 	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Work/Production"}); err != nil {
@@ -474,8 +529,8 @@ func TestAddHostFormPrefillsGroupFromSelection(t *testing.T) {
 		}
 	}
 	m.openAddHostForm()
-	if got := formFieldByLabel(m, "Group").value; got != "Work/Production" {
-		t.Fatalf("group prefill = %q", got)
+	if got := formFieldByLabel(m, "Label").value; got != "Work/Production/" {
+		t.Fatalf("label path prefill = %q", got)
 	}
 	summary := m.hostFormSummary(formSectionMetadata)
 	if !strings.Contains(summary, "Work/Production") {
@@ -487,8 +542,8 @@ func TestGroupPathsAreNormalizedAndLimitedToFiveLevels(t *testing.T) {
 	m := testApp(t)
 	m.openEditHostForm()
 	for i := range m.form.fields {
-		if m.form.fields[i].label == "Group" {
-			m.form.fields[i].value = "one/two/three/four/five/six"
+		if m.form.fields[i].label == "Label" {
+			m.form.fields[i].value = "one/two/three/four/five/six/leaf"
 		}
 	}
 	m.submitForm()
@@ -501,8 +556,8 @@ func TestGroupPathsAreNormalizedAndLimitedToFiveLevels(t *testing.T) {
 
 	m.status, m.statusError = "", false
 	for i := range m.form.fields {
-		if m.form.fields[i].label == "Group" {
-			m.form.fields[i].value = " one / two / three / four / five "
+		if m.form.fields[i].label == "Label" {
+			m.form.fields[i].value = " one / two / three / four / five / leaf "
 		}
 	}
 	m.submitForm()
@@ -511,6 +566,9 @@ func TestGroupPathsAreNormalizedAndLimitedToFiveLevels(t *testing.T) {
 	}
 	if got := m.metadata.Host("alpha").Group; got != "one/two/three/four/five" {
 		t.Fatalf("normalized group = %q", got)
+	}
+	if got := m.metadata.Host("alpha").Label; got != "leaf" {
+		t.Fatalf("leaf label = %q", got)
 	}
 }
 
@@ -551,7 +609,7 @@ func TestExternalHostEditOnlyOffersMetadataAndIsFullyRevealed(t *testing.T) {
 	}
 	enterHostFormSection(t, m, formSectionMetadata)
 	rendered = m.renderForm(m.styles())
-	if !strings.Contains(rendered, "Group") || !strings.Contains(rendered, "Tags") {
+	if strings.Contains(rendered, "Group") || !strings.Contains(rendered, "Tags") {
 		t.Fatalf("metadata section was not opened:\n%s", rendered)
 	}
 	footer := m.renderFooter(m.styles())
@@ -594,21 +652,21 @@ func TestEditFormUsesArrowsToMoveAndEnterToSave(t *testing.T) {
 	m := testApp(t)
 	m.openEditHostForm()
 	enterHostFormSection(t, m, formSectionMetadata)
-	if m.form == nil || m.form.fields[m.form.index].label != "Group" {
-		t.Fatal("metadata section did not open on the group field")
+	if m.form == nil || m.form.fields[m.form.index].label != "Tags" {
+		t.Fatal("metadata section did not open on the tags field")
 	}
-	m.form.input.SetValue("operations")
+	m.form.input.SetValue("api")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
-	if m.form == nil || m.form.fields[m.form.index].label != "Group" {
-		t.Fatal("Up did not return to the group field")
+	if m.form == nil || m.form.fields[m.form.index].label != "Tags" {
+		t.Fatal("Up did not return to the tags field")
 	}
 	m.updateForm(ctrlEnter())
 	if m.form != nil {
 		t.Fatal("Ctrl+Enter did not save and close the edit form")
 	}
-	if got := m.metadata.Host("alpha").Group; got != "operations" {
-		t.Fatalf("saved group = %q", got)
+	if got := m.metadata.Host("alpha").Tags; len(got) != 1 || got[0] != "api" {
+		t.Fatalf("saved tags = %v", got)
 	}
 }
 
@@ -855,7 +913,7 @@ func TestHostFormExplainsOptionalConnectionFields(t *testing.T) {
 	m.openAddHostForm()
 
 	initial := m.renderForm(m.styles())
-	if !strings.Contains(initial, "Display name shown in Bast") {
+	if !strings.Contains(initial, "use / for groups") {
 		t.Fatalf("label description is missing:\n%s", initial)
 	}
 

@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"bast/internal/metadata"
 	"bast/internal/sshconfig"
 )
 
@@ -103,8 +104,10 @@ func (m *App) hostFormSummary(section string) string {
 		return m.hostAdvancedSummary()
 	case formSectionMetadata:
 		parts := []string{}
-		if group := fieldDisplay(f, "Group"); group != "" && group != "—" {
-			parts = append(parts, group)
+		if labelField := f.fieldByLabel("Label"); labelField != nil {
+			if group := metadata.LabelGroup(labelField.value); group != "" {
+				parts = append(parts, group)
+			}
 		}
 		if env := fieldDisplay(f, "Environment"); env != "" && env != "—" {
 			parts = append(parts, env)
@@ -540,13 +543,63 @@ func (m *App) renderHostHubBasicsRow(b *strings.Builder, s styleSet, hub hostHub
 		if item.description != "" {
 			b.WriteString("    " + s.muted.Render(truncate(item.description, max(20, m.terminalWidth()-8))) + "\n")
 		}
-		b.WriteString("    " + f.input.View() + "\n")
+		if hub.id == "label" {
+			b.WriteString("    " + m.renderLabelPathInput(s) + "\n")
+		} else {
+			b.WriteString("    " + f.input.View() + "\n")
+		}
 		return
+	}
+	if hub.id == "label" {
+		value = metadata.LabelLeaf(value)
 	}
 	if value == "" {
 		value = "—"
 	}
 	b.WriteString("  " + s.muted.Render("  "+item.label+"  "+value) + "\n")
+}
+
+// renderLabelPathInput shows the full label path while editing. The group
+// prefix is muted until the cursor moves into it.
+func (m *App) renderLabelPathInput(s styleSet) string {
+	f := m.form
+	value := f.input.Value()
+	if value == "" {
+		return f.input.View()
+	}
+	runes := []rune(value)
+	pos := f.input.Position()
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > len(runes) {
+		pos = len(runes)
+	}
+	lastSlash := -1
+	for i, r := range runes {
+		if r == '/' {
+			lastSlash = i
+		}
+	}
+	mutePrefix := lastSlash >= 0 && pos > lastSlash
+
+	var out strings.Builder
+	for i, r := range runes {
+		style := s.value
+		if mutePrefix && i <= lastSlash {
+			style = s.muted
+		}
+		char := string(r)
+		if i == pos {
+			out.WriteString(lipgloss.NewStyle().Reverse(true).Render(char))
+			continue
+		}
+		out.WriteString(style.Render(char))
+	}
+	if pos >= len(runes) {
+		out.WriteString(lipgloss.NewStyle().Reverse(true).Render(" "))
+	}
+	return out.String()
 }
 
 func (m *App) renderHostHubMenuRow(b *strings.Builder, s styleSet, hub hostHubItem) {
@@ -682,7 +735,7 @@ func hostFormFields(m *App, meta metadataHostValues, conn hostConnectionValues, 
 		labelDesc = descHostLabel
 	}
 	fields = append(fields,
-		field{label: "Label", section: formSectionBasics, description: labelDesc, value: meta.label, placeholder: "Production web"},
+		field{label: "Label", section: formSectionBasics, description: labelDesc, value: meta.label, placeholder: "Work/api"},
 	)
 	if conn.includeConnection {
 		fields = append(fields,
@@ -695,7 +748,6 @@ func hostFormFields(m *App, meta metadataHostValues, conn hostConnectionValues, 
 		fields = append(fields, advancedFormFields(m, conn.advanced)...)
 	}
 	fields = append(fields,
-		field{label: "Group", section: formSectionMetadata, description: descHostGroup, value: meta.group, placeholder: "Work/Production", optional: true},
 		field{label: "Tags", section: formSectionMetadata, description: descHostTags, value: meta.tags, placeholder: "web, production", optional: true},
 		field{label: "Environment", section: formSectionMetadata, description: descHostEnvironment, value: meta.environment, placeholder: "production", optional: true},
 		field{label: "Color", section: formSectionMetadata, description: descHostColor, value: meta.color, placeholder: "#7C3AED", optional: true},
@@ -705,7 +757,7 @@ func hostFormFields(m *App, meta metadataHostValues, conn hostConnectionValues, 
 }
 
 type metadataHostValues struct {
-	label, group, tags, environment, color, notes, labelDesc string
+	label, tags, environment, color, notes, labelDesc string
 }
 
 type hostConnectionValues struct {
