@@ -8,12 +8,124 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	awscloud "bast/internal/cloud/aws"
 	"bast/internal/cloud/gcp"
 	"bast/internal/metadata"
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
 )
+
+func TestStatusReleasesEngineLockBeforeExternalProbes(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	probeStarted := make(chan struct{})
+	releaseProbe := make(chan struct{})
+	engine.GCP.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		close(probeStarted)
+		select {
+		case <-releaseProbe:
+			return []byte(`[]`), nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	engine.AWS.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		joined := strings.Join(args[1:], " ")
+		switch {
+		case strings.Contains(joined, "--version"):
+			return []byte("aws-cli/2"), nil
+		case strings.Contains(joined, "configure list-profiles"):
+			return nil, nil
+		default:
+			return nil, errors.New("unexpected AWS status command")
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, statusErr := engine.Status(context.Background())
+		done <- statusErr
+	}()
+
+	select {
+	case <-probeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("status probe did not start")
+	}
+	if !engine.mu.TryLock() {
+		close(releaseProbe)
+		t.Fatal("status held the engine lock during an external probe")
+	}
+	engine.mu.Unlock()
+	close(releaseProbe)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSyncAWSReconcileAndDisablePreservesGCP(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	engine.AWS.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		joined := strings.Join(args[1:], " ")
+		switch {
+		case strings.Contains(joined, "--version"):
+			return []byte("aws-cli/2"), nil
+		case strings.Contains(joined, "configure list-profiles"):
+			return []byte("default\n"), nil
+		case strings.Contains(joined, "sts get-caller-identity"):
+			return []byte(`{"Account":"123456789012","Arn":"arn:aws:iam::123456789012:user/test"}`), nil
+		case strings.Contains(joined, "describe-regions"):
+			return []byte(`{"Regions":[{"RegionName":"eu-west-1"}]}`), nil
+		case strings.Contains(joined, "describe-instances"):
+			return []byte(`{"Reservations":[{"Instances":[{"InstanceId":"i-123","ImageId":"ami-1","PublicIpAddress":"203.0.113.10","VpcId":"vpc-1","SubnetId":"subnet-1","Placement":{"AvailabilityZone":"eu-west-1a"},"Tags":[{"Key":"Name","Value":"web"}]}]}]}`), nil
+		case strings.Contains(joined, "describe-images"):
+			return []byte(`{"Images":[{"ImageId":"ami-1","Name":"ubuntu"}]}`), nil
+		case strings.Contains(joined, "describe-instance-connect-endpoints"):
+			return []byte(`{"InstanceConnectEndpoints":[]}`), nil
+		default:
+			t.Fatalf("unexpected AWS args: %v", args)
+			return nil, nil
+		}
+	}
+	result, err := engine.SyncAWS(context.Background())
+	if err != nil || result.Count != 1 || result.Provider != awscloud.ProviderName {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	hosts := mustDiscoverHosts(t, engine)
+	if len(hosts) != 1 || hosts[0].SyncSource != "aws" {
+		t.Fatalf("hosts = %+v", hosts)
+	}
+	meta := store.Host(hosts[0].Alias)
+	if meta.Group != "Amazon EC2/default/eu-west-1" || meta.Label != "web" {
+		t.Fatalf("metadata = %+v", meta)
+	}
+	if err := engine.Config.EnsureSyncInclude(p.SyncGCPConfig); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.DisableAWS(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	managed, err := os.ReadFile(p.ManagedConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(managed), "sync/aws/config") || !strings.Contains(string(managed), "sync/gcp/config") {
+		t.Fatalf("managed config after AWS disable:\n%s", managed)
+	}
+}
 
 func TestSyncGCPReconcile(t *testing.T) {
 	home := t.TempDir()
@@ -209,7 +321,9 @@ func mustDiscoverHosts(t *testing.T, engine *Engine) []sshconfig.Host {
 
 func TestIsSyncedGroup(t *testing.T) {
 	if !IsSyncedGroup("Google Cloud") || !IsSyncedGroup("Google Cloud/demo") ||
-		!IsSyncedGroup("GCP") || !IsSyncedGroup("GCP/demo") || IsSyncedGroup("Work") {
+		!IsSyncedGroup("GCP") || !IsSyncedGroup("GCP/demo") ||
+		!IsSyncedGroup("Amazon EC2") || !IsSyncedGroup("Amazon EC2/default") ||
+		!IsSyncedGroup("AWS/default") || IsSyncedGroup("Work") {
 		t.Fatal("IsSyncedGroup mismatch")
 	}
 }

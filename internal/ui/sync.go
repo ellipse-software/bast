@@ -22,16 +22,24 @@ type syncMenuItem struct {
 
 func (m *App) syncProviders() []syncMenuItem {
 	gcp := m.metadata.GCP()
-	detail := "disabled"
+	gcpDetail := "disabled"
 	if gcp.Enabled {
-		detail = fmt.Sprintf("%d instances", gcp.LastInstanceCount)
+		gcpDetail = fmt.Sprintf("%d instances", gcp.LastInstanceCount)
 		if gcp.LastSyncAt != nil {
-			detail = fmt.Sprintf("%d · %s", gcp.LastInstanceCount, gcp.LastSyncAt.Local().Format("2006-01-02 15:04"))
+			gcpDetail = fmt.Sprintf("%d · %s", gcp.LastInstanceCount, gcp.LastSyncAt.Local().Format("2006-01-02 15:04"))
+		}
+	}
+	aws := m.metadata.AWS()
+	awsDetail := "disabled"
+	if aws.Enabled {
+		awsDetail = fmt.Sprintf("%d instances", aws.LastInstanceCount)
+		if aws.LastSyncAt != nil {
+			awsDetail = fmt.Sprintf("%d · %s", aws.LastInstanceCount, aws.LastSyncAt.Local().Format("2006-01-02 15:04"))
 		}
 	}
 	return []syncMenuItem{
-		{label: "GCP", detail: detail, provider: "gcp"},
-		{label: "AWS", detail: "coming soon", disabled: true},
+		{label: "GCP", detail: gcpDetail, provider: "gcp"},
+		{label: "AWS", detail: awsDetail, provider: "aws"},
 		{label: "Azure", detail: "coming soon", disabled: true},
 	}
 }
@@ -40,9 +48,32 @@ func (m *App) syncProviderActions(provider string) []syncMenuItem {
 	switch provider {
 	case "gcp":
 		return m.gcpSyncActions()
+	case "aws":
+		return m.awsSyncActions()
 	default:
 		return nil
 	}
+}
+
+func (m *App) awsSyncActions() []syncMenuItem {
+	aws := m.metadata.AWS()
+	actions := []syncMenuItem{{label: "Sync now", action: "sync"}}
+	if aws.Enabled {
+		actions = append(actions, syncMenuItem{label: "Disconnect", action: "disable"})
+	} else {
+		actions = append(actions, syncMenuItem{label: "Connect", action: "enable"})
+	}
+	if aws.AutoSync {
+		actions = append(actions, syncMenuItem{label: "Disable auto-sync", action: "auto_off"})
+	} else {
+		actions = append(actions, syncMenuItem{label: "Enable auto-sync", action: "auto_on"})
+	}
+	return append(actions,
+		syncMenuItem{label: "Default SSH user", action: "user"},
+		syncMenuItem{label: "Profile filter", action: "profiles"},
+		syncMenuItem{label: "Region filter", action: "regions"},
+		syncMenuItem{label: "Refresh status", action: "refresh"},
+	)
 }
 
 func (m *App) gcpSyncActions() []syncMenuItem {
@@ -84,7 +115,16 @@ func (m *App) syncGCPCmd() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		result, err := m.syncer.SyncGCP(ctx)
-		return syncDoneMsg{result: result, err: err}
+		return syncDoneMsg{provider: "gcp", result: result, err: err}
+	}
+}
+
+func (m *App) syncAWSCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncAWS(ctx)
+		return syncDoneMsg{provider: "aws", result: result, err: err}
 	}
 }
 
@@ -103,9 +143,21 @@ func (m *App) disableGCPCmd() tea.Cmd {
 		defer cancel()
 		err := m.syncer.DisableGCP(ctx)
 		if err != nil {
-			return syncDoneMsg{err: err}
+			return syncDoneMsg{provider: "gcp", err: err}
 		}
-		return syncDoneMsg{result: sync.Result{Provider: "gcp", Count: 0, SyncedAt: time.Now().UTC(), Error: "disabled"}}
+		return syncDoneMsg{provider: "gcp", result: sync.Result{Provider: "gcp", Count: 0, SyncedAt: time.Now().UTC(), Error: "disabled"}}
+	}
+}
+
+func (m *App) disableAWSCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err := m.syncer.DisableAWS(ctx)
+		if err != nil {
+			return syncDoneMsg{provider: "aws", err: err}
+		}
+		return syncDoneMsg{provider: "aws", result: sync.Result{Provider: "aws", SyncedAt: time.Now().UTC(), Error: "disabled"}}
 	}
 }
 
@@ -135,6 +187,9 @@ func (m *App) renderSync(s styleSet) string {
 	b.WriteString("\n")
 	for i, item := range items {
 		b.WriteString(m.renderSyncMenuLine(s, i, item) + "\n")
+	}
+	if m.providerSyncing(m.syncProvider) {
+		b.WriteString("\n  " + s.muted.Render("Syncing…") + "\n")
 	}
 	return b.String()
 }
@@ -198,6 +253,45 @@ func (m *App) renderProviderStatus(s styleSet, provider string) string {
 		if len(gcp.ServiceAccounts) > 0 {
 			b.WriteString(compactRow(s, "SA keys", strings.Join(gcp.ServiceAccounts, ", "), width))
 		}
+	case "aws":
+		aws := m.metadata.AWS()
+		status := m.syncStatus.AWS
+		enabled := "disabled"
+		if aws.Enabled {
+			enabled = "enabled"
+		}
+		b.WriteString(compactRow(s, "Status", enabled, width))
+		if status.AWSCLIError != "" {
+			b.WriteString(compactRow(s, "aws", status.AWSCLIError, width))
+		} else if len(status.Profiles) > 0 {
+			b.WriteString(compactRow(s, "Profiles", strings.Join(status.Profiles, ", "), width))
+		} else {
+			b.WriteString(compactRow(s, "Profiles", "none", width))
+		}
+		if aws.LastSyncAt != nil {
+			b.WriteString(compactRow(s, "Last sync", aws.LastSyncAt.Local().Format("2006-01-02 15:04")+" · "+fmt.Sprintf("%d", aws.LastInstanceCount), width))
+		} else {
+			b.WriteString(compactRow(s, "Last sync", "never", width))
+		}
+		if aws.LastSyncError != "" {
+			b.WriteString(compactRow(s, "Error", aws.LastSyncError, width))
+		}
+		auto := "off"
+		if aws.AutoSync {
+			auto = "on"
+		}
+		b.WriteString(compactRow(s, "Auto-sync", auto, width))
+		b.WriteString(compactRow(s, "SSH user", noneValue(aws.DefaultSSHUser), width))
+		profiles := "all"
+		if len(aws.ProfileFilter) > 0 {
+			profiles = strings.Join(aws.ProfileFilter, ", ")
+		}
+		regions := "all enabled"
+		if len(aws.RegionFilter) > 0 {
+			regions = strings.Join(aws.RegionFilter, ", ")
+		}
+		b.WriteString(compactRow(s, "Profile filter", profiles, width))
+		b.WriteString(compactRow(s, "Regions", regions, width))
 	}
 	return b.String()
 }
@@ -235,7 +329,7 @@ func (m *App) updateSyncKeys(key string) (tea.Model, tea.Cmd) {
 			m.syncCursor = 0
 			return m, m.syncStatusCmd()
 		}
-		if m.syncing {
+		if m.anySyncing() {
 			return m, nil
 		}
 		return m.runSyncAction(item.action)
@@ -280,17 +374,35 @@ func prevEnabledSyncItem(items []syncMenuItem, current int) int {
 }
 
 func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
-	if m.syncing {
+	if m.syncingProviders == nil {
+		m.syncingProviders = map[string]bool{}
+	}
+	if m.anySyncing() {
 		return m, nil
 	}
 	switch action {
 	case "sync", "enable":
-		m.syncing = true
-		return m, m.syncGCPCmd()
+		m.syncingProviders[m.syncProvider] = true
+		if m.syncProvider == "aws" {
+			return m, tea.Batch(m.syncAWSCmd(), m.setNotice("Syncing AWS…"))
+		}
+		return m, tea.Batch(m.syncGCPCmd(), m.setNotice("Syncing GCP…"))
 	case "disable":
-		m.syncing = true
+		m.syncingProviders[m.syncProvider] = true
+		if m.syncProvider == "aws" {
+			return m, m.disableAWSCmd()
+		}
 		return m, m.disableGCPCmd()
 	case "auto_on":
+		if m.syncProvider == "aws" {
+			aws := m.metadata.AWS()
+			aws.AutoSync = true
+			if err := m.metadata.SetAWS(aws); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
 		gcp := m.metadata.GCP()
 		gcp.AutoSync = true
 		if err := m.metadata.SetGCP(gcp); err != nil {
@@ -299,6 +411,15 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		}
 		return m, m.setNotice("Auto-sync enabled")
 	case "auto_off":
+		if m.syncProvider == "aws" {
+			aws := m.metadata.AWS()
+			aws.AutoSync = false
+			if err := m.metadata.SetAWS(aws); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
 		gcp := m.metadata.GCP()
 		gcp.AutoSync = false
 		if err := m.metadata.SetGCP(gcp); err != nil {
@@ -307,12 +428,26 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		}
 		return m, m.setNotice("Auto-sync disabled")
 	case "user":
+		if m.syncProvider == "aws" {
+			m.openForm("Default AWS SSH user", "sync_aws_user", []field{
+				{label: "SSH user", description: "Blank uses the AMI default when known", value: m.metadata.AWS().DefaultSSHUser, optional: true, placeholder: "ec2-user"},
+			})
+			break
+		}
 		m.openForm("Default GCP SSH user", "sync_gcp_user", []field{
 			{label: "SSH user", description: "Blank uses OS Login or instance metadata when available", value: m.metadata.GCP().DefaultSSHUser, optional: true, placeholder: "ubuntu"},
 		})
 	case "projects":
 		m.openForm("GCP project filter", "sync_gcp_projects", []field{
 			{label: "Projects", description: "Comma-separated project IDs; blank = all accessible", value: strings.Join(m.metadata.GCP().ProjectFilter, ", "), optional: true, placeholder: "my-prod, my-staging"},
+		})
+	case "profiles":
+		m.openForm("AWS profile filter", "sync_aws_profiles", []field{
+			{label: "Profiles", description: "Comma-separated AWS CLI profiles; blank = all configured", value: strings.Join(m.metadata.AWS().ProfileFilter, ", "), optional: true, placeholder: "default, production"},
+		})
+	case "regions":
+		m.openForm("AWS region filter", "sync_aws_regions", []field{
+			{label: "Regions", description: "Comma-separated AWS regions; blank = all enabled", value: strings.Join(m.metadata.AWS().RegionFilter, ", "), optional: true, placeholder: "eu-west-1, us-east-1"},
 		})
 	case "sa_add":
 		m.openForm("Add service account key", "sync_gcp_sa_add", []field{
@@ -335,6 +470,33 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 	gcp := m.metadata.GCP()
 	switch action {
+	case "sync_aws_user":
+		aws := m.metadata.AWS()
+		aws.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
+		if err := m.metadata.SetAWS(aws); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default AWS SSH user updated")
+	case "sync_aws_profiles":
+		aws := m.metadata.AWS()
+		aws.ProfileFilter = splitCSV(values["Profiles"])
+		if err := m.metadata.SetAWS(aws); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("AWS profile filter updated")
+	case "sync_aws_regions":
+		aws := m.metadata.AWS()
+		aws.RegionFilter = splitCSV(values["Regions"])
+		if err := m.metadata.SetAWS(aws); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("AWS region filter updated")
 	case "sync_gcp_user":
 		gcp.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
 		if err := m.metadata.SetGCP(gcp); err != nil {

@@ -12,13 +12,15 @@ import (
 
 func (r *Runner) sync(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|status|disable>")
+		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|status|disable>")
 		return nil
 	}
 	engine := sync.New(r.Paths, r.store)
 	switch args[0] {
 	case "gcp":
 		return r.syncGCP(engine, args[1:])
+	case "aws":
+		return r.syncAWS(engine, args[1:])
 	case "status":
 		return r.syncStatus(engine, args[1:])
 	case "disable":
@@ -26,6 +28,25 @@ func (r *Runner) sync(args []string) error {
 	default:
 		return usagef("unknown sync command %q", args[0])
 	}
+}
+
+func (r *Runner) syncAWS(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync aws")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync aws")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	result, err := engine.SyncAWS(ctx)
+	if err != nil {
+		telemetry.Track("sync_aws_fail", r.Version)
+		return fail("sync_failed", err.Error())
+	}
+	telemetry.Track("sync_aws", r.Version)
+	return r.success(result, fmt.Sprintf("Synced %d AWS instances", result.Count))
 }
 
 func (r *Runner) syncGCP(engine *sync.Engine, args []string) error {
@@ -96,6 +117,34 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if gcp.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", gcp.LastSyncError)
 	}
+	aws := status.AWS
+	fmt.Fprintln(r.Out, "AWS")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", aws.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", aws.AutoSync)
+	if aws.AWSCLIError != "" {
+		fmt.Fprintf(r.Out, "  aws: %s\n", aws.AWSCLIError)
+	} else if len(aws.Profiles) > 0 {
+		fmt.Fprintf(r.Out, "  Profiles: %s\n", strings.Join(aws.Profiles, ", "))
+	} else {
+		fmt.Fprintln(r.Out, "  Profiles: none")
+	}
+	if len(aws.ProfileFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Profile filter: %s\n", strings.Join(aws.ProfileFilter, ", "))
+	}
+	if len(aws.RegionFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Region filter: %s\n", strings.Join(aws.RegionFilter, ", "))
+	}
+	if aws.DefaultSSHUser != "" {
+		fmt.Fprintf(r.Out, "  Default SSH user: %s\n", aws.DefaultSSHUser)
+	}
+	if aws.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d instances)\n", aws.LastSyncAt.Local().Format(time.RFC3339), aws.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if aws.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", aws.LastSyncError)
+	}
 	return nil
 }
 
@@ -105,17 +154,23 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 1 {
-		return usagef("usage: bast sync disable <gcp>")
+		return usagef("usage: bast sync disable <gcp|aws>")
 	}
 	provider := fs.Arg(0)
-	if provider != "gcp" {
+	if provider != "gcp" && provider != "aws" {
 		return usagef("unknown sync provider %q", provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := engine.DisableGCP(ctx); err != nil {
+	var err error
+	if provider == "gcp" {
+		err = engine.DisableGCP(ctx)
+	} else {
+		err = engine.DisableAWS(ctx)
+	}
+	if err != nil {
 		return fail("sync_disable", err.Error())
 	}
-	telemetry.Track("sync_gcp_disable", r.Version)
-	return r.success(map[string]any{"provider": "gcp", "enabled": false}, "GCP sync disabled")
+	telemetry.Track("sync_"+provider+"_disable", r.Version)
+	return r.success(map[string]any{"provider": provider, "enabled": false}, strings.ToUpper(provider)+" sync disabled")
 }

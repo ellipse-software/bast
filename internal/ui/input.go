@@ -34,6 +34,7 @@ func (c *connectionProcess) Run() error {
 	connectbanner.Write(output)
 	if c.prepare != nil {
 		if err := c.prepare(connectbanner.Status(output)); err != nil {
+			_, _ = fmt.Fprintf(output, "\r\nConnection failed: %v\r\n", err)
 			connectbanner.WaitToContinue(input, output)
 			return fmt.Errorf("prepare connection: %w", err)
 		}
@@ -430,6 +431,16 @@ func (m *App) connectSelected() (tea.Model, tea.Cmd) {
 			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 			defer cancel()
 			if err := m.syncer.EnsureGCPAccess(ctx, host, status); err != nil {
+				return err
+			}
+			return m.metadata.RecordUse(host.Alias)
+		})
+	}
+	if host.Synced && host.SyncSource == "aws" && host.SyncID != "" {
+		return m.startSSH(host, func(status func(string)) error {
+			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			defer cancel()
+			if err := m.syncer.EnsureAWSAccess(ctx, host, status); err != nil {
 				return err
 			}
 			return m.metadata.RecordUse(host.Alias)

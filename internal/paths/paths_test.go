@@ -13,6 +13,9 @@ func TestForHomeUsesDotConfig(t *testing.T) {
 	if p.StateFile != want {
 		t.Fatalf("StateFile = %q, want %q", p.StateFile, want)
 	}
+	if p.SyncAWSConfig != filepath.Join(home, ".ssh", "bast", "sync", "aws", "config") {
+		t.Fatalf("SyncAWSConfig = %q", p.SyncAWSConfig)
+	}
 }
 
 func TestMigrateStateFrom(t *testing.T) {

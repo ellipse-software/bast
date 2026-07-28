@@ -163,7 +163,7 @@ func (m *App) renderHosts(s styleSet) string {
 				name = name[slash+1:]
 			}
 			name = truncate(name, max(2, rowWidth-lipgloss.Width(indent)-8))
-			line := indent + indicator + " " + renderGoogleCloudGroupName(name, s.active) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
+			line := indent + indicator + " " + renderManagedGroupName(name, s.active) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
 			if i == m.cursor {
 				line = s.selected.Width(rowWidth).Render(line)
 			} else {
@@ -222,25 +222,30 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 	if sync.IsSyncedGroup(row.group) {
 		hint = "␣ collapse/expand · cloud sync (read-only)"
 	}
-	return "  " + renderGoogleCloudGroupName(truncate(row.group, max(4, width-3)), s.active) + "\n" +
+	return "  " + renderManagedGroupName(truncate(row.group, max(4, width-3)), s.active) + "\n" +
 		"  " + s.muted.Render(fmt.Sprintf("%d servers · %s", row.count, state)) + "\n\n" +
 		"  " + s.muted.Render(truncate(hint, max(4, width-3)))
 }
 
-func renderGoogleCloudGroupName(name string, restStyle lipgloss.Style) string {
-	if name != "Google Cloud" && !strings.HasPrefix(name, "Google Cloud/") {
-		return name
+func renderManagedGroupName(name string, restStyle lipgloss.Style) string {
+	if name == "Amazon EC2" || strings.HasPrefix(name, "Amazon EC2/") {
+		amazon := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Amazon")
+		ec2 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render(" EC2")
+		return amazon + ec2 + restStyle.Render(strings.TrimPrefix(name, "Amazon EC2"))
 	}
-	colors := []string{"#4285F4", "#EA4335", "#FBBC05", "#4285F4", "#34A853", "#EA4335"}
-	var rendered strings.Builder
-	for i, letter := range "Google" {
-		rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colors[i])).Render(string(letter)))
+	if name == "Google Cloud" || strings.HasPrefix(name, "Google Cloud/") {
+		colors := []string{"#4285F4", "#EA4335", "#FBBC05", "#4285F4", "#34A853", "#EA4335"}
+		var rendered strings.Builder
+		for i, letter := range "Google" {
+			rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colors[i])).Render(string(letter)))
+		}
+		remainder := name[len("Google"):]
+		cloud := " Cloud"
+		rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(cloud))
+		rendered.WriteString(restStyle.Render(strings.TrimPrefix(remainder, cloud)))
+		return rendered.String()
 	}
-	remainder := name[len("Google"):]
-	cloud := " Cloud"
-	rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(cloud))
-	rendered.WriteString(restStyle.Render(strings.TrimPrefix(remainder, cloud)))
-	return rendered.String()
+	return name
 }
 
 func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) string {
@@ -593,14 +598,14 @@ func (m *App) renderFooter(s styleSet) string {
 	}
 	query := m.searchText()
 	left := ""
-	if m.syncing {
+	if m.anySyncing() {
 		left = s.muted.Render("syncing…")
 	} else if strings.HasPrefix(m.search, "\x00") {
 		left = "/ " + query + "█"
 	} else if query != "" {
 		left = "filter: " + query
 	}
-	if !m.syncing && m.status != "" {
+	if !m.anySyncing() && m.status != "" {
 		if left != "" {
 			left += "  •  "
 		}

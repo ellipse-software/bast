@@ -62,6 +62,7 @@ type Manager struct {
 	ManagedConfig string
 	ManagedKeys   string
 	SyncGCPConfig string
+	SyncAWSConfig string
 }
 
 // SyncHostInput describes a provider-synced SSH host block.

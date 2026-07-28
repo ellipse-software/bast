@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -968,6 +969,10 @@ func TestSSHProcessPausesOnPrepareFailure(t *testing.T) {
 	if !strings.Contains(got, connectbanner.ContinuePrompt) {
 		t.Fatalf("missing continue prompt after prepare failure:\n%q", got)
 	}
+	failure := "Connection failed: gcp access denied"
+	if !strings.Contains(got, failure) || strings.Index(got, failure) > strings.Index(got, connectbanner.ContinuePrompt) {
+		t.Fatalf("prepare error should appear before the continue prompt:\n%q", got)
+	}
 }
 
 func TestSuccessfulSSHSessionExitsBast(t *testing.T) {
@@ -1530,7 +1535,7 @@ func TestEnterTogglesSelectedGroup(t *testing.T) {
 }
 
 func TestGoogleCloudGroupNameUsesGoogleColors(t *testing.T) {
-	rendered := renderGoogleCloudGroupName("Google Cloud", lipgloss.NewStyle())
+	rendered := renderManagedGroupName("Google Cloud", lipgloss.NewStyle())
 	if !strings.Contains(rendered, "\x1b[") {
 		t.Fatalf("expected ANSI colours: %q", rendered)
 	}
@@ -1541,8 +1546,24 @@ func TestGoogleCloudGroupNameUsesGoogleColors(t *testing.T) {
 	if width := lipgloss.Width(rendered); width != len("Google Cloud") {
 		t.Fatalf("width = %d", width)
 	}
-	if got := renderGoogleCloudGroupName("Work", lipgloss.NewStyle()); got != "Work" {
+	if got := renderManagedGroupName("Work", lipgloss.NewStyle()); got != "Work" {
 		t.Fatalf("ordinary group changed: %q", got)
+	}
+}
+
+func TestAmazonEC2GroupNameUsesAWSColors(t *testing.T) {
+	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5CF6"))
+	rendered := renderManagedGroupName("Amazon EC2/default/eu-west-2", restStyle)
+	whiteAmazon := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Amazon")
+	orangeEC2 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render(" EC2")
+	if !strings.HasPrefix(rendered, whiteAmazon+orangeEC2) {
+		t.Fatalf("Amazon EC2 brand colours were not applied: %q", rendered)
+	}
+	if !strings.Contains(rendered, restStyle.Render("/default/eu-west-2")) {
+		t.Fatalf("Amazon EC2 group path did not retain the normal style: %q", rendered)
+	}
+	if width := lipgloss.Width(rendered); width != len("Amazon EC2/default/eu-west-2") {
+		t.Fatalf("width = %d", width)
 	}
 }
 
@@ -1556,8 +1577,8 @@ func TestSyncTabRenders(t *testing.T) {
 	if strings.Contains(body, "Sync now") {
 		t.Fatalf("provider list should not show submenu actions:\n%s", body)
 	}
-	if !strings.Contains(body, "AWS") || !strings.Contains(body, "coming soon") {
-		t.Fatalf("expected future providers:\n%s", body)
+	if !strings.Contains(body, "AWS") || !strings.Contains(body, "disabled") {
+		t.Fatalf("expected enabled AWS provider:\n%s", body)
 	}
 	m.updateSyncKeys("enter")
 	if m.syncProvider != "gcp" {
@@ -1571,6 +1592,15 @@ func TestSyncTabRenders(t *testing.T) {
 	if m.syncProvider != "" {
 		t.Fatalf("expected esc to return to providers, got %q", m.syncProvider)
 	}
+	m.updateSyncKeys("down")
+	m.updateSyncKeys("enter")
+	if m.syncProvider != "aws" {
+		t.Fatalf("expected AWS provider, got %q", m.syncProvider)
+	}
+	body = m.renderSync(m.styles())
+	if !strings.Contains(body, "Profile filter") || !strings.Contains(body, "Region filter") {
+		t.Fatalf("aws submenu body:\n%s", body)
+	}
 	tabs := m.renderTabs(m.styles())
 	if !strings.Contains(tabs, "[3] Sync") {
 		t.Fatalf("tabs = %q", tabs)
@@ -1582,10 +1612,56 @@ func TestSyncActionIgnoredWhileSyncing(t *testing.T) {
 	m.section = syncSection
 	m.syncProvider = "gcp"
 	m.syncCursor = 0
-	m.syncing = true
+	m.syncingProviders = map[string]bool{"gcp": true}
 
 	_, cmd := m.updateSyncKeys("enter")
 	if cmd != nil {
 		t.Fatal("sync action should be disabled while a sync is running")
+	}
+}
+
+func TestSyncActionIgnoredWhileOtherProviderSyncing(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "aws"
+	m.syncCursor = 0
+	m.syncingProviders = map[string]bool{"gcp": true}
+
+	_, cmd := m.updateSyncKeys("enter")
+	if cmd != nil {
+		t.Fatal("AWS sync action should be disabled while GCP sync is running")
+	}
+	if m.syncingProviders["aws"] {
+		t.Fatal("AWS sync was marked active while GCP sync is running")
+	}
+}
+
+func TestInitSequencesProviderAutoSync(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetGCP(metadata.GCPIntegration{Enabled: true, AutoSync: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetAWS(metadata.AWSIntegration{Enabled: true, AutoSync: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := m.Init()
+	initMsg := cmd()
+	batch, ok := initMsg.(tea.BatchMsg)
+	if !ok || len(batch) == 0 {
+		t.Fatalf("Init command = %T, want non-empty tea.BatchMsg", initMsg)
+	}
+	autoSync := batch[len(batch)-1]()
+	if autoSync == nil {
+		t.Fatal("auto-sync command returned nil")
+	}
+	if got := reflect.TypeOf(autoSync).String(); got != "tea.sequenceMsg" {
+		t.Fatalf("auto-sync command = %s, want tea.sequenceMsg", got)
+	}
+	if got := reflect.ValueOf(autoSync).Len(); got != 2 {
+		t.Fatalf("auto-sync sequence length = %d, want 2", got)
+	}
+	if !m.syncingProviders["gcp"] || !m.syncingProviders["aws"] {
+		t.Fatalf("syncing providers = %v", m.syncingProviders)
 	}
 }

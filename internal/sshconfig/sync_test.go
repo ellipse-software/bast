@@ -2,10 +2,36 @@ package sshconfig
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestAWSProxyConfigResolvesWithOpenSSH(t *testing.T) {
+	dir := t.TempDir()
+	syncPath := filepath.Join(dir, "aws", "config")
+	if err := WriteSyncConfig(syncPath, []SyncHostInput{{
+		Alias: "aws_default_eu-west-1_web", SyncSource: "aws",
+		SyncID:   "arn:aws:ec2:eu-west-1:123456789012:instance/i-123",
+		HostName: "i-123", User: "ubuntu", IdentityFile: "~/.ssh/bast/aws_compute", IdentitiesOnly: true,
+		ProxyCommand: "aws ec2-instance-connect open-tunnel --instance-id=i-123 --instance-connect-endpoint-id=eice-123 --remote-port=%p --profile=default --region=eu-west-1 --no-cli-pager",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(dir, "config")
+	if err := os.WriteFile(mainPath, []byte("Include "+syncPath+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("ssh", "-F", mainPath, "-G", "aws_default_eu-west-1_web").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(out)
+	if !strings.Contains(text, "hostname i-123") || !strings.Contains(text, "proxycommand aws ec2-instance-connect open-tunnel") || !strings.Contains(text, "--remote-port=%p") {
+		t.Fatalf("ssh -G output:\n%s", text)
+	}
+}
 
 func TestWriteAndDiscoverSyncBlocks(t *testing.T) {
 	m := testManager(t)
@@ -13,7 +39,7 @@ func TestWriteAndDiscoverSyncBlocks(t *testing.T) {
 	if err := m.EnsureManaged(); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.EnsureSyncInclude(); err != nil {
+	if err := m.EnsureSyncInclude(m.SyncGCPConfig); err != nil {
 		t.Fatal(err)
 	}
 	blocks := []SyncHostInput{
@@ -78,7 +104,7 @@ func TestEnsureSyncIncludeIsBeforeHostBlocks(t *testing.T) {
 	if err := os.WriteFile(m.ManagedConfig, b, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.EnsureSyncInclude(); err != nil {
+	if err := m.EnsureSyncInclude(m.SyncGCPConfig); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(m.ManagedConfig)
@@ -168,7 +194,7 @@ func TestRenderSyncBlockIdentitiesOnlyOnlyWhenConfident(t *testing.T) {
 func TestRemoveSyncInclude(t *testing.T) {
 	m := testManager(t)
 	m.SyncGCPConfig = filepath.Join(m.ManagedDir, "sync", "gcp", "config")
-	if err := m.EnsureSyncInclude(); err != nil {
+	if err := m.EnsureSyncInclude(m.SyncGCPConfig); err != nil {
 		t.Fatal(err)
 	}
 	if err := WriteSyncConfig(m.SyncGCPConfig, []SyncHostInput{{
@@ -176,7 +202,7 @@ func TestRemoveSyncInclude(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.RemoveSyncInclude(); err != nil {
+	if err := m.RemoveSyncInclude(m.SyncGCPConfig); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(m.SyncGCPConfig); !os.IsNotExist(err) {
