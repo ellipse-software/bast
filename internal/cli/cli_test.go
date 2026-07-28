@@ -61,6 +61,40 @@ func TestHostAddLabelPathSetsGroup(t *testing.T) {
 	}
 }
 
+func TestHostEditPlainLabelPreservesGroup(t *testing.T) {
+	home := t.TempDir()
+	client := fakeOpenSSH(t)
+	_, errOut, err := runTestCLI(t, home, client, "--json", "hosts", "add", "abc/test", "--hostname", "test.example")
+	if err != nil || errOut != "" {
+		t.Fatalf("add stderr=%q err=%v", errOut, err)
+	}
+	out, errOut, err := runTestCLI(t, home, client, "--json", "hosts", "edit", "test", "--label", "renamed")
+	if err != nil || errOut != "" || !strings.Contains(out, `"ok":true`) {
+		t.Fatalf("edit output=%q stderr=%q err=%v", out, errOut, err)
+	}
+	out, _, err = runTestCLI(t, home, client, "--json", "hosts", "show", "renamed")
+	if err != nil || !strings.Contains(out, `"group":"abc"`) || !strings.Contains(out, `"label":"renamed"`) {
+		t.Fatalf("show output=%q err=%v", out, err)
+	}
+}
+
+func TestHostEditLabelPathWithExplicitGroupPeelsLeaf(t *testing.T) {
+	home := t.TempDir()
+	client := fakeOpenSSH(t)
+	_, errOut, err := runTestCLI(t, home, client, "--json", "hosts", "add", "old", "--hostname", "old.example", "--group", "Legacy")
+	if err != nil || errOut != "" {
+		t.Fatalf("add stderr=%q err=%v", errOut, err)
+	}
+	out, errOut, err := runTestCLI(t, home, client, "--json", "hosts", "edit", "old", "--label", "abc/test", "--group", "Work")
+	if err != nil || errOut != "" || !strings.Contains(out, `"ok":true`) {
+		t.Fatalf("edit output=%q stderr=%q err=%v", out, errOut, err)
+	}
+	out, _, err = runTestCLI(t, home, client, "--json", "hosts", "show", "test")
+	if err != nil || !strings.Contains(out, `"group":"Work"`) || !strings.Contains(out, `"label":"test"`) {
+		t.Fatalf("show output=%q err=%v", out, err)
+	}
+}
+
 func TestExternalHostAllowsMetadataOnlyEdit(t *testing.T) {
 	home := t.TempDir()
 	sshDir := filepath.Join(home, ".ssh")

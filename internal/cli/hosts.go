@@ -414,7 +414,9 @@ func (r *Runner) hostEdit(args []string) error {
 			newAlias = sshconfig.NormalizeAlias(leaf)
 		}
 		newMeta.Label = leaf
-		if !group.set && !*clearGroup {
+		// Only apply a group from the label when the label carries path info.
+		// A plain label rename must preserve the existing host group.
+		if !group.set && !*clearGroup && strings.Contains(strings.TrimSpace(label.value), "/") {
 			newMeta.Group = parsedGroup
 		}
 	}
@@ -713,8 +715,9 @@ func normalizeGroup(group string) (string, error) {
 	return normalized, nil
 }
 
-// resolveLabelAndGroup applies path-in-label parsing when --group was not set.
-// Explicit group keeps the label literal. clear-group still peels a path leaf.
+// resolveLabelAndGroup peels path-in-label syntax into a leaf name.
+// Explicit --group overrides only the group; a path in the label still peels.
+// clear-group clears the group and still peels a path leaf when present.
 func resolveLabelAndGroup(label string, groupSet bool, groupValue string, clearGroup bool) (leaf, group string, err error) {
 	label = strings.TrimSpace(label)
 	if clearGroup {
@@ -731,6 +734,13 @@ func resolveLabelAndGroup(label string, groupSet bool, groupValue string, clearG
 		group, err = normalizeGroup(groupValue)
 		if err != nil {
 			return "", "", err
+		}
+		if strings.Contains(label, "/") {
+			_, leaf, err = metadata.SplitLabelPath(label)
+			if err != nil {
+				return "", "", fail("validation", err.Error())
+			}
+			return leaf, group, nil
 		}
 		return label, group, nil
 	}
