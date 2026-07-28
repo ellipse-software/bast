@@ -258,6 +258,7 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.section == syncSection && m.syncProvider != "" {
 			return m.updateSyncKeys(key)
 		}
+		return m, tea.Quit
 	case "up", "k":
 		if m.section == syncSection {
 			return m.updateSyncKeys(key)

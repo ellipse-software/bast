@@ -642,7 +642,7 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 	return b.String()
 }
 
-func hostFormHint(f *form) string {
+func hostFormHint(f *form, textInputActive bool) string {
 	if f.screen == formScreenAdvancedHub {
 		return "Enter open section • ↑/↓ or j/k move • ⌫/Esc back • Ctrl+Enter save • q quit"
 	}
@@ -658,7 +658,11 @@ func hostFormHint(f *form) string {
 		if len(item.options) > 0 && item.options[item.selected].custom {
 			return action + " • Esc choices • ⌫ edit • Ctrl+Enter save"
 		}
-		return action + " • ↑/↓ or Tab move • ⌫/Esc back • q quit • Ctrl+Enter save"
+		hint := action + " • ↑/↓ or Tab move • ⌫/Esc back"
+		if !textInputActive {
+			hint += " • q quit"
+		}
+		return hint + " • Ctrl+Enter save"
 	}
 
 	items := hostHubItems(f)

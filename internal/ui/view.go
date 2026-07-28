@@ -485,7 +485,7 @@ func (m *App) renderForm(s styleSet) string {
 
 func (m *App) formHint() string {
 	if isHostForm(m.form) {
-		return hostFormHint(m.form)
+		return hostFormHint(m.form, m.formTextInputActive())
 	}
 	f := m.form
 	action := "󰌑 next"

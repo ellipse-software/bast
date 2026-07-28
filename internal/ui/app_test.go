@@ -204,6 +204,27 @@ func TestEscapeReturnsToParentThenQuitsAtRoot(t *testing.T) {
 	}
 }
 
+func TestBackspaceQuitsAtRootAndReturnsFromSyncProvider(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{
+		tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}),
+		tea.KeyPressMsg(tea.Key{Code: 'h', Mod: tea.ModCtrl}),
+	} {
+		for _, section := range []section{hostsSection, keysSection, syncSection} {
+			m := testApp(t)
+			m.section = section
+			_, cmd := m.Update(key)
+			requireQuit(t, cmd)
+		}
+
+		m := testApp(t)
+		m.section, m.syncProvider = syncSection, "gcp"
+		_, cmd := m.Update(key)
+		if cmd != nil || m.syncProvider != "" {
+			t.Fatalf("backspace should return from Sync provider: provider=%q cmd=%v", m.syncProvider, cmd)
+		}
+	}
+}
+
 func TestNewlyCreatedItemsAreSelectedAfterReload(t *testing.T) {
 	m := testApp(t)
 	m.search = "old filter"
@@ -523,12 +544,19 @@ func TestFooterShowsControlsForTheActiveFormState(t *testing.T) {
 	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+Enter save") || !strings.Contains(footer, "Tab move") || strings.Contains(footer, "connect") {
 		t.Fatalf("edit footer = %q", footer)
 	}
+	enterHostFormSection(t, m, formSectionMetadata)
+	if footer := m.renderFooter(m.styles()); strings.Contains(footer, "q quit") {
+		t.Fatalf("plain-text host field advertises q as quit: %q", footer)
+	}
 
 	m.hosts[0].Managed = true
 	m.openEditHostForm()
 	enterHostFormSection(t, m, formSectionAuth)
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "q quit") {
+		t.Fatalf("selectable host field does not advertise q as quit: %q", footer)
+	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
 	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "choose") || !strings.Contains(footer, "Enter select") || !strings.Contains(footer, "Esc back") {
 		t.Fatalf("choice footer = %q", footer)
