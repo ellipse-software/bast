@@ -15,11 +15,14 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/charmbracelet/x/term"
+
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/openssh"
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
+	"bast/internal/telemetry"
 )
 
 const help = `Bast — native SSH picker, key manager, and CLI
@@ -169,6 +172,16 @@ func (r *Runner) Run(args []string) error {
 		_ = json.NewEncoder(r.Err).Encode(map[string]any{"ok": false, "error": map[string]string{"code": ce.code, "message": ce.message}})
 	} else {
 		fmt.Fprintln(r.Err, "bast:", ce.message)
+		if !r.NoInput && telemetry.Enabled() {
+			if in, ok := r.In.(*os.File); ok && term.IsTerminal(in.Fd()) {
+				telemetry.OfferReport(r.In, r.Err, telemetry.Report{
+					Message: ce.message,
+					Version: r.Version,
+					Code:    ce.code,
+					Context: "cli",
+				})
+			}
+		}
 	}
 	return reportedError{code: ce.exit}
 }

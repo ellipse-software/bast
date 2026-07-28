@@ -318,6 +318,18 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "q":
 				return m, tea.Quit
+			case "space":
+				if telemetry.Enabled() {
+					telemetry.ReportError(telemetry.Report{
+						Message: m.status,
+						Version: m.version,
+						Context: "tui",
+					})
+					return m, m.setNotice("Report sent")
+				}
+				m.statusID++
+				m.status, m.statusError = "", false
+				return m, nil
 			case "enter", "esc", "backspace", "ctrl+h":
 				m.statusID++
 				m.status, m.statusError = "", false

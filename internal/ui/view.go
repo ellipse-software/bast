@@ -72,7 +72,7 @@ func (m *App) renderError(s styleSet) string {
 		"\n\n" + s.muted.Render("What happened") +
 		"\n" + s.value.Width(contentWidth).Render(m.status) +
 		"\n\n" + s.muted.Width(contentWidth).Render(explanation) +
-		"\n\n" + s.muted.Render("Press Enter or Esc to return")
+		"\n\n" + s.muted.Render("Space send report · Enter/Esc return")
 	panel := lipgloss.NewStyle().
 		Width(contentWidth).
 		Padding(1, 2).
