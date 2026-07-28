@@ -190,6 +190,37 @@ func (m *App) anySyncing() bool {
 	return len(m.syncingProviders) > 0
 }
 
+func (m *App) syncCompletionNotice(provider string, count int) string {
+	type providerCount struct {
+		id      string
+		name    string
+		enabled bool
+		count   int
+	}
+	gcp := m.metadata.GCP()
+	aws := m.metadata.AWS()
+	azure := m.metadata.Azure()
+	providers := []providerCount{
+		{id: "gcp", name: "GCP", enabled: gcp.Enabled, count: gcp.LastInstanceCount},
+		{id: "aws", name: "AWS", enabled: aws.Enabled, count: aws.LastInstanceCount},
+		{id: "azure", name: "Azure", enabled: azure.Enabled, count: azure.LastInstanceCount},
+	}
+	parts := make([]string, 0, len(providers))
+	for _, item := range providers {
+		if !item.enabled {
+			continue
+		}
+		if item.id == provider {
+			item.count = count
+		}
+		parts = append(parts, fmt.Sprintf("%s %d", item.name, item.count))
+	}
+	if len(parts) > 1 {
+		return strings.Join(parts, " · ")
+	}
+	return fmt.Sprintf("Synced %d %s instances", count, strings.ToUpper(provider))
+}
+
 func (m *App) Init() tea.Cmd {
 	if m.syncingProviders == nil {
 		m.syncingProviders = map[string]bool{}
@@ -306,7 +337,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.syncStatusCmd()
 		}
 		label := strings.ToUpper(msg.provider)
-		notice := fmt.Sprintf("Synced %d %s instances", msg.result.Count, label)
+		notice := m.syncCompletionNotice(msg.provider, msg.result.Count)
 		if msg.result.Error == "disabled" {
 			notice = label + " sync disconnected"
 			telemetry.Track("sync_"+msg.provider+"_disable", m.version)

@@ -169,9 +169,21 @@ func (m *App) renderHosts(s styleSet) string {
 					name = name[slash+1:]
 				}
 			}
-			iconWidth := lipgloss.Width(managedGroupIcon(name, m.nerdFont))
-			name = truncate(name, max(2, rowWidth-lipgloss.Width(indent)-8-iconWidth))
-			line := indent + indicator + " " + renderManagedGroupName(name, s.active, m.nerdFont) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
+			count := s.muted.Render(fmt.Sprintf("(%d)", row.count))
+			errorIcon := ""
+			if row.depth == 0 && m.cloudSyncGroupHasError(row.group) {
+				errorIcon = s.error.Render("⚠")
+			}
+			prefix := indent + indicator + " "
+			reservedWidth := lipgloss.Width(prefix) + 1 + lipgloss.Width(count) + lipgloss.Width(managedGroupIcon(name, m.nerdFont))
+			if errorIcon != "" {
+				reservedWidth += 1 + lipgloss.Width(errorIcon)
+			}
+			name = truncate(name, max(2, rowWidth-reservedWidth))
+			line := prefix + renderManagedGroupName(name, s.active, m.nerdFont) + " " + count
+			if errorIcon != "" {
+				line += strings.Repeat(" ", max(1, rowWidth-lipgloss.Width(line)-lipgloss.Width(errorIcon))) + errorIcon
+			}
 			if i == m.cursor {
 				line = s.selected.Width(rowWidth).Render(line)
 			} else {
@@ -216,6 +228,19 @@ func (m *App) renderHosts(s styleSet) string {
 	}
 	divider := s.rule.Render(strings.TrimSuffix(strings.Repeat("│\n", bodyHeight), "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, listPanel, divider, detail)
+}
+
+func (m *App) cloudSyncGroupHasError(group string) bool {
+	switch group {
+	case "Google Cloud", "GCP":
+		return m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != ""
+	case "Amazon EC2", "AWS":
+		return m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != ""
+	case "Microsoft Azure":
+		return m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != ""
+	default:
+		return false
+	}
 }
 
 func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {

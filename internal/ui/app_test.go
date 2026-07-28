@@ -296,6 +296,52 @@ func TestHostGroupsAreVisuallySeparatedAndCollapsible(t *testing.T) {
 	}
 }
 
+func TestCloudSyncRootShowsRightAlignedErrorIcon(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Google Cloud/project-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("beta", metadata.Host{Group: "Google Cloud/project-b"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetGCP(metadata.GCPIntegration{Enabled: true, LastSyncError: "gcloud exited with status 1"}); err != nil {
+		t.Fatal(err)
+	}
+	m.sortHosts()
+
+	rendered := m.renderHosts(m.styles())
+	if strings.Count(rendered, "⚠") != 1 {
+		t.Fatalf("expected one error icon on the provider root:\n%s", rendered)
+	}
+	rootLine := strings.Split(rendered, "\n")[0]
+	iconIndex := strings.Index(rootLine, "⚠")
+	if iconIndex < 0 || lipgloss.Width(rootLine[:iconIndex]) != m.panelLayout().listWidth-1 {
+		t.Fatalf("error icon is not right aligned: %q", rootLine)
+	}
+
+	gcp := m.metadata.GCP()
+	gcp.LastSyncError = ""
+	if err := m.metadata.SetGCP(gcp); err != nil {
+		t.Fatal(err)
+	}
+	if rendered = m.renderHosts(m.styles()); strings.Contains(rendered, "⚠") {
+		t.Fatalf("cleared sync error still shows the icon:\n%s", rendered)
+	}
+}
+
+func TestCloudSyncRootShowsCurrentCLIError(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Amazon EC2/default/eu-west-2"}); err != nil {
+		t.Fatal(err)
+	}
+	m.syncStatus.AWS.AWSCLIError = "aws executable not found"
+	m.sortHosts()
+
+	if rendered := m.renderHosts(m.styles()); strings.Count(rendered, "⚠") != 1 {
+		t.Fatalf("expected one error icon for the current CLI error:\n%s", rendered)
+	}
+}
+
 func TestFooterHidesConnectWhenGroupSelected(t *testing.T) {
 	m := testApp(t)
 	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Work"}); err != nil {
@@ -2247,5 +2293,32 @@ func TestAutoSyncDoesNotRestartAfterSyncReload(t *testing.T) {
 	}
 	if m.syncingProviders["gcp"] {
 		t.Fatal("GCP was marked syncing again after reload")
+	}
+}
+
+func TestSyncCompletionNoticeIncludesEveryEnabledProvider(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetGCP(metadata.GCPIntegration{Enabled: true, LastInstanceCount: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetAWS(metadata.AWSIntegration{Enabled: true, LastInstanceCount: 12}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetAzure(metadata.AzureIntegration{Enabled: true, LastInstanceCount: 4}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := m.syncCompletionNotice("gcp", 3); got != "GCP 3 · AWS 12 · Azure 4" {
+		t.Fatalf("multi-provider notice = %q", got)
+	}
+
+	if err := m.metadata.SetAWS(metadata.AWSIntegration{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetAzure(metadata.AzureIntegration{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.syncCompletionNotice("gcp", 3); got != "Synced 3 GCP instances" {
+		t.Fatalf("single-provider notice = %q", got)
 	}
 }
