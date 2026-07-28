@@ -150,7 +150,7 @@ func TestUpdateSyncHostAuth(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := UpdateSyncHostAuth(path, "gcp_p_web", "debian", "~/.ssh/google_compute_engine", true); err != nil {
+	if err := UpdateSyncHostAuth(path, "gcp_p_web", "debian", "~/.ssh/google_compute_engine", "~/.ssh/bast/azure/cert.pub", true); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(path)
@@ -161,6 +161,9 @@ func TestUpdateSyncHostAuth(t *testing.T) {
 	if !strings.Contains(text, "User debian") || !strings.Contains(text, "IdentityFile ~/.ssh/google_compute_engine") {
 		t.Fatalf("auth missing:\n%s", text)
 	}
+	if !strings.Contains(text, "CertificateFile ~/.ssh/bast/azure/cert.pub") {
+		t.Fatalf("certificate missing:\n%s", text)
+	}
 	if !strings.Contains(text, "IdentitiesOnly yes") || !strings.Contains(text, "ProxyCommand gcloud") {
 		t.Fatalf("expected IdentitiesOnly + ProxyCommand preserved:\n%s", text)
 	}
@@ -169,6 +172,17 @@ func TestUpdateSyncHostAuth(t *testing.T) {
 	}
 	if strings.Count(text, syncMarkerEnd) != 1 {
 		t.Fatalf("duplicate sync end markers:\n%s", text)
+	}
+	if err := UpdateSyncHostAuth(path, "gcp_p_web", "debian", "~/.ssh/id_ed25519", "", true); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text = string(raw)
+	if strings.Contains(text, "CertificateFile") || !strings.Contains(text, "IdentityFile ~/.ssh/id_ed25519") {
+		t.Fatalf("stale certificate was not cleared:\n%s", text)
 	}
 }
 

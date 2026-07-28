@@ -1,15 +1,19 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime/debug"
+	"syscall"
 
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/cli"
+	azurecloud "bast/internal/cloud/azure"
 	"bast/internal/openssh"
 	"bast/internal/paths"
 	"bast/internal/telemetry"
@@ -33,6 +37,15 @@ func main() {
 }
 
 func run(args []string) error {
+	if len(args) > 0 && args[0] == "__azure-bastion-proxy" {
+		options, err := azurecloud.ParseProxyOptions(args[1:])
+		if err != nil {
+			return err
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		return azurecloud.RunBastionProxy(ctx, options, os.Stdin, os.Stdout, os.Stderr)
+	}
 	jsonOutput := false
 	for _, arg := range args {
 		if arg == "--json" {

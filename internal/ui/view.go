@@ -157,9 +157,12 @@ func (m *App) renderHosts(s styleSet) string {
 			if m.collapsedGroups[row.group] && m.searchText() == "" {
 				indicator = "▸"
 			}
-			name := row.group
-			if slash := strings.LastIndex(name, "/"); row.depth > 0 && slash >= 0 {
-				name = name[slash+1:]
+			name := row.label
+			if name == "" {
+				name = row.group
+				if slash := strings.LastIndex(name, "/"); row.depth > 0 && slash >= 0 {
+					name = name[slash+1:]
+				}
 			}
 			name = truncate(name, max(2, rowWidth-lipgloss.Width(indent)-8))
 			line := indent + indicator + " " + renderManagedGroupName(name, s.active) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
@@ -228,9 +231,8 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 
 func renderManagedGroupName(name string, restStyle lipgloss.Style) string {
 	if name == "Amazon EC2" || strings.HasPrefix(name, "Amazon EC2/") {
-		amazon := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Amazon")
-		ec2 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render(" EC2")
-		return amazon + ec2 + restStyle.Render(strings.TrimPrefix(name, "Amazon EC2"))
+		provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render("Amazon EC2")
+		return provider + restStyle.Render(strings.TrimPrefix(name, "Amazon EC2"))
 	}
 	if name == "Google Cloud" || strings.HasPrefix(name, "Google Cloud/") {
 		colors := []string{"#4285F4", "#EA4335", "#FBBC05", "#4285F4", "#34A853", "#EA4335"}
@@ -243,6 +245,10 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style) string {
 		rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(cloud))
 		rendered.WriteString(restStyle.Render(strings.TrimPrefix(remainder, cloud)))
 		return rendered.String()
+	}
+	if name == "Microsoft Azure" || strings.HasPrefix(name, "Microsoft Azure/") {
+		provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0078D4")).Render("Microsoft Azure")
+		return provider + restStyle.Render(strings.TrimPrefix(name, "Microsoft Azure"))
 	}
 	return name
 }

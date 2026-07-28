@@ -37,10 +37,18 @@ func (m *App) syncProviders() []syncMenuItem {
 			awsDetail = fmt.Sprintf("%d · %s", aws.LastInstanceCount, aws.LastSyncAt.Local().Format("2006-01-02 15:04"))
 		}
 	}
+	azure := m.metadata.Azure()
+	azureDetail := "disabled"
+	if azure.Enabled {
+		azureDetail = fmt.Sprintf("%d instances", azure.LastInstanceCount)
+		if azure.LastSyncAt != nil {
+			azureDetail = fmt.Sprintf("%d · %s", azure.LastInstanceCount, azure.LastSyncAt.Local().Format("2006-01-02 15:04"))
+		}
+	}
 	return []syncMenuItem{
 		{label: "GCP", detail: gcpDetail, provider: "gcp"},
 		{label: "AWS", detail: awsDetail, provider: "aws"},
-		{label: "Azure", detail: "coming soon", disabled: true},
+		{label: "Azure", detail: azureDetail, provider: "azure"},
 	}
 }
 
@@ -50,9 +58,32 @@ func (m *App) syncProviderActions(provider string) []syncMenuItem {
 		return m.gcpSyncActions()
 	case "aws":
 		return m.awsSyncActions()
+	case "azure":
+		return m.azureSyncActions()
 	default:
 		return nil
 	}
+}
+
+func (m *App) azureSyncActions() []syncMenuItem {
+	azure := m.metadata.Azure()
+	actions := []syncMenuItem{{label: "Sync now", action: "sync"}}
+	if azure.Enabled {
+		actions = append(actions, syncMenuItem{label: "Disconnect", action: "disable"})
+	} else {
+		actions = append(actions, syncMenuItem{label: "Connect", action: "enable"})
+	}
+	if azure.AutoSync {
+		actions = append(actions, syncMenuItem{label: "Disable auto-sync", action: "auto_off"})
+	} else {
+		actions = append(actions, syncMenuItem{label: "Enable auto-sync", action: "auto_on"})
+	}
+	return append(actions,
+		syncMenuItem{label: "Default SSH user", action: "user"},
+		syncMenuItem{label: "Subscription filter", action: "subscriptions"},
+		syncMenuItem{label: "Resource group filter", action: "resource_groups"},
+		syncMenuItem{label: "Refresh status", action: "refresh"},
+	)
 }
 
 func (m *App) awsSyncActions() []syncMenuItem {
@@ -128,6 +159,15 @@ func (m *App) syncAWSCmd() tea.Cmd {
 	}
 }
 
+func (m *App) syncAzureCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncAzure(ctx)
+		return syncDoneMsg{provider: "azure", result: result, err: err}
+	}
+}
+
 func (m *App) syncStatusCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -161,6 +201,18 @@ func (m *App) disableAWSCmd() tea.Cmd {
 	}
 }
 
+func (m *App) disableAzureCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err := m.syncer.DisableAzure(ctx)
+		if err != nil {
+			return syncDoneMsg{provider: "azure", err: err}
+		}
+		return syncDoneMsg{provider: "azure", result: sync.Result{Provider: "azure", SyncedAt: time.Now().UTC(), Error: "disabled"}}
+	}
+}
+
 func (m *App) renderSync(s styleSet) string {
 	items := m.syncMenuItems()
 	if m.syncCursor >= len(items) {
@@ -181,6 +233,8 @@ func (m *App) renderSync(s styleSet) string {
 	switch m.syncProvider {
 	case "gcp":
 		title = "GCP"
+	case "azure":
+		title = "Azure"
 	}
 	b.WriteString("\n  " + s.active.Render(title) + "\n")
 	b.WriteString(m.renderProviderStatus(s, m.syncProvider))
@@ -292,6 +346,51 @@ func (m *App) renderProviderStatus(s styleSet, provider string) string {
 		}
 		b.WriteString(compactRow(s, "Profile filter", profiles, width))
 		b.WriteString(compactRow(s, "Regions", regions, width))
+	case "azure":
+		azure := m.metadata.Azure()
+		status := m.syncStatus.Azure
+		enabled := "disabled"
+		if azure.Enabled {
+			enabled = "enabled"
+		}
+		b.WriteString(compactRow(s, "Status", enabled, width))
+		if status.AzureCLIError != "" {
+			b.WriteString(compactRow(s, "az", status.AzureCLIError, width))
+		} else if len(status.Subscriptions) > 0 {
+			b.WriteString(compactRow(s, "Subscriptions", strings.Join(status.Subscriptions, ", "), width))
+		} else {
+			b.WriteString(compactRow(s, "Subscriptions", "none", width))
+		}
+		if status.SSHExtensionError != "" {
+			b.WriteString(compactRow(s, "ssh extension", status.SSHExtensionError, width))
+		}
+		if status.BastionExtensionError != "" {
+			b.WriteString(compactRow(s, "bastion extension", status.BastionExtensionError, width))
+		}
+		if azure.LastSyncAt != nil {
+			b.WriteString(compactRow(s, "Last sync", azure.LastSyncAt.Local().Format("2006-01-02 15:04")+" · "+fmt.Sprintf("%d", azure.LastInstanceCount), width))
+		} else {
+			b.WriteString(compactRow(s, "Last sync", "never", width))
+		}
+		if azure.LastSyncError != "" {
+			b.WriteString(compactRow(s, "Error", azure.LastSyncError, width))
+		}
+		auto := "off"
+		if azure.AutoSync {
+			auto = "on"
+		}
+		b.WriteString(compactRow(s, "Auto-sync", auto, width))
+		b.WriteString(compactRow(s, "SSH user", noneValue(azure.DefaultSSHUser), width))
+		subscriptions := "all enabled"
+		if len(azure.SubscriptionFilter) > 0 {
+			subscriptions = strings.Join(azure.SubscriptionFilter, ", ")
+		}
+		resourceGroups := "all"
+		if len(azure.ResourceGroupFilter) > 0 {
+			resourceGroups = strings.Join(azure.ResourceGroupFilter, ", ")
+		}
+		b.WriteString(compactRow(s, "Subscription filter", subscriptions, width))
+		b.WriteString(compactRow(s, "Resource groups", resourceGroups, width))
 	}
 	return b.String()
 }
@@ -383,8 +482,11 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 	switch action {
 	case "sync", "enable":
 		m.syncingProviders[m.syncProvider] = true
-		if m.syncProvider == "aws" {
+		switch m.syncProvider {
+		case "aws":
 			return m, tea.Batch(m.syncAWSCmd(), m.setNotice("Syncing AWS…"))
+		case "azure":
+			return m, tea.Batch(m.syncAzureCmd(), m.setNotice("Syncing Azure…"))
 		}
 		return m, tea.Batch(m.syncGCPCmd(), m.setNotice("Syncing GCP…"))
 	case "disable":
@@ -392,12 +494,24 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "aws" {
 			return m, m.disableAWSCmd()
 		}
+		if m.syncProvider == "azure" {
+			return m, m.disableAzureCmd()
+		}
 		return m, m.disableGCPCmd()
 	case "auto_on":
 		if m.syncProvider == "aws" {
 			aws := m.metadata.AWS()
 			aws.AutoSync = true
 			if err := m.metadata.SetAWS(aws); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "azure" {
+			azure := m.metadata.Azure()
+			azure.AutoSync = true
+			if err := m.metadata.SetAzure(azure); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -420,6 +534,15 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync disabled")
 		}
+		if m.syncProvider == "azure" {
+			azure := m.metadata.Azure()
+			azure.AutoSync = false
+			if err := m.metadata.SetAzure(azure); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
 		gcp := m.metadata.GCP()
 		gcp.AutoSync = false
 		if err := m.metadata.SetGCP(gcp); err != nil {
@@ -431,6 +554,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "aws" {
 			m.openForm("Default AWS SSH user", "sync_aws_user", []field{
 				{label: "SSH user", description: "Blank uses the AMI default when known", value: m.metadata.AWS().DefaultSSHUser, optional: true, placeholder: "ec2-user"},
+			})
+			break
+		}
+		if m.syncProvider == "azure" {
+			m.openForm("Default Azure SSH user", "sync_azure_user", []field{
+				{label: "SSH user", description: "Blank uses the VM admin user or Microsoft Entra login", value: m.metadata.Azure().DefaultSSHUser, optional: true, placeholder: "azureuser"},
 			})
 			break
 		}
@@ -448,6 +577,14 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 	case "regions":
 		m.openForm("AWS region filter", "sync_aws_regions", []field{
 			{label: "Regions", description: "Comma-separated AWS regions; blank = all enabled", value: strings.Join(m.metadata.AWS().RegionFilter, ", "), optional: true, placeholder: "eu-west-1, us-east-1"},
+		})
+	case "subscriptions":
+		m.openForm("Azure subscription filter", "sync_azure_subscriptions", []field{
+			{label: "Subscriptions", description: "Comma-separated names or IDs; blank = all enabled", value: strings.Join(m.metadata.Azure().SubscriptionFilter, ", "), optional: true, placeholder: "Production, Staging"},
+		})
+	case "resource_groups":
+		m.openForm("Azure resource group filter", "sync_azure_resource_groups", []field{
+			{label: "Resource groups", description: "Comma-separated names; blank = all", value: strings.Join(m.metadata.Azure().ResourceGroupFilter, ", "), optional: true, placeholder: "production, staging"},
 		})
 	case "sa_add":
 		m.openForm("Add service account key", "sync_gcp_sa_add", []field{
@@ -470,6 +607,33 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 	gcp := m.metadata.GCP()
 	switch action {
+	case "sync_azure_user":
+		azure := m.metadata.Azure()
+		azure.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
+		if err := m.metadata.SetAzure(azure); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default Azure SSH user updated")
+	case "sync_azure_subscriptions":
+		azure := m.metadata.Azure()
+		azure.SubscriptionFilter = splitCSV(values["Subscriptions"])
+		if err := m.metadata.SetAzure(azure); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Azure subscription filter updated")
+	case "sync_azure_resource_groups":
+		azure := m.metadata.Azure()
+		azure.ResourceGroupFilter = splitCSV(values["Resource groups"])
+		if err := m.metadata.SetAzure(azure); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Azure resource group filter updated")
 	case "sync_aws_user":
 		aws := m.metadata.AWS()
 		aws.DefaultSSHUser = strings.TrimSpace(values["SSH user"])

@@ -53,3 +53,27 @@ func TestAWSIntegrationRoundTrip(t *testing.T) {
 		t.Fatalf("aws = %+v", aws)
 	}
 }
+
+func TestAzureIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetAzure(AzureIntegration{
+		Enabled: true, AutoSync: true, DefaultSSHUser: "azureuser",
+		SubscriptionFilter: []string{"Production"}, ResourceGroupFilter: []string{"apps"}, LastInstanceCount: 5,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	azure := reopened.Azure()
+	if !azure.Enabled || !azure.AutoSync || azure.DefaultSSHUser != "azureuser" || azure.LastInstanceCount != 5 ||
+		len(azure.SubscriptionFilter) != 1 || azure.SubscriptionFilter[0] != "Production" ||
+		len(azure.ResourceGroupFilter) != 1 || azure.ResourceGroupFilter[0] != "apps" {
+		t.Fatalf("azure = %+v", azure)
+	}
+}

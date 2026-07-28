@@ -16,6 +16,12 @@ func TestForHomeUsesDotConfig(t *testing.T) {
 	if p.SyncAWSConfig != filepath.Join(home, ".ssh", "bast", "sync", "aws", "config") {
 		t.Fatalf("SyncAWSConfig = %q", p.SyncAWSConfig)
 	}
+	if p.SyncAzureConfig != filepath.Join(home, ".ssh", "bast", "sync", "azure", "config") {
+		t.Fatalf("SyncAzureConfig = %q", p.SyncAzureConfig)
+	}
+	if p.AzureDir != filepath.Join(home, ".ssh", "bast", "azure") {
+		t.Fatalf("AzureDir = %q", p.AzureDir)
+	}
 }
 
 func TestMigrateStateFrom(t *testing.T) {

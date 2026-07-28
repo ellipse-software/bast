@@ -11,6 +11,7 @@ import (
 	"time"
 
 	awscloud "bast/internal/cloud/aws"
+	azurecloud "bast/internal/cloud/azure"
 	"bast/internal/cloud/gcp"
 	"bast/internal/metadata"
 	"bast/internal/paths"
@@ -124,6 +125,76 @@ func TestSyncAWSReconcileAndDisablePreservesGCP(t *testing.T) {
 	}
 	if strings.Contains(string(managed), "sync/aws/config") || !strings.Contains(string(managed), "sync/gcp/config") {
 		t.Fatalf("managed config after AWS disable:\n%s", managed)
+	}
+}
+
+func TestSyncAzurePreservesFailedSubscriptionInventory(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	engine.BastExecutable = "/usr/local/bin/bast"
+	failBad := false
+	emptyGood := false
+	engine.Azure.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		joined := strings.Join(args[1:], " ")
+		switch {
+		case strings.HasPrefix(joined, "version"):
+			return []byte(`{"azure-cli":"2.62.0"}`), nil
+		case strings.HasPrefix(joined, "account list"):
+			return []byte(`[{"id":"good","name":"Good","state":"Enabled"},{"id":"bad","name":"Bad","state":"Enabled"}]`), nil
+		case strings.HasPrefix(joined, "network nic list"):
+			return []byte(`[]`), nil
+		case strings.HasPrefix(joined, "vm list") && strings.Contains(joined, "--subscription bad"):
+			if failBad {
+				return nil, errors.New("permission denied")
+			}
+			return []byte(`[{
+				"id":"/subscriptions/bad/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/bad-vm",
+				"name":"bad-vm","resourceGroup":"rg","location":"uksouth","powerState":"VM running","publicIps":"203.0.113.20",
+				"osProfile":{"adminUsername":"azureuser","linuxConfiguration":{"ssh":{"publicKeys":[]}}},"storageProfile":{"osDisk":{"osType":"Linux"}}
+			}]`), nil
+		case strings.HasPrefix(joined, "vm list") && strings.Contains(joined, "--subscription good"):
+			if emptyGood {
+				return []byte(`[]`), nil
+			}
+			return []byte(`[{
+				"id":"/subscriptions/good/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/good-vm",
+				"name":"good-vm","resourceGroup":"rg","location":"uksouth","powerState":"VM running","publicIps":"203.0.113.10",
+				"osProfile":{"adminUsername":"azureuser","linuxConfiguration":{"ssh":{"publicKeys":[]}}},"storageProfile":{"osDisk":{"osType":"Linux"}}
+			}]`), nil
+		default:
+			t.Fatalf("unexpected Azure args: %v", args)
+			return nil, nil
+		}
+	}
+	first, err := engine.SyncAzure(context.Background())
+	if err != nil || first.Count != 2 || first.Provider != azurecloud.ProviderName {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	failBad, emptyGood = true, true
+	second, err := engine.SyncAzure(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Count != 1 || !strings.Contains(second.Error, "Bad") {
+		t.Fatalf("second = %+v", second)
+	}
+	hosts := mustDiscoverHosts(t, engine)
+	if len(hosts) != 1 || hosts[0].SyncID != "/subscriptions/bad/resourcegroups/rg/providers/microsoft.compute/virtualmachines/bad-vm" {
+		t.Fatalf("hosts = %+v", hosts)
+	}
+	if store.Host("azure_Good_rg_good-vm").Label != "" {
+		t.Fatal("confirmed subscription host metadata was not deleted")
+	}
+	if err := engine.DisableAzure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if store.Azure().Enabled {
+		t.Fatal("Azure integration remained enabled")
 	}
 }
 

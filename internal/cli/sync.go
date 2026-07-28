@@ -12,7 +12,7 @@ import (
 
 func (r *Runner) sync(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|status|disable>")
+		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|status|disable>")
 		return nil
 	}
 	engine := sync.New(r.Paths, r.store)
@@ -21,6 +21,8 @@ func (r *Runner) sync(args []string) error {
 		return r.syncGCP(engine, args[1:])
 	case "aws":
 		return r.syncAWS(engine, args[1:])
+	case "azure":
+		return r.syncAzure(engine, args[1:])
 	case "status":
 		return r.syncStatus(engine, args[1:])
 	case "disable":
@@ -28,6 +30,29 @@ func (r *Runner) sync(args []string) error {
 	default:
 		return usagef("unknown sync command %q", args[0])
 	}
+}
+
+func (r *Runner) syncAzure(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync azure")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync azure")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	result, err := engine.SyncAzure(ctx)
+	if err != nil {
+		telemetry.Track("sync_azure_fail", r.Version)
+		return fail("sync_failed", err.Error())
+	}
+	telemetry.Track("sync_azure", r.Version)
+	msg := fmt.Sprintf("Synced %d Azure VMs", result.Count)
+	if result.Error != "" {
+		msg += "\nWarning: " + result.Error
+	}
+	return r.success(result, msg)
 }
 
 func (r *Runner) syncAWS(engine *sync.Engine, args []string) error {
@@ -145,6 +170,40 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if aws.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", aws.LastSyncError)
 	}
+	azure := status.Azure
+	fmt.Fprintln(r.Out, "Azure")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", azure.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", azure.AutoSync)
+	if azure.AzureCLIError != "" {
+		fmt.Fprintf(r.Out, "  az: %s\n", azure.AzureCLIError)
+	} else if len(azure.Subscriptions) > 0 {
+		fmt.Fprintf(r.Out, "  Subscriptions: %s\n", strings.Join(azure.Subscriptions, ", "))
+	} else {
+		fmt.Fprintln(r.Out, "  Subscriptions: none")
+	}
+	if azure.SSHExtensionError != "" {
+		fmt.Fprintf(r.Out, "  ssh extension: %s\n", azure.SSHExtensionError)
+	}
+	if azure.BastionExtensionError != "" {
+		fmt.Fprintf(r.Out, "  bastion extension: %s\n", azure.BastionExtensionError)
+	}
+	if len(azure.SubscriptionFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Subscription filter: %s\n", strings.Join(azure.SubscriptionFilter, ", "))
+	}
+	if len(azure.ResourceGroupFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Resource group filter: %s\n", strings.Join(azure.ResourceGroupFilter, ", "))
+	}
+	if azure.DefaultSSHUser != "" {
+		fmt.Fprintf(r.Out, "  Default SSH user: %s\n", azure.DefaultSSHUser)
+	}
+	if azure.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d VMs)\n", azure.LastSyncAt.Local().Format(time.RFC3339), azure.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if azure.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", azure.LastSyncError)
+	}
 	return nil
 }
 
@@ -154,10 +213,10 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 1 {
-		return usagef("usage: bast sync disable <gcp|aws>")
+		return usagef("usage: bast sync disable <gcp|aws|azure>")
 	}
 	provider := fs.Arg(0)
-	if provider != "gcp" && provider != "aws" {
+	if provider != "gcp" && provider != "aws" && provider != "azure" {
 		return usagef("unknown sync provider %q", provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -165,8 +224,10 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 	var err error
 	if provider == "gcp" {
 		err = engine.DisableGCP(ctx)
-	} else {
+	} else if provider == "aws" {
 		err = engine.DisableAWS(ctx)
+	} else {
+		err = engine.DisableAzure(ctx)
 	}
 	if err != nil {
 		return fail("sync_disable", err.Error())

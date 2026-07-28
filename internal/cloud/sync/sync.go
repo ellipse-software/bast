@@ -3,12 +3,16 @@ package sync
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	stdsync "sync"
 	"time"
 
 	"bast/internal/cloud"
 	awscloud "bast/internal/cloud/aws"
+	azurecloud "bast/internal/cloud/azure"
 	"bast/internal/cloud/gcp"
 	"bast/internal/metadata"
 	"bast/internal/paths"
@@ -26,13 +30,15 @@ type Result struct {
 
 // Engine reconciles cloud instances into Bast SSH config + metadata.
 type Engine struct {
-	mu       stdsync.Mutex
-	Paths    paths.Paths
-	Config   sshconfig.Manager
-	Store    *metadata.Store
-	GCP      *gcp.Client
-	AWS      *awscloud.Client
-	Discover func(ctx context.Context) ([]sshconfig.Host, error)
+	mu             stdsync.Mutex
+	Paths          paths.Paths
+	Config         sshconfig.Manager
+	Store          *metadata.Store
+	GCP            *gcp.Client
+	AWS            *awscloud.Client
+	Azure          *azurecloud.Client
+	BastExecutable string
+	Discover       func(ctx context.Context) ([]sshconfig.Host, error)
 
 	// EnsureAccessWait overrides the guest-agent propagation pause after publishing a key.
 	// Zero keeps the GCP client default; negative skips the wait (tests).
@@ -51,18 +57,31 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 	cfg := sshconfig.Manager{
 		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-		SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig,
+		SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig,
 	}
 	return &Engine{
-		Paths:  p,
-		Config: cfg,
-		Store:  store,
-		GCP:    gcp.New(),
-		AWS:    awscloud.New(),
+		Paths:          p,
+		Config:         cfg,
+		Store:          store,
+		GCP:            gcp.New(),
+		AWS:            awscloud.New(),
+		Azure:          azurecloud.New(),
+		BastExecutable: stableExecutablePath(),
 		Discover: func(ctx context.Context) ([]sshconfig.Host, error) {
 			return cfg.Discover()
 		},
 	}
+}
+
+func stableExecutablePath() string {
+	name := os.Args[0]
+	if found, err := exec.LookPath(name); err == nil {
+		if absolute, absErr := filepath.Abs(found); absErr == nil {
+			return absolute
+		}
+		return found
+	}
+	return "bast"
 }
 
 // SyncGCP discovers GCP instances and writes the sync SSH config.
@@ -313,6 +332,118 @@ func (e *Engine) applyMetadataUpdates(updates []hostMetadataUpdate, deletes []st
 	})
 }
 
+// SyncAzure discovers Azure VMs and writes the Azure sync SSH config.
+func (e *Engine) SyncAzure(ctx context.Context) (Result, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	integration := e.Store.Azure()
+	discovery, err := e.Azure.Discover(ctx, azurecloud.DiscoverConfig{
+		SubscriptionFilter: integration.SubscriptionFilter, ResourceGroupFilter: integration.ResourceGroupFilter,
+		DefaultSSHUser: integration.DefaultSSHUser, Home: e.Paths.Home, ManagedKeys: e.Paths.ManagedKeys,
+		BastExecutable: e.BastExecutable,
+	})
+	now := time.Now().UTC()
+	if err != nil {
+		latest := e.Store.Azure()
+		latest.Enabled = true
+		latest.LastSyncAt = &now
+		latest.LastSyncError = err.Error()
+		_ = e.Store.SetAzure(latest)
+		return Result{Provider: azurecloud.ProviderName, SyncedAt: now, Error: err.Error()}, err
+	}
+	existing, err := e.Discover(ctx)
+	if err != nil {
+		return Result{Provider: azurecloud.ProviderName}, err
+	}
+	previousBlocks := map[string]sshconfig.SyncHostInput{}
+	if loaded, loadErr := sshconfig.LoadSyncHosts(e.Paths.SyncAzureConfig); loadErr == nil {
+		for _, block := range loaded {
+			if block.SyncID != "" {
+				previousBlocks[strings.ToLower(block.SyncID)] = block
+			}
+		}
+	}
+	usedAliases := map[string]bool{}
+	previousBySyncID := map[string]sshconfig.Host{}
+	for _, host := range existing {
+		if host.Synced && host.SyncSource == azurecloud.ProviderName && host.SyncID != "" {
+			previousBySyncID[strings.ToLower(host.SyncID)] = host
+			continue
+		}
+		usedAliases[host.Alias] = true
+	}
+	blocks := make([]sshconfig.SyncHostInput, 0, len(discovery.Instances)+len(previousBySyncID))
+	aliases := make([]string, 0, cap(blocks))
+	activeSyncIDs := map[string]bool{}
+	metadataUpdates := make([]hostMetadataUpdate, 0, len(discovery.Instances))
+	var metadataDeletes []string
+	for _, inst := range discovery.Instances {
+		syncID := strings.ToLower(inst.SyncID)
+		activeSyncIDs[syncID] = true
+		alias := ""
+		if prev, ok := previousBySyncID[syncID]; ok && !usedAliases[prev.Alias] {
+			alias = prev.Alias
+			usedAliases[alias] = true
+		} else {
+			alias = azurecloud.UniqueAlias(azurecloud.AliasFor(inst), usedAliases)
+			usedAliases[alias] = true
+		}
+		blocks = append(blocks, azurecloud.ToSyncHost(inst, alias, e.BastExecutable))
+		aliases = append(aliases, alias)
+		prevAlias := ""
+		if prev, ok := previousBySyncID[syncID]; ok {
+			prevAlias = prev.Alias
+		}
+		metadataUpdates = append(metadataUpdates, hostMetadataUpdate{
+			alias: alias, previousAlias: prevAlias, label: inst.Name,
+			group: azurecloud.GroupPath(inst), tags: append([]string(nil), inst.Tags...),
+		})
+	}
+	for syncID, host := range previousBySyncID {
+		if activeSyncIDs[syncID] {
+			continue
+		}
+		subscriptionID, _, _, parseErr := azurecloud.ParseSyncID(syncID)
+		if parseErr == nil && discovery.ConfirmedSubscriptions[strings.ToLower(subscriptionID)] {
+			metadataDeletes = append(metadataDeletes, host.Alias)
+			continue
+		}
+		block, ok := previousBlocks[syncID]
+		if !ok {
+			block = sshconfig.SyncHostInput{Alias: host.Alias, SyncSource: host.SyncSource, SyncID: host.SyncID, HostName: host.Alias}
+		}
+		if usedAliases[block.Alias] && block.Alias != host.Alias {
+			block.Alias = azurecloud.UniqueAlias(block.Alias, usedAliases)
+		}
+		usedAliases[block.Alias] = true
+		blocks = append(blocks, block)
+		aliases = append(aliases, block.Alias)
+	}
+	if err := e.Config.EnsureSyncInclude(e.Paths.SyncAzureConfig); err != nil {
+		return Result{Provider: azurecloud.ProviderName}, err
+	}
+	if err := sshconfig.WriteSyncConfig(e.Paths.SyncAzureConfig, blocks); err != nil {
+		return Result{Provider: azurecloud.ProviderName}, err
+	}
+	if err := e.applyMetadataUpdates(metadataUpdates, metadataDeletes); err != nil {
+		return Result{Provider: azurecloud.ProviderName}, err
+	}
+	latest := e.Store.Azure()
+	latest.Enabled = true
+	latest.LastSyncAt = &now
+	latest.LastSyncError = strings.Join(discovery.Warnings, "; ")
+	latest.LastInstanceCount = len(blocks)
+	if err := e.Store.SetAzure(latest); err != nil {
+		return Result{Provider: azurecloud.ProviderName}, err
+	}
+	result := Result{Provider: azurecloud.ProviderName, Count: len(blocks), SyncedAt: now, Aliases: aliases}
+	if len(discovery.Warnings) > 0 {
+		result.Error = strings.Join(discovery.Warnings, "; ")
+	}
+	return result, nil
+}
+
 // EnsureGCPAccess prepares SSH auth for a GCP-synced host (gcloud-style key ensure)
 // and updates the sync SSH config block so the subsequent ssh uses the right User/key.
 // status, when non-nil, receives short progress messages for interactive connects.
@@ -343,6 +474,7 @@ func (e *Engine) EnsureGCPAccess(ctx context.Context, host sshconfig.Host, statu
 		host.Alias,
 		result.User,
 		result.IdentityFile,
+		"",
 		result.IdentitiesOnly,
 	)
 }
@@ -362,7 +494,25 @@ func (e *Engine) EnsureAWSAccess(ctx context.Context, host sshconfig.Host, statu
 	if err != nil {
 		return err
 	}
-	return sshconfig.UpdateSyncHostAuth(e.Paths.SyncAWSConfig, host.Alias, result.User, result.IdentityFile, result.IdentitiesOnly)
+	return sshconfig.UpdateSyncHostAuth(e.Paths.SyncAWSConfig, host.Alias, result.User, result.IdentityFile, "", result.IdentitiesOnly)
+}
+
+// EnsureAzureAccess refreshes local-key or Entra certificate authentication before connect.
+func (e *Engine) EnsureAzureAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !host.Synced || host.SyncSource != azurecloud.ProviderName || host.SyncID == "" {
+		return nil
+	}
+	integration := e.Store.Azure()
+	result, err := e.Azure.EnsureAccess(ctx, host.SyncID, azurecloud.EnsureConfig{
+		Home: e.Paths.Home, ManagedKeys: e.Paths.ManagedKeys, AzureDir: e.Paths.AzureDir,
+		DefaultSSHUser: integration.DefaultSSHUser, Status: status,
+	})
+	if err != nil {
+		return err
+	}
+	return sshconfig.UpdateSyncHostAuth(e.Paths.SyncAzureConfig, host.Alias, result.User, result.IdentityFile, result.CertificateFile, result.IdentitiesOnly)
 }
 
 // DisableGCP turns off GCP sync and removes generated SSH config.
@@ -412,11 +562,35 @@ func (e *Engine) DisableAWS(ctx context.Context) error {
 	return e.Store.SetAWS(integration)
 }
 
+// DisableAzure turns off Azure sync and removes only generated Azure state.
+func (e *Engine) DisableAzure(ctx context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	existing, err := e.Discover(ctx)
+	if err != nil {
+		return err
+	}
+	for _, host := range existing {
+		if host.Synced && host.SyncSource == azurecloud.ProviderName {
+			_ = e.Store.DeleteHost(host.Alias)
+		}
+	}
+	if err := e.Config.RemoveSyncInclude(e.Paths.SyncAzureConfig); err != nil {
+		return err
+	}
+	integration := e.Store.Azure()
+	integration.Enabled = false
+	integration.LastSyncError = ""
+	integration.LastInstanceCount = 0
+	return e.Store.SetAzure(integration)
+}
+
 // Status returns a human-readable sync status snapshot.
 func (e *Engine) Status(ctx context.Context) (Status, error) {
 	e.mu.Lock()
 	integration := e.Store.GCP()
 	awsIntegration := e.Store.AWS()
+	azureIntegration := e.Store.Azure()
 	status := Status{
 		GCP: GCPStatus{
 			Enabled:           integration.Enabled,
@@ -434,6 +608,13 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			RegionFilter:   append([]string(nil), awsIntegration.RegionFilter...),
 			DefaultSSHUser: awsIntegration.DefaultSSHUser, LastSyncAt: awsIntegration.LastSyncAt,
 			LastSyncError: awsIntegration.LastSyncError, LastInstanceCount: awsIntegration.LastInstanceCount,
+		},
+		Azure: AzureStatus{
+			Enabled: azureIntegration.Enabled, AutoSync: azureIntegration.AutoSync,
+			SubscriptionFilter:  append([]string(nil), azureIntegration.SubscriptionFilter...),
+			ResourceGroupFilter: append([]string(nil), azureIntegration.ResourceGroupFilter...),
+			DefaultSSHUser:      azureIntegration.DefaultSSHUser, LastSyncAt: azureIntegration.LastSyncAt,
+			LastSyncError: azureIntegration.LastSyncError, LastInstanceCount: azureIntegration.LastInstanceCount,
 		},
 	}
 	e.mu.Unlock()
@@ -460,13 +641,32 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			status.AWS.Profiles = profiles
 		}
 	}
+	if err := e.Azure.CheckAvailable(ctx); err != nil {
+		status.Azure.AzureCLIError = err.Error()
+	} else {
+		subscriptions, listErr := e.Azure.ListSubscriptions(ctx)
+		if listErr != nil {
+			status.Azure.AzureCLIError = listErr.Error()
+		} else {
+			for _, subscription := range subscriptions {
+				status.Azure.Subscriptions = append(status.Azure.Subscriptions, subscription.Name)
+			}
+		}
+		if err := e.Azure.CheckExtension(ctx, "ssh"); err != nil {
+			status.Azure.SSHExtensionError = err.Error()
+		}
+		if err := e.Azure.CheckExtension(ctx, "bastion"); err != nil {
+			status.Azure.BastionExtensionError = err.Error()
+		}
+	}
 	return status, nil
 }
 
 // Status is the CLI/TUI sync status payload.
 type Status struct {
-	GCP GCPStatus `json:"gcp"`
-	AWS AWSStatus `json:"aws"`
+	GCP   GCPStatus   `json:"gcp"`
+	AWS   AWSStatus   `json:"aws"`
+	Azure AzureStatus `json:"azure"`
 }
 
 // GCPStatus describes GCP integration state.
@@ -496,13 +696,29 @@ type AWSStatus struct {
 	AWSCLIError       string     `json:"awsCliError,omitempty"`
 }
 
+type AzureStatus struct {
+	Enabled               bool       `json:"enabled"`
+	AutoSync              bool       `json:"autoSync"`
+	Subscriptions         []string   `json:"subscriptions,omitempty"`
+	SubscriptionFilter    []string   `json:"subscriptionFilter,omitempty"`
+	ResourceGroupFilter   []string   `json:"resourceGroupFilter,omitempty"`
+	DefaultSSHUser        string     `json:"defaultSshUser,omitempty"`
+	LastSyncAt            *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError         string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount     int        `json:"lastInstanceCount,omitempty"`
+	AzureCLIError         string     `json:"azureCliError,omitempty"`
+	SSHExtensionError     string     `json:"sshExtensionError,omitempty"`
+	BastionExtensionError string     `json:"bastionExtensionError,omitempty"`
+}
+
 // IsSyncedGroup reports whether a group path is owned by cloud sync.
 func IsSyncedGroup(group string) bool {
 	group = strings.TrimSpace(group)
 	return group == "Google Cloud" || strings.HasPrefix(group, "Google Cloud/") ||
 		group == "GCP" || strings.HasPrefix(group, "GCP/") ||
 		group == "Amazon EC2" || strings.HasPrefix(group, "Amazon EC2/") ||
-		group == "AWS" || strings.HasPrefix(group, "AWS/")
+		group == "AWS" || strings.HasPrefix(group, "AWS/") ||
+		group == "Microsoft Azure" || strings.HasPrefix(group, "Microsoft Azure/")
 }
 
 // ValidateServiceAccountPath checks a key file path can be stored.

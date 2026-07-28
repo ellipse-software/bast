@@ -43,7 +43,7 @@ Key commands:
   public, copy, delete
 
 Sync commands:
-  gcp, aws, status, disable
+  gcp, aws, azure, status, disable
 
 Global options:
   --json                      Emit structured JSON
@@ -93,7 +93,7 @@ func fail(code, message string) error { return &commandError{code: code, message
 func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writer) (*Runner, error) {
 	return &Runner{
 		Paths: p, OpenSSH: client, Version: "dev", In: in, Out: out, Err: errOut,
-		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig},
+		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig},
 		keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
 	}, nil
 }
@@ -210,9 +210,10 @@ option to restore a default or remove values.`,
 		"connect --help":  "Usage: bast connect <host>",
 		"sync gcp":        "Usage: bast sync gcp",
 		"sync aws":        "Usage: bast sync aws",
+		"sync azure":      "Usage: bast sync azure",
 		"sync status":     "Usage: bast sync status",
-		"sync disable":    "Usage: bast sync disable <gcp|aws>",
-		"sync --help":     "Usage: bast sync <gcp|aws|status|disable>",
+		"sync disable":    "Usage: bast sync disable <gcp|aws|azure>",
+		"sync --help":     "Usage: bast sync <gcp|aws|azure|status|disable>",
 	}
 	if value := usage[resource+" "+command]; value != "" {
 		return value

@@ -384,12 +384,8 @@ func TestHostGroupsSupportFiveNestedLevels(t *testing.T) {
 		{group: "test/abc", alias: "alpha", depth: 2},
 		{group: "test/def", header: true, depth: 1, count: 1},
 		{group: "test/def", alias: "beta", depth: 2},
-		{group: "one", header: true, depth: 0, count: 1},
-		{group: "one/two", header: true, depth: 1, count: 1},
-		{group: "one/two/three", header: true, depth: 2, count: 1},
-		{group: "one/two/three/four", header: true, depth: 3, count: 1},
-		{group: "one/two/three/four/five", header: true, depth: 4, count: 1},
-		{group: "one/two/three/four/five", alias: "delta", depth: 5},
+		{group: "one/two/three/four/five", header: true, depth: 0, count: 1},
+		{group: "one/two/three/four/five", alias: "delta", depth: 1},
 	}
 	if len(rows) != len(want) {
 		t.Fatalf("nested rows = %+v", rows)
@@ -403,6 +399,9 @@ func TestHostGroupsSupportFiveNestedLevels(t *testing.T) {
 	rendered := m.renderHosts(m.styles())
 	if !strings.Contains(rendered, "▾ test") || !strings.Contains(rendered, "  ▾ abc") {
 		t.Fatalf("nested group indentation is missing:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "▾ one/two/three/four/five") {
+		t.Fatalf("single-child group chain was not compacted:\n%s", rendered)
 	}
 
 	m.cursor = 3
@@ -431,6 +430,34 @@ func TestHostGroupsSupportFiveNestedLevels(t *testing.T) {
 		if strings.HasPrefix(row.group, "test/") || row.host.Alias == "gamma" {
 			t.Fatalf("collapsed parent still shows a descendant: %+v", row)
 		}
+	}
+}
+
+func TestSyncedProviderRootStaysSeparateFromCompactedChildren(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{
+		{Alias: "azure_vm", Synced: true, SyncSource: "azure"},
+		{Alias: "ordinary"},
+	}
+	if err := m.metadata.SetHost("azure_vm", metadata.Host{Group: "Microsoft Azure/Production/apps"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("ordinary", metadata.Host{Group: "Work/Production/API"}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := m.hostRows()
+	if len(rows) != 5 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if !rows[0].header || rows[0].group != "Microsoft Azure" || rows[0].label != "Microsoft Azure" || rows[0].depth != 0 {
+		t.Fatalf("provider root = %+v", rows[0])
+	}
+	if !rows[1].header || rows[1].group != "Microsoft Azure/Production/apps" || rows[1].label != "Production/apps" || rows[1].depth != 1 {
+		t.Fatalf("compacted provider children = %+v", rows[1])
+	}
+	if !rows[3].header || rows[3].group != "Work/Production/API" || rows[3].label != "Work/Production/API" || rows[3].depth != 0 {
+		t.Fatalf("ordinary compacted group = %+v", rows[3])
 	}
 }
 
@@ -1415,6 +1442,10 @@ func TestMobileListScrollsWithTouchWheel(t *testing.T) {
 func TestDesktopConnectButtonIsVisible(t *testing.T) {
 	m := testApp(t)
 	m.width, m.height = 80, 24
+	layout := m.panelLayout()
+	if difference := layout.listWidth - layout.detailWidth; difference < -1 || difference > 1 {
+		t.Fatalf("desktop panels are not equal width: list=%d detail=%d", layout.listWidth, layout.detailWidth)
+	}
 	body := m.renderHosts(m.styles())
 	if !strings.Contains(body, connectAction) {
 		t.Fatalf("desktop host details are missing the connect button:\n%s", body)
@@ -1746,19 +1777,27 @@ func TestGoogleCloudGroupNameUsesGoogleColors(t *testing.T) {
 	}
 }
 
-func TestAmazonEC2GroupNameUsesAWSColors(t *testing.T) {
+func TestAmazonEC2GroupNameUsesOneBrandColor(t *testing.T) {
 	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5CF6"))
 	rendered := renderManagedGroupName("Amazon EC2/default/eu-west-2", restStyle)
-	whiteAmazon := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Amazon")
-	orangeEC2 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render(" EC2")
-	if !strings.HasPrefix(rendered, whiteAmazon+orangeEC2) {
-		t.Fatalf("Amazon EC2 brand colours were not applied: %q", rendered)
+	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render("Amazon EC2")
+	if !strings.HasPrefix(rendered, provider) {
+		t.Fatalf("Amazon EC2 brand colour was not applied uniformly: %q", rendered)
 	}
 	if !strings.Contains(rendered, restStyle.Render("/default/eu-west-2")) {
 		t.Fatalf("Amazon EC2 group path did not retain the normal style: %q", rendered)
 	}
-	if width := lipgloss.Width(rendered); width != len("Amazon EC2/default/eu-west-2") {
-		t.Fatalf("width = %d", width)
+}
+
+func TestMicrosoftAzureGroupNameUsesOneBrandColor(t *testing.T) {
+	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	rendered := renderManagedGroupName("Microsoft Azure/Production/apps", restStyle)
+	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0078D4")).Render("Microsoft Azure")
+	if !strings.HasPrefix(rendered, provider) {
+		t.Fatalf("Microsoft Azure brand colour was not applied uniformly: %q", rendered)
+	}
+	if !strings.Contains(rendered, restStyle.Render("/Production/apps")) {
+		t.Fatalf("Microsoft Azure group path did not retain the normal style: %q", rendered)
 	}
 }
 
@@ -1772,7 +1811,7 @@ func TestSyncTabRenders(t *testing.T) {
 	if strings.Contains(body, "Sync now") {
 		t.Fatalf("provider list should not show submenu actions:\n%s", body)
 	}
-	if !strings.Contains(body, "AWS") || !strings.Contains(body, "disabled") {
+	if !strings.Contains(body, "AWS") || !strings.Contains(body, "Azure") || !strings.Contains(body, "disabled") {
 		t.Fatalf("expected enabled AWS provider:\n%s", body)
 	}
 	m.updateSyncKeys("enter")
@@ -1795,6 +1834,17 @@ func TestSyncTabRenders(t *testing.T) {
 	body = m.renderSync(m.styles())
 	if !strings.Contains(body, "Profile filter") || !strings.Contains(body, "Region filter") {
 		t.Fatalf("aws submenu body:\n%s", body)
+	}
+	m.updateSyncKeys("esc")
+	m.updateSyncKeys("down")
+	m.updateSyncKeys("down")
+	m.updateSyncKeys("enter")
+	if m.syncProvider != "azure" {
+		t.Fatalf("expected Azure provider, got %q", m.syncProvider)
+	}
+	body = m.renderSync(m.styles())
+	if !strings.Contains(body, "Subscription filter") || !strings.Contains(body, "Resource group filter") {
+		t.Fatalf("azure submenu body:\n%s", body)
 	}
 	tabs := m.renderTabs(m.styles())
 	if !strings.Contains(tabs, "[3] Sync") {
@@ -1839,6 +1889,9 @@ func TestInitSequencesProviderAutoSync(t *testing.T) {
 	if err := m.metadata.SetAWS(metadata.AWSIntegration{Enabled: true, AutoSync: true}); err != nil {
 		t.Fatal(err)
 	}
+	if err := m.metadata.SetAzure(metadata.AzureIntegration{Enabled: true, AutoSync: true}); err != nil {
+		t.Fatal(err)
+	}
 
 	cmd := m.Init()
 	initMsg := cmd()
@@ -1853,10 +1906,10 @@ func TestInitSequencesProviderAutoSync(t *testing.T) {
 	if got := reflect.TypeOf(autoSync).String(); got != "tea.sequenceMsg" {
 		t.Fatalf("auto-sync command = %s, want tea.sequenceMsg", got)
 	}
-	if got := reflect.ValueOf(autoSync).Len(); got != 2 {
-		t.Fatalf("auto-sync sequence length = %d, want 2", got)
+	if got := reflect.ValueOf(autoSync).Len(); got != 3 {
+		t.Fatalf("auto-sync sequence length = %d, want 3", got)
 	}
-	if !m.syncingProviders["gcp"] || !m.syncingProviders["aws"] {
+	if !m.syncingProviders["gcp"] || !m.syncingProviders["aws"] || !m.syncingProviders["azure"] {
 		t.Fatalf("syncing providers = %v", m.syncingProviders)
 	}
 }

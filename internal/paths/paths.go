@@ -9,16 +9,18 @@ import (
 
 // Paths contains every file Bast may read or create.
 type Paths struct {
-	Home          string
-	SSHDir        string
-	MainConfig    string
-	ManagedDir    string
-	ManagedConfig string
-	ManagedKeys   string
-	SyncDir       string
-	SyncGCPConfig string
-	SyncAWSConfig string
-	StateFile     string
+	Home            string
+	SSHDir          string
+	MainConfig      string
+	ManagedDir      string
+	ManagedConfig   string
+	ManagedKeys     string
+	SyncDir         string
+	SyncGCPConfig   string
+	SyncAWSConfig   string
+	SyncAzureConfig string
+	AzureDir        string
+	StateFile       string
 }
 
 func ForHome(home string) Paths {
@@ -26,16 +28,18 @@ func ForHome(home string) Paths {
 	managedDir := filepath.Join(sshDir, "bast")
 	syncDir := filepath.Join(managedDir, "sync")
 	return Paths{
-		Home:          home,
-		SSHDir:        sshDir,
-		MainConfig:    filepath.Join(sshDir, "config"),
-		ManagedDir:    managedDir,
-		ManagedConfig: filepath.Join(managedDir, "config"),
-		ManagedKeys:   filepath.Join(managedDir, "keys"),
-		SyncDir:       syncDir,
-		SyncGCPConfig: filepath.Join(syncDir, "gcp", "config"),
-		SyncAWSConfig: filepath.Join(syncDir, "aws", "config"),
-		StateFile:     filepath.Join(home, ".config", "bast", "state.json"),
+		Home:            home,
+		SSHDir:          sshDir,
+		MainConfig:      filepath.Join(sshDir, "config"),
+		ManagedDir:      managedDir,
+		ManagedConfig:   filepath.Join(managedDir, "config"),
+		ManagedKeys:     filepath.Join(managedDir, "keys"),
+		SyncDir:         syncDir,
+		SyncGCPConfig:   filepath.Join(syncDir, "gcp", "config"),
+		SyncAWSConfig:   filepath.Join(syncDir, "aws", "config"),
+		SyncAzureConfig: filepath.Join(syncDir, "azure", "config"),
+		AzureDir:        filepath.Join(managedDir, "azure"),
+		StateFile:       filepath.Join(home, ".config", "bast", "state.json"),
 	}
 }
 

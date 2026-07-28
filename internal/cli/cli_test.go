@@ -142,6 +142,10 @@ func TestInvocationAndCommandHelp(t *testing.T) {
 	if err != nil || errOut != "" || out != "Usage: bast sync aws\n" {
 		t.Fatalf("sync aws help output=%q stderr=%q err=%v", out, errOut, err)
 	}
+	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "sync", "azure", "--help")
+	if err != nil || errOut != "" || out != "Usage: bast sync azure\n" {
+		t.Fatalf("sync azure help output=%q stderr=%q err=%v", out, errOut, err)
+	}
 }
 
 func runTestCLI(t *testing.T, home string, client openssh.Client, args ...string) (string, string, error) {
