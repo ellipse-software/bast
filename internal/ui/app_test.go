@@ -2219,3 +2219,33 @@ func TestInitDefersProviderAutoSyncUntilHostsDiscovered(t *testing.T) {
 		t.Fatalf("syncing providers = %v", m.syncingProviders)
 	}
 }
+
+func TestAutoSyncDoesNotRestartAfterSyncReload(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetGCP(metadata.GCPIntegration{Enabled: true, AutoSync: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	if cmd := m.autoSyncCmds(); cmd == nil {
+		t.Fatal("initial auto-sync command is nil")
+	}
+	if !m.syncingProviders["gcp"] {
+		t.Fatal("GCP was not marked syncing")
+	}
+
+	_, cmd := m.Update(syncDoneMsg{provider: "gcp"})
+	if cmd == nil {
+		t.Fatal("sync completion did not schedule reload")
+	}
+	if m.syncingProviders["gcp"] {
+		t.Fatal("GCP remained marked syncing after completion")
+	}
+
+	_, cmd = m.Update(loadedMsg{})
+	if cmd != nil {
+		t.Fatal("host reload restarted auto-sync")
+	}
+	if m.syncingProviders["gcp"] {
+		t.Fatal("GCP was marked syncing again after reload")
+	}
+}

@@ -132,6 +132,7 @@ type App struct {
 	showHidden        bool
 	loading           bool
 	enriching         bool
+	autoSyncStarted   bool
 	syncingProviders  map[string]bool
 	status            string
 	statusError       bool
@@ -199,6 +200,10 @@ func (m *App) Init() tea.Cmd {
 }
 
 func (m *App) autoSyncCmds() tea.Cmd {
+	if m.autoSyncStarted {
+		return nil
+	}
+	m.autoSyncStarted = true
 	if m.syncingProviders == nil {
 		m.syncingProviders = map[string]bool{}
 	}
