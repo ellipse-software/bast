@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -132,6 +133,7 @@ type App struct {
 	width             int
 	height            int
 	dark              bool
+	nerdFont          bool
 	version           string
 	latestVersion     string
 	updateSuggestion  string
@@ -156,7 +158,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig,
 		},
 		openSSH:          client,
 		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
@@ -164,6 +166,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		syncer:           sync.New(p, store),
 		loading:          true,
 		dark:             true,
+		nerdFont:         detectNerdFont(os.Getenv),
 		version:          version,
 		collapsedGroups:  map[string]bool{},
 		syncingProviders: map[string]bool{},
@@ -196,6 +199,10 @@ func (m *App) Init() tea.Cmd {
 	if m.metadata.AWS().Enabled && m.metadata.AWS().AutoSync {
 		m.syncingProviders["aws"] = true
 		autoSyncCmds = append(autoSyncCmds, m.syncAWSCmd())
+	}
+	if m.metadata.Azure().Enabled && m.metadata.Azure().AutoSync {
+		m.syncingProviders["azure"] = true
+		autoSyncCmds = append(autoSyncCmds, m.syncAzureCmd())
 	}
 	if len(autoSyncCmds) > 0 {
 		cmds = append(cmds, tea.Sequence(autoSyncCmds...))

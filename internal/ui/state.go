@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	cloudsync "bast/internal/cloud/sync"
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/sshconfig"
@@ -55,10 +56,7 @@ func (m *App) panelLayout() panelLayout {
 	const contentTop = 2
 
 	if !m.isMobileLayout() {
-		listWidth := min(36, max(12, width/3))
-		if listWidth > width-10 {
-			listWidth = max(8, width-10)
-		}
+		listWidth := max(1, (width-1)/2)
 		detailWidth := max(1, width-listWidth-1)
 		return panelLayout{
 			mobile:       false,
@@ -132,6 +130,7 @@ func (m *App) filteredHostsWithMetadata(hostMetadata map[string]metadata.Host) [
 
 type hostRow struct {
 	group  string
+	label  string
 	host   sshconfig.Host
 	header bool
 	count  int
@@ -262,7 +261,13 @@ func hostListSignature(hosts []sshconfig.Host) uint64 {
 }
 
 func (m *App) appendGroupRows(rows []hostRow, group *hostGroup, depth int) []hostRow {
-	rows = append(rows, hostRow{group: group.path, header: true, count: group.count, depth: depth})
+	label := groupShortName(group.path)
+	keepProviderRoot := depth == 0 && cloudsync.IsSyncedGroup(group.path)
+	for !keepProviderRoot && len(group.hosts) == 0 && len(group.children) == 1 {
+		group = group.children[0]
+		label += "/" + groupShortName(group.path)
+	}
+	rows = append(rows, hostRow{group: group.path, label: label, header: true, count: group.count, depth: depth})
 	if m.collapsedGroups[group.path] && m.searchText() == "" {
 		return rows
 	}
@@ -663,6 +668,8 @@ func hostStatusLine(h sshconfig.Host, meta metadata.Host) string {
 		parts = append(parts, "GCP synced")
 	case h.Synced && h.SyncSource == "aws":
 		parts = append(parts, "AWS synced")
+	case h.Synced && h.SyncSource == "azure":
+		parts = append(parts, "Azure synced")
 	case h.Synced:
 		parts = append(parts, h.SyncSource+" synced")
 	case h.Managed:

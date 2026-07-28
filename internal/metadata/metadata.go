@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const CurrentVersion = 5
+const CurrentVersion = 6
 
 type Host struct {
 	Label           string     `json:"label,omitempty"`
@@ -54,9 +54,21 @@ type AWSIntegration struct {
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 }
 
+type AzureIntegration struct {
+	Enabled             bool       `json:"enabled"`
+	SubscriptionFilter  []string   `json:"subscriptionFilter,omitempty"`
+	ResourceGroupFilter []string   `json:"resourceGroupFilter,omitempty"`
+	DefaultSSHUser      string     `json:"defaultSshUser,omitempty"`
+	AutoSync            bool       `json:"autoSync,omitempty"`
+	LastSyncAt          *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError       string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount   int        `json:"lastInstanceCount,omitempty"`
+}
+
 type Integrations struct {
-	GCP *GCPIntegration `json:"gcp,omitempty"`
-	AWS *AWSIntegration `json:"aws,omitempty"`
+	GCP   *GCPIntegration   `json:"gcp,omitempty"`
+	AWS   *AWSIntegration   `json:"aws,omitempty"`
+	Azure *AzureIntegration `json:"azure,omitempty"`
 }
 
 type State struct {
@@ -337,6 +349,29 @@ func (s *Store) SetAWS(aws AWSIntegration) error {
 	return s.save()
 }
 
+func (s *Store) Azure() AzureIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Azure == nil {
+		return AzureIntegration{}
+	}
+	return cloneAzure(*s.state.Integrations.Azure)
+}
+
+func (s *Store) SetAzure(azure AzureIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !azure.Enabled && len(azure.SubscriptionFilter) == 0 && len(azure.ResourceGroupFilter) == 0 &&
+		azure.DefaultSSHUser == "" && !azure.AutoSync && azure.LastSyncAt == nil &&
+		azure.LastSyncError == "" && azure.LastInstanceCount == 0 {
+		s.state.Integrations.Azure = nil
+	} else {
+		copy := cloneAzure(azure)
+		s.state.Integrations.Azure = &copy
+	}
+	return s.save()
+}
+
 func cloneHost(host Host) Host {
 	host.Tags = append([]string(nil), host.Tags...)
 	if host.LastUsedAt != nil {
@@ -374,6 +409,16 @@ func cloneAWS(aws AWSIntegration) AWSIntegration {
 	return aws
 }
 
+func cloneAzure(azure AzureIntegration) AzureIntegration {
+	azure.SubscriptionFilter = append([]string(nil), azure.SubscriptionFilter...)
+	azure.ResourceGroupFilter = append([]string(nil), azure.ResourceGroupFilter...)
+	if azure.LastSyncAt != nil {
+		lastSyncAt := *azure.LastSyncAt
+		azure.LastSyncAt = &lastSyncAt
+	}
+	return azure
+}
+
 func cloneIntegrations(integrations Integrations) Integrations {
 	out := Integrations{}
 	if integrations.GCP != nil {
@@ -383,6 +428,10 @@ func cloneIntegrations(integrations Integrations) Integrations {
 	if integrations.AWS != nil {
 		aws := cloneAWS(*integrations.AWS)
 		out.AWS = &aws
+	}
+	if integrations.Azure != nil {
+		azure := cloneAzure(*integrations.Azure)
+		out.Azure = &azure
 	}
 	return out
 }

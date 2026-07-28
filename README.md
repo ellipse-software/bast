@@ -96,19 +96,25 @@ Run `bast hosts <command> --help` or `bast keys <command> --help` for the full f
 
 ### Cloud sync
 
-The Sync tab can import SSH-ready virtual machines from Google Cloud and AWS. Synced hosts are read-only in Bast and remain ordinary OpenSSH entries under `~/.ssh/bast/sync`.
+The Sync tab can import SSH-ready virtual machines from Google Cloud, AWS, and Azure. Synced hosts are read-only in Bast and remain ordinary OpenSSH entries under `~/.ssh/bast/sync`.
 
 AWS sync requires AWS CLI v2 and at least one configured profile. By default Bast scans every configured profile and enabled region; profile and region filters are available in the AWS Sync screen. The equivalent CLI commands are:
 
 ```sh
 bast sync aws
+bast sync azure
 bast sync status
 bast sync disable aws
+bast sync disable azure
 ```
 
 Discovery uses `sts:GetCallerIdentity`, `ec2:DescribeRegions`, `ec2:DescribeInstances`, `ec2:DescribeImages`, and `ec2:DescribeInstanceConnectEndpoints`. Bast connects directly to public addresses. Private instances require an active EC2 Instance Connect Endpoint and `ec2-instance-connect:OpenTunnel`; these tunnels have AWS's one-hour maximum duration.
 
 When the instance's launch key exists in `~/.ssh/bast/keys` or `~/.ssh`, Bast uses it. Otherwise it creates `~/.ssh/bast/aws_compute` and publishes the public key immediately before connecting, which requires `ec2-instance-connect:SendSSHPublicKey` and EC2 Instance Connect support on the instance. Bast does not create endpoints, change security groups, or start instances.
+
+Azure sync requires Azure CLI 2.62 or later and an authenticated `az login`. Bast scans enabled subscriptions, imports running standalone Linux VMs, and groups them under `Microsoft Azure/<subscription>/<resource group>`. Subscription and resource-group filters are available in the Azure Sync screen.
+
+Public Azure VMs connect directly. Private VMs require an existing Standard or Premium Azure Bastion with native-client tunnelling enabled and the `bastion` Azure CLI extension. Bast prefers a matching local deployment key; otherwise an Entra-enabled VM can use a short-lived OpenSSH certificate through the `ssh` Azure CLI extension. Bast does not create Bastion resources, install VM extensions, change networks, or append keys to VMs.
 
 Edits are patches. Only the flags you pass change. `--clear-group`, `--clear-notes`, and similar flags remove values. Hosts that only exist in your main SSH config can get Bast metadata edits, but Bast won't touch their connection settings or delete them.
 
@@ -142,7 +148,7 @@ Groups can nest up to five levels (`Work/Production/web`). Bast stores presentat
 - AWS CLI v2 for AWS cloud sync
 - `curl`, `tar`, and `shasum` or `sha256sum` for the installer
 - Go 1.26+ to build from source
-- A Nerd Font helps with some icons but isn't required
+- A Nerd Font is detected automatically in WezTerm and Kitty for cloud icons; use `BAST_NERD_FONT=1` or `BAST_NERD_FONT=0` to override detection
 
 ## Keyboard shortcuts
 

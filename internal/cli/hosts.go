@@ -663,6 +663,16 @@ func (r *Runner) connect(args []string) error {
 			return fail("aws_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "azure" && host.SyncID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if err := engine.EnsureAzureAccess(ctx, sshconfig.Host{
+			Alias: host.Alias, Synced: host.Synced, SyncSource: host.SyncSource, SyncID: host.SyncID,
+		}, connectbanner.Status(r.Out)); err != nil {
+			return fail("azure_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
 	}
 	if err := r.store.RecordUse(host.Alias); err != nil {
 		return err

@@ -56,27 +56,29 @@ type HostInput struct {
 }
 
 type Manager struct {
-	Home          string
-	MainConfig    string
-	ManagedDir    string
-	ManagedConfig string
-	ManagedKeys   string
-	SyncGCPConfig string
-	SyncAWSConfig string
+	Home            string
+	MainConfig      string
+	ManagedDir      string
+	ManagedConfig   string
+	ManagedKeys     string
+	SyncGCPConfig   string
+	SyncAWSConfig   string
+	SyncAzureConfig string
 }
 
 // SyncHostInput describes a provider-synced SSH host block.
 type SyncHostInput struct {
-	Alias          string
-	SyncSource     string
-	SyncID         string
-	HostName       string
-	User           string
-	Port           string
-	IdentityFile   string
-	IdentitiesOnly bool
-	ProxyCommand   string
-	ExtraOptions   []string
+	Alias           string
+	SyncSource      string
+	SyncID          string
+	HostName        string
+	User            string
+	Port            string
+	IdentityFile    string
+	CertificateFile string
+	IdentitiesOnly  bool
+	ProxyCommand    string
+	ExtraOptions    []string
 }
 
 func (m Manager) Discover() ([]Host, error) {

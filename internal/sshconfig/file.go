@@ -56,6 +56,9 @@ func RenderSyncBlock(input SyncHostInput) []byte {
 			b.WriteString("    IdentitiesOnly yes\n")
 		}
 	}
+	if input.CertificateFile != "" {
+		fmt.Fprintf(&b, "    CertificateFile %s\n", configValue(input.CertificateFile))
+	}
 	if input.ProxyCommand != "" {
 		fmt.Fprintf(&b, "    ProxyCommand %s\n", input.ProxyCommand)
 	}
@@ -165,6 +168,10 @@ func LoadSyncHosts(path string) ([]SyncHostInput, error) {
 				if len(parts) > 1 {
 					input.IdentityFile = parts[1]
 				}
+			case "certificatefile":
+				if len(parts) > 1 {
+					input.CertificateFile = parts[1]
+				}
 			case "identitiesonly":
 				input.IdentitiesOnly = len(parts) > 1 && strings.EqualFold(parts[1], "yes")
 			case "proxycommand":
@@ -182,12 +189,12 @@ func LoadSyncHosts(path string) ([]SyncHostInput, error) {
 }
 
 // UpdateSyncHostAuth sets User / IdentityFile / IdentitiesOnly on an existing synced host block.
-func UpdateSyncHostAuth(path, alias, user, identityFile string, identitiesOnly bool) error {
+func UpdateSyncHostAuth(path, alias, user, identityFile, certificateFile string, identitiesOnly bool) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	updated, ok := patchSyncHostAuth(data, alias, user, identityFile, identitiesOnly)
+	updated, ok := patchSyncHostAuth(data, alias, user, identityFile, certificateFile, identitiesOnly)
 	if !ok {
 		return fmt.Errorf("synced host %q not found in %s", alias, path)
 	}
@@ -197,7 +204,7 @@ func UpdateSyncHostAuth(path, alias, user, identityFile string, identitiesOnly b
 	return atomicWriteChecked(path, data, updated, 0600)
 }
 
-func patchSyncHostAuth(data []byte, alias, user, identityFile string, identitiesOnly bool) ([]byte, bool) {
+func patchSyncHostAuth(data []byte, alias, user, identityFile, certificateFile string, identitiesOnly bool) ([]byte, bool) {
 	alias = strings.TrimSpace(alias)
 	if alias == "" {
 		return data, false
@@ -274,7 +281,7 @@ func patchSyncHostAuth(data []byte, alias, user, identityFile string, identities
 			if idx := strings.IndexFunc(trimmed, func(r rune) bool { return r == ' ' || r == '\t' }); idx >= 0 {
 				proxyCommand = strings.TrimSpace(trimmed[idx+1:])
 			}
-		case "user", "identityfile", "identitiesonly":
+		case "user", "identityfile", "certificatefile", "identitiesonly":
 			// replaced below
 		default:
 			extras = append(extras, trimmed)
@@ -282,14 +289,15 @@ func patchSyncHostAuth(data []byte, alias, user, identityFile string, identities
 	}
 
 	input := SyncHostInput{
-		Alias:          alias,
-		User:           user,
-		HostName:       hostname,
-		Port:           port,
-		IdentityFile:   identityFile,
-		IdentitiesOnly: identitiesOnly,
-		ProxyCommand:   proxyCommand,
-		ExtraOptions:   extras,
+		Alias:           alias,
+		User:            user,
+		HostName:        hostname,
+		Port:            port,
+		IdentityFile:    identityFile,
+		CertificateFile: certificateFile,
+		IdentitiesOnly:  identitiesOnly,
+		ProxyCommand:    proxyCommand,
+		ExtraOptions:    extras,
 	}
 	// Preserve sync marker from the line before Host when present.
 	syncSource, syncID := "", ""
