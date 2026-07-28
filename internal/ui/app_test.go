@@ -1761,7 +1761,7 @@ func TestEnterTogglesSelectedGroup(t *testing.T) {
 }
 
 func TestGoogleCloudGroupNameUsesGoogleColors(t *testing.T) {
-	rendered := renderManagedGroupName("Google Cloud", lipgloss.NewStyle())
+	rendered := renderManagedGroupName("Google Cloud", lipgloss.NewStyle(), false)
 	if !strings.Contains(rendered, "\x1b[") {
 		t.Fatalf("expected ANSI colours: %q", rendered)
 	}
@@ -1772,14 +1772,14 @@ func TestGoogleCloudGroupNameUsesGoogleColors(t *testing.T) {
 	if width := lipgloss.Width(rendered); width != len("Google Cloud") {
 		t.Fatalf("width = %d", width)
 	}
-	if got := renderManagedGroupName("Work", lipgloss.NewStyle()); got != "Work" {
+	if got := renderManagedGroupName("Work", lipgloss.NewStyle(), false); got != "Work" {
 		t.Fatalf("ordinary group changed: %q", got)
 	}
 }
 
 func TestAmazonEC2GroupNameUsesOneBrandColor(t *testing.T) {
 	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5CF6"))
-	rendered := renderManagedGroupName("Amazon EC2/default/eu-west-2", restStyle)
+	rendered := renderManagedGroupName("Amazon EC2/default/eu-west-2", restStyle, false)
 	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render("Amazon EC2")
 	if !strings.HasPrefix(rendered, provider) {
 		t.Fatalf("Amazon EC2 brand colour was not applied uniformly: %q", rendered)
@@ -1791,7 +1791,7 @@ func TestAmazonEC2GroupNameUsesOneBrandColor(t *testing.T) {
 
 func TestMicrosoftAzureGroupNameUsesOneBrandColor(t *testing.T) {
 	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	rendered := renderManagedGroupName("Microsoft Azure/Production/apps", restStyle)
+	rendered := renderManagedGroupName("Microsoft Azure/Production/apps", restStyle, false)
 	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0078D4")).Render("Microsoft Azure")
 	if !strings.HasPrefix(rendered, provider) {
 		t.Fatalf("Microsoft Azure brand colour was not applied uniformly: %q", rendered)

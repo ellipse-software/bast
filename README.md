@@ -148,7 +148,7 @@ Groups can nest up to five levels (`Work/Production/web`). Bast stores presentat
 - AWS CLI v2 for AWS cloud sync
 - `curl`, `tar`, and `shasum` or `sha256sum` for the installer
 - Go 1.26+ to build from source
-- A Nerd Font helps with some icons but isn't required
+- A Nerd Font is detected automatically in WezTerm and Kitty for cloud icons; use `BAST_NERD_FONT=1` or `BAST_NERD_FONT=0` to override detection
 
 ## Keyboard shortcuts
 

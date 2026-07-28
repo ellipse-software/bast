@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -132,6 +133,7 @@ type App struct {
 	width             int
 	height            int
 	dark              bool
+	nerdFont          bool
 	version           string
 	latestVersion     string
 	updateSuggestion  string
@@ -164,6 +166,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		syncer:           sync.New(p, store),
 		loading:          true,
 		dark:             true,
+		nerdFont:         detectNerdFont(os.Getenv),
 		version:          version,
 		collapsedGroups:  map[string]bool{},
 		syncingProviders: map[string]bool{},

@@ -164,8 +164,9 @@ func (m *App) renderHosts(s styleSet) string {
 					name = name[slash+1:]
 				}
 			}
-			name = truncate(name, max(2, rowWidth-lipgloss.Width(indent)-8))
-			line := indent + indicator + " " + renderManagedGroupName(name, s.active) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
+			iconWidth := lipgloss.Width(managedGroupIcon(name, m.nerdFont))
+			name = truncate(name, max(2, rowWidth-lipgloss.Width(indent)-8-iconWidth))
+			line := indent + indicator + " " + renderManagedGroupName(name, s.active, m.nerdFont) + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
 			if i == m.cursor {
 				line = s.selected.Width(rowWidth).Render(line)
 			} else {
@@ -224,19 +225,25 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 	if sync.IsSyncedGroup(row.group) {
 		hint = "␣ collapse/expand · cloud sync (read-only)"
 	}
-	return "  " + renderManagedGroupName(truncate(row.group, max(4, width-3)), s.active) + "\n" +
+	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont))
+	name := truncate(row.group, max(2, width-3-iconWidth))
+	return "  " + renderManagedGroupName(name, s.active, m.nerdFont) + "\n" +
 		"  " + s.muted.Render(fmt.Sprintf("%d servers · %s", row.count, state)) + "\n\n" +
 		"  " + s.muted.Render(truncate(hint, max(4, width-3)))
 }
 
-func renderManagedGroupName(name string, restStyle lipgloss.Style) string {
+func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool) string {
 	if name == "Amazon EC2" || strings.HasPrefix(name, "Amazon EC2/") {
-		provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render("Amazon EC2")
+		providerName := managedGroupIcon(name, nerdFont) + "Amazon EC2"
+		provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render(providerName)
 		return provider + restStyle.Render(strings.TrimPrefix(name, "Amazon EC2"))
 	}
 	if name == "Google Cloud" || strings.HasPrefix(name, "Google Cloud/") {
 		colors := []string{"#4285F4", "#EA4335", "#FBBC05", "#4285F4", "#34A853", "#EA4335"}
 		var rendered strings.Builder
+		if icon := managedGroupIcon(name, nerdFont); icon != "" {
+			rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4")).Render(icon))
+		}
 		for i, letter := range "Google" {
 			rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colors[i])).Render(string(letter)))
 		}
@@ -247,10 +254,27 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style) string {
 		return rendered.String()
 	}
 	if name == "Microsoft Azure" || strings.HasPrefix(name, "Microsoft Azure/") {
-		provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0078D4")).Render("Microsoft Azure")
+		providerName := managedGroupIcon(name, nerdFont) + "Microsoft Azure"
+		provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0078D4")).Render(providerName)
 		return provider + restStyle.Render(strings.TrimPrefix(name, "Microsoft Azure"))
 	}
 	return name
+}
+
+func managedGroupIcon(name string, nerdFont bool) string {
+	if !nerdFont {
+		return ""
+	}
+	switch {
+	case name == "Amazon EC2" || strings.HasPrefix(name, "Amazon EC2/"):
+		return "\ue7ad "
+	case name == "Google Cloud" || strings.HasPrefix(name, "Google Cloud/"):
+		return "\ue7f1 "
+	case name == "Microsoft Azure" || strings.HasPrefix(name, "Microsoft Azure/"):
+		return "\ue754 "
+	default:
+		return ""
+	}
 }
 
 func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) string {
