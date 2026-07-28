@@ -106,15 +106,15 @@ func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 func (c *Client) CheckAvailable(ctx context.Context) error {
 	if c.Run == nil {
 		if _, err := exec.LookPath(c.bin()); err != nil {
-			return fmt.Errorf("Azure CLI not found; install Azure CLI 2.62 or later and run az login")
+			return fmt.Errorf("could not find Azure CLI; install Azure CLI 2.62 or later and run az login")
 		}
 	}
 	out, err := c.run(ctx, "version", "--output", "json", "--only-show-errors")
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) || strings.Contains(err.Error(), "executable file not found") {
-			return fmt.Errorf("Azure CLI not found; install Azure CLI 2.62 or later and run az login")
+			return fmt.Errorf("could not find Azure CLI; install Azure CLI 2.62 or later and run az login")
 		}
-		return fmt.Errorf("Azure CLI is not usable: %w", err)
+		return fmt.Errorf("could not use Azure CLI: %w", err)
 	}
 	var versions struct {
 		AzureCLI string `json:"azure-cli"`
@@ -124,7 +124,7 @@ func (c *Client) CheckAvailable(ctx context.Context) error {
 	}
 	version := versions.AzureCLI
 	if version == "" || !versionAtLeast(version, 2, 62) {
-		return fmt.Errorf("Azure CLI 2.62 or later is required; found %q", version)
+		return fmt.Errorf("requires Azure CLI 2.62 or later; found %q", version)
 	}
 	return nil
 }
@@ -144,7 +144,7 @@ func versionAtLeast(version string, wantMajor, wantMinor int) bool {
 
 func (c *Client) CheckExtension(ctx context.Context, name string) error {
 	if _, err := c.run(ctx, "extension", "show", "--name", name, "--output", "json", "--only-show-errors"); err != nil {
-		return fmt.Errorf("Azure CLI %s extension is unavailable: %v; run az extension add --name %s", name, err, name)
+		return fmt.Errorf("could not use Azure CLI %s extension: %v; run az extension add --name %s", name, err, name)
 	}
 	return nil
 }
@@ -209,9 +209,9 @@ func (c *Client) Discover(ctx context.Context, cfg DiscoverConfig) (Discovery, e
 	}
 
 	type result struct {
-		sub       Subscription
-		instances []Instance
-		err       error
+		sub  Subscription
+		scan subscriptionDiscovery
+		err  error
 	}
 	results := make(chan result, len(subscriptions))
 	g, gctx := errgroup.WithContext(ctx)
@@ -219,8 +219,8 @@ func (c *Client) Discover(ctx context.Context, cfg DiscoverConfig) (Discovery, e
 	for _, sub := range subscriptions {
 		sub := sub
 		g.Go(func() error {
-			instances, scanErr := c.discoverSubscription(gctx, sub, cfg)
-			results <- result{sub: sub, instances: instances, err: scanErr}
+			scan, scanErr := c.discoverSubscription(gctx, sub, cfg)
+			results <- result{sub: sub, scan: scan, err: scanErr}
 			return nil
 		})
 	}
@@ -228,15 +228,22 @@ func (c *Client) Discover(ctx context.Context, cfg DiscoverConfig) (Discovery, e
 	close(results)
 
 	discovery := Discovery{ConfirmedSubscriptions: map[string]bool{}}
+	scannedSubscriptions := 0
 	for item := range results {
 		if item.err != nil {
 			discovery.Warnings = append(discovery.Warnings, fmt.Sprintf("%s: %v", item.sub.Name, item.err))
 			continue
 		}
-		discovery.ConfirmedSubscriptions[strings.ToLower(item.sub.ID)] = true
-		discovery.Instances = append(discovery.Instances, item.instances...)
+		scannedSubscriptions++
+		if item.scan.complete {
+			discovery.ConfirmedSubscriptions[strings.ToLower(item.sub.ID)] = true
+		}
+		discovery.Instances = append(discovery.Instances, item.scan.instances...)
+		for _, warning := range item.scan.warnings {
+			discovery.Warnings = append(discovery.Warnings, fmt.Sprintf("%s: %s", item.sub.Name, warning))
+		}
 	}
-	if len(discovery.ConfirmedSubscriptions) == 0 {
+	if scannedSubscriptions == 0 {
 		return Discovery{}, fmt.Errorf("incomplete Azure discovery: %s", strings.Join(discovery.Warnings, "; "))
 	}
 	sort.Strings(discovery.Warnings)
@@ -322,14 +329,20 @@ type bastionRecord struct {
 	} `json:"ipConfigurations"`
 }
 
-func (c *Client) discoverSubscription(ctx context.Context, sub Subscription, cfg DiscoverConfig) ([]Instance, error) {
+type subscriptionDiscovery struct {
+	instances []Instance
+	warnings  []string
+	complete  bool
+}
+
+func (c *Client) discoverSubscription(ctx context.Context, sub Subscription, cfg DiscoverConfig) (subscriptionDiscovery, error) {
 	var vmList []vmRecord
 	if err := c.runJSON(ctx, &vmList, "vm", "list", "--show-details", "--subscription", sub.ID, "--output", "json", "--only-show-errors"); err != nil {
-		return nil, fmt.Errorf("list VMs: %w", err)
+		return subscriptionDiscovery{}, fmt.Errorf("list VMs: %w", err)
 	}
 	var nicList []nicRecord
 	if err := c.runJSON(ctx, &nicList, "network", "nic", "list", "--subscription", sub.ID, "--output", "json", "--only-show-errors"); err != nil {
-		return nil, fmt.Errorf("list network interfaces: %w", err)
+		return subscriptionDiscovery{}, fmt.Errorf("list network interfaces: %w", err)
 	}
 	nics := map[string]nicRecord{}
 	for _, nic := range nicList {
@@ -348,16 +361,19 @@ func (c *Client) discoverSubscription(ctx context.Context, sub Subscription, cfg
 		}
 	}
 
+	scan := subscriptionDiscovery{complete: true}
 	bastions := map[string]bastionRecord{}
 	if needBastion {
 		found, err := c.listBastions(ctx, sub.ID)
 		if err != nil {
-			return nil, err
+			scan.complete = false
+			scan.warnings = append(scan.warnings, fmt.Sprintf("could not discover Bastion resources, preserving previously synced private VMs: %v", err))
+		} else {
+			bastions = found
 		}
-		bastions = found
 	}
 
-	instances := make([]Instance, 0, len(filtered))
+	scan.instances = make([]Instance, 0, len(filtered))
 	for _, vm := range filtered {
 		hostName := firstAddress(vm.PublicIPs)
 		privateIP, vnetID := vmNetwork(vm, nics)
@@ -369,6 +385,15 @@ func (c *Client) discoverSubscription(ctx context.Context, sub Subscription, cfg
 		if useBastion {
 			selected = bastions[strings.ToLower(vnetID)]
 			if privateIP == "" || selected.Name == "" {
+				if scan.complete {
+					reason := "no matching Bastion resource"
+					if privateIP == "" {
+						reason = "no private IP address"
+					} else if vnetID == "" {
+						reason = "could not determine its virtual network"
+					}
+					scan.warnings = append(scan.warnings, fmt.Sprintf("skipped private VM %s/%s: %s", vm.ResourceGroup, vm.Name, reason))
+				}
 				continue
 			}
 			hostName = privateIP
@@ -395,7 +420,7 @@ func (c *Client) discoverSubscription(ctx context.Context, sub Subscription, cfg
 			}
 		}
 		sort.Strings(tags)
-		instances = append(instances, Instance{
+		scan.instances = append(scan.instances, Instance{
 			SyncID: strings.ToLower(vm.ID), Name: vm.Name, SubscriptionID: sub.ID,
 			SubscriptionName: sub.Name, TenantID: sub.TenantID, ResourceGroup: vm.ResourceGroup,
 			Location: vm.Location, HostName: hostName, PrivateIPAddress: privateIP,
@@ -404,7 +429,7 @@ func (c *Client) discoverSubscription(ctx context.Context, sub Subscription, cfg
 			BastionResourceGroup: selected.ResourceGroup, Tags: tags,
 		})
 	}
-	return instances, nil
+	return scan, nil
 }
 
 func (c *Client) runJSON(ctx context.Context, target any, args ...string) error {

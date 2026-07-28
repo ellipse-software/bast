@@ -71,6 +71,87 @@ func TestStatusReleasesEngineLockBeforeExternalProbes(t *testing.T) {
 	}
 }
 
+func TestStatusProbesProvidersConcurrently(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	release := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	gcpStarted := make(chan struct{})
+	awsStarted := make(chan struct{})
+	azureStarted := make(chan struct{})
+	engine.GCP.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		close(gcpStarted)
+		select {
+		case <-release:
+			return []byte(`[]`), nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	engine.AWS.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		if strings.Contains(strings.Join(args[1:], " "), "--version") {
+			close(awsStarted)
+			select {
+			case <-release:
+				return []byte("aws-cli/2"), nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return nil, nil
+	}
+	engine.Azure.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		joined := strings.Join(args[1:], " ")
+		if strings.HasPrefix(joined, "version") {
+			close(azureStarted)
+			select {
+			case <-release:
+				return []byte(`{"azure-cli":"2.62.0"}`), nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		switch {
+		case strings.HasPrefix(joined, "account list"):
+			return []byte(`[]`), nil
+		case strings.HasPrefix(joined, "extension show"):
+			return []byte(`{}`), nil
+		default:
+			return nil, errors.New("unexpected Azure status command")
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, statusErr := engine.Status(context.Background())
+		done <- statusErr
+	}()
+	for name, started := range map[string]<-chan struct{}{
+		"GCP": gcpStarted, "AWS": awsStarted, "Azure": azureStarted,
+	} {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatalf("%s status probe did not start concurrently", name)
+		}
+	}
+	close(release)
+	released = true
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSyncAWSReconcileAndDisablePreservesGCP(t *testing.T) {
 	home := t.TempDir()
 	p := paths.ForHome(home)
@@ -195,6 +276,70 @@ func TestSyncAzurePreservesFailedSubscriptionInventory(t *testing.T) {
 	}
 	if store.Azure().Enabled {
 		t.Fatal("Azure integration remained enabled")
+	}
+}
+
+func TestSyncAzureRenamesPreservedHostWhenAliasIsReused(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	secondSync := false
+	engine.Azure.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		joined := strings.Join(args[1:], " ")
+		switch {
+		case strings.HasPrefix(joined, "version"):
+			return []byte(`{"azure-cli":"2.62.0"}`), nil
+		case strings.HasPrefix(joined, "account list"):
+			if secondSync {
+				return []byte(`[{"id":"bad","name":"Shared","state":"Enabled"},{"id":"good","name":"Shared","state":"Enabled"}]`), nil
+			}
+			return []byte(`[{"id":"bad","name":"Shared","state":"Enabled"}]`), nil
+		case strings.HasPrefix(joined, "network nic list"):
+			return []byte(`[]`), nil
+		case strings.HasPrefix(joined, "vm list") && strings.Contains(joined, "--subscription bad"):
+			if secondSync {
+				return nil, errors.New("permission denied")
+			}
+			return []byte(`[{"id":"/subscriptions/bad/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/web","name":"web","resourceGroup":"rg","powerState":"VM running","publicIps":"203.0.113.20","storageProfile":{"osDisk":{"osType":"Linux"}}}]`), nil
+		case strings.HasPrefix(joined, "vm list") && strings.Contains(joined, "--subscription good"):
+			return []byte(`[{"id":"/subscriptions/good/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/web","name":"web","resourceGroup":"rg","powerState":"VM running","publicIps":"203.0.113.10","storageProfile":{"osDisk":{"osType":"Linux"}}}]`), nil
+		default:
+			return nil, errors.New("unexpected Azure sync command")
+		}
+	}
+	if _, err := engine.SyncAzure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	const alias = "azure_Shared_rg_web"
+	if err := store.SetHost(alias, metadata.Host{Label: "Preserved", Favorite: true, Group: "Custom"}); err != nil {
+		t.Fatal(err)
+	}
+	secondSync = true
+	if _, err := engine.SyncAzure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	hosts := mustDiscoverHosts(t, engine)
+	byAlias := make(map[string]sshconfig.Host, len(hosts))
+	for _, host := range hosts {
+		byAlias[host.Alias] = host
+	}
+	if !strings.Contains(byAlias[alias].SyncID, "/subscriptions/good/") {
+		t.Fatalf("new host did not receive base alias: %+v", byAlias[alias])
+	}
+	preservedAlias := alias + "_2"
+	if !strings.Contains(byAlias[preservedAlias].SyncID, "/subscriptions/bad/") {
+		t.Fatalf("preserved host was not renamed: %+v", byAlias[preservedAlias])
+	}
+	if preserved := store.Host(preservedAlias); preserved.Label != "Preserved" || !preserved.Favorite || preserved.Group != "Custom" {
+		t.Fatalf("preserved metadata = %+v", preserved)
+	}
+	if current := store.Host(alias); current.Label != "web" || current.Favorite {
+		t.Fatalf("new host metadata = %+v", current)
 	}
 }
 

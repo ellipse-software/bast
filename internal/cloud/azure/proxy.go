@@ -36,7 +36,7 @@ func ParseProxyOptions(args []string) (ProxyOptions, error) {
 	}
 	if fs.NArg() != 0 || options.Subscription == "" || options.BastionResourceGroup == "" ||
 		options.BastionName == "" || options.TargetResourceID == "" || options.ResourcePort < 1 || options.ResourcePort > 65535 {
-		return ProxyOptions{}, fmt.Errorf("invalid Azure Bastion proxy arguments")
+		return ProxyOptions{}, errors.New("invalid Azure Bastion proxy arguments")
 	}
 	return options, nil
 }
@@ -45,7 +45,7 @@ func RunBastionProxy(ctx context.Context, options ProxyOptions, in io.Reader, ou
 	if err := New().CheckExtension(ctx, "bastion"); err != nil {
 		return err
 	}
-	localPort, err := availableLocalPort()
+	localPort, err := availableLocalPort(ctx)
 	if err != nil {
 		return fmt.Errorf("choose Azure Bastion tunnel port: %w", err)
 	}
@@ -98,8 +98,8 @@ func BastionTunnelArgs(options ProxyOptions, localPort int) []string {
 	}
 }
 
-func availableLocalPort() (int, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+func availableLocalPort(ctx context.Context) (int, error) {
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return 0, err
 	}
@@ -114,7 +114,9 @@ func waitForTunnel(ctx context.Context, port int, processExit <-chan error, time
 	defer ticker.Stop()
 	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	for {
-		conn, err := net.DialTimeout("tcp", address, 200*time.Millisecond)
+		dialCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+		conn, err := (&net.Dialer{}).DialContext(dialCtx, "tcp", address)
+		cancel()
 		if err == nil {
 			return conn, nil
 		}
@@ -123,11 +125,11 @@ func waitForTunnel(ctx context.Context, port int, processExit <-chan error, time
 			return nil, ctx.Err()
 		case err := <-processExit:
 			if err == nil {
-				return nil, fmt.Errorf("Azure Bastion tunnel exited before accepting connections")
+				return nil, errors.New("tunnel through Azure Bastion exited before accepting connections")
 			}
-			return nil, fmt.Errorf("Azure Bastion tunnel failed: %w", err)
+			return nil, fmt.Errorf("tunnel through Azure Bastion failed: %w", err)
 		case <-deadline.C:
-			return nil, fmt.Errorf("timed out waiting for Azure Bastion tunnel")
+			return nil, errors.New("timed out waiting for Azure Bastion tunnel")
 		case <-ticker.C:
 		}
 	}

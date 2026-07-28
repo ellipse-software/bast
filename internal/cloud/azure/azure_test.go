@@ -113,6 +113,76 @@ func TestDiscoverPreservesConfirmedSubscriptionsWhenOneFails(t *testing.T) {
 	}
 }
 
+func TestDiscoverKeepsDirectVMsWhenBastionDiscoveryFails(t *testing.T) {
+	client := &Client{Run: func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		joined := strings.Join(args[1:], " ")
+		switch {
+		case strings.HasPrefix(joined, "version"):
+			return []byte(`{"azure-cli":"2.62.0"}`), nil
+		case strings.HasPrefix(joined, "account list"):
+			return []byte(`[{"id":"sub-1","name":"Production","state":"Enabled"}]`), nil
+		case strings.HasPrefix(joined, "vm list"):
+			return []byte(`[
+				{"id":"/subscriptions/sub-1/resourceGroups/apps/providers/Microsoft.Compute/virtualMachines/web","name":"web","resourceGroup":"apps","powerState":"VM running","publicIps":"203.0.113.10","storageProfile":{"osDisk":{"osType":"Linux"}}},
+				{"id":"/subscriptions/sub-1/resourceGroups/apps/providers/Microsoft.Compute/virtualMachines/api","name":"api","resourceGroup":"apps","powerState":"VM running","privateIps":"10.0.0.5","storageProfile":{"osDisk":{"osType":"Linux"}}}
+			]`), nil
+		case strings.HasPrefix(joined, "network nic list"):
+			return []byte(`[]`), nil
+		case strings.HasPrefix(joined, "extension show --name bastion"):
+			return nil, errors.New("extension unavailable")
+		default:
+			return nil, fmt.Errorf("unexpected command %s", joined)
+		}
+	}}
+
+	discovery, err := client.Discover(context.Background(), DiscoverConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(discovery.Instances) != 1 || discovery.Instances[0].Name != "web" {
+		t.Fatalf("instances = %+v", discovery.Instances)
+	}
+	if discovery.ConfirmedSubscriptions["sub-1"] {
+		t.Fatal("partially scanned subscription was marked complete")
+	}
+	if len(discovery.Warnings) != 1 || !strings.Contains(discovery.Warnings[0], "preserving previously synced private VMs") {
+		t.Fatalf("warnings = %q", discovery.Warnings)
+	}
+}
+
+func TestDiscoverWarnsWhenPrivateVMHasNoMatchingBastion(t *testing.T) {
+	client := &Client{Run: func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		joined := strings.Join(args[1:], " ")
+		switch {
+		case strings.HasPrefix(joined, "version"):
+			return []byte(`{"azure-cli":"2.62.0"}`), nil
+		case strings.HasPrefix(joined, "account list"):
+			return []byte(`[{"id":"sub-1","name":"Production","state":"Enabled"}]`), nil
+		case strings.HasPrefix(joined, "vm list"):
+			return []byte(`[{"id":"/subscriptions/sub-1/resourceGroups/apps/providers/Microsoft.Compute/virtualMachines/api","name":"api","resourceGroup":"apps","powerState":"VM running","privateIps":"10.0.0.5","storageProfile":{"osDisk":{"osType":"Linux"}}}]`), nil
+		case strings.HasPrefix(joined, "network nic list"):
+			return []byte(`[]`), nil
+		case strings.HasPrefix(joined, "extension show --name bastion"):
+			return []byte(`{}`), nil
+		case strings.HasPrefix(joined, "resource list"):
+			return []byte(`[]`), nil
+		default:
+			return nil, fmt.Errorf("unexpected command %s", joined)
+		}
+	}}
+
+	discovery, err := client.Discover(context.Background(), DiscoverConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(discovery.Instances) != 0 || !discovery.ConfirmedSubscriptions["sub-1"] {
+		t.Fatalf("discovery = %+v", discovery)
+	}
+	if len(discovery.Warnings) != 1 || !strings.Contains(discovery.Warnings[0], "apps/api") {
+		t.Fatalf("warnings = %q", discovery.Warnings)
+	}
+}
+
 func TestEnsureAccessPrefersMatchingLocalKey(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0700); err != nil {
@@ -286,7 +356,7 @@ func TestGeneratedAzureConfigIsAcceptedByOpenSSH(t *testing.T) {
 	if err := sshconfig.WriteSyncConfig(path, []sshconfig.SyncHostInput{block}); err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command(ssh, "-G", "-F", path, "azure_test").CombinedOutput()
+	out, err := exec.CommandContext(context.Background(), ssh, "-G", "-F", path, "azure_test").CombinedOutput()
 	if err != nil {
 		t.Fatalf("ssh -G failed: %v\n%s", err, out)
 	}

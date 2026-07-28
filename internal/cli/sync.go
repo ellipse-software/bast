@@ -222,11 +222,12 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	var err error
-	if provider == "gcp" {
+	switch provider {
+	case "gcp":
 		err = engine.DisableGCP(ctx)
-	} else if provider == "aws" {
+	case "aws":
 		err = engine.DisableAWS(ctx)
-	} else {
+	case "azure":
 		err = engine.DisableAzure(ctx)
 	}
 	if err != nil {

@@ -413,8 +413,14 @@ func (e *Engine) SyncAzure(ctx context.Context) (Result, error) {
 		if !ok {
 			block = sshconfig.SyncHostInput{Alias: host.Alias, SyncSource: host.SyncSource, SyncID: host.SyncID, HostName: host.Alias}
 		}
-		if usedAliases[block.Alias] && block.Alias != host.Alias {
+		if usedAliases[block.Alias] {
+			previousAlias := host.Alias
 			block.Alias = azurecloud.UniqueAlias(block.Alias, usedAliases)
+			meta := e.Store.Host(previousAlias)
+			metadataUpdates = append([]hostMetadataUpdate{{
+				alias: block.Alias, previousAlias: previousAlias, label: meta.Label,
+				group: meta.Group, tags: append([]string(nil), meta.Tags...),
+			}}, metadataUpdates...)
 		}
 		usedAliases[block.Alias] = true
 		blocks = append(blocks, block)
@@ -619,46 +625,58 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	}
 	e.mu.Unlock()
 
-	if err := e.GCP.CheckAvailable(ctx); err != nil {
-		status.GCP.GCloudError = err.Error()
-	} else {
-		accounts, listErr := e.GCP.ListAccounts(ctx)
-		if listErr != nil {
-			status.GCP.GCloudError = listErr.Error()
+	var probes stdsync.WaitGroup
+	probes.Add(3)
+	go func() {
+		defer probes.Done()
+		if err := e.GCP.CheckAvailable(ctx); err != nil {
+			status.GCP.GCloudError = err.Error()
 		} else {
-			for _, account := range accounts {
-				status.GCP.Accounts = append(status.GCP.Accounts, account.Account)
+			accounts, listErr := e.GCP.ListAccounts(ctx)
+			if listErr != nil {
+				status.GCP.GCloudError = listErr.Error()
+			} else {
+				for _, account := range accounts {
+					status.GCP.Accounts = append(status.GCP.Accounts, account.Account)
+				}
 			}
 		}
-	}
-	if err := e.AWS.CheckAvailable(ctx); err != nil {
-		status.AWS.AWSCLIError = err.Error()
-	} else {
-		profiles, listErr := e.AWS.ListProfiles(ctx)
-		if listErr != nil {
-			status.AWS.AWSCLIError = listErr.Error()
+	}()
+	go func() {
+		defer probes.Done()
+		if err := e.AWS.CheckAvailable(ctx); err != nil {
+			status.AWS.AWSCLIError = err.Error()
 		} else {
-			status.AWS.Profiles = profiles
-		}
-	}
-	if err := e.Azure.CheckAvailable(ctx); err != nil {
-		status.Azure.AzureCLIError = err.Error()
-	} else {
-		subscriptions, listErr := e.Azure.ListSubscriptions(ctx)
-		if listErr != nil {
-			status.Azure.AzureCLIError = listErr.Error()
-		} else {
-			for _, subscription := range subscriptions {
-				status.Azure.Subscriptions = append(status.Azure.Subscriptions, subscription.Name)
+			profiles, listErr := e.AWS.ListProfiles(ctx)
+			if listErr != nil {
+				status.AWS.AWSCLIError = listErr.Error()
+			} else {
+				status.AWS.Profiles = profiles
 			}
 		}
-		if err := e.Azure.CheckExtension(ctx, "ssh"); err != nil {
-			status.Azure.SSHExtensionError = err.Error()
+	}()
+	go func() {
+		defer probes.Done()
+		if err := e.Azure.CheckAvailable(ctx); err != nil {
+			status.Azure.AzureCLIError = err.Error()
+		} else {
+			subscriptions, listErr := e.Azure.ListSubscriptions(ctx)
+			if listErr != nil {
+				status.Azure.AzureCLIError = listErr.Error()
+			} else {
+				for _, subscription := range subscriptions {
+					status.Azure.Subscriptions = append(status.Azure.Subscriptions, subscription.Name)
+				}
+			}
+			if err := e.Azure.CheckExtension(ctx, "ssh"); err != nil {
+				status.Azure.SSHExtensionError = err.Error()
+			}
+			if err := e.Azure.CheckExtension(ctx, "bastion"); err != nil {
+				status.Azure.BastionExtensionError = err.Error()
+			}
 		}
-		if err := e.Azure.CheckExtension(ctx, "bastion"); err != nil {
-			status.Azure.BastionExtensionError = err.Error()
-		}
-	}
+	}()
+	probes.Wait()
 	return status, nil
 }
 
