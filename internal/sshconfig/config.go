@@ -129,7 +129,11 @@ func (m Manager) scanFile(path string, depth int, stack map[string]bool, found *
 
 	managedID := ""
 	syncSource, syncID := "", ""
+	var active []int // indices in *found for the current Host block
+	baseDir := filepath.Dir(path)
 	scanner := bufio.NewScanner(bytes.NewReader(b))
+	// SSH configs can contain long ProxyCommand lines.
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	lineNo := 0
 	for scanner.Scan() {
 		lineNo++
@@ -160,6 +164,7 @@ func (m Manager) scanFile(path string, depth int, stack map[string]bool, found *
 		}
 		switch strings.ToLower(fields[0]) {
 		case "include":
+			active = nil
 			for _, pattern := range fields[1:] {
 				pattern = expandPath(pattern, m.Home, filepath.Dir(m.MainConfig))
 				matches, globErr := filepath.Glob(pattern)
@@ -174,6 +179,7 @@ func (m Manager) scanFile(path string, depth int, stack map[string]bool, found *
 				}
 			}
 		case "host":
+			active = active[:0]
 			for _, alias := range fields[1:] {
 				if selectableAlias(alias) {
 					*found = append(*found, Host{
@@ -181,14 +187,50 @@ func (m Manager) scanFile(path string, depth int, stack map[string]bool, found *
 						Managed: path == m.ManagedConfig && managedID != "", ManagedID: managedID,
 						Synced: syncID != "", SyncSource: syncSource, SyncID: syncID,
 					})
+					active = append(active, len(*found)-1)
 				}
 			}
+		default:
+			if len(active) == 0 || len(fields) < 2 {
+				continue
+			}
+			applyHostDirective((*found), active, fields, m.Home, baseDir)
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("scan %s: %w", path, err)
 	}
 	return nil
+}
+
+// applyHostDirective copies common SSH keywords from a Host block into Resolved
+// so the UI can show and connect without waiting for `ssh -G`.
+func applyHostDirective(hosts []Host, active []int, fields []string, home, baseDir string) {
+	key := strings.ToLower(fields[0])
+	value := fields[1]
+	for _, idx := range active {
+		resolved := &hosts[idx].Resolved
+		switch key {
+		case "hostname":
+			resolved.HostName = value
+		case "user":
+			resolved.User = value
+		case "port":
+			resolved.Port = value
+		case "identityfile":
+			resolved.IdentityFiles = append(resolved.IdentityFiles, expandPath(value, home, baseDir))
+		case "identitiesonly":
+			resolved.IdentitiesOnly = value
+		case "pubkeyauthentication":
+			resolved.PubkeyAuthentication = value
+		case "passwordauthentication":
+			resolved.PasswordAuthentication = value
+		case "preferredauthentications":
+			resolved.PreferredAuthentications = strings.Join(fields[1:], " ")
+		case "proxyjump":
+			resolved.ProxyJump = value
+		}
+	}
 }
 
 func (m Manager) EnsureManaged() error {

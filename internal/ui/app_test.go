@@ -2083,7 +2083,7 @@ func TestSyncActionIgnoredWhileOtherProviderSyncing(t *testing.T) {
 	}
 }
 
-func TestInitSequencesProviderAutoSync(t *testing.T) {
+func TestInitDefersProviderAutoSyncUntilHostsDiscovered(t *testing.T) {
 	m := testApp(t)
 	if err := m.metadata.SetGCP(metadata.GCPIntegration{Enabled: true, AutoSync: true}); err != nil {
 		t.Fatal(err)
@@ -2096,15 +2096,19 @@ func TestInitSequencesProviderAutoSync(t *testing.T) {
 	}
 
 	cmd := m.Init()
-	initMsg := cmd()
-	batch, ok := initMsg.(tea.BatchMsg)
-	if !ok || len(batch) == 0 {
-		t.Fatalf("Init command = %T, want non-empty tea.BatchMsg", initMsg)
+	if cmd == nil {
+		t.Fatal("Init returned nil")
 	}
-	autoSync := batch[len(batch)-1]()
-	if autoSync == nil {
-		t.Fatal("auto-sync command returned nil")
+	if m.syncingProviders["gcp"] || m.syncingProviders["aws"] || m.syncingProviders["azure"] {
+		t.Fatalf("Init marked providers syncing before hosts painted: %v", m.syncingProviders)
 	}
+
+	// AutoSync starts only after enrichment finishes (loadedMsg path).
+	next := m.autoSyncCmds()
+	if next == nil {
+		t.Fatal("autoSyncCmds returned nil")
+	}
+	autoSync := next()
 	if got := reflect.TypeOf(autoSync).String(); got != "tea.sequenceMsg" {
 		t.Fatalf("auto-sync command = %s, want tea.sequenceMsg", got)
 	}

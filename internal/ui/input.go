@@ -305,6 +305,7 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m.updateSyncKeys(key)
 		}
 		m.loading = true
+		m.enriching = false
 		return m, tea.Batch(m.loadCmd(), m.setNotice("Reloading OpenSSH files…"))
 	case "s":
 		if m.section == hostsSection {
@@ -339,7 +340,7 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if _, ok := m.selectedGroupHeader(); ok {
 				m.openEditGroupForm()
 			} else {
-				if host, ok := m.selectedHost(); ok && m.loading && host.Resolved.HostName == "" {
+				if host, ok := m.selectedHost(); ok && (m.loading || m.enriching) && host.Resolved.HostName == "" {
 					return m, m.setNotice("Host details are still loading")
 				}
 				m.openEditHostForm()

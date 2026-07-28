@@ -132,7 +132,7 @@ func (m *App) renderHosts(s styleSet) string {
 	rowsData := m.hostRows()
 	if len(rowsData) == 0 {
 		if m.loading {
-			return "\n  " + s.muted.Render("Loading OpenSSH configuration…")
+			return "\n  " + s.muted.Render("Loading hosts…")
 		}
 		if m.searchText() != "" {
 			return "\n  " + s.muted.Render("No hosts match “"+m.searchText()+"”")
@@ -346,7 +346,7 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 func (m *App) renderKeys(s styleSet) string {
 	filtered := m.filteredKeys()
 	if len(filtered) == 0 {
-		if m.loading {
+		if m.loading || m.enriching {
 			return "\n  " + s.muted.Render("Loading OpenSSH keys and agent…")
 		}
 		return "\n  " + s.muted.Render("No keys found. Press a to generate or i to import one.")
@@ -635,14 +635,17 @@ func (m *App) renderFooter(s styleSet) string {
 	}
 	query := m.searchText()
 	left := ""
-	if m.anySyncing() {
+	switch {
+	case m.anySyncing():
 		left = s.muted.Render("syncing…")
-	} else if strings.HasPrefix(m.search, "\x00") {
+	case m.loading:
+		left = s.muted.Render("loading…")
+	case strings.HasPrefix(m.search, "\x00"):
 		left = "/ " + query + "█"
-	} else if query != "" {
+	case query != "":
 		left = "filter: " + query
 	}
-	if !m.anySyncing() && m.status != "" {
+	if !m.anySyncing() && !m.loading && m.status != "" {
 		if left != "" {
 			left += "  •  "
 		}

@@ -19,7 +19,7 @@ func TestLoadDiscoversBeforeEnrichingEveryHost(t *testing.T) {
 	}
 	var config strings.Builder
 	for i := range 24 {
-		fmt.Fprintf(&config, "Host host-%02d\n  HostName host-%02d.example\n", i, i)
+		fmt.Fprintf(&config, "Host host-%02d\n  HostName host-%02d.example\n  User tester\n  Port 22\n", i, i)
 	}
 	if err := os.WriteFile(p.MainConfig, []byte(config.String()), 0600); err != nil {
 		t.Fatal(err)
@@ -55,8 +55,11 @@ func TestLoadDiscoversBeforeEnrichingEveryHost(t *testing.T) {
 		t.Fatalf("discovered %d hosts", len(discovered.hosts))
 	}
 	for _, host := range discovered.hosts {
-		if host.Resolved.HostName != "" || host.KnownHost {
-			t.Fatalf("discovery unexpectedly waited for enrichment: %+v", host)
+		if host.Resolved.HostName != host.Alias+".example" {
+			t.Fatalf("discovery should parse HostName from config: %+v", host)
+		}
+		if host.KnownHost {
+			t.Fatalf("discovery unexpectedly waited for known-host enrichment: %+v", host)
 		}
 	}
 

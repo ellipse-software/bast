@@ -329,14 +329,23 @@ func (r *Runner) load(ctx context.Context) ([]hostRecord, []keyRecord, error) {
 		go func() {
 			defer workers.Done()
 			for i := range jobs {
-				resolved, resolveErr := r.OpenSSH.Resolve(ctx, hosts[i].Alias)
-				res := enrichResult{index: i, err: resolveErr}
-				if resolveErr == nil {
+				host := hosts[i]
+				res := enrichResult{index: i}
+				if host.Resolved.HostName != "" {
+					res.resolved = host.Resolved
+					res.identities = host.Resolved.IdentityFiles
+				} else {
+					resolved, resolveErr := r.OpenSSH.Resolve(ctx, host.Alias)
+					if resolveErr != nil {
+						res.err = resolveErr
+						results <- res
+						continue
+					}
 					res.resolved = resolved
 					res.identities = resolved.IdentityFiles
-					known, _ := r.OpenSSH.Fingerprints(ctx, resolved.HostName, resolved.Port)
-					res.known = known != ""
 				}
+				known, _ := r.OpenSSH.Fingerprints(ctx, res.resolved.HostName, res.resolved.Port)
+				res.known = known != ""
 				results <- res
 			}
 		}()

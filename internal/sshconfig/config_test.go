@@ -28,6 +28,44 @@ func writeTestFile(t *testing.T, path, content string, mode os.FileMode) {
 	}
 }
 
+func TestDiscoverParsesHostDirectives(t *testing.T) {
+	m := testManager(t)
+	writeTestFile(t, m.MainConfig, strings.Join([]string{
+		"Host prod api",
+		"  HostName prod.example",
+		"  User deploy",
+		"  Port 2222",
+		`  IdentityFile ~/.ssh/id_ed25519`,
+		"  ProxyJump bastion",
+		"Host only-user",
+		"  User alice",
+	}, "\n")+"\n", 0600)
+
+	hosts, err := m.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byAlias := map[string]Host{}
+	for _, host := range hosts {
+		byAlias[host.Alias] = host
+	}
+	prod := byAlias["prod"]
+	if prod.Resolved.HostName != "prod.example" || prod.Resolved.User != "deploy" || prod.Resolved.Port != "2222" || prod.Resolved.ProxyJump != "bastion" {
+		t.Fatalf("prod resolved = %+v", prod.Resolved)
+	}
+	if len(prod.Resolved.IdentityFiles) != 1 || !strings.HasSuffix(prod.Resolved.IdentityFiles[0], filepath.Join(".ssh", "id_ed25519")) {
+		t.Fatalf("prod identity = %v", prod.Resolved.IdentityFiles)
+	}
+	api := byAlias["api"]
+	if api.Resolved.HostName != "prod.example" || api.Resolved.User != "deploy" {
+		t.Fatalf("shared Host block should apply to api: %+v", api.Resolved)
+	}
+	only := byAlias["only-user"]
+	if only.Resolved.User != "alice" || only.Resolved.HostName != "" {
+		t.Fatalf("only-user resolved = %+v", only.Resolved)
+	}
+}
+
 func TestDiscoverIncludesAndLiteralAliases(t *testing.T) {
 	m := testManager(t)
 	writeTestFile(t, m.MainConfig, "# main\nHost prod *.wild !blocked\n  HostName prod.example\nInclude conf.d/*.conf\n", 0600)

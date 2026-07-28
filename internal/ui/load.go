@@ -59,7 +59,8 @@ func (m *App) enrichCmd(discovered []sshconfig.Host) tea.Cmd {
 			go func() {
 				defer workers.Done()
 				for i := range jobs {
-					if hosts[i].Resolved.HostName != "" || hosts[i].Resolved.User != "" {
+					if hosts[i].Resolved.HostName != "" {
+						// Config parse already filled connection details; skip ssh -G.
 						identities[i] = hosts[i].Resolved.IdentityFiles
 						continue
 					}

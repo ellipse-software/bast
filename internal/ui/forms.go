@@ -421,6 +421,7 @@ func (m *App) finishMutation(err error, success string) (tea.Model, tea.Cmd) {
 	}
 	m.form = nil
 	m.loading = true
+	m.enriching = false
 	return m, tea.Batch(m.loadCmd(), m.setNotice(success))
 }
 

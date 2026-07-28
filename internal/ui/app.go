@@ -130,6 +130,7 @@ type App struct {
 	credits           bool
 	showHidden        bool
 	loading           bool
+	enriching         bool
 	syncingProviders  map[string]bool
 	status            string
 	statusError       bool
@@ -191,27 +192,39 @@ func (m *App) Init() tea.Cmd {
 	if m.syncingProviders == nil {
 		m.syncingProviders = map[string]bool{}
 	}
-	cmds := []tea.Cmd{m.loadCmd(), tea.RequestBackgroundColor, m.syncStatusCmd()}
-	if updateCmd := m.checkForUpdateCmd(); updateCmd != nil {
-		cmds = append(cmds, updateCmd)
+	// First frame: discover hosts only. Theme probe, update check, and AutoSync
+	// start after hosts are painted so startup never waits on the network or CLIs.
+	return m.loadCmd()
+}
+
+func (m *App) autoSyncCmds() tea.Cmd {
+	if m.syncingProviders == nil {
+		m.syncingProviders = map[string]bool{}
 	}
 	var autoSyncCmds []tea.Cmd
-	if m.metadata.GCP().Enabled && m.metadata.GCP().AutoSync {
+	if m.metadata.GCP().Enabled && m.metadata.GCP().AutoSync && !m.syncingProviders["gcp"] {
 		m.syncingProviders["gcp"] = true
 		autoSyncCmds = append(autoSyncCmds, m.syncGCPCmd())
 	}
-	if m.metadata.AWS().Enabled && m.metadata.AWS().AutoSync {
+	if m.metadata.AWS().Enabled && m.metadata.AWS().AutoSync && !m.syncingProviders["aws"] {
 		m.syncingProviders["aws"] = true
 		autoSyncCmds = append(autoSyncCmds, m.syncAWSCmd())
 	}
-	if m.metadata.Azure().Enabled && m.metadata.Azure().AutoSync {
+	if m.metadata.Azure().Enabled && m.metadata.Azure().AutoSync && !m.syncingProviders["azure"] {
 		m.syncingProviders["azure"] = true
 		autoSyncCmds = append(autoSyncCmds, m.syncAzureCmd())
 	}
-	if len(autoSyncCmds) > 0 {
-		cmds = append(cmds, tea.Sequence(autoSyncCmds...))
+	if len(autoSyncCmds) == 0 {
+		return nil
 	}
-	return tea.Batch(cmds...)
+	return tea.Sequence(autoSyncCmds...)
+}
+
+func (m *App) postPaintCmds() tea.Cmd {
+	if updateCmd := m.checkForUpdateCmd(); updateCmd != nil {
+		return updateCmd
+	}
+	return nil
 }
 
 func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -224,22 +237,28 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case loadedMsg:
 		m.loading = false
+		m.enriching = false
 		if msg.hosts != nil {
 			m.hosts = msg.hosts
 			m.sortHosts()
 		}
 		if msg.err != nil {
 			m.setError(msg.err)
-			return m, nil
+			return m, m.autoSyncCmds()
 		}
 		m.keys = msg.keys
 		m.selectAfterLoad()
-		return m, nil
+		return m, m.autoSyncCmds()
 	case discoveredMsg:
 		if msg.err != nil {
 			m.loading = false
+			m.enriching = false
 			m.setError(msg.err)
-			return m, nil
+			cmds := []tea.Cmd{tea.RequestBackgroundColor}
+			if cmd := m.postPaintCmds(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
 		}
 		previous := make(map[string]sshconfig.Host, len(m.hosts))
 		for _, host := range m.hosts {
@@ -247,13 +266,24 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		for i := range msg.hosts {
 			if host, ok := previous[msg.hosts[i].Alias]; ok {
-				msg.hosts[i].Resolved = host.Resolved
-				msg.hosts[i].KnownHost = host.KnownHost
+				if msg.hosts[i].Resolved.HostName == "" {
+					msg.hosts[i].Resolved = host.Resolved
+				}
+				if host.KnownHost {
+					msg.hosts[i].KnownHost = true
+				}
 			}
 		}
 		m.hosts = msg.hosts
 		m.sortHosts()
-		return m, m.enrichCmd(m.hosts)
+		// Hosts are usable from config parse; clear loading now and enrich quietly.
+		m.loading = false
+		m.enriching = true
+		cmds := []tea.Cmd{m.enrichCmd(m.hosts), tea.RequestBackgroundColor}
+		if cmd := m.postPaintCmds(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
 	case reportResultMsg:
 		if msg.err != nil {
 			return m, m.setNotice("Couldn't send report")
@@ -278,6 +308,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			telemetry.Track("sync_"+msg.provider, m.version)
 		}
 		m.loading = true
+		m.enriching = false
 		return m, tea.Batch(m.loadCmd(), m.syncStatusCmd(), m.setNotice(notice))
 	case syncStatusMsg:
 		if msg.err == nil {
@@ -286,6 +317,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case processDoneMsg:
 		m.loading = true
+		m.enriching = false
 		if msg.sshSession {
 			m.statusID++
 			m.status, m.statusError = "", false
