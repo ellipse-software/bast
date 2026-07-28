@@ -127,6 +127,7 @@ type App struct {
 	search            string
 	form              *form
 	help              bool
+	helpOffset        int
 	credits           bool
 	showHidden        bool
 	loading           bool
@@ -231,6 +232,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		if m.help {
+			m.clampHelpOffset()
+		}
 		return m, nil
 	case tea.BackgroundColorMsg:
 		m.dark = msg.IsDark()

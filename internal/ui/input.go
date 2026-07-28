@@ -186,7 +186,16 @@ func (m *App) updateMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
-	if m.help || m.credits || m.form != nil {
+	if m.credits || m.form != nil {
+		return m, nil
+	}
+	if m.help {
+		switch msg.Mouse().Button {
+		case tea.MouseWheelUp:
+			m.scrollHelp(-3)
+		case tea.MouseWheelDown:
+			m.scrollHelp(3)
+		}
 		return m, nil
 	}
 	mouse := msg.Mouse()
@@ -217,7 +226,7 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.credits {
 		if key == "?" {
-			m.credits, m.help = false, true
+			m.credits, m.help, m.helpOffset = false, true, 0
 		} else if key == "q" {
 			return m, tea.Quit
 		} else if key == "v" || key == "esc" || key == "backspace" || key == "ctrl+h" {
@@ -226,12 +235,25 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.help {
-		if key == "v" {
-			m.help, m.credits = false, true
-		} else if key == "q" {
+		switch key {
+		case "v":
+			m.help, m.credits, m.helpOffset = false, true, 0
+		case "q":
 			return m, tea.Quit
-		} else if key == "?" || key == "esc" || key == "backspace" || key == "ctrl+h" {
-			m.help = false
+		case "?", "esc", "backspace", "ctrl+h":
+			m.help, m.helpOffset = false, 0
+		case "up", "k":
+			m.scrollHelp(-1)
+		case "down", "j":
+			m.scrollHelp(1)
+		case "pgup":
+			m.scrollHelp(-m.helpBodyHeight())
+		case "pgdown":
+			m.scrollHelp(m.helpBodyHeight())
+		case "g", "home":
+			m.helpOffset = 0
+		case "G", "end":
+			m.helpOffset = m.maxHelpOffset()
 		}
 		return m, nil
 	}
@@ -239,7 +261,7 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c", "q":
 		return m, tea.Quit
 	case "?":
-		m.help = true
+		m.help, m.helpOffset = true, 0
 	case "v":
 		m.credits = true
 	case ".":

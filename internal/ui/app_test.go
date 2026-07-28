@@ -514,9 +514,53 @@ func TestLabelPathDisplayShowsLeafWhenInactive(t *testing.T) {
 	m.focusHostHubItem()
 	m.form.input.SetValue("abc/test")
 	m.form.input.SetCursor(len([]rune("abc/test")))
-	focused := m.renderForm(m.styles())
-	if !strings.Contains(focused, "abc") || !strings.Contains(focused, "test") {
-		t.Fatalf("focused label should show full path:\n%s", focused)
+	s := m.styles()
+	focused := m.renderLabelPathInput(s)
+	wantFocused := s.muted.Render("a") + s.muted.Render("b") + s.muted.Render("c") +
+		s.muted.Render("/") +
+		s.value.Render("t") + s.value.Render("e") + s.value.Render("s") + s.value.Render("t") +
+		lipgloss.NewStyle().Reverse(true).Render(" ")
+	if focused != wantFocused {
+		t.Fatalf("focused label path:\ngot  %q\nwant %q", focused, wantFocused)
+	}
+}
+
+func TestLabelPathMutesInactiveSideAndKeepsSlashMuted(t *testing.T) {
+	m := testApp(t)
+	m.openAddHostForm()
+	m.form.hubIndex = 0
+	m.focusHostHubItem()
+	s := m.styles()
+	m.form.input.SetValue("abc/test")
+
+	m.form.input.SetCursor(4) // on leaf
+	inLeaf := m.renderLabelPathInput(s)
+	wantLeaf := s.muted.Render("a") + s.muted.Render("b") + s.muted.Render("c") +
+		s.muted.Render("/") +
+		lipgloss.NewStyle().Reverse(true).Render("t") +
+		s.value.Render("e") + s.value.Render("s") + s.value.Render("t")
+	if inLeaf != wantLeaf {
+		t.Fatalf("cursor in leaf:\ngot  %q\nwant %q", inLeaf, wantLeaf)
+	}
+
+	m.form.input.SetCursor(1) // on group
+	inGroup := m.renderLabelPathInput(s)
+	wantGroup := s.value.Render("a") +
+		lipgloss.NewStyle().Reverse(true).Render("b") +
+		s.value.Render("c") +
+		s.muted.Render("/") +
+		s.muted.Render("t") + s.muted.Render("e") + s.muted.Render("s") + s.muted.Render("t")
+	if inGroup != wantGroup {
+		t.Fatalf("cursor in group:\ngot  %q\nwant %q", inGroup, wantGroup)
+	}
+
+	m.form.input.SetCursor(3) // on slash
+	onSlash := m.renderLabelPathInput(s)
+	wantSlash := s.value.Render("a") + s.value.Render("b") + s.value.Render("c") +
+		lipgloss.NewStyle().Reverse(true).Render("/") +
+		s.muted.Render("t") + s.muted.Render("e") + s.muted.Render("s") + s.muted.Render("t")
+	if onSlash != wantSlash {
+		t.Fatalf("cursor on slash:\ngot  %q\nwant %q", onSlash, wantSlash)
 	}
 }
 
@@ -537,8 +581,11 @@ func TestAddHostFormPrefillsGroupFromSelection(t *testing.T) {
 		t.Fatalf("label path prefill = %q", got)
 	}
 	summary := m.hostFormSummary(formSectionMetadata)
-	if !strings.Contains(summary, "Work/Production") {
-		t.Fatalf("metadata summary = %q", summary)
+	if summary != "—" {
+		t.Fatalf("metadata summary should not include group path, got %q", summary)
+	}
+	if got := metadata.LabelGroup(formFieldByLabel(m, "Label").value); got != "Work/Production" {
+		t.Fatalf("label path group = %q", got)
 	}
 }
 
@@ -1674,6 +1721,59 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
 	if m.credits {
 		t.Fatal("Esc did not close the credits screen")
+	}
+}
+
+func TestHelpScreenIsSpacedAndScrollable(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 80, 18
+	m.Update(press("?"))
+	if !m.help {
+		t.Fatal("? did not open help")
+	}
+	rendered := m.render()
+	for _, text := range []string{
+		"Keyboard shortcuts",
+		"Navigation",
+		"Move selection",
+		"↑/↓ scroll",
+		"? / Esc / ⌫ close",
+	} {
+		if !strings.Contains(rendered, text) {
+			t.Fatalf("help screen does not contain %q:\n%s", text, rendered)
+		}
+	}
+	if strings.Contains(rendered, "During SSH") {
+		t.Fatalf("short terminal should not show the bottom of help without scrolling:\n%s", rendered)
+	}
+	if !m.helpCanScroll() {
+		t.Fatal("expected help content to require scrolling")
+	}
+
+	m.Update(press("j"))
+	if m.helpOffset != 1 {
+		t.Fatalf("j should scroll help down: offset=%d", m.helpOffset)
+	}
+	m.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown}))
+	if m.helpOffset != 4 {
+		t.Fatalf("mouse wheel should scroll help: offset=%d", m.helpOffset)
+	}
+	m.Update(press("G"))
+	if m.helpOffset != m.maxHelpOffset() {
+		t.Fatalf("G should jump to end: offset=%d want=%d", m.helpOffset, m.maxHelpOffset())
+	}
+	bottom := m.render()
+	if !strings.Contains(bottom, "During SSH") || !strings.Contains(bottom, "Force-close a stuck session") {
+		t.Fatalf("scrolled help is missing the SSH section:\n%s", bottom)
+	}
+	m.Update(press("g"))
+	if m.helpOffset != 0 {
+		t.Fatalf("g should jump to top: offset=%d", m.helpOffset)
+	}
+
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	if m.help || m.helpOffset != 0 {
+		t.Fatalf("Esc should close help and reset scroll: help=%v offset=%d", m.help, m.helpOffset)
 	}
 }
 

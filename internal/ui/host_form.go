@@ -104,11 +104,6 @@ func (m *App) hostFormSummary(section string) string {
 		return m.hostAdvancedSummary()
 	case formSectionMetadata:
 		parts := []string{}
-		if labelField := f.fieldByLabel("Label"); labelField != nil {
-			if group := metadata.LabelGroup(labelField.value); group != "" {
-				parts = append(parts, group)
-			}
-		}
 		if env := fieldDisplay(f, "Environment"); env != "" && env != "—" {
 			parts = append(parts, env)
 		}
@@ -559,8 +554,10 @@ func (m *App) renderHostHubBasicsRow(b *strings.Builder, s styleSet, hub hostHub
 	b.WriteString("  " + s.muted.Render("  "+item.label+"  "+value) + "\n")
 }
 
-// renderLabelPathInput shows the full label path while editing. The group
-// prefix is muted until the cursor moves into it.
+// renderLabelPathInput shows the full label path while editing.
+// Slashes stay muted. The inactive side of the path (group vs leaf) is muted
+// based on cursor position: cursor in the leaf mutes the group; cursor in the
+// group mutes the leaf.
 func (m *App) renderLabelPathInput(s styleSet) string {
 	f := m.form
 	value := f.input.Value()
@@ -581,15 +578,20 @@ func (m *App) renderLabelPathInput(s styleSet) string {
 			lastSlash = i
 		}
 	}
-	mutePrefix := lastSlash >= 0 && pos > lastSlash
+	cursorInLeaf := lastSlash >= 0 && pos > lastSlash
 
 	var out strings.Builder
 	for i, r := range runes {
+		char := string(r)
 		style := s.value
-		if mutePrefix && i <= lastSlash {
+		switch {
+		case r == '/':
+			style = s.muted
+		case lastSlash >= 0 && cursorInLeaf && i < lastSlash:
+			style = s.muted
+		case lastSlash >= 0 && !cursorInLeaf && i > lastSlash:
 			style = s.muted
 		}
-		char := string(r)
 		if i == pos {
 			out.WriteString(lipgloss.NewStyle().Reverse(true).Render(char))
 			continue

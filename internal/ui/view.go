@@ -588,9 +588,145 @@ func contrastingTextColor(background string) (string, bool) {
 	return "#FFFFFF", true
 }
 
+type helpBinding struct {
+	keys string
+	desc string
+}
+
+type helpSection struct {
+	title    string
+	bindings []helpBinding
+}
+
+func helpSections() []helpSection {
+	return []helpSection{
+		{
+			title: "Navigation",
+			bindings: []helpBinding{
+				{"↑ ↓  j k", "Move selection"},
+				{"g  Home", "Jump to top"},
+				{"G  End", "Jump to bottom"},
+				{"/", "Search"},
+				{"r", "Reload"},
+				{"1", "Hosts"},
+				{"2", "Keys"},
+				{"3", "Sync"},
+				{"?", "Help"},
+				{"v", "About"},
+				{"q", "Quit"},
+			},
+		},
+		{
+			title: "Hosts",
+			bindings: []helpBinding{
+				{"󰌑", "Connect"},
+				{"a", "Add host"},
+				{"e", "Edit host"},
+				{"d", "Delete host"},
+				{"␣", "Collapse or expand group"},
+				{"[", "Collapse all groups"},
+				{"]", "Expand all groups"},
+				{"s", "Cycle sort"},
+				{"f", "Toggle favorite"},
+				{"h", "Hide or show selected"},
+				{".", "Toggle hidden hosts"},
+				{"K", "Remove known-host entry"},
+			},
+		},
+		{
+			title: "Keys",
+			bindings: []helpBinding{
+				{"a", "Generate key"},
+				{"i", "Import key"},
+				{"e", "Edit comment"},
+				{"d", "Delete key"},
+				{"u", "Add to server"},
+				{"x", "Export key"},
+				{"p", "Change passphrase"},
+				{"c", "Copy public key"},
+			},
+		},
+		{
+			title: "Sync",
+			bindings: []helpBinding{
+				{"󰌑", "Open provider or run action"},
+				{"Esc", "Back"},
+				{"r", "Refresh"},
+			},
+		},
+		{
+			title: "During SSH",
+			bindings: []helpBinding{
+				{"exit", "Return to Bast"},
+				{"󰌑 then ~.", "Force-close a stuck session"},
+			},
+		},
+	}
+}
+
+func (m *App) helpContentWidth() int {
+	return min(48, max(36, m.terminalWidth()-8))
+}
+
+func (m *App) helpLines(s styleSet) []string {
+	const keyWidth = 16
+	width := m.helpContentWidth()
+	lines := []string{
+		"",
+		s.active.Render("Keyboard shortcuts"),
+		"",
+	}
+	for i, section := range helpSections() {
+		if i > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, s.active.Render(section.title), "")
+		for _, binding := range section.bindings {
+			keys := s.value.Width(keyWidth).Render(binding.keys)
+			descWidth := max(8, width-keyWidth-2)
+			desc := s.muted.Width(descWidth).Render(binding.desc)
+			lines = append(lines, keys+"  "+desc)
+		}
+	}
+	return lines
+}
+
+func (m *App) helpBodyHeight() int {
+	return max(1, m.terminalHeight()-3)
+}
+
+func (m *App) maxHelpOffset() int {
+	return max(0, len(m.helpLines(m.styles()))-m.helpBodyHeight())
+}
+
+func (m *App) clampHelpOffset() {
+	if m.helpOffset < 0 {
+		m.helpOffset = 0
+	}
+	if maxOffset := m.maxHelpOffset(); m.helpOffset > maxOffset {
+		m.helpOffset = maxOffset
+	}
+}
+
+func (m *App) scrollHelp(delta int) {
+	m.helpOffset += delta
+	m.clampHelpOffset()
+}
+
+func (m *App) helpCanScroll() bool {
+	return m.maxHelpOffset() > 0
+}
+
 func (m *App) renderHelp(s styleSet) string {
-	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  g/Home top   G/End bottom", "  1  hosts       2  keys   3  sync   ?  help         v  about       q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand   [ collapse all   ] expand all  s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "Sync", "  󰌑 open provider / run action   Esc back   r refresh", "", "During SSH", "  exit returns to Bast; press 󰌑 then ~. to force-close a stuck session"}
-	return "\n  " + s.active.Render("Keyboard help") + "\n\n" + strings.Join(lines, "\n") + "\n\n  " + s.muted.Render("Press ?, Esc, or ⌫ to close")
+	lines := m.helpLines(s)
+	bodyHeight := m.helpBodyHeight()
+	offset := min(max(0, m.helpOffset), max(0, len(lines)-bodyHeight))
+	end := min(len(lines), offset+bodyHeight)
+	content := lipgloss.NewStyle().
+		Width(m.helpContentWidth()).
+		MarginLeft(3).
+		Render(strings.Join(lines[offset:end], "\n"))
+	return lipgloss.Place(m.terminalWidth(), bodyHeight, lipgloss.Left, lipgloss.Top, content)
 }
 
 func (m *App) renderCredits(s styleSet) string {
@@ -631,6 +767,13 @@ func (m *App) renderFooter(s styleSet) string {
 	}
 	if m.credits {
 		hint := "v / Esc / ⌫ close"
+		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
+	}
+	if m.help {
+		hint := "? / Esc / ⌫ close"
+		if m.helpCanScroll() {
+			hint = "↑/↓ scroll · " + hint
+		}
 		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
 	}
 	query := m.searchText()
