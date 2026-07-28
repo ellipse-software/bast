@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1612,5 +1613,51 @@ func TestSyncActionIgnoredWhileSyncing(t *testing.T) {
 	_, cmd := m.updateSyncKeys("enter")
 	if cmd != nil {
 		t.Fatal("sync action should be disabled while a sync is running")
+	}
+}
+
+func TestSyncActionIgnoredWhileOtherProviderSyncing(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "aws"
+	m.syncCursor = 0
+	m.syncingProviders = map[string]bool{"gcp": true}
+
+	_, cmd := m.updateSyncKeys("enter")
+	if cmd != nil {
+		t.Fatal("AWS sync action should be disabled while GCP sync is running")
+	}
+	if m.syncingProviders["aws"] {
+		t.Fatal("AWS sync was marked active while GCP sync is running")
+	}
+}
+
+func TestInitSequencesProviderAutoSync(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetGCP(metadata.GCPIntegration{Enabled: true, AutoSync: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetAWS(metadata.AWSIntegration{Enabled: true, AutoSync: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := m.Init()
+	initMsg := cmd()
+	batch, ok := initMsg.(tea.BatchMsg)
+	if !ok || len(batch) == 0 {
+		t.Fatalf("Init command = %T, want non-empty tea.BatchMsg", initMsg)
+	}
+	autoSync := batch[len(batch)-1]()
+	if autoSync == nil {
+		t.Fatal("auto-sync command returned nil")
+	}
+	if got := reflect.TypeOf(autoSync).String(); got != "tea.sequenceMsg" {
+		t.Fatalf("auto-sync command = %s, want tea.sequenceMsg", got)
+	}
+	if got := reflect.ValueOf(autoSync).Len(); got != 2 {
+		t.Fatalf("auto-sync sequence length = %d, want 2", got)
+	}
+	if !m.syncingProviders["gcp"] || !m.syncingProviders["aws"] {
+		t.Fatalf("syncing providers = %v", m.syncingProviders)
 	}
 }

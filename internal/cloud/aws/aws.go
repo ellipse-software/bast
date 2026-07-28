@@ -186,7 +186,6 @@ func (c *Client) Discover(ctx context.Context, cfg DiscoverConfig) ([]Instance, 
 	g, groupCtx := errgroup.WithContext(ctx)
 	g.SetLimit(6)
 	for _, item := range scopes {
-		item := item
 		g.Go(func() error {
 			instances, err := c.listRegion(groupCtx, item.identity, item.region, cfg)
 			if err != nil {

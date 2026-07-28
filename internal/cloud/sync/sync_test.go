@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	awscloud "bast/internal/cloud/aws"
 	"bast/internal/cloud/gcp"
@@ -15,6 +16,59 @@ import (
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
 )
+
+func TestStatusReleasesEngineLockBeforeExternalProbes(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	probeStarted := make(chan struct{})
+	releaseProbe := make(chan struct{})
+	engine.GCP.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		close(probeStarted)
+		select {
+		case <-releaseProbe:
+			return []byte(`[]`), nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	engine.AWS.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		joined := strings.Join(args[1:], " ")
+		switch {
+		case strings.Contains(joined, "--version"):
+			return []byte("aws-cli/2"), nil
+		case strings.Contains(joined, "configure list-profiles"):
+			return nil, nil
+		default:
+			return nil, errors.New("unexpected AWS status command")
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, statusErr := engine.Status(context.Background())
+		done <- statusErr
+	}()
+
+	select {
+	case <-probeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("status probe did not start")
+	}
+	if !engine.mu.TryLock() {
+		close(releaseProbe)
+		t.Fatal("status held the engine lock during an external probe")
+	}
+	engine.mu.Unlock()
+	close(releaseProbe)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestSyncAWSReconcileAndDisablePreservesGCP(t *testing.T) {
 	home := t.TempDir()

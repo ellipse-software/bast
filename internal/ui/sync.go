@@ -329,7 +329,7 @@ func (m *App) updateSyncKeys(key string) (tea.Model, tea.Cmd) {
 			m.syncCursor = 0
 			return m, m.syncStatusCmd()
 		}
-		if m.providerSyncing(m.syncProvider) {
+		if m.anySyncing() {
 			return m, nil
 		}
 		return m.runSyncAction(item.action)
@@ -377,7 +377,7 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 	if m.syncingProviders == nil {
 		m.syncingProviders = map[string]bool{}
 	}
-	if m.providerSyncing(m.syncProvider) {
+	if m.anySyncing() {
 		return m, nil
 	}
 	switch action {

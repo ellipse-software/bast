@@ -392,8 +392,6 @@ func (e *Engine) DisableAWS(ctx context.Context) error {
 // Status returns a human-readable sync status snapshot.
 func (e *Engine) Status(ctx context.Context) (Status, error) {
 	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	integration := e.Store.GCP()
 	awsIntegration := e.Store.AWS()
 	status := Status{
@@ -415,6 +413,8 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			LastSyncError: awsIntegration.LastSyncError, LastInstanceCount: awsIntegration.LastInstanceCount,
 		},
 	}
+	e.mu.Unlock()
+
 	if err := e.GCP.CheckAvailable(ctx); err != nil {
 		status.GCP.GCloudError = err.Error()
 	} else {

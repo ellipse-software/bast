@@ -166,13 +166,17 @@ func (m *App) Init() tea.Cmd {
 	if updateCmd := m.checkForUpdateCmd(); updateCmd != nil {
 		cmds = append(cmds, updateCmd)
 	}
+	var autoSyncCmds []tea.Cmd
 	if m.metadata.GCP().Enabled && m.metadata.GCP().AutoSync {
 		m.syncingProviders["gcp"] = true
-		cmds = append(cmds, m.syncGCPCmd())
+		autoSyncCmds = append(autoSyncCmds, m.syncGCPCmd())
 	}
 	if m.metadata.AWS().Enabled && m.metadata.AWS().AutoSync {
 		m.syncingProviders["aws"] = true
-		cmds = append(cmds, m.syncAWSCmd())
+		autoSyncCmds = append(autoSyncCmds, m.syncAWSCmd())
+	}
+	if len(autoSyncCmds) > 0 {
+		cmds = append(cmds, tea.Sequence(autoSyncCmds...))
 	}
 	return tea.Batch(cmds...)
 }
