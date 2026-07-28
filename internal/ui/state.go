@@ -390,6 +390,9 @@ func (m *App) renameGroup(oldPath, newSegment string) (string, error) {
 	if normalized == oldPath {
 		return normalized, nil
 	}
+	if m.groupExists(normalized) {
+		return "", fmt.Errorf("group %q already exists; choose a different name to avoid merging hosts", normalized)
+	}
 	aliases := make(map[string]bool, len(m.hosts))
 	for _, host := range m.hosts {
 		aliases[host.Alias] = true
@@ -573,12 +576,26 @@ func (m *App) expandAllGroups() tea.Cmd {
 }
 
 func (m *App) persistCollapsedGroups() error {
-	groups := make([]string, 0, len(m.collapsedGroups))
-	for path, collapsed := range m.collapsedGroups {
-		if collapsed {
-			groups = append(groups, path)
+	live := map[string]bool{}
+	for _, host := range m.hosts {
+		group := strings.TrimSpace(m.metadata.Host(host.Alias).Group)
+		if group == "" {
+			continue
+		}
+		parts := groupPathParts(group)
+		for i := 1; i <= len(parts); i++ {
+			live[strings.Join(parts[:i], "/")] = true
 		}
 	}
+	groups := make([]string, 0, len(m.collapsedGroups))
+	cleaned := map[string]bool{}
+	for path, collapsed := range m.collapsedGroups {
+		if collapsed && live[path] {
+			groups = append(groups, path)
+			cleaned[path] = true
+		}
+	}
+	m.collapsedGroups = cleaned
 	return m.metadata.SetCollapsedGroups(groups)
 }
 

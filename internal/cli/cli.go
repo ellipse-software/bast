@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -52,7 +53,7 @@ Global options:
   --json                      Emit structured JSON
   --no-input                  Never prompt for missing input
 
-Run "bast hosts <command> --help" or "bast keys <command> --help" for details.
+Run "bast hosts <command> --help", "bast keys <command> --help", or "bast sync <command> --help" for details.
 `
 
 func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
@@ -308,22 +309,72 @@ func (r *Runner) load(ctx context.Context) ([]hostRecord, []keyRecord, error) {
 		return nil, nil, err
 	}
 	referenced := map[string][]string{}
-	hostRecords := make([]hostRecord, 0, len(hosts))
-	for i := range hosts {
-		resolved, resolveErr := r.OpenSSH.Resolve(ctx, hosts[i].Alias)
-		if resolveErr == nil {
-			hosts[i].Resolved = resolved
-			known, _ := r.OpenSSH.Fingerprints(ctx, resolved.HostName, resolved.Port)
-			hosts[i].KnownHost = known != ""
-			for _, identity := range resolved.IdentityFiles {
-				referenced[identity] = append(referenced[identity], hosts[i].Alias)
+	hostRecords := make([]hostRecord, len(hosts))
+	type enrichResult struct {
+		index      int
+		resolved   sshconfig.Resolved
+		known      bool
+		identities []string
+		err        error
+	}
+	jobs := make(chan int)
+	results := make(chan enrichResult, len(hosts))
+	var workers sync.WaitGroup
+	workerCount := min(8, len(hosts))
+	if workerCount == 0 {
+		workerCount = 1
+	}
+	for range workerCount {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for i := range jobs {
+				resolved, resolveErr := r.OpenSSH.Resolve(ctx, hosts[i].Alias)
+				res := enrichResult{index: i, err: resolveErr}
+				if resolveErr == nil {
+					res.resolved = resolved
+					res.identities = resolved.IdentityFiles
+					known, _ := r.OpenSSH.Fingerprints(ctx, resolved.HostName, resolved.Port)
+					res.known = known != ""
+				}
+				results <- res
 			}
+		}()
+	}
+	go func() {
+		for i := range hosts {
+			jobs <- i
 		}
+		close(jobs)
+		workers.Wait()
+		close(results)
+	}()
+
+	timedOut := false
+	for res := range results {
+		if res.err != nil {
+			if ctx.Err() != nil {
+				timedOut = true
+			}
+			continue
+		}
+		hosts[res.index].Resolved = res.resolved
+		hosts[res.index].KnownHost = res.known
+		for _, identity := range res.identities {
+			referenced[identity] = append(referenced[identity], hosts[res.index].Alias)
+		}
+	}
+	if timedOut || ctx.Err() != nil {
+		return nil, nil, fail("timeout", "timed out resolving SSH hosts; retry or reduce host count")
+	}
+
+	for i := range hosts {
 		meta := r.store.Host(hosts[i].Alias)
 		label := strings.TrimSpace(meta.Label)
 		if label == "" {
 			label = hosts[i].Alias
 		}
+		resolved := hosts[i].Resolved
 		auth := "default"
 		if isPasswordOnly(resolved) {
 			auth = "password"
@@ -334,7 +385,7 @@ func (r *Runner) load(ctx context.Context) ([]hostRecord, []keyRecord, error) {
 		if advErr != nil {
 			return nil, nil, advErr
 		}
-		hostRecords = append(hostRecords, hostRecord{
+		hostRecords[i] = hostRecord{
 			Alias: hosts[i].Alias, Label: label, Hostname: resolved.HostName, User: resolved.User, Port: resolved.Port,
 			IdentityFiles: nonNil(resolved.IdentityFiles), Authentication: auth, ProxyJump: emptyNone(resolved.ProxyJump), Advanced: adv,
 			Group: meta.Group,
@@ -342,11 +393,14 @@ func (r *Runner) load(ctx context.Context) ([]hostRecord, []keyRecord, error) {
 			Hidden: meta.Hidden, Managed: hosts[i].Managed, Synced: hosts[i].Synced, SyncSource: hosts[i].SyncSource,
 			SyncID: hosts[i].SyncID, Source: hosts[i].Source, KnownHost: hosts[i].KnownHost,
 			LastUsedAt: meta.LastUsedAt, ConnectionCount: meta.ConnectionCount, raw: hosts[i], meta: meta,
-		})
+		}
 	}
 	keyList, err := r.keyring.Discover(ctx, referenced)
 	if err != nil {
 		return nil, nil, err
+	}
+	if ctx.Err() != nil {
+		return nil, nil, fail("timeout", "timed out resolving SSH hosts; retry or reduce host count")
 	}
 	keyRecords := make([]keyRecord, 0, len(keyList))
 	for _, key := range keyList {

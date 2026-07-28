@@ -88,6 +88,10 @@ type processDoneMsg struct {
 
 type clearStatusMsg uint64
 
+type reportResultMsg struct {
+	err error
+}
+
 type updateAvailableMsg struct {
 	version    string
 	suggestion string
@@ -250,6 +254,11 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.hosts = msg.hosts
 		m.sortHosts()
 		return m, m.enrichCmd(m.hosts)
+	case reportResultMsg:
+		if msg.err != nil {
+			return m, m.setNotice("Couldn't send report")
+		}
+		return m, m.setNotice("Report sent")
 	case syncDoneMsg:
 		delete(m.syncingProviders, msg.provider)
 		if msg.err != nil {
@@ -320,12 +329,16 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "space":
 				if telemetry.Enabled() {
-					telemetry.ReportError(telemetry.Report{
+					report := telemetry.Report{
 						Message: m.status,
 						Version: m.version,
 						Context: "tui",
-					})
-					return m, m.setNotice("Report sent")
+					}
+					m.statusID++
+					m.status, m.statusError = "Sending report…", false
+					return m, func() tea.Msg {
+						return reportResultMsg{err: telemetry.ReportError(report)}
+					}
 				}
 				m.statusID++
 				m.status, m.statusError = "", false

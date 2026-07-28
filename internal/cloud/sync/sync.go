@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,7 +31,9 @@ type Result struct {
 
 // Engine reconciles cloud instances into Bast SSH config + metadata.
 type Engine struct {
-	mu             stdsync.Mutex
+	gcpMu          stdsync.Mutex
+	awsMu          stdsync.Mutex
+	azureMu        stdsync.Mutex
 	Paths          paths.Paths
 	Config         sshconfig.Manager
 	Store          *metadata.Store
@@ -84,10 +87,25 @@ func stableExecutablePath() string {
 	return "bast"
 }
 
+func lockCtx(ctx context.Context, mu *stdsync.Mutex) error {
+	for {
+		if mu.TryLock() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
 // SyncGCP discovers GCP instances and writes the sync SSH config.
 func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	if err := lockCtx(ctx, &e.gcpMu); err != nil {
+		return Result{}, err
+	}
+	defer e.gcpMu.Unlock()
 
 	integration := e.Store.GCP()
 	discovery, err := e.GCP.DiscoverAll(ctx, cloud.DiscoverConfig{
@@ -165,14 +183,14 @@ func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
 	}
 
 	// Keep hosts from projects we could not re-scan (expired account, permission
-	// denied, transient API errors). Only prune when the project inventory was
-	// confirmed in this sync.
+	// denied, transient API errors). Prune when the project inventory was
+	// confirmed empty/changed, or when the project was intentionally filtered out.
 	for syncID, host := range previousBySyncID {
 		if activeSyncIDs[syncID] {
 			continue
 		}
 		projectID, _, _, parseErr := gcp.ParseSyncID(syncID)
-		if parseErr == nil && discovery.ConfirmedProjects[projectID] {
+		if parseErr == nil && (discovery.ConfirmedProjects[projectID] || discovery.ExcludedProjects[projectID]) {
 			metadataDeletes = append(metadataDeletes, host.Alias)
 			continue
 		}
@@ -228,11 +246,13 @@ func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
 
 // SyncAWS discovers EC2 instances and writes the AWS sync SSH config.
 func (e *Engine) SyncAWS(ctx context.Context) (Result, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	if err := lockCtx(ctx, &e.awsMu); err != nil {
+		return Result{}, err
+	}
+	defer e.awsMu.Unlock()
 
 	integration := e.Store.AWS()
-	instances, err := e.AWS.Discover(ctx, awscloud.DiscoverConfig{
+	discovery, err := e.AWS.Discover(ctx, awscloud.DiscoverConfig{
 		ProfileFilter: integration.ProfileFilter, RegionFilter: integration.RegionFilter,
 		DefaultSSHUser: integration.DefaultSSHUser, Home: e.Paths.Home, ManagedKeys: e.Paths.ManagedKeys,
 	})
@@ -250,6 +270,14 @@ func (e *Engine) SyncAWS(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{Provider: awscloud.ProviderName}, err
 	}
+	previousBlocks := map[string]sshconfig.SyncHostInput{}
+	if loaded, loadErr := sshconfig.LoadSyncHosts(e.Paths.SyncAWSConfig); loadErr == nil {
+		for _, block := range loaded {
+			if block.SyncID != "" {
+				previousBlocks[block.SyncID] = block
+			}
+		}
+	}
 	usedAliases := map[string]bool{}
 	previousBySyncID := map[string]sshconfig.Host{}
 	for _, host := range existing {
@@ -260,11 +288,12 @@ func (e *Engine) SyncAWS(ctx context.Context) (Result, error) {
 		usedAliases[host.Alias] = true
 	}
 
-	blocks := make([]sshconfig.SyncHostInput, 0, len(instances))
-	aliases := make([]string, 0, len(instances))
+	blocks := make([]sshconfig.SyncHostInput, 0, len(discovery.Instances)+len(previousBySyncID))
+	aliases := make([]string, 0, len(discovery.Instances)+len(previousBySyncID))
 	activeSyncIDs := map[string]bool{}
-	metadataUpdates := make([]hostMetadataUpdate, 0, len(instances))
-	for _, inst := range instances {
+	metadataUpdates := make([]hostMetadataUpdate, 0, len(discovery.Instances))
+	var metadataDeletes []string
+	for _, inst := range discovery.Instances {
 		activeSyncIDs[inst.SyncID] = true
 		alias := ""
 		if prev, ok := previousBySyncID[inst.SyncID]; ok && !usedAliases[prev.Alias] {
@@ -285,17 +314,38 @@ func (e *Engine) SyncAWS(ctx context.Context) (Result, error) {
 			group: awscloud.GroupPath(inst), tags: append([]string(nil), inst.Tags...),
 		})
 	}
+	for syncID, host := range previousBySyncID {
+		if activeSyncIDs[syncID] {
+			continue
+		}
+		meta := e.Store.Host(host.Alias)
+		scope := awsScopeFromHost(host, meta.Group)
+		if scope != "" && discovery.ConfirmedScopes[scope] {
+			metadataDeletes = append(metadataDeletes, host.Alias)
+			continue
+		}
+		if scope != "" && awsScopeExcludedByFilter(scope, integration.ProfileFilter, integration.RegionFilter) {
+			metadataDeletes = append(metadataDeletes, host.Alias)
+			continue
+		}
+		block, ok := previousBlocks[syncID]
+		if !ok {
+			block = sshconfig.SyncHostInput{
+				Alias: host.Alias, SyncSource: host.SyncSource, SyncID: host.SyncID, HostName: host.Alias,
+			}
+		}
+		if usedAliases[block.Alias] && block.Alias != host.Alias {
+			block.Alias = awscloud.UniqueAlias(block.Alias, usedAliases)
+		}
+		usedAliases[block.Alias] = true
+		blocks = append(blocks, block)
+		aliases = append(aliases, block.Alias)
+	}
 	if err := e.Config.EnsureSyncInclude(e.Paths.SyncAWSConfig); err != nil {
 		return Result{Provider: awscloud.ProviderName}, err
 	}
 	if err := sshconfig.WriteSyncConfig(e.Paths.SyncAWSConfig, blocks); err != nil {
 		return Result{Provider: awscloud.ProviderName}, err
-	}
-	var metadataDeletes []string
-	for syncID, host := range previousBySyncID {
-		if !activeSyncIDs[syncID] {
-			metadataDeletes = append(metadataDeletes, host.Alias)
-		}
 	}
 	if err := e.applyMetadataUpdates(metadataUpdates, metadataDeletes); err != nil {
 		return Result{Provider: awscloud.ProviderName}, err
@@ -303,12 +353,55 @@ func (e *Engine) SyncAWS(ctx context.Context) (Result, error) {
 	latest := e.Store.AWS()
 	latest.Enabled = true
 	latest.LastSyncAt = &now
-	latest.LastSyncError = ""
-	latest.LastInstanceCount = len(instances)
+	latest.LastSyncError = strings.Join(discovery.Warnings, "; ")
+	latest.LastInstanceCount = len(blocks)
 	if err := e.Store.SetAWS(latest); err != nil {
 		return Result{Provider: awscloud.ProviderName}, err
 	}
-	return Result{Provider: awscloud.ProviderName, Count: len(instances), SyncedAt: now, Aliases: aliases}, nil
+	result := Result{Provider: awscloud.ProviderName, Count: len(blocks), SyncedAt: now, Aliases: aliases}
+	if len(discovery.Warnings) > 0 {
+		result.Error = strings.Join(discovery.Warnings, "; ")
+	}
+	return result, nil
+}
+
+func awsScopeFromHost(host sshconfig.Host, group string) string {
+	_, region, _, _, err := awscloud.ParseSyncID(host.SyncID)
+	if err != nil || region == "" {
+		return ""
+	}
+	profile := ""
+	parts := strings.Split(strings.TrimPrefix(strings.TrimPrefix(group, "Amazon EC2/"), "AWS/"), "/")
+	if len(parts) >= 1 && parts[0] != "" && parts[0] != "Amazon EC2" && parts[0] != "AWS" {
+		profile = parts[0]
+	}
+	if profile == "" {
+		return ""
+	}
+	return awscloud.ScopeKey(profile, region)
+}
+
+func awsScopeExcludedByFilter(scope string, profiles, regions []string) bool {
+	profile, region, ok := strings.Cut(scope, "/")
+	if !ok {
+		return false
+	}
+	if len(profiles) > 0 && !stringInFold(profiles, profile) {
+		return true
+	}
+	if len(regions) > 0 && !stringInFold(regions, region) {
+		return true
+	}
+	return false
+}
+
+func stringInFold(values []string, want string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(want)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Engine) applyMetadataUpdates(updates []hostMetadataUpdate, deletes []string) error {
@@ -334,8 +427,10 @@ func (e *Engine) applyMetadataUpdates(updates []hostMetadataUpdate, deletes []st
 
 // SyncAzure discovers Azure VMs and writes the Azure sync SSH config.
 func (e *Engine) SyncAzure(ctx context.Context) (Result, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	if err := lockCtx(ctx, &e.azureMu); err != nil {
+		return Result{}, err
+	}
+	defer e.azureMu.Unlock()
 
 	integration := e.Store.Azure()
 	discovery, err := e.Azure.Discover(ctx, azurecloud.DiscoverConfig{
@@ -454,8 +549,10 @@ func (e *Engine) SyncAzure(ctx context.Context) (Result, error) {
 // and updates the sync SSH config block so the subsequent ssh uses the right User/key.
 // status, when non-nil, receives short progress messages for interactive connects.
 func (e *Engine) EnsureGCPAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	if err := lockCtx(ctx, &e.gcpMu); err != nil {
+		return err
+	}
+	defer e.gcpMu.Unlock()
 
 	if !host.Synced || host.SyncSource != gcp.ProviderName || host.SyncID == "" {
 		return nil
@@ -487,8 +584,10 @@ func (e *Engine) EnsureGCPAccess(ctx context.Context, host sshconfig.Host, statu
 
 // EnsureAWSAccess prepares SSH auth for an AWS-synced host immediately before connect.
 func (e *Engine) EnsureAWSAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	if err := lockCtx(ctx, &e.awsMu); err != nil {
+		return err
+	}
+	defer e.awsMu.Unlock()
 	if !host.Synced || host.SyncSource != awscloud.ProviderName || host.SyncID == "" {
 		return nil
 	}
@@ -505,8 +604,10 @@ func (e *Engine) EnsureAWSAccess(ctx context.Context, host sshconfig.Host, statu
 
 // EnsureAzureAccess refreshes local-key or Entra certificate authentication before connect.
 func (e *Engine) EnsureAzureAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	if err := lockCtx(ctx, &e.azureMu); err != nil {
+		return err
+	}
+	defer e.azureMu.Unlock()
 	if !host.Synced || host.SyncSource != azurecloud.ProviderName || host.SyncID == "" {
 		return nil
 	}
@@ -523,8 +624,10 @@ func (e *Engine) EnsureAzureAccess(ctx context.Context, host sshconfig.Host, sta
 
 // DisableGCP turns off GCP sync and removes generated SSH config.
 func (e *Engine) DisableGCP(ctx context.Context) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	if err := lockCtx(ctx, &e.gcpMu); err != nil {
+		return err
+	}
+	defer e.gcpMu.Unlock()
 
 	existing, err := e.Discover(ctx)
 	if err != nil {
@@ -547,8 +650,10 @@ func (e *Engine) DisableGCP(ctx context.Context) error {
 
 // DisableAWS turns off AWS sync and removes only generated AWS state.
 func (e *Engine) DisableAWS(ctx context.Context) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	if err := lockCtx(ctx, &e.awsMu); err != nil {
+		return err
+	}
+	defer e.awsMu.Unlock()
 	existing, err := e.Discover(ctx)
 	if err != nil {
 		return err
@@ -570,8 +675,10 @@ func (e *Engine) DisableAWS(ctx context.Context) error {
 
 // DisableAzure turns off Azure sync and removes only generated Azure state.
 func (e *Engine) DisableAzure(ctx context.Context) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	if err := lockCtx(ctx, &e.azureMu); err != nil {
+		return err
+	}
+	defer e.azureMu.Unlock()
 	existing, err := e.Discover(ctx)
 	if err != nil {
 		return err
@@ -593,7 +700,6 @@ func (e *Engine) DisableAzure(ctx context.Context) error {
 
 // Status returns a human-readable sync status snapshot.
 func (e *Engine) Status(ctx context.Context) (Status, error) {
-	e.mu.Lock()
 	integration := e.Store.GCP()
 	awsIntegration := e.Store.AWS()
 	azureIntegration := e.Store.Azure()
@@ -623,7 +729,6 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			LastSyncError: azureIntegration.LastSyncError, LastInstanceCount: azureIntegration.LastInstanceCount,
 		},
 	}
-	e.mu.Unlock()
 
 	var probes stdsync.WaitGroup
 	probes.Add(3)
@@ -744,6 +849,21 @@ func ValidateServiceAccountPath(path string) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return fmt.Errorf("service account path is required")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("service account key: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("service account key must be a file")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read service account key: %w", err)
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return fmt.Errorf("service account key is not valid JSON")
 	}
 	return nil
 }

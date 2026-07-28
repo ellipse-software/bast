@@ -54,11 +54,11 @@ func TestDiscoverMapsDirectAndEICEInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(instances) != 2 {
-		t.Fatalf("instances = %+v", instances)
+	if len(instances.Instances) != 2 {
+		t.Fatalf("instances = %+v", instances.Instances)
 	}
 	byName := map[string]Instance{}
-	for _, inst := range instances {
+	for _, inst := range instances.Instances {
 		byName[inst.Name] = inst
 	}
 	web := byName["web"]
@@ -82,7 +82,7 @@ func TestGroupPathUsesAmazonEC2Namespace(t *testing.T) {
 	}
 }
 
-func TestDiscoverRejectsPartialInventory(t *testing.T) {
+func TestDiscoverKeepsPartialInventory(t *testing.T) {
 	client := New()
 	client.Run = fakeAWS(t, func(joined string) (any, error) {
 		switch {
@@ -97,16 +97,36 @@ func TestDiscoverRejectsPartialInventory(t *testing.T) {
 		case strings.Contains(joined, "describe-instances") && strings.Contains(joined, "us-east-1"):
 			return nil, errors.New("access denied")
 		case strings.Contains(joined, "describe-instances"):
-			return map[string]any{"Reservations": []any{}}, nil
+			return map[string]any{"Reservations": []any{map[string]any{"Instances": []any{
+				map[string]any{"InstanceId": "i-public", "ImageId": "ami-ubuntu", "PublicIpAddress": "203.0.113.10", "VpcId": "vpc-1", "SubnetId": "subnet-a", "Placement": map[string]string{"AvailabilityZone": "eu-west-1a"}, "Tags": []map[string]string{{"Key": "Name", "Value": "web"}}},
+			}}}}, nil
+		case strings.Contains(joined, "describe-images"):
+			return map[string]any{"Images": []any{map[string]string{"ImageId": "ami-ubuntu", "Name": "ubuntu/images/hvm-ssd"}}}, nil
 		case strings.Contains(joined, "describe-instance-connect-endpoints"):
 			return map[string]any{"InstanceConnectEndpoints": []any{}}, nil
 		default:
 			return nil, errors.New("unexpected command: " + joined)
 		}
 	})
-	instances, err := client.Discover(context.Background(), DiscoverConfig{})
-	if err == nil || !strings.Contains(err.Error(), "incomplete AWS discovery") || instances != nil {
-		t.Fatalf("instances=%+v err=%v", instances, err)
+	discovery, err := client.Discover(context.Background(), DiscoverConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(discovery.Instances) != 1 || discovery.Instances[0].Name != "web" {
+		t.Fatalf("instances=%+v", discovery.Instances)
+	}
+	if !discovery.ConfirmedScopes["default/eu-west-1"] || discovery.ConfirmedScopes["default/us-east-1"] {
+		t.Fatalf("scopes=%v", discovery.ConfirmedScopes)
+	}
+	if len(discovery.Warnings) != 1 || !strings.Contains(discovery.Warnings[0], "us-east-1") {
+		t.Fatalf("warnings=%v", discovery.Warnings)
+	}
+}
+
+func TestFilterValuesAreCaseInsensitive(t *testing.T) {
+	got := filterValues([]string{"Production", "default"}, []string{"production"})
+	if strings.Join(got, ",") != "Production" {
+		t.Fatalf("filterValues = %v", got)
 	}
 }
 

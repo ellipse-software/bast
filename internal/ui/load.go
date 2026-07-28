@@ -59,6 +59,10 @@ func (m *App) enrichCmd(discovered []sshconfig.Host) tea.Cmd {
 			go func() {
 				defer workers.Done()
 				for i := range jobs {
+					if hosts[i].Resolved.HostName != "" || hosts[i].Resolved.User != "" {
+						identities[i] = hosts[i].Resolved.IdentityFiles
+						continue
+					}
 					resolved, resolveErr := m.openSSH.Resolve(ctx, hosts[i].Alias)
 					if resolveErr != nil {
 						continue
@@ -87,12 +91,25 @@ func (m *App) enrichCmd(discovered []sshconfig.Host) tea.Cmd {
 			endpoints = append(endpoints, key)
 		}
 		knownHosts := make([]bool, len(endpoints))
+		alreadyKnown := make([]bool, len(endpoints))
+		for i, key := range endpoints {
+			for _, hostIndex := range indices[key] {
+				if hosts[hostIndex].KnownHost {
+					alreadyKnown[i] = true
+					knownHosts[i] = true
+					break
+				}
+			}
+		}
 		knownJobs := make(chan int)
 		for range min(8, len(endpoints)) {
 			workers.Add(1)
 			go func() {
 				defer workers.Done()
 				for i := range knownJobs {
+					if alreadyKnown[i] {
+						continue
+					}
 					known, _ := m.openSSH.Fingerprints(ctx, endpoints[i].host, endpoints[i].port)
 					knownHosts[i] = known != ""
 				}

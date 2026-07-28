@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 	"bast/internal/sshconfig"
 )
 
-func TestStatusReleasesEngineLockBeforeExternalProbes(t *testing.T) {
+func TestStatusDoesNotHoldProviderLocksDuringExternalProbes(t *testing.T) {
 	home := t.TempDir()
 	p := paths.ForHome(home)
 	store, err := metadata.Open(p.StateFile)
@@ -60,14 +61,66 @@ func TestStatusReleasesEngineLockBeforeExternalProbes(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("status probe did not start")
 	}
-	if !engine.mu.TryLock() {
+	if !engine.gcpMu.TryLock() || !engine.awsMu.TryLock() || !engine.azureMu.TryLock() {
 		close(releaseProbe)
-		t.Fatal("status held the engine lock during an external probe")
+		t.Fatal("status held a provider lock during an external probe")
 	}
-	engine.mu.Unlock()
+	engine.gcpMu.Unlock()
+	engine.awsMu.Unlock()
+	engine.azureMu.Unlock()
 	close(releaseProbe)
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEnsureAWSAccessDoesNotBlockBehindGCPSync(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	engine.gcpMu.Lock()
+	defer engine.gcpMu.Unlock()
+
+	started := make(chan struct{})
+	var once sync.Once
+	engine.AWS.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		once.Do(func() { close(started) })
+		joined := strings.Join(args[1:], " ")
+		switch {
+		case strings.Contains(joined, "--version"):
+			return []byte("aws-cli/2"), nil
+		case strings.Contains(joined, "configure list-profiles"):
+			return []byte("default\n"), nil
+		case strings.Contains(joined, "sts get-caller-identity"):
+			return nil, errors.New("not authenticated")
+		default:
+			return nil, errors.New("unexpected: " + joined)
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- engine.EnsureAWSAccess(context.Background(), sshconfig.Host{
+			Synced: true, SyncSource: awscloud.ProviderName, SyncID: "arn:aws:ec2:eu-west-1:123456789012:instance/i-123",
+		}, nil)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("EnsureAWSAccess blocked behind GCP lock")
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected AWS auth error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("EnsureAWSAccess did not finish")
 	}
 }
 
@@ -663,4 +716,28 @@ func mustJSON(t *testing.T, value any) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+func TestValidateServiceAccountPath(t *testing.T) {
+	if err := ValidateServiceAccountPath(""); err == nil {
+		t.Fatal("expected empty path error")
+	}
+	dir := t.TempDir()
+	if err := ValidateServiceAccountPath(dir); err == nil || !strings.Contains(err.Error(), "must be a file") {
+		t.Fatalf("expected directory error, got %v", err)
+	}
+	bad := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(bad, []byte("not-json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateServiceAccountPath(bad); err == nil || !strings.Contains(err.Error(), "valid JSON") {
+		t.Fatalf("expected JSON error, got %v", err)
+	}
+	good := filepath.Join(dir, "good.json")
+	if err := os.WriteFile(good, []byte(`{"type":"service_account"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateServiceAccountPath(good); err != nil {
+		t.Fatal(err)
+	}
 }

@@ -1383,9 +1383,28 @@ func TestErrorOverlaySpaceSendsReport(t *testing.T) {
 	m := testApp(t)
 	m.version = "v1.2.3"
 	m.status, m.statusError = "sync failed", true
-	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	if m.statusError || m.status != "Sending report…" {
+		t.Fatalf("Space should start async send: status=%q error=%v", m.status, m.statusError)
+	}
+	if cmd == nil {
+		t.Fatal("expected report command")
+	}
+	msg := cmd()
+	result, ok := msg.(reportResultMsg)
+	if !ok {
+		t.Fatalf("unexpected msg %T", msg)
+	}
+	if result.err != nil {
+		t.Fatalf("report error: %v", result.err)
+	}
+	_, cmd = m.Update(result)
+	if cmd == nil {
+		t.Fatal("expected notice command")
+	}
+	_ = cmd()
 	if m.statusError || m.status != "Report sent" {
-		t.Fatalf("Space should send report and show notice: status=%q error=%v", m.status, m.statusError)
+		t.Fatalf("report result should show notice: status=%q error=%v", m.status, m.statusError)
 	}
 
 	select {
@@ -1468,7 +1487,7 @@ func TestMobileLayoutStacksPanelsVertically(t *testing.T) {
 		t.Fatalf("mobile host details are missing the connect button:\n%s", body)
 	}
 	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "click Connect") {
+	if !strings.Contains(footer, "enter/click Connect") {
 		t.Fatalf("mobile footer does not mention connect: %q", footer)
 	}
 }

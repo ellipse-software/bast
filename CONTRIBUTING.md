@@ -29,6 +29,11 @@ CI still enforces `test -z "$(gofmt -l .)"`. Include tests for behavior changes,
 - `internal/keys`: native key discovery and key operations
 - `internal/openssh`: calls to installed OpenSSH tools
 - `internal/metadata`: Bast-only presentation metadata
+- `internal/cloud`: provider clients (`gcp`, `aws`, `azure`) and the `sync` engine that imports cloud VMs as read-only SSH hosts
+- `internal/telemetry`: anonymous usage events and consented error reporting
+- `internal/paths`: home/config path resolution
+- `internal/updater`: release and nightly update checks
+- `internal/connectbanner`: pre-SSH connect status banner
 
 Never include real hostnames, private keys, fingerprints, or production SSH configuration in issues, fixtures, screenshots, or pull requests.
 

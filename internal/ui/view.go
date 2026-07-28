@@ -589,7 +589,7 @@ func contrastingTextColor(background string) (string, bool) {
 }
 
 func (m *App) renderHelp(s styleSet) string {
-	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   3  sync   ?  help         v  about       q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand   [ collapse all   ] expand all  s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "Sync", "  󰌑 open provider / run action   Esc back   r refresh", "", "During SSH", "  exit returns to Bast; press 󰌑 then ~. to force-close a stuck session"}
+	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  g/Home top   G/End bottom", "  1  hosts       2  keys   3  sync   ?  help         v  about       q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand   [ collapse all   ] expand all  s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "Sync", "  󰌑 open provider / run action   Esc back   r refresh", "", "During SSH", "  exit returns to Bast; press 󰌑 then ~. to force-close a stuck session"}
 	return "\n  " + s.active.Render("Keyboard help") + "\n\n" + strings.Join(lines, "\n") + "\n\n  " + s.muted.Render("Press ?, Esc, or ⌫ to close")
 }
 
@@ -666,7 +666,7 @@ func (m *App) renderFooter(s styleSet) string {
 				hint = collapse + " • e rename • a add • v about • ? help"
 			}
 		} else if m.isMobileLayout() {
-			hint = "↑/↓ or j/k move • click Connect • a add • v about • ? help"
+			hint = "↑/↓ or j/k move • enter/click Connect • a add • v about • ? help"
 		} else {
 			hint = "󰌑 connect • " + collapse + " • a add • h hide • v about • ? help"
 		}

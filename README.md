@@ -85,29 +85,31 @@ bast hosts add "Production web" --hostname prod.example.com --user deploy
 bast hosts edit Production_web --notes "Primary app server"
 bast hosts delete Production_web
 
-bast keys generate work --algorithm ed25519       # 
+bast keys generate work --algorithm ed25519
 bast keys import work --private ~/.ssh/id_ed25519
 bast keys install work --host production
 bast keys delete work
 ```
 
-Run `bast hosts <command> --help` or `bast keys <command> --help` for the full flag list.
+Run `bast hosts <command> --help`, `bast keys <command> --help`, or `bast sync <command> --help` for the full flag list.
 
 ### Cloud sync
 
-The Sync tab can import SSH-ready virtual machines from Google Cloud, AWS, and Azure. Synced hosts are read-only in Bast and remain ordinary OpenSSH entries under `~/.ssh/bast/sync`.
-
-AWS sync requires AWS CLI v2 and at least one configured profile. By default Bast scans every configured profile and enabled region; profile and region filters are available in the AWS Sync screen. The equivalent CLI commands are:
+The Sync tab (`3` in the TUI) can import SSH-ready virtual machines from Google Cloud, AWS, and Azure. Synced hosts are read-only in Bast and remain ordinary OpenSSH entries under `~/.ssh/bast/sync`.
 
 ```sh
+bast sync gcp
 bast sync aws
 bast sync azure
 bast sync status
+bast sync disable gcp
 bast sync disable aws
 bast sync disable azure
 ```
 
-Discovery uses `sts:GetCallerIdentity`, `ec2:DescribeRegions`, `ec2:DescribeInstances`, `ec2:DescribeImages`, and `ec2:DescribeInstanceConnectEndpoints`. Bast connects directly to public addresses. Private instances require an active EC2 Instance Connect Endpoint and `ec2-instance-connect:OpenTunnel`; these tunnels have AWS's one-hour maximum duration.
+GCP sync requires the Google Cloud SDK (`gcloud`) and an authenticated account (`gcloud auth login`). Bast scans accessible projects, imports running Compute Engine instances, and groups them under `Google Cloud/<project>`. Project filters and optional service-account JSON keys are available in the GCP Sync screen. Public instances connect directly. Private instances use IAP tunnelling via `gcloud compute start-iap-tunnel` when needed. Bast prefers a matching local identity (`~/.ssh/google_compute_engine` or metadata keys); otherwise it can publish a short-lived key through instance or project metadata. Bast does not create projects, change firewall rules, or start instances. Narrowing the project filter removes previously synced hosts from newly excluded projects on the next sync.
+
+AWS sync requires AWS CLI v2 and at least one configured profile. By default Bast scans every configured profile and enabled region; profile and region filters are available in the AWS Sync screen. Discovery uses `sts:GetCallerIdentity`, `ec2:DescribeRegions`, `ec2:DescribeInstances`, `ec2:DescribeImages`, and `ec2:DescribeInstanceConnectEndpoints`. Bast connects directly to public addresses. Private instances require an active EC2 Instance Connect Endpoint and `ec2-instance-connect:OpenTunnel`; these tunnels have AWS's one-hour maximum duration.
 
 When the instance's launch key exists in `~/.ssh/bast/keys` or `~/.ssh`, Bast uses it. Otherwise it creates `~/.ssh/bast/aws_compute` and publishes the public key immediately before connecting, which requires `ec2-instance-connect:SendSSHPublicKey` and EC2 Instance Connect support on the instance. Bast does not create endpoints, change security groups, or start instances.
 
@@ -144,18 +146,22 @@ Groups can nest up to five levels. Set them in the label with a path (`Work/Prod
 
 - macOS or Linux
 - OpenSSH (`ssh`, `ssh-keygen`, `ssh-add`)
+- Google Cloud SDK (`gcloud`) for GCP cloud sync
 - AWS CLI v2 for AWS cloud sync
+- Azure CLI 2.62+ for Azure cloud sync
 - `curl`, `tar`, and `shasum` or `sha256sum` for the installer
 - Go 1.26+ to build from source
-- A Nerd Font is detected automatically in WezTerm and Kitty for cloud icons; use `BAST_NERD_FONT=1` or `BAST_NERD_FONT=0` to override detection
+- A Nerd Font is detected automatically in WezTerm, Kitty, iTerm2, Alacritty, Ghostty, Warp, and Windows Terminal for cloud icons; use `BAST_NERD_FONT=1` or `BAST_NERD_FONT=0` to override detection
 
 ## Keyboard shortcuts
 
-`1` hosts · `2` keys · arrows or `j`/`k` to move · `/` search · `r` reload · `v` version info
+`1` hosts · `2` keys · `3` sync · arrows or `j`/`k` to move · `g`/`G` top/bottom · `/` search · `r` reload · `v` version info
 
 **Hosts:** Enter connect · `a` add · `e` edit · `d` delete · `f` favorite · `h` hide · `.` show hidden · Space collapse/expand group · `[` collapse all · `]` expand all · `s` sort · `K` drop known-host entry
 
 **Keys:** `a` generate · `i` import · `e` edit comment · `d` delete · `u` push to server · `x` export · `p` passphrase · `c` copy public key
+
+**Sync:** Enter open provider / run action · Esc back · `r` refresh
 
 During a session, `exit` closes Bast too. Stuck? Enter, then `~.` to force SSH closed.
 
@@ -173,7 +179,7 @@ Anonymous usage telemetry (version, platform, events) is on by default. Opt out:
 export BAST_NO_TELEMETRY=1
 ```
 
-When an error occurs in an interactive session, Bast can offer to send an error report that may include error text and stack traces. In the TUI error overlay, Space sends the report; Enter, Esc, Backspace, and Ctrl+H dismiss it; q quits; unrelated keys leave it open. SSH session endings are not reported. `BAST_NO_TELEMETRY=1` disables both usage telemetry and error reports.
+When an error occurs in an interactive session, Bast can offer to send an error report that may include error text and stack traces. In the TUI error overlay, Space sends the report; Enter, Esc, Backspace, and Ctrl+H dismiss it; q quits; unrelated keys leave it open. After a failing CLI command in a terminal, Bast prints a one-key prompt: Space sends the report, and any other key continues immediately. SSH session endings are not reported. `BAST_NO_TELEMETRY=1` disables both usage telemetry and error reports.
 
 ## Development
 

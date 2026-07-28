@@ -337,12 +337,22 @@ type subscriptionDiscovery struct {
 
 func (c *Client) discoverSubscription(ctx context.Context, sub Subscription, cfg DiscoverConfig) (subscriptionDiscovery, error) {
 	var vmList []vmRecord
-	if err := c.runJSON(ctx, &vmList, "vm", "list", "--show-details", "--subscription", sub.ID, "--output", "json", "--only-show-errors"); err != nil {
-		return subscriptionDiscovery{}, fmt.Errorf("list VMs: %w", err)
-	}
 	var nicList []nicRecord
-	if err := c.runJSON(ctx, &nicList, "network", "nic", "list", "--subscription", sub.ID, "--output", "json", "--only-show-errors"); err != nil {
-		return subscriptionDiscovery{}, fmt.Errorf("list network interfaces: %w", err)
+	g, groupCtx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		if err := c.runJSON(groupCtx, &vmList, "vm", "list", "--show-details", "--subscription", sub.ID, "--output", "json", "--only-show-errors"); err != nil {
+			return fmt.Errorf("list VMs: %w", err)
+		}
+		return nil
+	})
+	g.Go(func() error {
+		if err := c.runJSON(groupCtx, &nicList, "network", "nic", "list", "--subscription", sub.ID, "--output", "json", "--only-show-errors"); err != nil {
+			return fmt.Errorf("list network interfaces: %w", err)
+		}
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return subscriptionDiscovery{}, err
 	}
 	nics := map[string]nicRecord{}
 	for _, nic := range nicList {

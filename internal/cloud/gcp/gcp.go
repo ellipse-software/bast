@@ -137,8 +137,11 @@ type Discovery struct {
 	Instances []cloud.Instance
 	// ConfirmedProjects are project IDs whose instance inventory was successfully
 	// listed (including empty projects and projects with Compute Engine disabled).
-	// Hosts in projects absent from this set must not be pruned on sync.
+	// Hosts in projects absent from this set must not be pruned on sync unless they
+	// appear in ExcludedProjects.
 	ConfirmedProjects map[string]bool
+	// ExcludedProjects are project IDs intentionally filtered out by ProjectFilter.
+	ExcludedProjects map[string]bool
 	// Warnings are non-fatal discovery problems (expired account, permission denied
 	// on a project). Sync may still succeed using ConfirmedProjects + Instances.
 	Warnings []string
@@ -185,6 +188,7 @@ func (c *Client) DiscoverAll(ctx context.Context, cfg cloud.DiscoverConfig) (Dis
 		credentialErrors  []error
 		failedProjects    = map[string]error{}
 		confirmedProjects = map[string]bool{}
+		excludedProjects  = map[string]bool{}
 		listedAnyProjects bool
 		jobs              []projectJob
 	)
@@ -192,6 +196,7 @@ func (c *Client) DiscoverAll(ctx context.Context, cfg cloud.DiscoverConfig) (Dis
 	type credProjects struct {
 		cred     credential
 		projects []project
+		excluded []string
 		err      error
 	}
 	credResults := make([]credProjects, len(creds))
@@ -199,8 +204,8 @@ func (c *Client) DiscoverAll(ctx context.Context, cfg cloud.DiscoverConfig) (Dis
 	for i, cred := range creds {
 		i, cred := i, cred
 		listGroup.Go(func() error {
-			projects, err := c.listProjects(ctx, cred, cfg.ProjectFilter)
-			credResults[i] = credProjects{cred: cred, projects: projects, err: err}
+			projects, excluded, err := c.listProjects(ctx, cred, cfg.ProjectFilter)
+			credResults[i] = credProjects{cred: cred, projects: projects, excluded: excluded, err: err}
 			return nil
 		})
 	}
@@ -214,6 +219,9 @@ func (c *Client) DiscoverAll(ctx context.Context, cfg cloud.DiscoverConfig) (Dis
 			continue
 		}
 		listedAnyProjects = true
+		for _, projectID := range result.excluded {
+			excludedProjects[projectID] = true
+		}
 		for _, project := range result.projects {
 			jobs = append(jobs, projectJob{cred: result.cred, project: project})
 		}
@@ -291,6 +299,7 @@ func (c *Client) DiscoverAll(ctx context.Context, cfg cloud.DiscoverConfig) (Dis
 	return Discovery{
 		Instances:         instances,
 		ConfirmedProjects: confirmedProjects,
+		ExcludedProjects:  excludedProjects,
 		Warnings:          uniqueNonEmpty(warnings),
 	}, nil
 }
@@ -392,11 +401,11 @@ type project struct {
 	EnableOSLogin bool
 }
 
-func (c *Client) listProjects(ctx context.Context, cred credential, filter []string) ([]project, error) {
+func (c *Client) listProjects(ctx context.Context, cred credential, filter []string) ([]project, []string, error) {
 	args := append([]string{"projects", "list", "--format=json"}, cred.args...)
 	out, err := c.run(ctx, args, cred.env)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var raw []struct {
 		ProjectID string `json:"projectId"`
@@ -404,15 +413,16 @@ func (c *Client) listProjects(ctx context.Context, cred credential, filter []str
 		Lifecycle string `json:"lifecycleState"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("parse gcloud projects list: %w", err)
+		return nil, nil, fmt.Errorf("parse gcloud projects list: %w", err)
 	}
 	filterSet := map[string]bool{}
 	for _, f := range filter {
 		if f = strings.TrimSpace(f); f != "" {
-			filterSet[f] = true
+			filterSet[strings.ToLower(f)] = true
 		}
 	}
 	projects := make([]project, 0, len(raw))
+	var excluded []string
 	for _, p := range raw {
 		if p.ProjectID == "" {
 			continue
@@ -420,7 +430,8 @@ func (c *Client) listProjects(ctx context.Context, cred credential, filter []str
 		if p.Lifecycle != "" && !strings.EqualFold(p.Lifecycle, "ACTIVE") {
 			continue
 		}
-		if len(filterSet) > 0 && !filterSet[p.ProjectID] && !filterSet[p.Name] {
+		if len(filterSet) > 0 && !filterSet[strings.ToLower(p.ProjectID)] && !filterSet[strings.ToLower(p.Name)] {
+			excluded = append(excluded, p.ProjectID)
 			continue
 		}
 		name := p.Name
@@ -430,7 +441,8 @@ func (c *Client) listProjects(ctx context.Context, cred credential, filter []str
 		projects = append(projects, project{ID: p.ProjectID, Name: name})
 	}
 	sort.Slice(projects, func(i, j int) bool { return projects[i].ID < projects[j].ID })
-	return projects, nil
+	sort.Strings(excluded)
+	return projects, excluded, nil
 }
 
 func (c *Client) loadProjectSSHMetadata(ctx context.Context, cred credential, projectID string) (sshKeys, sshUser string, enableOSLogin bool, err error) {

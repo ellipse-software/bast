@@ -233,7 +233,7 @@ func (s *Store) ToggleFavorite(alias string) (bool, error) {
 	previous := host
 	host.Favorite = !host.Favorite
 	s.state.Hosts[alias] = host
-	if err := s.save(); err != nil {
+	if err := s.saveQuick(); err != nil {
 		if existed {
 			s.state.Hosts[alias] = previous
 		} else {
@@ -252,7 +252,7 @@ func (s *Store) ToggleHidden(alias string) (bool, error) {
 	previous := host
 	host.Hidden = !host.Hidden
 	s.state.Hosts[alias] = host
-	if err := s.save(); err != nil {
+	if err := s.saveQuick(); err != nil {
 		if existed {
 			s.state.Hosts[alias] = previous
 		} else {
@@ -273,7 +273,7 @@ func (s *Store) RecordUse(alias string) error {
 	host.LastUsedAt = &now
 	host.ConnectionCount++
 	s.state.Hosts[alias] = host
-	if err := s.save(); err != nil {
+	if err := s.saveQuick(); err != nil {
 		if existed {
 			s.state.Hosts[alias] = previous
 		} else {
@@ -299,14 +299,14 @@ func (s *Store) SetSort(sortOrder string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Preferences.Sort = sortOrder
-	return s.save()
+	return s.saveQuick()
 }
 
 func (s *Store) SetCollapsedGroups(groups []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Preferences.CollapsedGroups = cleanCollapsedGroups(groups)
-	return s.save()
+	return s.saveQuick()
 }
 
 func (s *Store) Integrations() Integrations {
@@ -449,6 +449,16 @@ func cloneIntegrations(integrations Integrations) Integrations {
 }
 
 func (s *Store) save() error {
+	return s.writeState(true)
+}
+
+// saveQuick persists without fsync. Used for high-frequency preference and usage
+// writes where durability can wait for the next durable save.
+func (s *Store) saveQuick() error {
+	return s.writeState(false)
+}
+
+func (s *Store) writeState(syncDisk bool) error {
 	dir := filepath.Dir(s.path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create metadata directory: %w", err)
@@ -472,9 +482,11 @@ func (s *Store) save() error {
 		tmp.Close()
 		return err
 	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
+	if syncDisk {
+		if err := tmp.Sync(); err != nil {
+			tmp.Close()
+			return err
+		}
 	}
 	if err := tmp.Close(); err != nil {
 		return err

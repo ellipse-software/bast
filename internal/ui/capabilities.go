@@ -10,10 +10,20 @@ func detectNerdFont(getenv func(string) string) bool {
 		return false
 	}
 
-	if strings.TrimSpace(getenv("WEZTERM_PANE")) != "" || strings.TrimSpace(getenv("KITTY_WINDOW_ID")) != "" {
+	if strings.TrimSpace(getenv("WEZTERM_PANE")) != "" ||
+		strings.TrimSpace(getenv("KITTY_WINDOW_ID")) != "" ||
+		strings.TrimSpace(getenv("WT_SESSION")) != "" {
 		return true
 	}
 	termProgram := strings.ToLower(strings.TrimSpace(getenv("TERM_PROGRAM")))
+	lcTerminal := strings.ToLower(strings.TrimSpace(getenv("LC_TERMINAL")))
 	term := strings.ToLower(strings.TrimSpace(getenv("TERM")))
-	return termProgram == "wezterm" || termProgram == "kitty" || strings.Contains(term, "kitty")
+	switch termProgram {
+	case "wezterm", "kitty", "iterm.app", "alacritty", "ghostty", "warpterminal", "hyper":
+		return true
+	}
+	if lcTerminal == "iterm2" || strings.Contains(term, "kitty") {
+		return true
+	}
+	return false
 }

@@ -568,7 +568,7 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		})
 	case "projects":
 		m.openForm("GCP project filter", "sync_gcp_projects", []field{
-			{label: "Projects", description: "Comma-separated project IDs; blank = all accessible", value: strings.Join(m.metadata.GCP().ProjectFilter, ", "), optional: true, placeholder: "my-prod, my-staging"},
+			{label: "Projects", description: "Comma-separated IDs or names; blank = all. Narrowing removes previously synced hosts outside the filter", value: strings.Join(m.metadata.GCP().ProjectFilter, ", "), optional: true, placeholder: "my-prod, my-staging"},
 		})
 	case "profiles":
 		m.openForm("AWS profile filter", "sync_aws_profiles", []field{
@@ -595,8 +595,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if len(options) == 0 {
 			return m, m.setNotice("No service account keys configured")
 		}
+		fieldOptions := make([]fieldOption, 0, len(options))
+		for _, path := range options {
+			fieldOptions = append(fieldOptions, fieldOption{label: path, value: path})
+		}
 		m.openForm("Remove service account key", "sync_gcp_sa_remove", []field{
-			{label: "Key path", description: "Exact path to remove", value: options[0], placeholder: options[0]},
+			{label: "Key path", description: "Choose the key to remove", options: fieldOptions},
 		})
 	case "refresh":
 		return m, tea.Batch(m.syncStatusCmd(), m.setNotice("Refreshing sync status…"))

@@ -3,6 +3,7 @@ package telemetry
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -66,12 +67,15 @@ func Track(event, version string) {
 	go send(event, version)
 }
 
-func ReportError(r Report) {
+// ReportError sends a consented error report. Prefer this from CLI exit paths so
+// the report flushes before process exit. TUI callers should invoke it from a
+// tea.Cmd so the Bubble Tea update loop stays responsive.
+func ReportError(r Report) error {
 	if !Enabled() {
-		return
+		return nil
 	}
 	if r.Message == "" {
-		return
+		return nil
 	}
 	if r.OS == "" {
 		r.OS = platformOS()
@@ -82,8 +86,7 @@ func ReportError(r Report) {
 	if r.Source == "" {
 		r.Source = "cli"
 	}
-	// Synchronous so consented reports flush before process exit.
-	sendError(r)
+	return sendError(r)
 }
 
 // OfferReport prints ReportPrompt and sends Report when the user presses Space.
@@ -113,7 +116,7 @@ func OfferReport(in io.Reader, out io.Writer, r Report) {
 		return
 	}
 	if buf[0] == ' ' {
-		ReportError(r)
+		_ = ReportError(r)
 	}
 }
 
@@ -143,24 +146,28 @@ func send(event, version string) {
 	defer resp.Body.Close()
 }
 
-func sendError(r Report) {
+func sendError(r Report) error {
 	body, err := json.Marshal(r)
 	if err != nil {
-		return
+		return err
 	}
 
 	req, err := http.NewRequest(http.MethodPost, errorEndpoint, bytes.NewReader(body))
 	if err != nil {
-		return
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return
+		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("error report failed with status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func platformOS() string {

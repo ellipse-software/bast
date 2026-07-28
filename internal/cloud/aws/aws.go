@@ -32,6 +32,14 @@ type DiscoverConfig struct {
 	ManagedKeys    string
 }
 
+// Discovery is a partial AWS inventory. Callers must not prune hosts whose
+// profile/region scope is missing from ConfirmedScopes.
+type Discovery struct {
+	Instances       []Instance
+	ConfirmedScopes map[string]bool // "profile/region"
+	Warnings        []string
+}
+
 type Instance struct {
 	SyncID         string
 	Name           string
@@ -149,60 +157,109 @@ func orderProfiles(profiles []string, active string) []string {
 	return out
 }
 
-func (c *Client) Discover(ctx context.Context, cfg DiscoverConfig) ([]Instance, error) {
+func ScopeKey(profile, region string) string {
+	return strings.TrimSpace(profile) + "/" + strings.TrimSpace(region)
+}
+
+func (c *Client) Discover(ctx context.Context, cfg DiscoverConfig) (Discovery, error) {
 	if err := c.CheckAvailable(ctx); err != nil {
-		return nil, err
+		return Discovery{}, err
 	}
 	profiles, err := c.ListProfiles(ctx)
 	if err != nil {
-		return nil, err
+		return Discovery{}, err
 	}
-	profiles = filterValues(profiles, cfg.ProfileFilter)
 	if len(profiles) == 0 {
-		return nil, fmt.Errorf("no AWS profiles selected; configure a profile or update the profile filter")
+		return Discovery{}, fmt.Errorf("no AWS profiles configured; run aws configure or update AWS_PROFILE")
+	}
+	selected := filterValues(profiles, cfg.ProfileFilter)
+	if len(selected) == 0 {
+		return Discovery{}, fmt.Errorf("no AWS profiles matched the profile filter %q; check casing or update the filter", strings.Join(cfg.ProfileFilter, ", "))
 	}
 
 	type scope struct {
 		identity identity
 		region   string
 	}
+	type profileResult struct {
+		scopes  []scope
+		warning string
+		profile string
+	}
+	profileResults := make([]profileResult, len(selected))
+	var prep errgroup.Group
+	for i, profile := range selected {
+		i, profile := i, profile
+		prep.Go(func() error {
+			id, err := c.callerIdentity(ctx, profile)
+			if err != nil {
+				profileResults[i] = profileResult{
+					profile: profile,
+					warning: fmt.Sprintf("authenticate AWS profile %s: %v", profile, err),
+				}
+				return nil
+			}
+			regions, err := c.listRegions(ctx, id, cfg.RegionFilter)
+			if err != nil {
+				profileResults[i] = profileResult{
+					profile: profile,
+					warning: fmt.Sprintf("list regions for AWS profile %s: %v", profile, err),
+				}
+				return nil
+			}
+			scopes := make([]scope, 0, len(regions))
+			for _, region := range regions {
+				scopes = append(scopes, scope{identity: id, region: region})
+			}
+			profileResults[i] = profileResult{profile: profile, scopes: scopes}
+			return nil
+		})
+	}
+	_ = prep.Wait()
+
 	var scopes []scope
-	for _, profile := range profiles {
-		id, err := c.callerIdentity(ctx, profile)
-		if err != nil {
-			return nil, fmt.Errorf("authenticate AWS profile %s: %w", profile, err)
+	var warnings []string
+	for _, result := range profileResults {
+		if result.warning != "" {
+			warnings = append(warnings, result.warning)
+			continue
 		}
-		regions, err := c.listRegions(ctx, id, cfg.RegionFilter)
-		if err != nil {
-			return nil, fmt.Errorf("list regions for AWS profile %s: %w", profile, err)
+		scopes = append(scopes, result.scopes...)
+	}
+	if len(scopes) == 0 {
+		if len(warnings) > 0 {
+			return Discovery{}, fmt.Errorf("incomplete AWS discovery: %s", strings.Join(warnings, "; "))
 		}
-		for _, region := range regions {
-			scopes = append(scopes, scope{identity: id, region: region})
-		}
+		return Discovery{}, fmt.Errorf("no AWS regions selected; update the region filter")
 	}
 
 	var mu stdsync.Mutex
 	var found []Instance
+	confirmed := map[string]bool{}
 	g, groupCtx := errgroup.WithContext(ctx)
 	g.SetLimit(6)
 	for _, item := range scopes {
 		g.Go(func() error {
 			instances, err := c.listRegion(groupCtx, item.identity, item.region, cfg)
-			if err != nil {
-				return fmt.Errorf("list instances for %s in %s: %w", item.identity.Profile, item.region, err)
-			}
+			key := ScopeKey(item.identity.Profile, item.region)
 			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("list instances for %s in %s: %v", item.identity.Profile, item.region, err))
+				return nil
+			}
+			confirmed[key] = true
 			found = append(found, instances...)
-			mu.Unlock()
 			return nil
 		})
 	}
-	if err := g.Wait(); err != nil {
-		return nil, fmt.Errorf("incomplete AWS discovery: %w", err)
+	_ = g.Wait()
+	if len(confirmed) == 0 {
+		return Discovery{}, fmt.Errorf("incomplete AWS discovery: %s", strings.Join(warnings, "; "))
 	}
 
 	profileRank := map[string]int{}
-	for i, profile := range profiles {
+	for i, profile := range selected {
 		profileRank[profile] = i
 	}
 	sort.Slice(found, func(i, j int) bool {
@@ -228,7 +285,8 @@ func (c *Client) Discover(ctx context.Context, cfg DiscoverConfig) ([]Instance, 
 		}
 		return out[i].Name < out[j].Name
 	})
-	return out, nil
+	sort.Strings(warnings)
+	return Discovery{Instances: out, ConfirmedScopes: confirmed, Warnings: warnings}, nil
 }
 
 func filterValues(values, filter []string) []string {
@@ -238,12 +296,12 @@ func filterValues(values, filter []string) []string {
 	wanted := map[string]bool{}
 	for _, value := range filter {
 		if value = strings.TrimSpace(value); value != "" {
-			wanted[value] = true
+			wanted[strings.ToLower(value)] = true
 		}
 	}
 	var out []string
 	for _, value := range values {
-		if wanted[value] {
+		if wanted[strings.ToLower(value)] {
 			out = append(out, value)
 		}
 	}

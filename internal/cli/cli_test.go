@@ -193,6 +193,22 @@ func TestInvocationAndCommandHelp(t *testing.T) {
 	if err != nil || errOut != "" || out != "Usage: bast sync azure\n" {
 		t.Fatalf("sync azure help output=%q stderr=%q err=%v", out, errOut, err)
 	}
+	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "sync", "gcp", "--help")
+	if err != nil || errOut != "" || out != "Usage: bast sync gcp\n" {
+		t.Fatalf("sync gcp help output=%q stderr=%q err=%v", out, errOut, err)
+	}
+}
+
+func TestHostAddRejectsDeepGroupPaths(t *testing.T) {
+	home := t.TempDir()
+	_, errOut, err := runTestCLI(t, home, fakeOpenSSH(t), "--json", "hosts", "add", "leaf", "--hostname", "host.example", "--group", "a/b/c/d/e/f")
+	if err == nil || !strings.Contains(errOut, "validation") {
+		t.Fatalf("expected validation error, stderr=%q err=%v", errOut, err)
+	}
+	_, errOut, err = runTestCLI(t, home, fakeOpenSSH(t), "--json", "hosts", "add", "Work/", "--hostname", "host.example")
+	if err == nil || !strings.Contains(errOut, "validation") {
+		t.Fatalf("expected trailing-slash validation error, stderr=%q err=%v", errOut, err)
+	}
 }
 
 func runTestCLI(t *testing.T, home string, client openssh.Client, args ...string) (string, string, error) {
