@@ -433,7 +433,7 @@ func (m *App) renameGroup(oldPath, newSegment string) (string, error) {
 		m.collapsedGroups = updated
 		m.collapseRevision++
 		if err := m.persistCollapsedGroups(); err != nil {
-			return "", err
+			m.setError(err)
 		}
 	}
 	m.refreshHostMetadata()
