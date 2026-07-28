@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/term"
 
 	"bast/internal/cli"
 	azurecloud "bast/internal/cloud/azure"
@@ -23,11 +24,36 @@ import (
 var version = "dev"
 
 func main() {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			return
+		}
+		stack := string(debug.Stack())
+		fmt.Fprintf(os.Stderr, "bast: panic: %v\n%s", recovered, stack)
+		if telemetry.Enabled() && term.IsTerminal(os.Stdin.Fd()) {
+			telemetry.OfferReport(os.Stdin, os.Stderr, telemetry.Report{
+				Message: fmt.Sprint(recovered),
+				Version: buildVersion(),
+				Stack:   stack,
+				Context: "panic",
+			})
+		}
+		os.Exit(2)
+	}()
+
 	if err := run(os.Args[1:]); err != nil {
 		if code, ok := cli.ExitCode(err); ok {
 			os.Exit(code)
 		}
 		fmt.Fprintln(os.Stderr, "bast:", err)
+		if telemetry.Enabled() && term.IsTerminal(os.Stdin.Fd()) {
+			telemetry.OfferReport(os.Stdin, os.Stderr, telemetry.Report{
+				Message: err.Error(),
+				Version: buildVersion(),
+				Context: "cli",
+			})
+		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.ExitCode())

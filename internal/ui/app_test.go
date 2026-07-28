@@ -2,8 +2,11 @@ package ui
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +24,7 @@ import (
 	"bast/internal/openssh"
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
+	"bast/internal/telemetry"
 )
 
 func testApp(t *testing.T) *App {
@@ -1175,6 +1179,7 @@ func TestSSHProcessPausesOnFailure(t *testing.T) {
 }
 
 func TestSSHProcessPausesOnPrepareFailure(t *testing.T) {
+	t.Setenv("BAST_NO_TELEMETRY", "")
 	var output bytes.Buffer
 	cmd := exec.Command("/bin/sh", "-c", "printf should-not-run")
 	cmd.Stdout = &output
@@ -1191,12 +1196,12 @@ func TestSSHProcessPausesOnPrepareFailure(t *testing.T) {
 	if strings.Contains(got, "should-not-run") {
 		t.Fatal("ssh should not run after prepare failure")
 	}
-	if !strings.Contains(got, connectbanner.ContinuePrompt) {
-		t.Fatalf("missing continue prompt after prepare failure:\n%q", got)
+	if !strings.Contains(got, telemetry.ReportPrompt) {
+		t.Fatalf("missing error report prompt after prepare failure:\n%q", got)
 	}
 	failure := "Connection failed: gcp access denied"
-	if !strings.Contains(got, failure) || strings.Index(got, failure) > strings.Index(got, connectbanner.ContinuePrompt) {
-		t.Fatalf("prepare error should appear before the continue prompt:\n%q", got)
+	if !strings.Contains(got, failure) || strings.Index(got, failure) > strings.Index(got, telemetry.ReportPrompt) {
+		t.Fatalf("prepare error should appear before the report prompt:\n%q", got)
 	}
 }
 
@@ -1280,7 +1285,7 @@ func TestErrorsUseAProminentScreenAndPreserveTheForm(t *testing.T) {
 	}
 
 	rendered := m.render()
-	for _, expected := range []string{"Action failed", "What happened", "Delete host — alpha failed", "confirmation did not match", "Your entries are still"} {
+	for _, expected := range []string{"Action failed", "What happened", "Delete host — alpha failed", "confirmation did not match", "Your entries are still", "Space send report"} {
 		if !strings.Contains(rendered, expected) {
 			t.Fatalf("prominent error screen is missing %q:\n%s", expected, rendered)
 		}
@@ -1299,6 +1304,46 @@ func TestErrorsUseAProminentScreenAndPreserveTheForm(t *testing.T) {
 	}
 	if !strings.Contains(m.render(), "Type the name to confirm") {
 		t.Fatal("the retained form was not restored")
+	}
+}
+
+func TestErrorOverlaySpaceSendsReport(t *testing.T) {
+	t.Setenv("BAST_NO_TELEMETRY", "")
+
+	got := make(chan telemetry.Report, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body telemetry.Report
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		got <- body
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	t.Cleanup(telemetry.SetErrorEndpoint(server.URL))
+
+	m := testApp(t)
+	m.version = "v1.2.3"
+	m.status, m.statusError = "sync failed", true
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	if m.statusError || m.status != "Report sent" {
+		t.Fatalf("Space should send report and show notice: status=%q error=%v", m.status, m.statusError)
+	}
+
+	select {
+	case body := <-got:
+		if body.Message != "sync failed" || body.Context != "tui" || body.Version != "v1.2.3" {
+			t.Fatalf("unexpected report: %+v", body)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for error report")
+	}
+
+	t.Setenv("BAST_NO_TELEMETRY", "1")
+	m.status, m.statusError = "sync failed", true
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	if m.statusError || m.status != "" {
+		t.Fatalf("Space with telemetry disabled should dismiss: status=%q error=%v", m.status, m.statusError)
 	}
 }
 

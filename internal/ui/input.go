@@ -20,6 +20,7 @@ import (
 type connectionProcess struct {
 	cmd     *exec.Cmd
 	prepare func(status func(string)) error
+	version string
 }
 
 func (c *connectionProcess) Run() error {
@@ -35,7 +36,15 @@ func (c *connectionProcess) Run() error {
 	if c.prepare != nil {
 		if err := c.prepare(connectbanner.Status(output)); err != nil {
 			_, _ = fmt.Fprintf(output, "\r\nConnection failed: %v\r\n", err)
-			connectbanner.WaitToContinue(input, output)
+			if telemetry.Enabled() {
+				telemetry.OfferReport(input, output, telemetry.Report{
+					Message: err.Error(),
+					Version: c.version,
+					Context: "connect_prepare",
+				})
+			} else {
+				connectbanner.WaitToContinue(input, output)
+			}
 			return fmt.Errorf("prepare connection: %w", err)
 		}
 		_, _ = io.WriteString(output, "\r\n")
@@ -495,7 +504,7 @@ func (m *App) startSSH(host sshconfig.Host, prepare func(func(string)) error) (t
 	}
 	telemetry.Track("connect", m.version)
 	m.status = "Connected to " + m.hostLabel(host) + "; exit returns to Bast; 󰌑 then ~. force-closes SSH"
-	return m, tea.Exec(&connectionProcess{cmd: cmd, prepare: prepare}, func(err error) tea.Msg {
+	return m, tea.Exec(&connectionProcess{cmd: cmd, prepare: prepare, version: m.version}, func(err error) tea.Msg {
 		return processDoneMsg{name: "SSH session", err: err, sshSession: true}
 	})
 }
