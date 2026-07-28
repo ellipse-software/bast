@@ -484,7 +484,7 @@ func (m *App) renderForm(s styleSet) string {
 
 func (m *App) formHint() string {
 	if isHostForm(m.form) {
-		return hostFormHint(m.form)
+		return hostFormHint(m.form, m.formTextInputActive())
 	}
 	f := m.form
 	action := "󰌑 next"
@@ -505,9 +505,12 @@ func (m *App) formHint() string {
 		}
 	}
 	if f.selecting {
-		return action + " • Esc close"
+		return action + " • Esc/⌫ close"
 	}
 	escape := "Esc cancel"
+	if !m.formTextInputActive() {
+		escape = "Esc/⌫ cancel"
+	}
 	if len(f.fields[f.index].options) > 0 && f.fields[f.index].options[f.fields[f.index].selected].custom {
 		escape = "Esc choices"
 	}
@@ -551,8 +554,8 @@ func contrastingTextColor(background string) (string, bool) {
 }
 
 func (m *App) renderHelp(s styleSet) string {
-	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   3  sync   ?  help         v  about       q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand                        s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "Sync", "  󰌑 open provider / run action   Esc back   r refresh", "", "During SSH", "  exit closes Bast; press 󰌑 then ~. to force-close a stuck session"}
-	return "\n  " + s.active.Render("Keyboard help") + "\n\n" + strings.Join(lines, "\n") + "\n\n  " + s.muted.Render("Press ? or Esc to close")
+	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   3  sync   ?  help         v  about       q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand                        s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "Sync", "  󰌑 open provider / run action   Esc back   r refresh", "", "During SSH", "  exit returns to Bast; press 󰌑 then ~. to force-close a stuck session"}
+	return "\n  " + s.active.Render("Keyboard help") + "\n\n" + strings.Join(lines, "\n") + "\n\n  " + s.muted.Render("Press ?, Esc, or ⌫ to close")
 }
 
 func (m *App) renderCredits(s styleSet) string {
@@ -588,11 +591,11 @@ func (m *App) renderCredits(s styleSet) string {
 
 func (m *App) renderFooter(s styleSet) string {
 	if m.statusError && m.status != "" {
-		hint := "Enter / Esc return"
+		hint := "Enter / Esc / ⌫ return"
 		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
 	}
 	if m.credits {
-		hint := "v / Esc close"
+		hint := "v / Esc / ⌫ close"
 		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
 	}
 	query := m.searchText()

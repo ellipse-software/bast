@@ -203,10 +203,15 @@ func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 
 func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if strings.HasPrefix(m.search, "\x00") {
+		return m.updateSearch(key)
+	}
 	if m.credits {
 		if key == "?" {
 			m.credits, m.help = false, true
-		} else if key == "v" || key == "esc" || key == "q" {
+		} else if key == "q" {
+			return m, tea.Quit
+		} else if key == "v" || key == "esc" || key == "backspace" || key == "ctrl+h" {
 			m.credits = false
 		}
 		return m, nil
@@ -214,13 +219,12 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.help {
 		if key == "v" {
 			m.help, m.credits = false, true
-		} else if key == "?" || key == "esc" || key == "q" {
+		} else if key == "q" {
+			return m, tea.Quit
+		} else if key == "?" || key == "esc" || key == "backspace" || key == "ctrl+h" {
 			m.help = false
 		}
 		return m, nil
-	}
-	if strings.HasPrefix(m.search, "\x00") {
-		return m.updateSearch(key)
 	}
 	switch key {
 	case "ctrl+c", "q":
@@ -246,9 +250,15 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
 		return m, m.syncStatusCmd()
 	case "esc":
-		if m.section == syncSection {
+		if m.section == syncSection && m.syncProvider != "" {
 			return m.updateSyncKeys(key)
 		}
+		return m, tea.Quit
+	case "backspace", "ctrl+h":
+		if m.section == syncSection && m.syncProvider != "" {
+			return m.updateSyncKeys(key)
+		}
+		return m, tea.Quit
 	case "up", "k":
 		if m.section == syncSection {
 			return m.updateSyncKeys(key)
@@ -466,9 +476,9 @@ func (m *App) startSSH(host sshconfig.Host, prepare func(func(string)) error) (t
 		}
 	}
 	telemetry.Track("connect", m.version)
-	m.status = "Connected to " + m.hostLabel(host) + "; exit closes Bast; 󰌑 then ~. force-closes SSH"
+	m.status = "Connected to " + m.hostLabel(host) + "; exit returns to Bast; 󰌑 then ~. force-closes SSH"
 	return m, tea.Exec(&connectionProcess{cmd: cmd, prepare: prepare}, func(err error) tea.Msg {
-		return processDoneMsg{name: "SSH session", err: err, exitBast: true}
+		return processDoneMsg{name: "SSH session", err: err, sshSession: true}
 	})
 }
 

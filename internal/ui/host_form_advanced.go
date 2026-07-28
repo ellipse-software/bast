@@ -181,11 +181,7 @@ func (m *App) updateAdvancedHubForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.exitHostSection()
 		return m, nil
 	case "backspace", "ctrl+h":
-		if m.form.hubIndex == 0 {
-			m.exitHostSection()
-			return m, nil
-		}
-		m.moveAdvancedHub(-1)
+		m.exitHostSection()
 		return m, nil
 	case "up", "k", "shift+tab":
 		m.moveAdvancedHub(-1)
