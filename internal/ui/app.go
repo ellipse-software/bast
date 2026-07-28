@@ -168,7 +168,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		dark:             true,
 		nerdFont:         detectNerdFont(os.Getenv),
 		version:          version,
-		collapsedGroups:  map[string]bool{},
+		collapsedGroups:  collapsedGroupsFromPrefs(store.Preferences().CollapsedGroups),
 		syncingProviders: map[string]bool{},
 	}
 	app.hostMeta, app.hostMetaRevision = store.HostsSnapshot()
