@@ -106,7 +106,7 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	item := &f.fields[f.index]
 	if f.selecting {
 		switch key {
-		case "esc":
+		case "esc", "backspace", "ctrl+h":
 			f.selecting = false
 			m.focusFormField()
 		case "up", "down", "j", "k":
@@ -145,6 +145,10 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if key == "esc" {
+		m.form = nil
+		return m, nil
+	}
+	if (key == "backspace" || key == "ctrl+h") && !m.formTextInputActive() {
 		m.form = nil
 		return m, nil
 	}

@@ -346,18 +346,6 @@ func (m *App) hostSectionEnter() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *App) hostFormInputEmpty() bool {
-	return strings.TrimSpace(m.form.input.Value()) == ""
-}
-
-func (m *App) hostFormBackOnEmpty() (tea.Model, tea.Cmd) {
-	m.commitFormField()
-	if !m.moveHostSection(-1) {
-		m.exitHostSection()
-	}
-	return m, nil
-}
-
 func (m *App) updateHostForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	f := m.form
@@ -397,11 +385,6 @@ func (m *App) updateHostForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m.hostHubEnter()
 		case "backspace", "ctrl+h":
-			if m.hostFormInputEmpty() {
-				m.commitFormField()
-				m.moveHostHub(-1)
-				return m, nil
-			}
 			var cmd tea.Cmd
 			m.form.input, cmd = m.form.input.Update(msg)
 			return m, cmd
@@ -421,7 +404,8 @@ func (m *App) updateHostForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "down", "j", "tab":
 		m.moveHostHub(1)
 	case "backspace", "ctrl+h":
-		m.moveHostHub(-1)
+		m.form = nil
+		return m, nil
 	case "enter":
 		return m.hostHubEnter()
 	}
@@ -468,21 +452,13 @@ func (m *App) updateHostSectionForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.focusFormField()
 		return m, nil
 	}
-	if (key == "backspace" || key == "ctrl+h") && len(item.options) > 0 && item.options[item.selected].custom && m.hostFormInputEmpty() {
-		m.commitFormField()
-		f.selecting = true
-		m.focusFormField()
-		return m, nil
-	}
 	if key == "esc" {
 		m.exitHostSection()
 		return m, nil
 	}
 	if (key == "backspace" || key == "ctrl+h") && len(item.options) > 0 && !item.options[item.selected].custom {
 		m.commitFormField()
-		if !m.moveHostSection(-1) {
-			m.exitHostSection()
-		}
+		m.exitHostSection()
 		return m, nil
 	}
 	if key == "up" || key == "shift+tab" {
@@ -509,11 +485,6 @@ func (m *App) updateHostSectionForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if len(item.options) > 0 && !item.options[item.selected].custom {
 		return m, nil
-	}
-	if key == "backspace" || key == "ctrl+h" {
-		if m.hostFormInputEmpty() {
-			return m.hostFormBackOnEmpty()
-		}
 	}
 	var cmd tea.Cmd
 	m.form.input, cmd = m.form.input.Update(msg)
@@ -673,11 +644,11 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 
 func hostFormHint(f *form) string {
 	if f.screen == formScreenAdvancedHub {
-		return "Enter open section • ↑/↓ or j/k move • ⌫ back • Ctrl+Enter save • q/Esc back"
+		return "Enter open section • ↑/↓ or j/k move • ⌫/Esc back • Ctrl+Enter save • q quit"
 	}
 	if f.screen != "" && f.screen != "hub" {
 		if f.selecting {
-			return "↑/↓ or j/k choose • Enter select • q/Esc back"
+			return "↑/↓ or j/k choose • Enter select • ⌫/Esc back • q quit"
 		}
 		item := f.fields[f.index]
 		action := "Enter next"
@@ -685,19 +656,19 @@ func hostFormHint(f *form) string {
 			action = "Enter change"
 		}
 		if len(item.options) > 0 && item.options[item.selected].custom {
-			return action + " • Esc/⌫ choices • Ctrl+Enter save"
+			return action + " • Esc choices • ⌫ edit • Ctrl+Enter save"
 		}
-		return action + " • ↑/↓ or Tab move • q/Esc back • Ctrl+Enter save"
+		return action + " • ↑/↓ or Tab move • ⌫/Esc back • q quit • Ctrl+Enter save"
 	}
 
 	items := hostHubItems(f)
 	if f.hubIndex >= 0 && f.hubIndex < len(items) {
 		hub := items[f.hubIndex]
 		if hub.id == "label" || hub.id == "hostname" {
-			return "Enter next • ↑/↓ or Tab move • ⌫ back when empty • Ctrl+Enter save • q/Esc cancel"
+			return "Enter next • ↑/↓ or Tab move • Ctrl+Enter save • q type • Esc cancel"
 		}
 	}
-	return "Enter open section • ↑/↓ or j/k move • Tab next • ⌫ back • Ctrl+Enter save • q/Esc cancel"
+	return "Enter open section • ↑/↓ or j/k move • Tab next • ⌫/Esc cancel • Ctrl+Enter save • q quit"
 }
 
 func hostFormFields(m *App, meta metadataHostValues, conn hostConnectionValues, hidden []field) []field {

@@ -75,9 +75,9 @@ type syncStatusMsg struct {
 }
 
 type processDoneMsg struct {
-	name     string
-	err      error
-	exitBast bool
+	name       string
+	err        error
+	sshSession bool
 }
 
 type clearStatusMsg uint64
@@ -225,17 +225,14 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case processDoneMsg:
-		if msg.err == nil && msg.exitBast {
-			return m, tea.Quit
-		}
 		m.loading = true
+		if msg.sshSession {
+			m.statusID++
+			m.status, m.statusError = "", false
+			return m, m.loadCmd()
+		}
 		if msg.err != nil {
 			m.statusID++
-			if msg.exitBast {
-				// SSH already showed its output under a continue prompt; skip the overlay.
-				m.status, m.statusError = "", false
-				return m, m.loadCmd()
-			}
 			m.status, m.statusError = msg.name+": "+openssh.FormatError(msg.err), true
 			return m, m.loadCmd()
 		}
@@ -263,11 +260,14 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
 		if m.statusError && m.status != "" {
 			switch msg.String() {
-			case "ctrl+c", "q":
+			case "q":
 				return m, tea.Quit
-			case "enter", "esc":
+			case "enter", "esc", "backspace", "ctrl+h":
 				m.statusID++
 				m.status, m.statusError = "", false
 			}

@@ -45,6 +45,16 @@ func ctrlC() tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl})
 }
 
+func requireQuit(t *testing.T, cmd tea.Cmd) {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("expected quit command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("command did not return tea.Quit")
+	}
+}
+
 func enterHostFormSection(t *testing.T, m *App, section string) {
 	t.Helper()
 	for i, item := range hostHubItems(m.form) {
@@ -91,6 +101,106 @@ func TestNumberedNavigationAndSearch(t *testing.T) {
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if got := m.filteredHosts(); len(got) != 1 || got[0].Alias != "beta" {
 		t.Fatalf("filter = %+v", got)
+	}
+}
+
+func TestCtrlCQuitsFromEveryBastContext(t *testing.T) {
+	contexts := map[string]func(*App){
+		"root":   func(*App) {},
+		"help":   func(m *App) { m.help = true },
+		"about":  func(m *App) { m.credits = true },
+		"search": func(m *App) { m.search = "\x00query" },
+		"error":  func(m *App) { m.status, m.statusError = "failed", true },
+		"host form": func(m *App) {
+			m.openAddHostForm()
+		},
+		"generic form": func(m *App) {
+			m.openGenerateForm()
+		},
+	}
+	for name, setup := range contexts {
+		t.Run(name, func(t *testing.T) {
+			m := testApp(t)
+			setup(m)
+			_, cmd := m.Update(ctrlC())
+			requireQuit(t, cmd)
+		})
+	}
+}
+
+func TestQQuitsOutsideTextInput(t *testing.T) {
+	for _, context := range []string{"root", "help", "about"} {
+		t.Run(context, func(t *testing.T) {
+			m := testApp(t)
+			m.help = context == "help"
+			m.credits = context == "about"
+			_, cmd := m.Update(press("q"))
+			requireQuit(t, cmd)
+		})
+	}
+
+	m := testApp(t)
+	m.search = "\x00"
+	_, cmd := m.Update(press("q"))
+	if cmd != nil || m.search != "\x00q" {
+		t.Fatalf("q should type in search: search=%q cmd=%v", m.search, cmd)
+	}
+
+	m = testApp(t)
+	m.openGenerateForm()
+	_, cmd = m.Update(press("q"))
+	if cmd != nil {
+		if _, ok := cmd().(tea.QuitMsg); ok {
+			t.Fatal("q quit from a generic text field")
+		}
+	}
+	if m.form.input.Value() != "q" {
+		t.Fatalf("q should type in a generic form: value=%q", m.form.input.Value())
+	}
+
+	m = testApp(t)
+	m.keys = []keymodel.Key{{Name: "work", PublicPath: "/tmp/work.pub"}}
+	m.openInstallKeyForm()
+	_, cmd = m.Update(press("q"))
+	requireQuit(t, cmd)
+}
+
+func TestEscapeReturnsToParentThenQuitsAtRoot(t *testing.T) {
+	for _, section := range []section{hostsSection, keysSection, syncSection} {
+		t.Run(fmt.Sprint(section), func(t *testing.T) {
+			m := testApp(t)
+			m.section = section
+			_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+			requireQuit(t, cmd)
+		})
+	}
+
+	m := testApp(t)
+	m.section, m.syncProvider = syncSection, "gcp"
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	if cmd != nil || m.syncProvider != "" {
+		t.Fatalf("Esc should return from provider: provider=%q cmd=%v", m.syncProvider, cmd)
+	}
+
+	m = testApp(t)
+	m.help = true
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	if m.help {
+		t.Fatal("Esc did not close help")
+	}
+
+	m = testApp(t)
+	m.search = "\x00query"
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	if m.search != "" {
+		t.Fatalf("Esc did not close search: %q", m.search)
+	}
+
+	m = testApp(t)
+	m.openGenerateForm()
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	if m.form != nil {
+		t.Fatal("Esc did not close a generic form")
 	}
 }
 
@@ -508,11 +618,13 @@ func TestHostFormBackspaceNavigatesSubmenus(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
 	enterHostFormSection(t, m, formSectionMetadata)
+	m.form.input.SetValue("")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
-	if m.form.screen != "hub" {
-		t.Fatalf("backspace on first metadata field did not return to hub: screen=%q", m.form.screen)
+	if m.form.screen != formSectionMetadata {
+		t.Fatalf("backspace in an empty text field navigated away: screen=%q", m.form.screen)
 	}
 
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
 	m.form.hubIndex = 1
 	m.focusHostHubItem()
 	m.form.input.SetValue("prod")
@@ -522,24 +634,82 @@ func TestHostFormBackspaceNavigatesSubmenus(t *testing.T) {
 	}
 	m.form.input.SetValue("")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
-	if m.form.hubIndex != 0 {
-		t.Fatalf("backspace on empty hostname should move to label: hubIndex=%d", m.form.hubIndex)
+	if m.form == nil || m.form.hubIndex != 1 {
+		t.Fatal("backspace in an empty hostname field should remain in the field")
 	}
 
 	m.form.hubIndex = 3
 	m.focusHostHubItem()
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
-	if m.form.hubIndex != 2 {
-		t.Fatalf("backspace on hub menu should move to previous row: hubIndex=%d", m.form.hubIndex)
+	if m.form != nil {
+		t.Fatal("backspace on a host hub menu should close the form")
 	}
 
+	m.openAddHostForm()
 	enterHostFormSection(t, m, formSectionAdvanced)
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Enter open section") || !strings.Contains(footer, "⌫ back") {
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Enter open section") || !strings.Contains(footer, "⌫/Esc back") {
 		t.Fatalf("advanced hub footer = %q", footer)
 	}
+	m.form.hubIndex = 3
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
 	if m.form.screen != "hub" {
-		t.Fatalf("backspace on the first advanced row did not return to the host hub: screen=%q", m.form.screen)
+		t.Fatalf("backspace on advanced hub did not return to host hub: screen=%q", m.form.screen)
+	}
+}
+
+func TestBackspaceReturnsFromNonTextSubmenus(t *testing.T) {
+	m := testApp(t)
+	m.section, m.syncProvider = syncSection, "gcp"
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if m.syncProvider != "" {
+		t.Fatalf("backspace did not leave Sync provider: %q", m.syncProvider)
+	}
+
+	m = testApp(t)
+	m.keys = []keymodel.Key{{Name: "work", PublicPath: "/tmp/work.pub"}}
+	m.openInstallKeyForm()
+	if m.form == nil || !m.form.selecting {
+		t.Fatal("install form did not open its server chooser")
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if m.form == nil || m.form.selecting {
+		t.Fatal("backspace did not return from the server chooser")
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if m.form != nil {
+		t.Fatal("backspace on a non-text form field did not close the form")
+	}
+
+	m = testApp(t)
+	m.credits = true
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if m.credits {
+		t.Fatal("backspace did not close About")
+	}
+
+	m = testApp(t)
+	m.status, m.statusError = "failed", true
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if m.status != "" || m.statusError {
+		t.Fatal("backspace did not dismiss the error overlay")
+	}
+
+	m = testApp(t)
+	m.openGenerateForm()
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if m.form == nil || m.form.input.Value() != "" {
+		t.Fatal("backspace in an empty generic text field navigated away")
+	}
+
+	m = testApp(t)
+	m.openAddHostForm()
+	enterAdvancedSubsection(t, m, formSectionAdvancedJump)
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if m.form == nil {
+		t.Fatal("backspace closed the host form from an advanced subsection")
+	}
+	if m.form.screen != formScreenAdvancedHub {
+		t.Fatalf("backspace did not return to the advanced hub: screen=%q", m.form.screen)
 	}
 }
 
@@ -975,35 +1145,32 @@ func TestSSHProcessPausesOnPrepareFailure(t *testing.T) {
 	}
 }
 
-func TestSuccessfulSSHSessionExitsBast(t *testing.T) {
-	m := testApp(t)
-	_, cmd := m.Update(processDoneMsg{name: "SSH session", exitBast: true})
-	if cmd == nil {
-		t.Fatal("successful SSH session did not request a quit")
-	}
-	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatal("successful SSH session did not return tea.Quit")
-	}
-
-	m = testApp(t)
-	_, cmd = m.Update(processDoneMsg{name: "SSH session", err: errors.New("connection lost"), exitBast: true})
-	if cmd == nil {
-		t.Fatal("failed SSH session did not reload hosts")
-	}
-	if m.statusError || m.status != "" {
-		t.Fatalf("failed SSH session should return quietly to hosts, got status=%q error=%v", m.status, m.statusError)
-	}
-
-	m = testApp(t)
+func TestSSHSessionCompletionReturnsToBast(t *testing.T) {
 	exitCmd := exec.Command("/bin/sh", "-c", "exit 255")
 	exitErr := exitCmd.Run()
-	_, cmd = m.Update(processDoneMsg{name: "SSH session", err: exitErr, exitBast: true})
-	if cmd == nil || m.statusError || m.status != "" {
-		t.Fatalf("SSH exit 255 should return quietly, status=%q error=%v", m.status, m.statusError)
+	for name, sessionErr := range map[string]error{
+		"logout":          nil,
+		"connection lost": errors.New("connection lost"),
+		"exit 255":        exitErr,
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := testApp(t)
+			m.status, m.statusError = "Connected", true
+			_, cmd := m.Update(processDoneMsg{name: "SSH session", err: sessionErr, sshSession: true})
+			if cmd == nil {
+				t.Fatal("SSH completion did not reload hosts")
+			}
+			if _, ok := cmd().(tea.QuitMsg); ok {
+				t.Fatal("SSH completion quit Bast")
+			}
+			if !m.loading || m.statusError || m.status != "" {
+				t.Fatalf("SSH completion did not return quietly: loading=%v status=%q error=%v", m.loading, m.status, m.statusError)
+			}
+		})
 	}
 
-	m = testApp(t)
-	_, cmd = m.Update(processDoneMsg{name: "Key generation", err: errors.New("keygen failed")})
+	m := testApp(t)
+	_, cmd := m.Update(processDoneMsg{name: "Key generation", err: errors.New("keygen failed")})
 	if cmd == nil || !m.statusError || !strings.Contains(m.status, "keygen failed") {
 		t.Fatalf("non-SSH process failure should still show an error overlay, status=%q", m.status)
 	}
@@ -1309,7 +1476,7 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 		"github.com/ellipse-software/bast",
 		"MIT License",
 		"v1.2.3",
-		"v / Esc close",
+		"v / Esc / ⌫ close",
 	} {
 		if !strings.Contains(rendered, text) {
 			t.Fatalf("credits screen does not contain %q:\n%s", text, rendered)

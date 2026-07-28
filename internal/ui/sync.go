@@ -307,7 +307,7 @@ func (m *App) updateSyncKeys(key string) (tea.Model, tea.Cmd) {
 		m.syncCursor = firstEnabledSyncItem(items)
 	case "end", "G":
 		m.syncCursor = lastEnabledSyncItem(items)
-	case "esc":
+	case "esc", "backspace", "ctrl+h":
 		if m.syncProvider != "" {
 			m.syncProvider = ""
 			m.syncCursor = 0
