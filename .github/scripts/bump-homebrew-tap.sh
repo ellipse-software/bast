@@ -81,11 +81,7 @@ class Bast < Formula
   end
 
   def install
-    os = OS.mac? ? "darwin" : "linux"
-    arch = Hardware::CPU.arm? ? "arm64" : "amd64"
-    cd "bast_#{version}_#{os}_#{arch}" do
-      bin.install "bast"
-    end
+    bin.install "bast"
   end
 
   test do
