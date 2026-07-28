@@ -1179,6 +1179,7 @@ func TestSSHProcessPausesOnFailure(t *testing.T) {
 }
 
 func TestSSHProcessPausesOnPrepareFailure(t *testing.T) {
+	t.Setenv("BAST_NO_TELEMETRY", "")
 	var output bytes.Buffer
 	cmd := exec.Command("/bin/sh", "-c", "printf should-not-run")
 	cmd.Stdout = &output

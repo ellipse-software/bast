@@ -173,7 +173,7 @@ Anonymous usage telemetry (version, platform, events) is on by default. Opt out:
 export BAST_NO_TELEMETRY=1
 ```
 
-When an error occurs in an interactive session, Bast can offer to send an anonymous error report (Space to send, any other key to continue). Reports may include the error text shown on screen. SSH session endings are not reported. `BAST_NO_TELEMETRY=1` disables both usage telemetry and error reports.
+When an error occurs in an interactive session, Bast can offer to send an error report that may include error text and stack traces. In the TUI error overlay, Space sends the report; Enter, Esc, Backspace, and Ctrl+H dismiss it; q quits; unrelated keys leave it open. SSH session endings are not reported. `BAST_NO_TELEMETRY=1` disables both usage telemetry and error reports.
 
 ## Development
 

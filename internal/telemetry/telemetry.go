@@ -51,7 +51,7 @@ type Report struct {
 }
 
 const (
-	ReportPrompt = "\r\n\x1b[38;2;107;114;128m Press Space to send an anonymous error report, any other key to continue.\x1b[0m\r\n"
+	ReportPrompt = "\r\n\x1b[38;2;107;114;128m Press Space to send an error report (may include error text and stack traces), any other key to continue.\x1b[0m\r\n"
 )
 
 func Enabled() bool {
@@ -108,8 +108,8 @@ func OfferReport(in io.Reader, out io.Writer, r Report) {
 	}
 
 	var buf [1]byte
-	n, err := in.Read(buf[:])
-	if err != nil || n == 0 {
+	n, _ := in.Read(buf[:])
+	if n == 0 {
 		return
 	}
 	if buf[0] == ' ' {

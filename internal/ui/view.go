@@ -11,6 +11,7 @@ import (
 	"bast/internal/cloud/sync"
 	"bast/internal/keys"
 	"bast/internal/sshconfig"
+	"bast/internal/telemetry"
 )
 
 const (
@@ -68,11 +69,15 @@ func (m *App) renderError(s styleSet) string {
 	if m.form != nil {
 		explanation += " Your entries are still available when you return."
 	}
+	footer := "Enter/Esc return"
+	if telemetry.Enabled() {
+		footer = "Space send report · Enter/Esc return"
+	}
 	content := s.error.Bold(true).Render("✕  Action failed") +
 		"\n\n" + s.muted.Render("What happened") +
 		"\n" + s.value.Width(contentWidth).Render(m.status) +
 		"\n\n" + s.muted.Width(contentWidth).Render(explanation) +
-		"\n\n" + s.muted.Render("Space send report · Enter/Esc return")
+		"\n\n" + s.muted.Render(footer)
 	panel := lipgloss.NewStyle().
 		Width(contentWidth).
 		Padding(1, 2).
