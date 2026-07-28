@@ -37,8 +37,7 @@ Puts `bast` in `~/.local/bin` by default. Run the same command to update. Set `B
 **Homebrew:**
 
 ```sh
-brew tap ellipse-software/tap
-brew install bast
+brew install ellipse-software/tap/bast
 ```
 
 ### Nightly
@@ -48,7 +47,7 @@ curl -fsSL https://bast.sh/install-nightly | sh
 ```
 
 ```sh
-brew install bast-nightly
+brew install ellipse-software/tap/bast-nightly
 ```
 
 Script installs switch channels automatically: installing nightly removes a stable install at the same path (and vice versa), including Homebrew installs of the other formula.
