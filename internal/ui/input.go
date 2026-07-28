@@ -34,6 +34,7 @@ func (c *connectionProcess) Run() error {
 	connectbanner.Write(output)
 	if c.prepare != nil {
 		if err := c.prepare(connectbanner.Status(output)); err != nil {
+			_, _ = fmt.Fprintf(output, "\r\nConnection failed: %v\r\n", err)
 			connectbanner.WaitToContinue(input, output)
 			return fmt.Errorf("prepare connection: %w", err)
 		}

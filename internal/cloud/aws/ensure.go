@@ -68,7 +68,10 @@ func (c *Client) EnsureAccess(ctx context.Context, syncID string, cfg EnsureConf
 		id, identityErr := c.callerIdentity(ctx, profile)
 		if identityErr != nil || id.AccountID != accountID {
 			if identityErr != nil {
-				lastErr = identityErr
+				lastErr = fmt.Errorf(
+					"authenticate AWS profile %q: %w; run aws sso login --profile %q for SSO, or aws configure --profile %q for access keys",
+					profile, identityErr, profile, profile,
+				)
 			}
 			continue
 		}

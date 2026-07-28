@@ -969,6 +969,10 @@ func TestSSHProcessPausesOnPrepareFailure(t *testing.T) {
 	if !strings.Contains(got, connectbanner.ContinuePrompt) {
 		t.Fatalf("missing continue prompt after prepare failure:\n%q", got)
 	}
+	failure := "Connection failed: gcp access denied"
+	if !strings.Contains(got, failure) || strings.Index(got, failure) > strings.Index(got, connectbanner.ContinuePrompt) {
+		t.Fatalf("prepare error should appear before the continue prompt:\n%q", got)
+	}
 }
 
 func TestSuccessfulSSHSessionExitsBast(t *testing.T) {

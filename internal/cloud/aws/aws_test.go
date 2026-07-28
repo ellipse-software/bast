@@ -187,6 +187,34 @@ func TestEnsureAccessPublishesManagedKey(t *testing.T) {
 	}
 }
 
+func TestEnsureAccessReportsProfileAuthenticationAction(t *testing.T) {
+	client := New()
+	client.Run = fakeAWS(t, func(joined string) (any, error) {
+		switch {
+		case strings.Contains(joined, "--version"):
+			return "aws-cli/2", nil
+		case strings.Contains(joined, "configure list-profiles"):
+			return "test\n", nil
+		case strings.Contains(joined, "sts get-caller-identity"):
+			return nil, errors.New("SSO session expired")
+		default:
+			return nil, errors.New("unexpected command: " + joined)
+		}
+	})
+
+	_, err := client.EnsureAccess(
+		context.Background(),
+		"arn:aws:ec2:eu-west-1:123456789012:instance/i-123",
+		EnsureConfig{},
+	)
+	if err == nil || !strings.Contains(err.Error(), `authenticate AWS profile "test"`) {
+		t.Fatalf("authentication error = %v", err)
+	}
+	if !strings.Contains(err.Error(), `aws sso login --profile "test"`) || !strings.Contains(err.Error(), `aws configure --profile "test"`) {
+		t.Fatalf("authentication error is not actionable: %v", err)
+	}
+}
+
 func TestParseSyncIDAndProfileOrder(t *testing.T) {
 	partition, region, account, instance, err := ParseSyncID("arn:aws-us-gov:ec2:us-gov-west-1:123456789012:instance/i-123")
 	if err != nil || partition != "aws-us-gov" || region != "us-gov-west-1" || account != "123456789012" || instance != "i-123" {
