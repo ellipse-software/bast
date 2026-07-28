@@ -29,7 +29,8 @@ type Host struct {
 }
 
 type Preferences struct {
-	Sort string `json:"sort,omitempty"`
+	Sort            string   `json:"sort,omitempty"`
+	CollapsedGroups []string `json:"collapsedGroups,omitempty"`
 }
 
 type GCPIntegration struct {
@@ -287,13 +288,24 @@ func (s *Store) RecordUse(alias string) error {
 func (s *Store) Preferences() Preferences {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.state.Preferences
+	prefs := s.state.Preferences
+	if prefs.CollapsedGroups != nil {
+		prefs.CollapsedGroups = append([]string(nil), prefs.CollapsedGroups...)
+	}
+	return prefs
 }
 
 func (s *Store) SetSort(sortOrder string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Preferences.Sort = sortOrder
+	return s.save()
+}
+
+func (s *Store) SetCollapsedGroups(groups []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.Preferences.CollapsedGroups = cleanCollapsedGroups(groups)
 	return s.save()
 }
 
@@ -478,6 +490,21 @@ func cleanTags(tags []string) []string {
 			seen[tag] = true
 			out = append(out, tag)
 		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func cleanCollapsedGroups(groups []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(groups))
+	for _, group := range groups {
+		group = strings.TrimSpace(group)
+		if group == "" || seen[group] {
+			continue
+		}
+		seen[group] = true
+		out = append(out, group)
 	}
 	sort.Strings(out)
 	return out

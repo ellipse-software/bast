@@ -24,6 +24,9 @@ func TestStoreRoundTripAndPermissions(t *testing.T) {
 	if err := store.SetSort("group"); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.SetCollapsedGroups([]string{"Work", "Personal", "Work", " "}); err != nil {
+		t.Fatal(err)
+	}
 	reopened, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
@@ -31,6 +34,9 @@ func TestStoreRoundTripAndPermissions(t *testing.T) {
 	host := reopened.Host("prod")
 	if host.Label != "Production web" || !host.Favorite || !host.Hidden || host.ConnectionCount != 1 || len(host.Tags) != 2 || reopened.Preferences().Sort != "group" {
 		t.Fatalf("unexpected state: %+v %+v", host, reopened.Preferences())
+	}
+	if got := reopened.Preferences().CollapsedGroups; !reflect.DeepEqual(got, []string{"Personal", "Work"}) {
+		t.Fatalf("collapsed groups = %v", got)
 	}
 	info, err := os.Stat(path)
 	if err != nil {

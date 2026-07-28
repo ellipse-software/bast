@@ -432,6 +432,9 @@ func (m *App) renameGroup(oldPath, newSegment string) (string, error) {
 		}
 		m.collapsedGroups = updated
 		m.collapseRevision++
+		if err := m.persistCollapsedGroups(); err != nil {
+			return "", err
+		}
 	}
 	m.refreshHostMetadata()
 	return normalized, nil
@@ -537,7 +540,11 @@ func (m *App) toggleSelectedGroup() tea.Cmd {
 	if m.collapsedGroups == nil {
 		m.collapsedGroups = map[string]bool{}
 	}
-	m.collapsedGroups[group] = !m.collapsedGroups[group]
+	if m.collapsedGroups[group] {
+		delete(m.collapsedGroups, group)
+	} else {
+		m.collapsedGroups[group] = true
+	}
 	m.collapseRevision++
 	for i, row := range m.hostRows() {
 		if row.header && row.group == group {
@@ -545,8 +552,73 @@ func (m *App) toggleSelectedGroup() tea.Cmd {
 			break
 		}
 	}
+	if err := m.persistCollapsedGroups(); err != nil {
+		m.setError(err)
+	}
 	return nil
 }
+
+func (m *App) collapseAllGroups() tea.Cmd {
+	if m.searchText() != "" {
+		return m.setNotice("Clear the search filter to collapse groups")
+	}
+	m.collapsedGroups = map[string]bool{}
+	m.collapseRevision++
+	for _, row := range m.hostRows() {
+		if row.header {
+			m.collapsedGroups[row.group] = true
+		}
+	}
+	m.collapseRevision++
+	m.clampCursor()
+	if err := m.persistCollapsedGroups(); err != nil {
+		m.setError(err)
+		return nil
+	}
+	return nil
+}
+
+func (m *App) expandAllGroups() tea.Cmd {
+	m.collapsedGroups = map[string]bool{}
+	m.collapseRevision++
+	if err := m.persistCollapsedGroups(); err != nil {
+		m.setError(err)
+		return nil
+	}
+	return nil
+}
+
+func (m *App) persistCollapsedGroups() error {
+	groups := make([]string, 0, len(m.collapsedGroups))
+	for path, collapsed := range m.collapsedGroups {
+		if collapsed {
+			groups = append(groups, path)
+		}
+	}
+	return m.metadata.SetCollapsedGroups(groups)
+}
+
+func collapsedGroupsFromPrefs(groups []string) map[string]bool {
+	out := make(map[string]bool, len(groups))
+	for _, group := range groups {
+		if group != "" {
+			out[group] = true
+		}
+	}
+	return out
+}
+
+func (m *App) collapseActionLabel() string {
+	group, ok := m.selectedGroup()
+	if !ok {
+		return "collapse"
+	}
+	if m.collapsedGroups[group] {
+		return "expand"
+	}
+	return "collapse"
+}
+
 func (m *App) searchText() string { return strings.TrimPrefix(m.search, "\x00") }
 func (m *App) setError(err error) {
 	m.statusID++

@@ -305,6 +305,14 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.section == hostsSection {
 			return m, m.toggleSelectedGroup()
 		}
+	case "[":
+		if m.section == hostsSection {
+			return m, m.collapseAllGroups()
+		}
+	case "]":
+		if m.section == hostsSection {
+			return m, m.expandAllGroups()
+		}
 	case "a":
 		if m.section == syncSection {
 			return m, nil

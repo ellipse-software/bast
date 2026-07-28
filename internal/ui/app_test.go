@@ -1755,8 +1755,88 @@ func TestEnterTogglesSelectedGroup(t *testing.T) {
 	}
 
 	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "␣ collapse/expand") || strings.Contains(footer, "␣ group") {
+	if !strings.Contains(footer, "␣ collapse") || strings.Contains(footer, "␣ group") {
 		t.Fatalf("footer = %q", footer)
+	}
+	m.updateKeys(enter)
+	footer = m.renderFooter(m.styles())
+	if !strings.Contains(footer, "␣ expand") {
+		t.Fatalf("collapsed footer = %q", footer)
+	}
+}
+
+func TestCollapsedGroupsPersistAcrossSessions(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &App{
+		paths: p, openSSH: openssh.Default(), metadata: store,
+		hosts: []sshconfig.Host{{Alias: "alpha"}, {Alias: "beta"}},
+		width: 100, height: 30, dark: true, collapsedGroups: map[string]bool{},
+	}
+	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("beta", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	m.sortHosts()
+	m.cursor = 0
+	m.updateKeys(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	if !m.collapsedGroups["Work"] {
+		t.Fatal("expected Work to be collapsed")
+	}
+	prefs := m.metadata.Preferences().CollapsedGroups
+	if len(prefs) != 1 || prefs[0] != "Work" {
+		t.Fatalf("persisted collapsed groups = %v", prefs)
+	}
+
+	reopened, err := New(p, openssh.Default(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reopened.collapsedGroups["Work"] {
+		t.Fatalf("reopened session lost collapse state: %v", reopened.collapsedGroups)
+	}
+}
+
+func TestCollapseAndExpandAllGroups(t *testing.T) {
+	m := testApp(t)
+	m.hosts = append(m.hosts, sshconfig.Host{Alias: "gamma"})
+	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("beta", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("gamma", metadata.Host{Group: "Personal"}); err != nil {
+		t.Fatal(err)
+	}
+	m.sortHosts()
+
+	m.updateKeys(tea.KeyPressMsg(tea.Key{Text: "["}))
+	if !m.collapsedGroups["Work"] || !m.collapsedGroups["Personal"] {
+		t.Fatalf("collapse all failed: %v", m.collapsedGroups)
+	}
+	for _, row := range m.hostRows() {
+		if !row.header {
+			t.Fatalf("collapse all still shows host row: %+v", row)
+		}
+	}
+	prefs := m.metadata.Preferences().CollapsedGroups
+	if len(prefs) != 2 || prefs[0] != "Personal" || prefs[1] != "Work" {
+		t.Fatalf("persisted collapse all = %v", prefs)
+	}
+
+	m.updateKeys(tea.KeyPressMsg(tea.Key{Text: "]"}))
+	if len(m.collapsedGroups) != 0 {
+		t.Fatalf("expand all failed: %v", m.collapsedGroups)
+	}
+	if got := m.metadata.Preferences().CollapsedGroups; len(got) != 0 {
+		t.Fatalf("persisted expand all = %v", got)
 	}
 }
 

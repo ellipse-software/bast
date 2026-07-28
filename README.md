@@ -153,7 +153,7 @@ Groups can nest up to five levels (`Work/Production/web`). Bast stores presentat
 
 `1` hosts · `2` keys · arrows or `j`/`k` to move · `/` search · `r` reload · `v` version info
 
-**Hosts:** Enter connect · `a` add · `e` edit · `d` delete · `f` favorite · `h` hide · `.` show hidden · Space collapse group · `s` sort · `K` drop known-host entry
+**Hosts:** Enter connect · `a` add · `e` edit · `d` delete · `f` favorite · `h` hide · `.` show hidden · Space collapse/expand group · `[` collapse all · `]` expand all · `s` sort · `K` drop known-host entry
 
 **Keys:** `a` generate · `i` import · `e` edit comment · `d` delete · `u` push to server · `x` export · `p` passphrase · `c` copy public key
 

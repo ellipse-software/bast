@@ -221,9 +221,9 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 			state = "expanded for search"
 		}
 	}
-	hint := "␣ collapse/expand · e rename"
+	hint := "␣ " + m.collapseActionLabel() + " · e rename"
 	if sync.IsSyncedGroup(row.group) {
-		hint = "␣ collapse/expand · cloud sync (read-only)"
+		hint = "␣ " + m.collapseActionLabel() + " · cloud sync (read-only)"
 	}
 	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont))
 	name := truncate(row.group, max(2, width-3-iconWidth))
@@ -584,7 +584,7 @@ func contrastingTextColor(background string) (string, bool) {
 }
 
 func (m *App) renderHelp(s styleSet) string {
-	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   3  sync   ?  help         v  about       q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand                        s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "Sync", "  󰌑 open provider / run action   Esc back   r refresh", "", "During SSH", "  exit returns to Bast; press 󰌑 then ~. to force-close a stuck session"}
+	lines := []string{"Navigation", "  ↑/↓ or j/k  move       /  search       r  reload", "  1  hosts       2  keys   3  sync   ?  help         v  about       q  quit", "", "Hosts", "  󰌑 connect      a add     e edit         d delete", "  ␣ collapse/expand   [ collapse all   ] expand all  s sort", "  f favorite      h hide/show selected     . toggle hidden hosts", "  K remove known-host entry", "", "Keys", "  a generate      i import  e edit comment d delete", "  u add to server x export  p change passphrase       c copy public key", "", "Sync", "  󰌑 open provider / run action   Esc back   r refresh", "", "During SSH", "  exit returns to Bast; press 󰌑 then ~. to force-close a stuck session"}
 	return "\n  " + s.active.Render("Keyboard help") + "\n\n" + strings.Join(lines, "\n") + "\n\n  " + s.muted.Render("Press ?, Esc, or ⌫ to close")
 }
 
@@ -653,16 +653,17 @@ func (m *App) renderFooter(s styleSet) string {
 	if m.form != nil {
 		hint = m.formHint()
 	} else if m.section == hostsSection {
+		collapse := "␣ " + m.collapseActionLabel()
 		if _, groupSelected := m.selectedGroupHeader(); groupSelected {
 			if m.isMobileLayout() {
-				hint = "↑/↓ or j/k move • e rename • ␣ collapse/expand • a add • v about • ? help"
+				hint = "↑/↓ or j/k move • e rename • " + collapse + " • a add • v about • ? help"
 			} else {
-				hint = "␣ collapse/expand • e rename • a add • v about • ? help"
+				hint = collapse + " • e rename • a add • v about • ? help"
 			}
 		} else if m.isMobileLayout() {
 			hint = "↑/↓ or j/k move • click Connect • a add • v about • ? help"
 		} else {
-			hint = "󰌑 connect • ␣ collapse/expand • a add • h hide • v about • ? help"
+			hint = "󰌑 connect • " + collapse + " • a add • h hide • v about • ? help"
 		}
 	} else if m.section == keysSection {
 		hint = "a generate • i import • u add to server • x export • v about • ? help"
