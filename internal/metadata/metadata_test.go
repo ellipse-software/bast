@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 )
@@ -66,6 +67,105 @@ func TestStoreSerializesConcurrentWrites(t *testing.T) {
 	}
 	if hosts := store.Hosts(); len(hosts) != count {
 		t.Fatalf("hosts = %d, want %d", len(hosts), count)
+	}
+}
+
+func TestUpdateHostsPersistsOneConsistentRevision(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetHost("old", Host{Favorite: true, Tags: []string{"web"}}); err != nil {
+		t.Fatal(err)
+	}
+	before := store.HostRevision()
+	if err := store.UpdateHosts(func(hosts map[string]Host) {
+		renamed := hosts["old"]
+		delete(hosts, "old")
+		renamed.Label = "Production"
+		hosts["new"] = renamed
+		hosts["worker"] = Host{Tags: []string{"queue", "queue"}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.HostRevision(); got != before+1 {
+		t.Fatalf("revision = %d, want %d", got, before+1)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old := reopened.Host("old"); old.Label != "" || old.Favorite || old.Group != "" || len(old.Tags) != 0 {
+		t.Fatalf("old metadata remains: %+v", old)
+	}
+	renamed := reopened.Host("new")
+	if renamed.Label != "Production" || !renamed.Favorite || len(renamed.Tags) != 1 {
+		t.Fatalf("renamed metadata = %+v", renamed)
+	}
+	if tags := reopened.Host("worker").Tags; len(tags) != 1 || tags[0] != "queue" {
+		t.Fatalf("worker tags = %v", tags)
+	}
+}
+
+func TestFailedHostMutationRestoresStateAndRevision(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Store) error
+	}{
+		{name: "set", mutate: func(store *Store) error {
+			return store.SetHost("source", Host{Label: "changed"})
+		}},
+		{name: "delete", mutate: func(store *Store) error {
+			return store.DeleteHost("source")
+		}},
+		{name: "rename", mutate: func(store *Store) error {
+			return store.RenameHost("source", "destination")
+		}},
+		{name: "favorite", mutate: func(store *Store) error {
+			_, err := store.ToggleFavorite("source")
+			return err
+		}},
+		{name: "hidden", mutate: func(store *Store) error {
+			_, err := store.ToggleHidden("source")
+			return err
+		}},
+		{name: "record use", mutate: func(store *Store) error {
+			return store.RecordUse("source")
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			store, err := Open(filepath.Join(root, "state.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.UpdateHosts(func(hosts map[string]Host) {
+				hosts["source"] = Host{Label: "Source", Favorite: true, Tags: []string{"one"}}
+				hosts["destination"] = Host{Label: "Destination", Hidden: true, Tags: []string{"two"}}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			beforeHosts, beforeRevision := store.HostsSnapshot()
+			blockedPath := filepath.Join(root, "blocked")
+			if err := os.Mkdir(blockedPath, 0700); err != nil {
+				t.Fatal(err)
+			}
+			store.path = blockedPath
+
+			if err := test.mutate(store); err == nil {
+				t.Fatal("mutation unexpectedly succeeded")
+			}
+			afterHosts, afterRevision := store.HostsSnapshot()
+			if !reflect.DeepEqual(afterHosts, beforeHosts) {
+				t.Fatalf("hosts changed after failed save: before=%+v after=%+v", beforeHosts, afterHosts)
+			}
+			if afterRevision != beforeRevision {
+				t.Fatalf("revision changed after failed save: before=%d after=%d", beforeRevision, afterRevision)
+			}
+		})
 	}
 }
 

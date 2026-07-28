@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"bast/internal/sshconfig"
 	"bast/internal/updater"
 )
 
@@ -36,12 +37,19 @@ func (m *App) checkForUpdateCmd() tea.Cmd {
 
 func (m *App) loadCmd() tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer cancel()
 		hosts, err := m.config.Discover()
 		if err != nil {
-			return loadedMsg{err: err}
+			return discoveredMsg{err: err}
 		}
+		return discoveredMsg{hosts: hosts}
+	}
+}
+
+func (m *App) enrichCmd(discovered []sshconfig.Host) tea.Cmd {
+	hosts := append([]sshconfig.Host(nil), discovered...)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
 
 		identities := make([][]string, len(hosts))
 		jobs := make(chan int)
@@ -56,8 +64,6 @@ func (m *App) loadCmd() tea.Cmd {
 						continue
 					}
 					hosts[i].Resolved = resolved
-					known, _ := m.openSSH.Fingerprints(ctx, resolved.HostName, resolved.Port)
-					hosts[i].KnownHost = known != ""
 					identities[i] = resolved.IdentityFiles
 				}
 			}()
@@ -67,6 +73,41 @@ func (m *App) loadCmd() tea.Cmd {
 		}
 		close(jobs)
 		workers.Wait()
+
+		type endpoint struct{ host, port string }
+		indices := make(map[endpoint][]int, len(hosts))
+		for i, host := range hosts {
+			if host.Resolved.HostName != "" {
+				key := endpoint{host: host.Resolved.HostName, port: host.Resolved.Port}
+				indices[key] = append(indices[key], i)
+			}
+		}
+		endpoints := make([]endpoint, 0, len(indices))
+		for key := range indices {
+			endpoints = append(endpoints, key)
+		}
+		knownHosts := make([]bool, len(endpoints))
+		knownJobs := make(chan int)
+		for range min(8, len(endpoints)) {
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				for i := range knownJobs {
+					known, _ := m.openSSH.Fingerprints(ctx, endpoints[i].host, endpoints[i].port)
+					knownHosts[i] = known != ""
+				}
+			}()
+		}
+		for i := range endpoints {
+			knownJobs <- i
+		}
+		close(knownJobs)
+		workers.Wait()
+		for i, key := range endpoints {
+			for _, hostIndex := range indices[key] {
+				hosts[hostIndex].KnownHost = knownHosts[i]
+			}
+		}
 
 		referenced := map[string][]string{}
 		for i := range hosts {

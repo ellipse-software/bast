@@ -63,6 +63,11 @@ type loadedMsg struct {
 	err   error
 }
 
+type discoveredMsg struct {
+	hosts []sshconfig.Host
+	err   error
+}
+
 type syncDoneMsg struct {
 	provider string
 	result   sync.Result
@@ -87,13 +92,28 @@ type updateAvailableMsg struct {
 	suggestion string
 }
 
+type hostRowsCache struct {
+	hostGeneration     uint64
+	metadataRevision   uint64
+	collapseGeneration uint64
+	search             string
+	showHidden         bool
+	hostSignature      uint64
+	rows               []hostRow
+}
+
 type App struct {
-	paths    paths.Paths
-	config   sshconfig.Manager
-	openSSH  openssh.Client
-	keyring  keys.Manager
-	metadata *metadata.Store
-	syncer   *sync.Engine
+	paths            paths.Paths
+	config           sshconfig.Manager
+	openSSH          openssh.Client
+	keyring          keys.Manager
+	metadata         *metadata.Store
+	syncer           *sync.Engine
+	hostMeta         map[string]metadata.Host
+	hostMetaRevision uint64
+	hostGeneration   uint64
+	collapseRevision uint64
+	hostRowsCache    hostRowsCache
 
 	section           section
 	hosts             []sshconfig.Host
@@ -131,7 +151,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &App{
+	app := &App{
 		paths: p,
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
@@ -147,7 +167,9 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		version:          version,
 		collapsedGroups:  map[string]bool{},
 		syncingProviders: map[string]bool{},
-	}, nil
+	}
+	app.hostMeta, app.hostMetaRevision = store.HostsSnapshot()
+	return app, nil
 }
 
 func (m *App) providerSyncing(provider string) bool {
@@ -191,14 +213,36 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case loadedMsg:
 		m.loading = false
+		if msg.hosts != nil {
+			m.hosts = msg.hosts
+			m.sortHosts()
+		}
 		if msg.err != nil {
 			m.setError(msg.err)
 			return m, nil
 		}
-		m.hosts, m.keys = msg.hosts, msg.keys
-		m.sortHosts()
+		m.keys = msg.keys
 		m.selectAfterLoad()
 		return m, nil
+	case discoveredMsg:
+		if msg.err != nil {
+			m.loading = false
+			m.setError(msg.err)
+			return m, nil
+		}
+		previous := make(map[string]sshconfig.Host, len(m.hosts))
+		for _, host := range m.hosts {
+			previous[host.Alias] = host
+		}
+		for i := range msg.hosts {
+			if host, ok := previous[msg.hosts[i].Alias]; ok {
+				msg.hosts[i].Resolved = host.Resolved
+				msg.hosts[i].KnownHost = host.KnownHost
+			}
+		}
+		m.hosts = msg.hosts
+		m.sortHosts()
+		return m, m.enrichCmd(m.hosts)
 	case syncDoneMsg:
 		delete(m.syncingProviders, msg.provider)
 		if msg.err != nil {
