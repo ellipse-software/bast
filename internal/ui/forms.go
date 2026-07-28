@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	descHostLabel          = "Required - Display name shown in Bast"
+	descHostLabel          = "Display name; use / for groups, up to 5 levels"
 	descHostHostname       = "Required - Server hostname or IP address"
 	descHostUser           = "Optional - Remote username; blank uses SSH default"
 	descHostPort           = "Optional - Port number; blank defaults to 22"
@@ -30,7 +30,6 @@ const (
 	descHostCompression    = "Optional - Enable SSH compression"
 	descHostSetEnv         = "Optional - SetEnv pairs like FOO=bar, separated by ;"
 	descHostSSHFlags       = "Optional - Any other OpenSSH options, separated by ;"
-	descHostGroup          = "Optional - Use / for subgroups, up to 5 levels"
 	descHostTags           = "Optional - Comma-separated tags included in search"
 	descHostEnvironment    = "Optional - Environment name like production or staging"
 	descHostColor          = "Optional - Hex colour for the host label"
@@ -237,10 +236,12 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 	}
 	switch f.action {
 	case "host_add", "host_edit":
-		label := strings.TrimSpace(values["Label"])
-		group, groupErr := normalizeGroupPath(values["Group"])
-		if groupErr != nil {
-			return m.formError(groupErr.Error())
+		group, label, pathErr := metadata.SplitLabelPath(values["Label"])
+		if pathErr != nil {
+			return m.formError(pathErr.Error())
+		}
+		if strings.TrimSpace(label) == "" {
+			return m.formError("label is required")
 		}
 		groupCreated := group != "" && !m.groupExists(group)
 		adv := advancedSettingsFromForm(values)
@@ -304,12 +305,12 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 	case "metadata_edit":
 		alias := values["Alias"]
 		old := m.metadata.Host(alias)
-		group, err := normalizeGroupPath(values["Group"])
+		group, label, err := metadata.SplitLabelPath(values["Label"])
 		if err != nil {
 			return m.formError(err.Error())
 		}
 		groupCreated := group != "" && !m.groupExists(group)
-		old.Label, old.Group, old.Tags, old.Environment, old.Color, old.Notes = values["Label"], group, splitCSV(values["Tags"]), values["Environment"], values["Color"], values["Notes"]
+		old.Label, old.Group, old.Tags, old.Environment, old.Color, old.Notes = label, group, splitCSV(values["Tags"]), values["Environment"], values["Color"], values["Notes"]
 		if old.Label == alias {
 			old.Label = ""
 		}
@@ -434,7 +435,9 @@ func (m *App) formError(message string) (tea.Model, tea.Cmd) {
 
 func (m *App) openAddHostForm() {
 	group := m.defaultAddGroup()
-	m.openHostForm("Add host", "host_add", hostFormFields(m, metadataHostValues{group: group}, hostConnectionValues{includeConnection: true}, nil))
+	m.openHostForm("Add host", "host_add", hostFormFields(m, metadataHostValues{
+		label: metadata.JoinLabelPath(group, ""),
+	}, hostConnectionValues{includeConnection: true}, nil))
 }
 
 func (m *App) openEditGroupForm() {
@@ -462,11 +465,12 @@ func (m *App) openEditHostForm() {
 		return
 	}
 	meta := m.metadata.Host(host.Alias)
+	labelPath := metadata.JoinLabelPath(meta.Group, m.hostLabel(host))
 	if !host.Managed {
 		m.openHostForm("Edit metadata — "+m.hostLabel(host), "metadata_edit", hostFormFields(m, metadataHostValues{
-			label: m.hostLabel(host), group: meta.Group, tags: strings.Join(meta.Tags, ", "),
+			label: labelPath, tags: strings.Join(meta.Tags, ", "),
 			environment: meta.Environment, color: meta.Color, notes: meta.Notes,
-			labelDesc: "Optional - Display name; SSH alias stays " + host.Alias,
+			labelDesc: "Optional - Display name; use / for groups; SSH alias stays " + host.Alias,
 		}, hostConnectionValues{}, []field{{label: "Alias", value: host.Alias, hidden: true}}))
 		return
 	}
@@ -478,7 +482,7 @@ func (m *App) openEditHostForm() {
 	extras, _ := m.config.ManagedExtras(host.ManagedID)
 	adv := sshconfig.ParseAdvanced(extras, emptyIfNone(host.Resolved.ProxyJump))
 	m.openHostForm("Edit host — "+m.hostLabel(host), "host_edit", hostFormFields(m, metadataHostValues{
-		label: m.hostLabel(host), group: meta.Group, tags: strings.Join(meta.Tags, ", "),
+		label: labelPath, tags: strings.Join(meta.Tags, ", "),
 		environment: meta.Environment, color: meta.Color, notes: meta.Notes,
 	}, hostConnectionValues{
 		includeConnection: true,

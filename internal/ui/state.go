@@ -17,8 +17,6 @@ import (
 
 const noticeDuration = 4 * time.Second
 
-const maxGroupDepth = 5
-
 const mobileBreakpoint = 60
 
 type panelLayout struct {
@@ -281,21 +279,7 @@ func (m *App) appendGroupRows(rows []hostRow, group *hostGroup, depth int) []hos
 }
 
 func normalizeGroupPath(group string) (string, error) {
-	group = strings.TrimSpace(group)
-	if group == "" {
-		return "", nil
-	}
-	parts := strings.Split(group, "/")
-	if len(parts) > maxGroupDepth {
-		return "", fmt.Errorf("groups can be at most %d levels deep", maxGroupDepth)
-	}
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
-		if parts[i] == "" {
-			return "", fmt.Errorf("group levels cannot be empty")
-		}
-	}
-	return strings.Join(parts, "/"), nil
+	return metadata.NormalizeGroupPath(group)
 }
 
 func groupPathParts(group string) []string {

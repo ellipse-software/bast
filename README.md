@@ -138,7 +138,7 @@ Bast is a terminal UI for the SSH config and keys you already have. It reads `~/
 
 You can generate and manage keys, push public keys to servers, and do most of it from the CLI if you'd rather skip the TUI.
 
-Groups can nest up to five levels (`Work/Production/web`). Bast stores presentation metadata in `~/.config/bast`. OpenSSH stays the source of truth for hosts and keys.
+Groups can nest up to five levels. Set them in the label with a path (`Work/Production/web` puts the host in `Work/Production` and names it `web`). In the TUI, the inactive Label row shows just the name; focusing it reveals the full path, with the group prefix muted until the cursor moves into it. `--group` remains available on the CLI. Bast stores presentation metadata in `~/.config/bast`. OpenSSH stays the source of truth for hosts and keys.
 
 ## Requirements
 

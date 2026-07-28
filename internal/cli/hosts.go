@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"strings"
 	"time"
@@ -179,15 +180,19 @@ func (r *Runner) hostAdd(args []string) error {
 		}
 	}
 	var adv sshconfig.AdvancedSettings
+	groupPrompted := false
 	if wizard && r.interactive() && !r.NoInput {
 		adv, err = promptAdvancedSettings(r, sshconfig.AdvancedSettings{ProxyJump: *proxy})
 		if err != nil {
 			return err
 		}
 		*proxy = adv.ProxyJump
-		*group, err = r.prompt("Group", *group, false)
-		if err != nil {
-			return err
+		if !strings.Contains(label, "/") {
+			*group, err = r.prompt("Group", *group, false)
+			if err != nil {
+				return err
+			}
+			groupPrompted = true
 		}
 		tagText, promptErr := r.prompt("Tags (comma separated)", strings.Join(tags, ", "), false)
 		if promptErr != nil {
@@ -210,7 +215,13 @@ func (r *Runner) hostAdd(args []string) error {
 	if *identity != "" && *passwordOnly {
 		return usagef("--identity and --password-only cannot be used together")
 	}
-	normalizedGroup, err := normalizeGroup(*group)
+	groupFlagSet := groupPrompted
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "group" {
+			groupFlagSet = true
+		}
+	})
+	leaf, normalizedGroup, err := resolveLabelAndGroup(label, groupFlagSet, *group, false)
 	if err != nil {
 		return err
 	}
@@ -221,14 +232,14 @@ func (r *Runner) hostAdd(args []string) error {
 		}
 	}
 	input := hostInputFromAdvanced(sshconfig.HostInput{
-		Alias: sshconfig.NormalizeAlias(strings.TrimSpace(label)), HostName: *hostname, User: *user, Port: *port,
+		Alias: sshconfig.NormalizeAlias(leaf), HostName: *hostname, User: *user, Port: *port,
 		IdentityFile: *identity, PasswordOnly: *passwordOnly,
 	}, adv)
 	host, err := r.config.Add(input)
 	if err != nil {
 		return err
 	}
-	meta := metadata.Host{Label: strings.TrimSpace(label), Group: normalizedGroup, Tags: splitValues(tags), Environment: *environment, Color: *color, Notes: *notes}
+	meta := metadata.Host{Label: leaf, Group: normalizedGroup, Tags: splitValues(tags), Environment: *environment, Color: *color, Notes: *notes}
 	if meta.Label == input.Alias {
 		meta.Label = ""
 	}
@@ -301,7 +312,7 @@ func (r *Runner) hostEdit(args []string) error {
 		if r.NoInput || !r.interactive() {
 			return usagef("no changes supplied")
 		}
-		label.value, err = r.prompt("Label", host.Label, true)
+		label.value, err = r.prompt("Label", metadata.JoinLabelPath(host.Group, host.Label), true)
 		if err != nil {
 			return err
 		}
@@ -351,11 +362,13 @@ func (r *Runner) hostEdit(args []string) error {
 			wizardAdvanced = &nextAdv
 			proxy.value, proxy.set = nextAdv.ProxyJump, true
 		}
-		group.value, err = r.prompt("Group", host.Group, false)
-		if err != nil {
-			return err
+		if !strings.Contains(label.value, "/") {
+			group.value, err = r.prompt("Group", host.Group, false)
+			if err != nil {
+				return err
+			}
+			group.set = true
 		}
-		group.set = true
 		tagText, promptErr := r.prompt("Tags (comma separated)", strings.Join(host.Tags, ", "), false)
 		if promptErr != nil {
 			return promptErr
@@ -393,10 +406,19 @@ func (r *Runner) hostEdit(args []string) error {
 	newAlias := host.Alias
 	newMeta := host.meta
 	if label.set {
-		if host.Managed {
-			newAlias = sshconfig.NormalizeAlias(strings.TrimSpace(label.value))
+		leaf, parsedGroup, pathErr := resolveLabelAndGroup(label.value, group.set, group.value, *clearGroup)
+		if pathErr != nil {
+			return pathErr
 		}
-		newMeta.Label = strings.TrimSpace(label.value)
+		if host.Managed {
+			newAlias = sshconfig.NormalizeAlias(leaf)
+		}
+		newMeta.Label = leaf
+		// Only apply a group from the label when the label carries path info.
+		// A plain label rename must preserve the existing host group.
+		if !group.set && !*clearGroup && strings.Contains(strings.TrimSpace(label.value), "/") {
+			newMeta.Group = parsedGroup
+		}
 	}
 	if group.set {
 		newMeta.Group, err = normalizeGroup(group.value)
@@ -686,21 +708,50 @@ func (r *Runner) connect(args []string) error {
 }
 
 func normalizeGroup(group string) (string, error) {
-	group = strings.TrimSpace(group)
-	if group == "" {
-		return "", nil
+	normalized, err := metadata.NormalizeGroupPath(group)
+	if err != nil {
+		return "", fail("validation", err.Error())
 	}
-	parts := strings.Split(group, "/")
-	if len(parts) > 5 {
-		return "", fail("validation", "groups can be at most 5 levels deep")
-	}
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
-		if parts[i] == "" {
-			return "", fail("validation", "group levels cannot be empty")
+	return normalized, nil
+}
+
+// resolveLabelAndGroup peels path-in-label syntax into a leaf name.
+// Explicit --group overrides only the group; a path in the label still peels.
+// clear-group clears the group and still peels a path leaf when present.
+func resolveLabelAndGroup(label string, groupSet bool, groupValue string, clearGroup bool) (leaf, group string, err error) {
+	label = strings.TrimSpace(label)
+	if clearGroup {
+		if strings.Contains(label, "/") {
+			_, leaf, err = metadata.SplitLabelPath(label)
+			if err != nil {
+				return "", "", fail("validation", err.Error())
+			}
+			return leaf, "", nil
 		}
+		return label, "", nil
 	}
-	return strings.Join(parts, "/"), nil
+	if groupSet {
+		group, err = normalizeGroup(groupValue)
+		if err != nil {
+			return "", "", err
+		}
+		if strings.Contains(label, "/") {
+			_, leaf, err = metadata.SplitLabelPath(label)
+			if err != nil {
+				return "", "", fail("validation", err.Error())
+			}
+			return leaf, group, nil
+		}
+		return label, group, nil
+	}
+	if strings.Contains(label, "/") {
+		group, leaf, err = metadata.SplitLabelPath(label)
+		if err != nil {
+			return "", "", fail("validation", err.Error())
+		}
+		return leaf, group, nil
+	}
+	return label, "", nil
 }
 
 func splitValues(values []string) []string {
