@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"bast/internal/paths"
 )
@@ -83,17 +84,37 @@ func (m Manager) Discover(ctx context.Context, referenced map[string][]string) (
 	}
 
 	agentPrints, agentOnly := m.agentKeys(ctx)
-	keys := make([]Key, 0, len(candidates))
+	candidateKeys := make([]*Key, 0, len(candidates))
 	for _, key := range candidates {
 		key.Managed = within(key.PrivatePath, m.Paths.ManagedKeys) || within(key.PublicPath, m.Paths.ManagedKeys)
-		inspect := key.PublicPath
-		if inspect == "" {
-			inspect = key.PrivatePath
-		}
-		if inspect != "" {
-			key.Fingerprint, key.Comment, key.Algorithm = m.inspect(ctx, inspect)
-			key.InAgent = agentPrints[key.Fingerprint]
-		}
+		candidateKeys = append(candidateKeys, key)
+	}
+	jobs := make(chan *Key)
+	var workers sync.WaitGroup
+	for range min(8, len(candidateKeys)) {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for key := range jobs {
+				inspect := key.PublicPath
+				if inspect == "" {
+					inspect = key.PrivatePath
+				}
+				if inspect != "" {
+					key.Fingerprint, key.Comment, key.Algorithm = m.inspect(ctx, inspect)
+					key.InAgent = agentPrints[key.Fingerprint]
+				}
+			}
+		}()
+	}
+	for _, key := range candidateKeys {
+		jobs <- key
+	}
+	close(jobs)
+	workers.Wait()
+
+	keys := make([]Key, 0, len(candidateKeys))
+	for _, key := range candidateKeys {
 		sort.Strings(key.References)
 		keys = append(keys, *key)
 	}

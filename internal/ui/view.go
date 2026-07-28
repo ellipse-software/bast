@@ -124,8 +124,8 @@ func (m *App) renderTabs(s styleSet) string {
 }
 
 func (m *App) renderHosts(s styleSet) string {
-	filtered := m.filteredHosts()
-	if len(filtered) == 0 {
+	rowsData := m.hostRows()
+	if len(rowsData) == 0 {
 		if m.loading {
 			return "\n  " + s.muted.Render("Loading OpenSSH configuration…")
 		}
@@ -143,7 +143,6 @@ func (m *App) renderHosts(s styleSet) string {
 	layout := m.panelLayout()
 	listHeight := layout.listHeight
 	detailHeight := layout.detailHeight
-	rowsData := m.hostRows()
 	rowWidth := listWidth
 	if layout.mobile && len(rowsData) > listHeight {
 		rowWidth -= mobileScrollbarWidth

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -66,9 +67,10 @@ type State struct {
 }
 
 type Store struct {
-	mu    sync.RWMutex
-	path  string
-	state State
+	mu           sync.RWMutex
+	path         string
+	state        State
+	hostRevision atomic.Uint64
 }
 
 func Open(path string) (*Store, error) {
@@ -112,13 +114,22 @@ func (s *Store) Host(alias string) Host {
 }
 
 func (s *Store) Hosts() map[string]Host {
+	hosts, _ := s.HostsSnapshot()
+	return hosts
+}
+
+func (s *Store) HostsSnapshot() (map[string]Host, uint64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make(map[string]Host, len(s.state.Hosts))
 	for k, v := range s.state.Hosts {
 		out[k] = cloneHost(v)
 	}
-	return out
+	return out, s.hostRevision.Load()
+}
+
+func (s *Store) HostRevision() uint64 {
+	return s.hostRevision.Load()
 }
 
 func (s *Store) SetHost(alias string, host Host) error {
@@ -126,13 +137,37 @@ func (s *Store) SetHost(alias string, host Host) error {
 	defer s.mu.Unlock()
 	host.Tags = cleanTags(host.Tags)
 	s.state.Hosts[alias] = host
+	s.hostRevision.Add(1)
 	return s.save()
+}
+
+// UpdateHosts applies a related set of host metadata changes with one atomic
+// persistence operation. The callback must not call other Store methods.
+func (s *Store) UpdateHosts(update func(map[string]Host)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	next := cloneHosts(s.state.Hosts)
+	update(next)
+	for alias, host := range next {
+		host.Tags = cleanTags(host.Tags)
+		next[alias] = host
+	}
+	previous := s.state.Hosts
+	s.state.Hosts = next
+	if err := s.save(); err != nil {
+		s.state.Hosts = previous
+		return err
+	}
+	s.hostRevision.Add(1)
+	return nil
 }
 
 func (s *Store) DeleteHost(alias string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.state.Hosts, alias)
+	s.hostRevision.Add(1)
 	return s.save()
 }
 
@@ -143,6 +178,7 @@ func (s *Store) RenameHost(from, to string) error {
 	if ok {
 		delete(s.state.Hosts, from)
 		s.state.Hosts[to] = host
+		s.hostRevision.Add(1)
 	}
 	return s.save()
 }
@@ -153,6 +189,7 @@ func (s *Store) ToggleFavorite(alias string) (bool, error) {
 	host := s.state.Hosts[alias]
 	host.Favorite = !host.Favorite
 	s.state.Hosts[alias] = host
+	s.hostRevision.Add(1)
 	return host.Favorite, s.save()
 }
 
@@ -162,6 +199,7 @@ func (s *Store) ToggleHidden(alias string) (bool, error) {
 	host := s.state.Hosts[alias]
 	host.Hidden = !host.Hidden
 	s.state.Hosts[alias] = host
+	s.hostRevision.Add(1)
 	return host.Hidden, s.save()
 }
 
@@ -173,6 +211,7 @@ func (s *Store) RecordUse(alias string) error {
 	host.LastUsedAt = &now
 	host.ConnectionCount++
 	s.state.Hosts[alias] = host
+	s.hostRevision.Add(1)
 	return s.save()
 }
 
@@ -248,6 +287,14 @@ func cloneHost(host Host) Host {
 		host.LastUsedAt = &lastUsedAt
 	}
 	return host
+}
+
+func cloneHosts(hosts map[string]Host) map[string]Host {
+	out := make(map[string]Host, len(hosts))
+	for alias, host := range hosts {
+		out[alias] = cloneHost(host)
+	}
+	return out
 }
 
 func cloneGCP(gcp GCPIntegration) GCPIntegration {

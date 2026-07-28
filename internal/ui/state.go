@@ -95,10 +95,26 @@ func (m *App) columnDimensions() (listWidth, detailWidth, bodyHeight int) {
 }
 
 func (m *App) filteredHosts() []sshconfig.Host {
+	return m.filteredHostsWithMetadata(m.hostMetadata())
+}
+
+func (m *App) hostMetadata() map[string]metadata.Host {
+	if m.hostMeta == nil || m.hostMetaRevision != m.metadata.HostRevision() {
+		m.refreshHostMetadata()
+	}
+	return m.hostMeta
+}
+
+func (m *App) refreshHostMetadata() map[string]metadata.Host {
+	m.hostMeta, m.hostMetaRevision = m.metadata.HostsSnapshot()
+	return m.hostMeta
+}
+
+func (m *App) filteredHostsWithMetadata(hostMetadata map[string]metadata.Host) []sshconfig.Host {
 	q := strings.ToLower(m.searchText())
-	out := []sshconfig.Host{}
+	out := make([]sshconfig.Host, 0, len(m.hosts))
 	for _, h := range m.hosts {
-		meta := m.metadata.Host(h.Alias)
+		meta := hostMetadata[h.Alias]
 		if meta.Hidden && !m.showHidden {
 			continue
 		}
@@ -106,7 +122,7 @@ func (m *App) filteredHosts() []sshconfig.Host {
 			out = append(out, h)
 			continue
 		}
-		hay := strings.ToLower(strings.Join([]string{m.hostLabel(h), h.Alias, h.Resolved.HostName, h.Resolved.User, meta.Group, strings.Join(meta.Tags, " "), meta.Environment, meta.Notes}, " "))
+		hay := strings.ToLower(strings.Join([]string{hostLabel(h, meta), h.Alias, h.Resolved.HostName, h.Resolved.User, meta.Group, strings.Join(meta.Tags, " "), meta.Environment, meta.Notes}, " "))
 		if strings.Contains(hay, q) {
 			out = append(out, h)
 		}
@@ -130,13 +146,26 @@ type hostGroup struct {
 }
 
 func (m *App) hostRows() []hostRow {
-	hosts := m.filteredHosts()
+	hostMetadata := m.hostMetadata()
+	search := m.searchText()
+	hostSignature := hostListSignature(m.hosts)
+	cache := m.hostRowsCache
+	if cache.rows != nil &&
+		cache.hostGeneration == m.hostGeneration &&
+		cache.metadataRevision == m.hostMetaRevision &&
+		cache.collapseGeneration == m.collapseRevision &&
+		cache.search == search &&
+		cache.showHidden == m.showHidden &&
+		cache.hostSignature == hostSignature {
+		return cache.rows
+	}
+	hosts := m.filteredHostsWithMetadata(hostMetadata)
 	groups := map[string]*hostGroup{}
 	ungrouped := []sshconfig.Host{}
 	topLevelOrder := []string{}
 	seenTopLevel := map[string]bool{}
 	for _, host := range hosts {
-		parts := groupPathParts(m.metadata.Host(host.Alias).Group)
+		parts := groupPathParts(hostMetadata[host.Alias].Group)
 		if len(parts) == 0 {
 			if !seenTopLevel[""] {
 				seenTopLevel[""] = true
@@ -180,7 +209,56 @@ func (m *App) hostRows() []hostRow {
 		}
 		rows = m.appendGroupRows(rows, groups[group], 0)
 	}
+	m.hostRowsCache = hostRowsCache{
+		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
+		collapseGeneration: m.collapseRevision, search: search,
+		showHidden: m.showHidden, hostSignature: hostSignature, rows: rows,
+	}
 	return rows
+}
+
+func hostListSignature(hosts []sshconfig.Host) uint64 {
+	const (
+		offset = uint64(14695981039346656037)
+		prime  = uint64(1099511628211)
+	)
+	signature := offset
+	writeString := func(value string) {
+		for i := range len(value) {
+			signature = (signature ^ uint64(value[i])) * prime
+		}
+		signature = (signature ^ 0xff) * prime
+	}
+	for _, host := range hosts {
+		writeString(host.Alias)
+		writeString(host.Source)
+		writeString(host.ManagedID)
+		writeString(host.SyncSource)
+		writeString(host.SyncID)
+		writeString(host.Resolved.HostName)
+		writeString(host.Resolved.User)
+		writeString(host.Resolved.Port)
+		writeString(host.Resolved.IdentitiesOnly)
+		writeString(host.Resolved.PubkeyAuthentication)
+		writeString(host.Resolved.PasswordAuthentication)
+		writeString(host.Resolved.PreferredAuthentications)
+		writeString(host.Resolved.ProxyJump)
+		for _, identity := range host.Resolved.IdentityFiles {
+			writeString(identity)
+		}
+		flags := uint64(0)
+		if host.Managed {
+			flags |= 1
+		}
+		if host.Synced {
+			flags |= 2
+		}
+		if host.KnownHost {
+			flags |= 4
+		}
+		signature = (signature ^ flags ^ uint64(host.Line)) * prime
+	}
+	return signature
 }
 
 func (m *App) appendGroupRows(rows []hostRow, group *hostGroup, depth int) []hostRow {
@@ -231,8 +309,9 @@ func groupPathParts(group string) []string {
 }
 
 func (m *App) hasHiddenHosts() bool {
+	hostMetadata := m.hostMetadata()
 	for _, host := range m.hosts {
-		if m.metadata.Host(host.Alias).Hidden {
+		if hostMetadata[host.Alias].Hidden {
 			return true
 		}
 	}
@@ -243,12 +322,17 @@ func (m *App) filteredKeys() []keys.Key {
 	if q == "" {
 		return m.keys
 	}
-	out := []keys.Key{}
+	out := make([]keys.Key, 0, len(m.keys))
+	hostMetadata := m.hostMetadata()
+	hostLabels := make(map[string]string, len(m.hosts))
+	for _, host := range m.hosts {
+		hostLabels[host.Alias] = hostLabel(host, hostMetadata[host.Alias])
+	}
 	for _, k := range m.keys {
 		references := append([]string(nil), k.References...)
 		for _, alias := range k.References {
-			if host, ok := m.findHost(alias); ok {
-				references = append(references, m.hostLabel(host))
+			if label, ok := hostLabels[alias]; ok {
+				references = append(references, label)
 			}
 		}
 		if strings.Contains(strings.ToLower(k.Name+" "+k.Fingerprint+" "+k.Algorithm+" "+strings.Join(references, " ")), q) {
@@ -317,19 +401,24 @@ func (m *App) renameGroup(oldPath, newSegment string) (string, error) {
 	if normalized == oldPath {
 		return normalized, nil
 	}
+	aliases := make(map[string]bool, len(m.hosts))
 	for _, host := range m.hosts {
-		meta := m.metadata.Host(host.Alias)
-		existing, err := normalizeGroupPath(meta.Group)
-		if err != nil || existing == "" {
-			continue
+		aliases[host.Alias] = true
+	}
+	if err := m.metadata.UpdateHosts(func(hosts map[string]metadata.Host) {
+		for alias, meta := range hosts {
+			if !aliases[alias] {
+				continue
+			}
+			existing, err := normalizeGroupPath(meta.Group)
+			if err != nil || existing == "" || (existing != oldPath && !strings.HasPrefix(existing, oldPath+"/")) {
+				continue
+			}
+			meta.Group = replaceGroupPrefix(existing, oldPath, normalized)
+			hosts[alias] = meta
 		}
-		if existing != oldPath && !strings.HasPrefix(existing, oldPath+"/") {
-			continue
-		}
-		meta.Group = replaceGroupPrefix(existing, oldPath, normalized)
-		if err := m.metadata.SetHost(host.Alias, meta); err != nil {
-			return "", err
-		}
+	}); err != nil {
+		return "", err
 	}
 	if m.collapsedGroups != nil {
 		updated := map[string]bool{}
@@ -337,7 +426,9 @@ func (m *App) renameGroup(oldPath, newSegment string) (string, error) {
 			updated[replaceGroupPrefix(path, oldPath, normalized)] = collapsed
 		}
 		m.collapsedGroups = updated
+		m.collapseRevision++
 	}
+	m.refreshHostMetadata()
 	return normalized, nil
 }
 func (m *App) selectedKey() (keys.Key, bool) {
@@ -442,6 +533,7 @@ func (m *App) toggleSelectedGroup() tea.Cmd {
 		m.collapsedGroups = map[string]bool{}
 	}
 	m.collapsedGroups[group] = !m.collapsedGroups[group]
+	m.collapseRevision++
 	for i, row := range m.hostRows() {
 		if row.header && row.group == group {
 			m.cursor = i
@@ -492,11 +584,12 @@ func (m *App) sortHosts() {
 	if order == "" {
 		order = "smart"
 	}
+	hostMetadata := m.refreshHostMetadata()
 	sort.SliceStable(m.hosts, func(i, j int) bool {
-		a, b := m.metadata.Host(m.hosts[i].Alias), m.metadata.Host(m.hosts[j].Alias)
+		a, b := hostMetadata[m.hosts[i].Alias], hostMetadata[m.hosts[j].Alias]
 		switch order {
 		case "alias":
-			return strings.ToLower(m.hostLabel(m.hosts[i])) < strings.ToLower(m.hostLabel(m.hosts[j]))
+			return strings.ToLower(hostLabel(m.hosts[i], a)) < strings.ToLower(hostLabel(m.hosts[j], b))
 		case "recent":
 			return later(a.LastUsedAt, b.LastUsedAt)
 		case "group":
@@ -513,12 +606,17 @@ func (m *App) sortHosts() {
 		if a.LastUsedAt != nil && !a.LastUsedAt.Equal(*b.LastUsedAt) {
 			return a.LastUsedAt.After(*b.LastUsedAt)
 		}
-		return strings.ToLower(m.hostLabel(m.hosts[i])) < strings.ToLower(m.hostLabel(m.hosts[j]))
+		return strings.ToLower(hostLabel(m.hosts[i], a)) < strings.ToLower(hostLabel(m.hosts[j], b))
 	})
+	m.hostGeneration++
 }
 
 func (m *App) hostLabel(host sshconfig.Host) string {
-	if label := strings.TrimSpace(m.metadata.Host(host.Alias).Label); label != "" {
+	return hostLabel(host, m.hostMetadata()[host.Alias])
+}
+
+func hostLabel(host sshconfig.Host, meta metadata.Host) string {
+	if label := strings.TrimSpace(meta.Label); label != "" {
 		return label
 	}
 	return host.Alias

@@ -39,6 +39,14 @@ type Engine struct {
 	EnsureAccessWait time.Duration
 }
 
+type hostMetadataUpdate struct {
+	alias         string
+	previousAlias string
+	label         string
+	group         string
+	tags          []string
+}
+
 func New(p paths.Paths, store *metadata.Store) *Engine {
 	cfg := sshconfig.Manager{
 		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
@@ -108,6 +116,8 @@ func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
 	aliases := make([]string, 0, len(discovery.Instances)+len(previousBySyncID))
 	activeAliases := map[string]bool{}
 	activeSyncIDs := map[string]bool{}
+	metadataUpdates := make([]hostMetadataUpdate, 0, len(discovery.Instances))
+	var metadataDeletes []string
 
 	for _, inst := range discovery.Instances {
 		activeSyncIDs[inst.SyncID] = true
@@ -129,9 +139,10 @@ func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
 		if prev, ok := previousBySyncID[inst.SyncID]; ok {
 			prevAlias = prev.Alias
 		}
-		if err := e.applyMetadata(alias, inst, prevAlias); err != nil {
-			return Result{}, err
-		}
+		metadataUpdates = append(metadataUpdates, hostMetadataUpdate{
+			alias: alias, previousAlias: prevAlias, label: inst.Name,
+			group: gcp.GroupPath(inst), tags: append([]string(nil), inst.Tags...),
+		})
 	}
 
 	// Keep hosts from projects we could not re-scan (expired account, permission
@@ -143,7 +154,7 @@ func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
 		}
 		projectID, _, _, parseErr := gcp.ParseSyncID(syncID)
 		if parseErr == nil && discovery.ConfirmedProjects[projectID] {
-			_ = e.Store.DeleteHost(host.Alias)
+			metadataDeletes = append(metadataDeletes, host.Alias)
 			continue
 		}
 		block, ok := previousBlocks[syncID]
@@ -170,6 +181,9 @@ func (e *Engine) SyncGCP(ctx context.Context) (Result, error) {
 		return Result{}, err
 	}
 	if err := sshconfig.WriteSyncConfig(e.Paths.SyncGCPConfig, blocks); err != nil {
+		return Result{}, err
+	}
+	if err := e.applyMetadataUpdates(metadataUpdates, metadataDeletes); err != nil {
 		return Result{}, err
 	}
 
@@ -230,6 +244,7 @@ func (e *Engine) SyncAWS(ctx context.Context) (Result, error) {
 	blocks := make([]sshconfig.SyncHostInput, 0, len(instances))
 	aliases := make([]string, 0, len(instances))
 	activeSyncIDs := map[string]bool{}
+	metadataUpdates := make([]hostMetadataUpdate, 0, len(instances))
 	for _, inst := range instances {
 		activeSyncIDs[inst.SyncID] = true
 		alias := ""
@@ -246,16 +261,10 @@ func (e *Engine) SyncAWS(ctx context.Context) (Result, error) {
 		if prev, ok := previousBySyncID[inst.SyncID]; ok {
 			prevAlias = prev.Alias
 		}
-		if prevAlias != "" && prevAlias != alias {
-			_ = e.Store.RenameHost(prevAlias, alias)
-		}
-		meta := e.Store.Host(alias)
-		meta.Label = inst.Name
-		meta.Group = awscloud.GroupPath(inst)
-		meta.Tags = append([]string(nil), inst.Tags...)
-		if err := e.Store.SetHost(alias, meta); err != nil {
-			return Result{Provider: awscloud.ProviderName}, err
-		}
+		metadataUpdates = append(metadataUpdates, hostMetadataUpdate{
+			alias: alias, previousAlias: prevAlias, label: inst.Name,
+			group: awscloud.GroupPath(inst), tags: append([]string(nil), inst.Tags...),
+		})
 	}
 	if err := e.Config.EnsureSyncInclude(e.Paths.SyncAWSConfig); err != nil {
 		return Result{Provider: awscloud.ProviderName}, err
@@ -263,10 +272,14 @@ func (e *Engine) SyncAWS(ctx context.Context) (Result, error) {
 	if err := sshconfig.WriteSyncConfig(e.Paths.SyncAWSConfig, blocks); err != nil {
 		return Result{Provider: awscloud.ProviderName}, err
 	}
+	var metadataDeletes []string
 	for syncID, host := range previousBySyncID {
 		if !activeSyncIDs[syncID] {
-			_ = e.Store.DeleteHost(host.Alias)
+			metadataDeletes = append(metadataDeletes, host.Alias)
 		}
+	}
+	if err := e.applyMetadataUpdates(metadataUpdates, metadataDeletes); err != nil {
+		return Result{Provider: awscloud.ProviderName}, err
 	}
 	latest := e.Store.AWS()
 	latest.Enabled = true
@@ -279,15 +292,25 @@ func (e *Engine) SyncAWS(ctx context.Context) (Result, error) {
 	return Result{Provider: awscloud.ProviderName, Count: len(instances), SyncedAt: now, Aliases: aliases}, nil
 }
 
-func (e *Engine) applyMetadata(alias string, inst cloud.Instance, previousAlias string) error {
-	if previousAlias != "" && previousAlias != alias {
-		_ = e.Store.RenameHost(previousAlias, alias)
-	}
-	meta := e.Store.Host(alias)
-	meta.Label = inst.Name
-	meta.Group = gcp.GroupPath(inst)
-	meta.Tags = append([]string(nil), inst.Tags...)
-	return e.Store.SetHost(alias, meta)
+func (e *Engine) applyMetadataUpdates(updates []hostMetadataUpdate, deletes []string) error {
+	return e.Store.UpdateHosts(func(hosts map[string]metadata.Host) {
+		for _, update := range updates {
+			if update.previousAlias != "" && update.previousAlias != update.alias {
+				if previous, ok := hosts[update.previousAlias]; ok {
+					delete(hosts, update.previousAlias)
+					hosts[update.alias] = previous
+				}
+			}
+			meta := hosts[update.alias]
+			meta.Label = update.label
+			meta.Group = update.group
+			meta.Tags = append([]string(nil), update.tags...)
+			hosts[update.alias] = meta
+		}
+		for _, alias := range deletes {
+			delete(hosts, alias)
+		}
+	})
 }
 
 // EnsureGCPAccess prepares SSH auth for a GCP-synced host (gcloud-style key ensure)

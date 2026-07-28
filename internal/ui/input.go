@@ -312,6 +312,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if _, ok := m.selectedGroupHeader(); ok {
 				m.openEditGroupForm()
 			} else {
+				if host, ok := m.selectedHost(); ok && m.loading && host.Resolved.HostName == "" {
+					return m, m.setNotice("Host details are still loading")
+				}
 				m.openEditHostForm()
 			}
 		} else {
@@ -377,6 +380,7 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				if err != nil {
 					m.setError(err)
 				} else {
+					m.refreshHostMetadata()
 					notice := "Host hidden"
 					if !hidden {
 						notice = "Host shown"

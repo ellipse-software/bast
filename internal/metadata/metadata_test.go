@@ -69,6 +69,44 @@ func TestStoreSerializesConcurrentWrites(t *testing.T) {
 	}
 }
 
+func TestUpdateHostsPersistsOneConsistentRevision(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetHost("old", Host{Favorite: true, Tags: []string{"web"}}); err != nil {
+		t.Fatal(err)
+	}
+	before := store.HostRevision()
+	if err := store.UpdateHosts(func(hosts map[string]Host) {
+		renamed := hosts["old"]
+		delete(hosts, "old")
+		renamed.Label = "Production"
+		hosts["new"] = renamed
+		hosts["worker"] = Host{Tags: []string{"queue", "queue"}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.HostRevision(); got != before+1 {
+		t.Fatalf("revision = %d, want %d", got, before+1)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old := reopened.Host("old"); old.Label != "" || old.Favorite || old.Group != "" || len(old.Tags) != 0 {
+		t.Fatalf("old metadata remains: %+v", old)
+	}
+	renamed := reopened.Host("new")
+	if renamed.Label != "Production" || !renamed.Favorite || len(renamed.Tags) != 1 {
+		t.Fatalf("renamed metadata = %+v", renamed)
+	}
+	if tags := reopened.Host("worker").Tags; len(tags) != 1 || tags[0] != "queue" {
+		t.Fatalf("worker tags = %v", tags)
+	}
+}
+
 func TestStoreRejectsNewerSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	if err := os.WriteFile(path, []byte(`{"version":99,"hosts":{}}`), 0600); err != nil {

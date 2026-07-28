@@ -11,7 +11,7 @@ import (
 	"bast/internal/paths"
 )
 
-func TestLoadEnrichesEveryHost(t *testing.T) {
+func TestLoadDiscoversBeforeEnrichingEveryHost(t *testing.T) {
 	home := t.TempDir()
 	p := paths.ForHome(home)
 	if err := os.MkdirAll(p.SSHDir, 0700); err != nil {
@@ -47,16 +47,72 @@ func TestLoadEnrichesEveryHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg, ok := app.loadCmd()().(loadedMsg)
-	if !ok || msg.err != nil {
-		t.Fatalf("load result = %#v", msg)
+	discovered, ok := app.loadCmd()().(discoveredMsg)
+	if !ok || discovered.err != nil {
+		t.Fatalf("discovery result = %#v", discovered)
 	}
-	if len(msg.hosts) != 24 {
-		t.Fatalf("loaded %d hosts", len(msg.hosts))
+	if len(discovered.hosts) != 24 {
+		t.Fatalf("discovered %d hosts", len(discovered.hosts))
+	}
+	for _, host := range discovered.hosts {
+		if host.Resolved.HostName != "" || host.KnownHost {
+			t.Fatalf("discovery unexpectedly waited for enrichment: %+v", host)
+		}
+	}
+
+	msg, ok := app.enrichCmd(discovered.hosts)().(loadedMsg)
+	if !ok || msg.err != nil {
+		t.Fatalf("enrichment result = %#v", msg)
 	}
 	for _, host := range msg.hosts {
 		if host.Resolved.HostName != host.Alias+".example" || !host.KnownHost {
 			t.Fatalf("host was not enriched: %+v", host)
 		}
+	}
+}
+
+func TestEnrichmentChecksSharedKnownHostEndpointOnce(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	if err := os.MkdirAll(p.SSHDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.MainConfig, []byte("Host first second\n  HostName shared.example\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	ssh := filepath.Join(bin, "ssh")
+	if err := os.WriteFile(ssh, []byte("#!/bin/sh\nprintf 'hostname shared.example\\nport 22\\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	countPath := filepath.Join(home, "known-host-lookups")
+	keygen := filepath.Join(bin, "ssh-keygen")
+	keygenScript := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"-F\" ]; then printf x >> %q; echo known; fi\n", countPath)
+	if err := os.WriteFile(keygen, []byte(keygenScript), 0700); err != nil {
+		t.Fatal(err)
+	}
+	sshAdd := filepath.Join(bin, "ssh-add")
+	if err := os.WriteFile(sshAdd, []byte("#!/bin/sh\nexit 1\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	app, err := New(p, openssh.Client{SSH: ssh, SSHKeygen: keygen, SSHAdd: sshAdd}, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	discovered := app.loadCmd()().(discoveredMsg)
+	loaded := app.enrichCmd(discovered.hosts)().(loadedMsg)
+	if loaded.err != nil || len(loaded.hosts) != 2 || !loaded.hosts[0].KnownHost || !loaded.hosts[1].KnownHost {
+		t.Fatalf("enrichment result = %#v", loaded)
+	}
+	lookups, err := os.ReadFile(countPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(lookups) != "x" {
+		t.Fatalf("known-host lookups = %q, want one", lookups)
 	}
 }
