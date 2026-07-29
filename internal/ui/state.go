@@ -127,12 +127,14 @@ func (m *App) filteredHostsWithMetadata(hostMetadata map[string]metadata.Host) [
 }
 
 type hostRow struct {
-	group  string
-	label  string
-	host   sshconfig.Host
-	header bool
-	count  int
-	depth  int
+	group         string
+	label         string
+	host          sshconfig.Host
+	suggestion    *metadata.HistorySuggestion
+	historyHeader bool
+	header        bool
+	count         int
+	depth         int
 }
 
 type hostGroup struct {
@@ -210,6 +212,23 @@ func (m *App) hostRows() []hostRow {
 		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
 		collapseGeneration: m.collapseRevision, search: search,
 		showHidden: m.showHidden, hostSignature: hostSignature, rows: rows,
+	}
+	return rows
+}
+
+func (m *App) hostListRows() []hostRow {
+	rows := append([]hostRow(nil), m.hostRows()...)
+	suggestions := m.visibleHistorySuggestions()
+	if len(suggestions) == 0 {
+		return rows
+	}
+	rows = append(rows, hostRow{historyHeader: true, header: true, label: "(Suggested)", count: len(suggestions)})
+	if m.historySuggestionsCollapsed && m.searchText() == "" {
+		return rows
+	}
+	for i := range suggestions {
+		suggestion := suggestions[i]
+		rows = append(rows, hostRow{suggestion: &suggestion, depth: 1})
 	}
 	return rows
 }
@@ -331,15 +350,15 @@ func (m *App) filteredKeys() []keys.Key {
 	return out
 }
 func (m *App) selectedHost() (sshconfig.Host, bool) {
-	rows := m.hostRows()
-	if m.cursor >= 0 && m.cursor < len(rows) && !rows[m.cursor].header {
+	rows := m.hostListRows()
+	if m.cursor >= 0 && m.cursor < len(rows) && !rows[m.cursor].header && rows[m.cursor].suggestion == nil {
 		return rows[m.cursor].host, true
 	}
 	return sshconfig.Host{}, false
 }
 
 func (m *App) selectedGroup() (string, bool) {
-	rows := m.hostRows()
+	rows := m.hostListRows()
 	if m.cursor < 0 || m.cursor >= len(rows) {
 		return "", false
 	}
@@ -348,8 +367,8 @@ func (m *App) selectedGroup() (string, bool) {
 }
 
 func (m *App) selectedGroupHeader() (string, bool) {
-	rows := m.hostRows()
-	if m.cursor < 0 || m.cursor >= len(rows) || !rows[m.cursor].header {
+	rows := m.hostListRows()
+	if m.cursor < 0 || m.cursor >= len(rows) || !rows[m.cursor].header || rows[m.cursor].historyHeader {
 		return "", false
 	}
 	return rows[m.cursor].group, true
@@ -452,7 +471,7 @@ func (m *App) findKey(name string) (keys.Key, bool) {
 func (m *App) itemCount() int {
 	switch m.section {
 	case hostsSection:
-		return len(m.hostRows())
+		return len(m.hostListRows())
 	case keysSection:
 		return len(m.filteredKeys())
 	default:

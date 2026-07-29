@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const CurrentVersion = 6
+const CurrentVersion = 7
 
 type Host struct {
 	Label           string     `json:"label,omitempty"`
@@ -31,6 +31,30 @@ type Host struct {
 type Preferences struct {
 	Sort            string   `json:"sort,omitempty"`
 	CollapsedGroups []string `json:"collapsedGroups,omitempty"`
+}
+
+type HistorySource struct {
+	Offset   int64    `json:"offset,omitempty"`
+	TailHash string   `json:"tailHash,omitempty"`
+	Anchors  []string `json:"anchors,omitempty"`
+}
+
+type HistorySuggestion struct {
+	ID           string `json:"id"`
+	Alias        string `json:"alias"`
+	Target       string `json:"target"`
+	HostName     string `json:"hostname"`
+	User         string `json:"user,omitempty"`
+	Port         string `json:"port,omitempty"`
+	IdentityFile string `json:"identityFile,omitempty"`
+	ProxyJump    string `json:"proxyJump,omitempty"`
+	Source       string `json:"source"`
+	SeenAt       int64  `json:"seenAt"`
+}
+
+type HistoryImport struct {
+	Sources map[string]HistorySource `json:"sources,omitempty"`
+	Pending []HistorySuggestion      `json:"pending,omitempty"`
 }
 
 type GCPIntegration struct {
@@ -77,13 +101,15 @@ type State struct {
 	Hosts        map[string]Host `json:"hosts"`
 	Preferences  Preferences     `json:"preferences,omitempty"`
 	Integrations Integrations    `json:"integrations,omitempty"`
+	History      HistoryImport   `json:"history,omitempty"`
 }
 
 type Store struct {
-	mu           sync.RWMutex
-	path         string
-	state        State
-	hostRevision atomic.Uint64
+	mu              sync.RWMutex
+	path            string
+	state           State
+	hostRevision    atomic.Uint64
+	historyRevision atomic.Uint64
 }
 
 func Open(path string) (*Store, error) {
@@ -309,6 +335,91 @@ func (s *Store) SetCollapsedGroups(groups []string) error {
 	return s.saveQuick()
 }
 
+func (s *Store) HistoryImport() HistoryImport {
+	history, _ := s.HistoryImportSnapshot()
+	return history
+}
+
+func (s *Store) HistoryImportSnapshot() (HistoryImport, uint64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneHistoryImport(s.state.History), s.historyRevision.Load()
+}
+
+func (s *Store) SetHistoryImport(history HistoryImport) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.History
+	s.state.History = cloneHistoryImport(history)
+	if err := s.save(); err != nil {
+		s.state.History = previous
+		return err
+	}
+	s.historyRevision.Add(1)
+	return nil
+}
+
+// CommitHistoryImport applies a scan only if the pending state has not changed
+// since the scan began. This prevents a background scan from resurrecting a
+// suggestion that the user dismissed while it was running.
+func (s *Store) CommitHistoryImport(expectedRevision uint64, history HistoryImport) (HistoryImport, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.historyRevision.Load() != expectedRevision {
+		return cloneHistoryImport(s.state.History), false, nil
+	}
+	previous := s.state.History
+	s.state.History = cloneHistoryImport(history)
+	if err := s.save(); err != nil {
+		s.state.History = previous
+		return cloneHistoryImport(previous), false, err
+	}
+	s.historyRevision.Add(1)
+	return cloneHistoryImport(s.state.History), true, nil
+}
+
+func (s *Store) DismissHistorySuggestion(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.History
+	next := cloneHistoryImport(previous)
+	next.Pending = removeHistorySuggestion(next.Pending, id)
+	s.state.History = next
+	if err := s.save(); err != nil {
+		s.state.History = previous
+		return err
+	}
+	s.historyRevision.Add(1)
+	return nil
+}
+
+// AcceptHistorySuggestion records host metadata and removes its history
+// suggestion in one state-file replacement. The SSH config write is managed by
+// the caller because it belongs to a separate file.
+func (s *Store) AcceptHistorySuggestion(alias string, host Host, suggestionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previousHost, hostExisted := s.state.Hosts[alias]
+	previousHistory := s.state.History
+	host.Tags = cleanTags(host.Tags)
+	s.state.Hosts[alias] = host
+	nextHistory := cloneHistoryImport(previousHistory)
+	nextHistory.Pending = removeHistorySuggestion(nextHistory.Pending, suggestionID)
+	s.state.History = nextHistory
+	if err := s.save(); err != nil {
+		if hostExisted {
+			s.state.Hosts[alias] = previousHost
+		} else {
+			delete(s.state.Hosts, alias)
+		}
+		s.state.History = previousHistory
+		return err
+	}
+	s.hostRevision.Add(1)
+	s.historyRevision.Add(1)
+	return nil
+}
+
 func (s *Store) Integrations() Integrations {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -391,6 +502,28 @@ func cloneHost(host Host) Host {
 		host.LastUsedAt = &lastUsedAt
 	}
 	return host
+}
+
+func cloneHistoryImport(history HistoryImport) HistoryImport {
+	out := HistoryImport{Pending: append([]HistorySuggestion(nil), history.Pending...)}
+	if history.Sources != nil {
+		out.Sources = make(map[string]HistorySource, len(history.Sources))
+		for path, source := range history.Sources {
+			source.Anchors = append([]string(nil), source.Anchors...)
+			out.Sources[path] = source
+		}
+	}
+	return out
+}
+
+func removeHistorySuggestion(suggestions []HistorySuggestion, id string) []HistorySuggestion {
+	out := make([]HistorySuggestion, 0, len(suggestions))
+	for _, suggestion := range suggestions {
+		if suggestion.ID != id {
+			out = append(out, suggestion)
+		}
+	}
+	return out
 }
 
 func cloneHosts(hosts map[string]Host) map[string]Host {

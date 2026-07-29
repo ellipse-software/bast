@@ -47,6 +47,81 @@ func TestStoreRoundTripAndPermissions(t *testing.T) {
 	}
 }
 
+func TestHistoryImportRoundTripAndAcceptance(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := HistoryImport{
+		Sources: map[string]HistorySource{"/home/test/.zsh_history": {Offset: 42, TailHash: "tail", Anchors: []string{"one", "two"}}},
+		Pending: []HistorySuggestion{{ID: "one", Alias: "dev-example.com", HostName: "example.com", User: "dev", Source: "zsh"}},
+	}
+	if err := store.SetHistoryImport(history); err != nil {
+		t.Fatal(err)
+	}
+	history.Pending[0].Alias = "mutated"
+	history.Sources["/home/test/.zsh_history"] = HistorySource{}
+	if got := store.HistoryImport(); got.Pending[0].Alias != "dev-example.com" || got.Sources["/home/test/.zsh_history"].Offset != 42 {
+		t.Fatalf("store retained caller-owned state: %+v", got)
+	}
+	if err := store.AcceptHistorySuggestion("dev-example.com", Host{Label: "Development"}, "one"); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.HistoryImport(); len(got.Pending) != 0 {
+		t.Fatalf("accepted suggestion remained pending: %+v", got.Pending)
+	}
+	if got := store.Host("dev-example.com").Label; got != "Development" {
+		t.Fatalf("accepted host label = %q", got)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.HistoryImport(); len(got.Pending) != 0 || got.Sources["/home/test/.zsh_history"].TailHash != "tail" {
+		t.Fatalf("reopened history = %+v", got)
+	}
+}
+
+func TestDismissHistorySuggestionLeavesOtherPendingEntries(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetHistoryImport(HistoryImport{Pending: []HistorySuggestion{{ID: "one"}, {ID: "two"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DismissHistorySuggestion("one"); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.HistoryImport().Pending; len(got) != 1 || got[0].ID != "two" {
+		t.Fatalf("pending = %+v", got)
+	}
+}
+
+func TestHistoryScanCommitDoesNotResurrectDismissedSuggestion(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := HistoryImport{Pending: []HistorySuggestion{{ID: "one"}}}
+	if err := store.SetHistoryImport(original); err != nil {
+		t.Fatal(err)
+	}
+	_, revision := store.HistoryImportSnapshot()
+	if err := store.DismissHistorySuggestion("one"); err != nil {
+		t.Fatal(err)
+	}
+	committed, ok, err := store.CommitHistoryImport(revision, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok || len(committed.Pending) != 0 || len(store.HistoryImport().Pending) != 0 {
+		t.Fatalf("stale scan committed: ok=%v state=%+v", ok, committed)
+	}
+}
+
 func TestStoreSerializesConcurrentWrites(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {

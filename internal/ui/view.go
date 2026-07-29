@@ -10,12 +10,14 @@ import (
 
 	"bast/internal/cloud/sync"
 	"bast/internal/keys"
+	"bast/internal/metadata"
 	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
 )
 
 const (
 	connectAction        = " Connect "
+	addAction            = " Add "
 	connectActionRow     = 0
 	mobileScrollbarWidth = 3
 
@@ -24,7 +26,11 @@ const (
 )
 
 func (m *App) connectButtonBounds(layout panelLayout) (x, y, width int) {
-	btn := m.styles().title.Render(connectAction)
+	return m.hostActionButtonBounds(layout, connectAction)
+}
+
+func (m *App) hostActionButtonBounds(layout panelLayout, action string) (x, y, width int) {
+	btn := m.styles().title.Render(action)
 	width = lipgloss.Width(btn)
 	y = layout.detailTop + connectActionRow
 	x = max(0, m.terminalWidth()-width-2)
@@ -129,7 +135,7 @@ func (m *App) renderTabs(s styleSet) string {
 }
 
 func (m *App) renderHosts(s styleSet) string {
-	rowsData := m.hostRows()
+	rowsData := m.hostListRows()
 	if len(rowsData) == 0 {
 		if m.loading {
 			return "\n  " + s.muted.Render("Loading hosts…")
@@ -156,6 +162,31 @@ func (m *App) renderHosts(s styleSet) string {
 	var list strings.Builder
 	for i := start; i < min(len(rowsData), start+listHeight); i++ {
 		row := rowsData[i]
+		if row.historyHeader {
+			indicator := "▾"
+			if m.historySuggestionsCollapsed && m.searchText() == "" {
+				indicator = "▸"
+			}
+			line := indicator + " " + row.label + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
+			if i == m.cursor {
+				line = s.selected.Width(rowWidth).Render(line)
+			} else {
+				line = s.muted.Width(rowWidth).Render(line)
+			}
+			list.WriteString(line + "\n")
+			continue
+		}
+		if row.suggestion != nil {
+			indent := strings.Repeat("  ", row.depth)
+			line := indent + "＋ " + truncate(row.suggestion.Alias, max(2, rowWidth-lipgloss.Width(indent)-4))
+			if i == m.cursor {
+				line = s.selected.Width(rowWidth).Render(line)
+			} else {
+				line = s.muted.Width(rowWidth).Render(line)
+			}
+			list.WriteString(line + "\n")
+			continue
+		}
 		if row.header {
 			indent := strings.Repeat("  ", row.depth)
 			indicator := "▾"
@@ -215,7 +246,11 @@ func (m *App) renderHosts(s styleSet) string {
 	}
 	detailContent := ""
 	if m.cursor >= 0 && m.cursor < len(rowsData) {
-		if rowsData[m.cursor].header {
+		if rowsData[m.cursor].historyHeader {
+			detailContent = m.renderHistorySuggestionsDetail(s, rowsData[m.cursor].count, detailWidth)
+		} else if rowsData[m.cursor].suggestion != nil {
+			detailContent = m.renderHistorySuggestionDetail(s, *rowsData[m.cursor].suggestion, detailWidth)
+		} else if rowsData[m.cursor].header {
 			detailContent = m.renderGroupDetail(s, rowsData[m.cursor], detailWidth)
 		} else {
 			detailContent = m.renderHostDetail(s, rowsData[m.cursor].host, detailWidth)
@@ -228,6 +263,46 @@ func (m *App) renderHosts(s styleSet) string {
 	}
 	divider := s.rule.Render(strings.TrimSuffix(strings.Repeat("│\n", bodyHeight), "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, listPanel, divider, detail)
+}
+
+func (m *App) renderHistorySuggestionsDetail(s styleSet, count, width int) string {
+	state := "expanded"
+	if m.historySuggestionsCollapsed {
+		state = "collapsed"
+		if m.searchText() != "" {
+			state = "expanded for search"
+		}
+	}
+	return "  " + s.muted.Render("(Suggested)") + "\n" +
+		"  " + s.muted.Render(fmt.Sprintf("%d hosts · %s", count, state)) + "\n\n" +
+		"  " + s.muted.Render(truncate("␣ collapse or expand", max(4, width-3)))
+}
+
+func (m *App) renderHistorySuggestionDetail(s styleSet, suggestion metadata.HistorySuggestion, width int) string {
+	var b strings.Builder
+	addButton := s.title.Render(addAction)
+	title := truncate(suggestion.Alias, max(4, width-lipgloss.Width(addButton)-4))
+	gap := max(1, width-2-lipgloss.Width(title)-lipgloss.Width(addButton))
+	b.WriteString("  " + s.active.Render(title) + strings.Repeat(" ", gap) + addButton + "\n")
+	destination := suggestion.HostName
+	if suggestion.User != "" {
+		destination = suggestion.User + "@" + destination
+	}
+	if suggestion.Port != "" && suggestion.Port != "22" {
+		destination += ":" + suggestion.Port
+	}
+	b.WriteString("  " + s.value.Render(truncate(destination, max(4, width-3))) + "\n")
+	b.WriteString("  " + s.muted.Render("From "+suggestion.Source+" history") + "\n\n")
+	b.WriteString("  " + s.muted.Render("Access") + "\n")
+	identity := suggestion.IdentityFile
+	if identity == "" {
+		identity = "agent/defaults"
+	}
+	b.WriteString(compactRow(s, "Auth", identity, width))
+	if suggestion.ProxyJump != "" {
+		b.WriteString(compactRow(s, "Jump", suggestion.ProxyJump, width))
+	}
+	return b.String()
 }
 
 func (m *App) cloudSyncGroupHasError(group string) bool {
@@ -485,6 +560,9 @@ func (m *App) renderForm(s styleSet) string {
 	var b strings.Builder
 	current, total := formProgress(f)
 	b.WriteString("\n  " + s.active.Render(f.title) + "  " + s.muted.Render(fmt.Sprintf("%d/%d", current, total)) + "\n\n")
+	if target := destructiveConfirmationTarget(f); target != "" {
+		b.WriteString("  " + s.label.Render("Name to type") + s.value.Render(target) + "\n\n")
+	}
 	for i, item := range f.fields {
 		if item.hidden || i > f.revealed {
 			continue
@@ -515,6 +593,9 @@ func (m *App) renderForm(s styleSet) string {
 				}
 			} else {
 				b.WriteString("    " + f.input.View() + "\n")
+			}
+			if f.validationError != "" {
+				b.WriteString("    " + s.error.Render("✕ "+f.validationError) + "\n")
 			}
 			if item.label == "Color" {
 				colour := strings.TrimSpace(f.input.Value())
@@ -563,6 +644,9 @@ func (m *App) formHint() string {
 		if f.action == "host_delete" || f.action == "key_delete" || f.action == "known_delete" {
 			action = "󰌑 delete"
 		}
+	}
+	if destructiveConfirmationTarget(f) != "" {
+		action += " • Ctrl+Y copy name"
 	}
 	if f.selecting {
 		return action + " • Esc/⌫ close"
@@ -644,9 +728,10 @@ func helpSections() []helpSection {
 		{
 			title: "Hosts",
 			bindings: []helpBinding{
-				{"󰌑", "Connect"},
+				{"󰌑", "Connect or add suggestion"},
 				{"a", "Add host"},
-				{"e", "Edit host"},
+				{"e", "Edit or review suggestion"},
+				{"x", "Dismiss history suggestion"},
 				{"d", "Delete host"},
 				{"␣", "Collapse or expand group"},
 				{"[", "Collapse all groups"},
@@ -829,8 +914,12 @@ func (m *App) renderFooter(s styleSet) string {
 	if m.form != nil {
 		hint = m.formHint()
 	} else if m.section == hostsSection {
-		collapse := "␣ " + m.collapseActionLabel()
-		if _, groupSelected := m.selectedGroupHeader(); groupSelected {
+		if _, suggestionSelected := m.selectedHistorySuggestion(); suggestionSelected {
+			hint = "󰌑 add • e review • x dismiss • v about • ? help"
+		} else if m.historySuggestionsHeaderSelected() {
+			hint = "␣ collapse/expand • v about • ? help"
+		} else if _, groupSelected := m.selectedGroupHeader(); groupSelected {
+			collapse := "␣ " + m.collapseActionLabel()
 			if m.isMobileLayout() {
 				hint = "↑/↓ or j/k move • e rename • " + collapse + " • a add • v about • ? help"
 			} else {
@@ -839,7 +928,7 @@ func (m *App) renderFooter(s styleSet) string {
 		} else if m.isMobileLayout() {
 			hint = "↑/↓ or j/k move • enter/click Connect • a add • v about • ? help"
 		} else {
-			hint = "󰌑 connect • " + collapse + " • a add • h hide • v about • ? help"
+			hint = "󰌑 connect • ␣ " + m.collapseActionLabel() + " • a add • h hide • v about • ? help"
 		}
 	} else if m.section == keysSection {
 		hint = "a generate • i import • u add to server • x export • v about • ? help"

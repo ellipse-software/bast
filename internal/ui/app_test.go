@@ -1425,36 +1425,59 @@ func TestDeletionFormsUseTheExactConfirmationAsAPlaceholder(t *testing.T) {
 	}
 }
 
-func TestErrorsUseAProminentScreenAndPreserveTheForm(t *testing.T) {
+func TestDeletionConfirmationMismatchStaysInline(t *testing.T) {
 	m := testApp(t)
 	m.hosts[0].Managed = true
 	m.openDeleteHostForm()
 	m.form.input.SetValue("wrong-name")
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if !m.statusError || m.form == nil {
-		t.Fatal("failed deletion did not retain its form and error state")
+	if m.statusError || m.form == nil {
+		t.Fatal("confirmation mismatch left the form")
 	}
 
 	rendered := m.render()
-	for _, expected := range []string{"Action failed", "What happened", "Delete host — alpha failed", "confirmation did not match", "Your entries are still", "Space send report"} {
+	for _, expected := range []string{"Delete host — alpha", "Name to type", "alpha", "Name does not match the host label", "Type the name to confirm"} {
 		if !strings.Contains(rendered, expected) {
-			t.Fatalf("prominent error screen is missing %q:\n%s", expected, rendered)
+			t.Fatalf("inline confirmation error is missing %q:\n%s", expected, rendered)
 		}
 	}
-	if strings.Contains(rendered, "Type the name to confirm") {
-		t.Fatalf("the form was rendered over the error screen:\n%s", rendered)
+	if strings.Contains(rendered, "Action failed") {
+		t.Fatalf("confirmation mismatch opened the global error screen:\n%s", rendered)
 	}
 
-	m.Update(press("x"))
-	if !m.statusError {
-		t.Fatal("an unrelated key dismissed the error screen")
+	m.Update(press("backspace"))
+	if m.form.validationError != "" {
+		t.Fatal("editing did not clear the inline confirmation error")
 	}
-	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if m.statusError || m.form == nil {
-		t.Fatal("Enter did not return to the retained form")
+}
+
+func TestDeletionConfirmationNameCanBeCopied(t *testing.T) {
+	m := testApp(t)
+	m.hosts[0].Managed = true
+	m.openDeleteHostForm()
+	if m.View().MouseMode != tea.MouseModeNone {
+		t.Fatal("delete form captured mouse input instead of allowing terminal text selection")
 	}
-	if !strings.Contains(m.render(), "Type the name to confirm") {
-		t.Fatal("the retained form was not restored")
+
+	_, cmd := m.Update(press("ctrl+y"))
+	if cmd == nil {
+		t.Fatal("copying the confirmation name returned no command")
+	}
+	if rendered := m.render(); !strings.Contains(rendered, "Name to type") || !strings.Contains(rendered, "Ctrl+Y copy name") {
+		t.Fatalf("copy affordance is not visible:\n%s", rendered)
+	}
+
+	m.form = nil
+	m.section = keysSection
+	m.keys = []keymodel.Key{{Name: "work", Managed: true}}
+	m.openDeleteKeyForm()
+	if target := destructiveConfirmationTarget(m.form); target != "work" {
+		t.Fatalf("key confirmation copy target = %q", target)
+	}
+	m.form.input.SetValue("wrong-name")
+	m.Update(press("enter"))
+	if m.form == nil || m.statusError || !strings.Contains(m.render(), "Name does not match the key name") {
+		t.Fatal("key confirmation mismatch did not stay inline")
 	}
 }
 
