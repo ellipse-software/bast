@@ -96,13 +96,15 @@ func Scan(home string, getenv func(string) string, previous metadata.HistoryImpo
 func sourcePaths(home string, getenv func(string) string) []string {
 	paths := []string{
 		filepath.Join(home, ".zsh_history"),
+		filepath.Join(home, ".zhistory"),
 		filepath.Join(home, ".bash_history"),
 	}
 	if histfile := strings.TrimSpace(getenv("HISTFILE")); histfile != "" {
 		paths = append(paths, expandHome(histfile, home))
 	}
 	if zdotdir := strings.TrimSpace(getenv("ZDOTDIR")); zdotdir != "" {
-		paths = append(paths, filepath.Join(expandHome(zdotdir, home), ".zsh_history"))
+		zshHome := expandHome(zdotdir, home)
+		paths = append(paths, filepath.Join(zshHome, ".zsh_history"), filepath.Join(zshHome, ".zhistory"))
 	}
 	dataHome := strings.TrimSpace(getenv("XDG_DATA_HOME"))
 	if dataHome == "" {

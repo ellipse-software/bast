@@ -146,14 +146,44 @@ func TestScanRecoversAfterHistoryRewriteWithoutReplaying(t *testing.T) {
 func TestScanAllStandardHistoriesAndDeduplicatesEndpoints(t *testing.T) {
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, ".zsh_history"), "ssh dev@shared.example.com\n")
+	writeFile(t, filepath.Join(home, ".zhistory"), "ssh zhistory.example.com\n")
 	writeFile(t, filepath.Join(home, ".bash_history"), "ssh dev@shared.example.com\nssh bash.example.com\n")
 	writeFile(t, filepath.Join(home, ".local", "share", "fish", "fish_history"), "- cmd: ssh fish.example.com\n  when: 1700000000\n")
 	state, errs := Scan(home, func(string) string { return "" }, metadata.HistoryImport{}, nil)
 	if len(errs) != 0 {
 		t.Fatal(errs)
 	}
-	if len(state.Pending) != 3 {
+	if len(state.Pending) != 4 {
 		t.Fatalf("pending = %+v", state.Pending)
+	}
+}
+
+func TestSourcePathsIncludeCommonZshLocations(t *testing.T) {
+	home := t.TempDir()
+	zdotdir := filepath.Join(home, "zsh")
+	paths := sourcePaths(home, func(name string) string {
+		if name == "ZDOTDIR" {
+			return zdotdir
+		}
+		return ""
+	})
+	want := []string{
+		filepath.Join(home, ".zsh_history"),
+		filepath.Join(home, ".zhistory"),
+		filepath.Join(zdotdir, ".zsh_history"),
+		filepath.Join(zdotdir, ".zhistory"),
+	}
+	for _, path := range want {
+		found := false
+		for _, candidate := range paths {
+			if candidate == path {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("source paths do not include %q: %v", path, paths)
+		}
 	}
 }
 
