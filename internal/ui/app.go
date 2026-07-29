@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/cloud/sync"
+	"bast/internal/history"
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/openssh"
@@ -55,6 +56,7 @@ type form struct {
 	pastedPrivateKey string
 	pastedPublicKey  string
 	selecting        bool
+	validationError  string
 	input            textinput.Model
 }
 
@@ -97,6 +99,18 @@ type updateAvailableMsg struct {
 	suggestion string
 }
 
+type historyLoadedMsg struct {
+	suggestions []metadata.HistorySuggestion
+	warnings    int
+	err         error
+}
+
+type historyImportDoneMsg struct {
+	id    string
+	alias string
+	err   error
+}
+
 type hostRowsCache struct {
 	hostGeneration     uint64
 	metadataRevision   uint64
@@ -108,17 +122,21 @@ type hostRowsCache struct {
 }
 
 type App struct {
-	paths            paths.Paths
-	config           sshconfig.Manager
-	openSSH          openssh.Client
-	keyring          keys.Manager
-	metadata         *metadata.Store
-	syncer           *sync.Engine
-	hostMeta         map[string]metadata.Host
-	hostMetaRevision uint64
-	hostGeneration   uint64
-	collapseRevision uint64
-	hostRowsCache    hostRowsCache
+	paths                       paths.Paths
+	config                      sshconfig.Manager
+	openSSH                     openssh.Client
+	keyring                     keys.Manager
+	metadata                    *metadata.Store
+	syncer                      *sync.Engine
+	hostMeta                    map[string]metadata.Host
+	hostMetaRevision            uint64
+	hostGeneration              uint64
+	collapseRevision            uint64
+	hostRowsCache               hostRowsCache
+	historySuggestions          []metadata.HistorySuggestion
+	historyScanStarted          bool
+	historyImporting            string
+	historySuggestionsCollapsed bool
 
 	section           section
 	hosts             []sshconfig.Host
@@ -179,6 +197,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		syncingProviders: map[string]bool{},
 	}
 	app.hostMeta, app.hostMetaRevision = store.HostsSnapshot()
+	app.historySuggestions = store.HistoryImport().Pending
 	return app, nil
 }
 
@@ -264,6 +283,30 @@ func (m *App) postPaintCmds() tea.Cmd {
 	return nil
 }
 
+func (m *App) historyScanCmd(hosts []sshconfig.Host) tea.Cmd {
+	if m.historyScanStarted {
+		return nil
+	}
+	m.historyScanStarted = true
+	hostSnapshot := append([]sshconfig.Host(nil), hosts...)
+	return func() tea.Msg {
+		var warningCount int
+		for range 3 {
+			previous, revision := m.metadata.HistoryImportSnapshot()
+			next, warnings := history.Scan(m.paths.Home, os.Getenv, previous, hostSnapshot)
+			warningCount = len(warnings)
+			committed, ok, err := m.metadata.CommitHistoryImport(revision, next)
+			if err != nil {
+				return historyLoadedMsg{suggestions: previous.Pending, warnings: warningCount, err: err}
+			}
+			if ok {
+				return historyLoadedMsg{suggestions: committed.Pending, warnings: warningCount}
+			}
+		}
+		return historyLoadedMsg{suggestions: m.metadata.HistoryImport().Pending, warnings: warningCount}
+	}
+}
+
 func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.WindowSizeMsg:
@@ -298,6 +341,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if cmd := m.postPaintCmds(); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
+			if cmd := m.historyScanCmd(m.hosts); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 			return m, tea.Batch(cmds...)
 		}
 		previous := make(map[string]sshconfig.Host, len(m.hosts))
@@ -323,7 +369,35 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := m.postPaintCmds(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		if cmd := m.historyScanCmd(m.hosts); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		return m, tea.Batch(cmds...)
+	case historyLoadedMsg:
+		if msg.err == nil {
+			m.historySuggestions = msg.suggestions
+			m.clampCursor()
+		}
+		if msg.err != nil {
+			return m, m.setNotice("Couldn't save shell history scan")
+		}
+		if msg.warnings > 0 {
+			return m, m.setNotice("Some shell history couldn't be read")
+		}
+		return m, nil
+	case historyImportDoneMsg:
+		if m.historyImporting == msg.id {
+			m.historyImporting = ""
+		}
+		if msg.err != nil {
+			m.setError(msg.err)
+			return m, nil
+		}
+		m.removeHistorySuggestion(msg.id)
+		m.selectAfterLoadSection, m.selectAfterLoadName, m.selectAfterLoadGroup = hostsSection, msg.alias, false
+		m.loading = true
+		m.enriching = false
+		return m, tea.Batch(m.loadCmd(), m.setNotice("Host added"))
 	case reportResultMsg:
 		if msg.err != nil {
 			return m, m.setNotice("Couldn't send report")
@@ -434,6 +508,9 @@ func (m *App) View() tea.View {
 	view := tea.NewView(content)
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
+	if m.form != nil {
+		view.MouseMode = tea.MouseModeNone
+	}
 	view.WindowTitle = "Bast — SSH picker"
 	return view
 }

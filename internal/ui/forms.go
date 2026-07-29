@@ -102,6 +102,11 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	key := msg.String()
 	f := m.form
+	if key == "ctrl+y" {
+		if target := destructiveConfirmationTarget(f); target != "" {
+			return m, tea.Batch(tea.SetClipboard(target), m.setNotice("Confirmation name copied"))
+		}
+	}
 	item := &f.fields[f.index]
 	if f.selecting {
 		switch key {
@@ -193,6 +198,7 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if len(item.options) > 0 && !item.options[item.selected].custom {
 		return m, nil
 	}
+	f.validationError = ""
 	var cmd tea.Cmd
 	m.form.input, cmd = m.form.input.Update(msg)
 	return m, cmd
@@ -204,6 +210,7 @@ func isEditForm(f *form) bool {
 
 func (m *App) updateFormPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	f := m.form
+	f.validationError = ""
 	content := strings.TrimSpace(msg.Content)
 	if f.action == "key_import" && f.fields[f.index].label == "Private key" && strings.Contains(content, "PRIVATE KEY-----") {
 		f.pastedPrivateKey = content + "\n"
@@ -235,7 +242,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		values[item.label] = item.value
 	}
 	switch f.action {
-	case "host_add", "host_edit":
+	case "host_add", "host_edit", "history_host_add":
 		group, label, pathErr := metadata.SplitLabelPath(values["Label"])
 		if pathErr != nil {
 			return m.formError(pathErr.Error())
@@ -262,8 +269,9 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		}
 		oldAlias := values["Original label"]
 		var err error
-		if f.action == "host_add" {
-			_, err = m.config.Add(input)
+		var added sshconfig.Host
+		if f.action == "host_add" || f.action == "history_host_add" {
+			added, err = m.config.Add(input)
 		} else {
 			host, ok := m.findHost(oldAlias)
 			if !ok {
@@ -284,13 +292,25 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 					_ = m.metadata.RenameHost(oldAlias, input.Alias)
 				}
 			}
-			err = m.metadata.SetHost(input.Alias, meta)
+			if f.action == "history_host_add" {
+				err = m.metadata.AcceptHistorySuggestion(input.Alias, meta, values["History suggestion"])
+				if err != nil && added.ManagedID != "" {
+					if rollbackErr := m.config.Delete(added.ManagedID); rollbackErr != nil {
+						err = fmt.Errorf("%w; rollback failed: %v", err, rollbackErr)
+					}
+				}
+			} else {
+				err = m.metadata.SetHost(input.Alias, meta)
+			}
 		}
 		if err == nil {
+			if f.action == "history_host_add" {
+				m.removeHistorySuggestion(values["History suggestion"])
+			}
 			m.selectAfterLoadSection = hostsSection
 			if groupCreated {
 				m.selectAfterLoadName, m.selectAfterLoadGroup = group, true
-			} else if f.action == "host_add" {
+			} else if f.action == "host_add" || f.action == "history_host_add" {
 				m.selectAfterLoadName, m.selectAfterLoadGroup = input.Alias, false
 			}
 		}
@@ -322,7 +342,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 	case "host_delete":
 		alias := values["Alias"]
 		if values["Type the name to confirm"] != values["Confirmation"] {
-			return m.formError("confirmation did not match the exact host label")
+			return m.formValidationError("Name does not match the host label")
 		}
 		host, ok := m.findHost(alias)
 		if !ok {
@@ -397,13 +417,16 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		if !ok {
 			return m.formError("key no longer exists")
 		}
+		if values["Type the name to confirm"] != key.Name {
+			return m.formValidationError("Name does not match the key name")
+		}
 		return m.finishMutation(m.keyring.Delete(key, values["Type the name to confirm"]), "Key permanently deleted")
 	case "sync_gcp_user", "sync_gcp_projects", "sync_gcp_sa_add", "sync_gcp_sa_remove", "sync_aws_user", "sync_aws_profiles", "sync_aws_regions", "sync_azure_user", "sync_azure_subscriptions", "sync_azure_resource_groups":
 		return m, m.submitSyncForm(f.action, values)
 	case "known_delete":
 		alias := values["Alias"]
 		if values["Type the name to confirm"] != values["Confirmation"] {
-			return m.formError("confirmation did not match the host label")
+			return m.formValidationError("Name does not match the host label")
 		}
 		host, ok := m.findHost(alias)
 		if !ok {
@@ -432,6 +455,32 @@ func (m *App) formError(message string) (tea.Model, tea.Cmd) {
 	m.statusID++
 	m.status, m.statusError = message, true
 	return m, nil
+}
+
+func (m *App) formValidationError(message string) (tea.Model, tea.Cmd) {
+	if m.form != nil {
+		m.form.validationError = message
+		m.form.input.Focus()
+	}
+	return m, nil
+}
+
+func destructiveConfirmationTarget(f *form) string {
+	if f == nil {
+		return ""
+	}
+	label := "Confirmation"
+	if f.action == "key_delete" {
+		label = "Key"
+	} else if f.action != "host_delete" && f.action != "known_delete" {
+		return ""
+	}
+	for _, item := range f.fields {
+		if item.label == label {
+			return item.value
+		}
+	}
+	return ""
 }
 
 func (m *App) openAddHostForm() {

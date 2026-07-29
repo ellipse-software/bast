@@ -108,10 +108,19 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.section == hostsSection {
+		action := ""
 		if _, ok := m.selectedHost(); ok {
-			btnX, btnY, btnWidth := m.connectButtonBounds(layout)
+			action = connectAction
+		} else if _, ok := m.selectedHistorySuggestion(); ok {
+			action = addAction
+		}
+		if action != "" {
+			btnX, btnY, btnWidth := m.hostActionButtonBounds(layout, action)
 			inDetail := layout.mobile || mouse.X > listWidth
 			if inDetail && mouse.Y == btnY && mouse.X >= btnX && mouse.X < btnX+btnWidth {
+				if action == addAction {
+					return m.importSelectedHistorySuggestion()
+				}
 				return m.connectSelected()
 			}
 		}
@@ -335,6 +344,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "space":
 		if m.section == hostsSection {
+			if m.historySuggestionsHeaderSelected() {
+				return m, m.toggleHistorySuggestions()
+			}
 			return m, m.toggleSelectedGroup()
 		}
 	case "[":
@@ -359,7 +371,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.section == hostsSection {
-			if _, ok := m.selectedGroupHeader(); ok {
+			if _, ok := m.selectedHistorySuggestion(); ok {
+				m.openHistoryHostForm()
+			} else if _, ok := m.selectedGroupHeader(); ok {
 				m.openEditGroupForm()
 			} else {
 				if host, ok := m.selectedHost(); ok && (m.loading || m.enriching) && host.Resolved.HostName == "" {
@@ -384,6 +398,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.openImportForm()
 		}
 	case "x":
+		if m.section == hostsSection {
+			return m, m.dismissSelectedHistorySuggestion()
+		}
 		if m.section == keysSection {
 			m.openExportForm()
 		}
@@ -445,6 +462,12 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m.updateSyncKeys(key)
 		}
 		if m.section == hostsSection {
+			if m.historySuggestionsHeaderSelected() {
+				return m, m.toggleHistorySuggestions()
+			}
+			if _, ok := m.selectedHistorySuggestion(); ok {
+				return m.importSelectedHistorySuggestion()
+			}
 			if _, groupSelected := m.selectedGroupHeader(); groupSelected {
 				return m, m.toggleSelectedGroup()
 			}

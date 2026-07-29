@@ -26,7 +26,7 @@ type hostHubItem struct {
 
 func isHostForm(f *form) bool {
 	switch f.action {
-	case "host_add", "host_edit", "metadata_edit":
+	case "host_add", "host_edit", "history_host_add", "metadata_edit":
 		return true
 	default:
 		return false
