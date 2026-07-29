@@ -1,0 +1,18 @@
+{
+  "name": "bast",
+  "private": true,
+  "packageManager": "bun@1.3.14",
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "bun run --cwd apps/web dev",
+    "build": "bun run build:bast && bun run build:web",
+    "build:bast": "go -C apps/bast build -trimpath -o bast .",
+    "build:web": "bun run --cwd apps/web build",
+    "lint": "bun run lint:web",
+    "lint:web": "bun run --cwd apps/web lint",
+    "test": "go -C apps/bast test ./...",
+    "check": "go -C apps/bast mod verify && go -C apps/bast test ./... && go -C apps/bast vet ./... && bun run lint:web && bun run build:web"
+  }
+}

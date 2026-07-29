@@ -1,0 +1,47 @@
+---
+title: Connections
+description: Connect from the TUI or the shell, with native OpenSSH under the hood.
+---
+
+Select a host and press Enter to connect. On [narrow terminals](/docs/features/mobile-view), click or tap the **Connect** button in the detail panel instead.
+
+Bast clears the terminal, shows a short connection banner, launches `ssh` with that host's config, and returns you to the picker when the session ends.
+
+## Connection banner
+
+Before `ssh` starts, Bast prints:
+
+```
+ BAST   Connecting to server…
+ Stuck? Press Enter, then ~. to return to Bast.
+```
+
+The same banner appears for TUI connects and direct shell connects (`bast <label>` / `bast connect`).
+
+For cloud-synced hosts, Bast may print muted progress lines under the banner while it prepares access. This includes GCP key registration, AWS EC2 Instance Connect, and Azure Microsoft Entra certificate requests. See the [GCP](/docs/features/gcp), [AWS](/docs/features/aws), and [Azure](/docs/features/azure) pages for exact behavior.
+
+## Direct connect from the shell
+
+You can skip the TUI entirely:
+
+```bash
+bast production_web
+bast "Production web"
+bast connect production_web
+```
+
+Labels with spaces work when quoted. Bast resolves them to the correct SSH alias under the hood. Cloud hosts get the same banner and access-preparation steps as in the TUI.
+
+## Native OpenSSH
+
+Bast always launches your system's `ssh` binary. There is no proprietary runtime or custom transport. Whatever works in your terminal with plain `ssh` will work through Bast.
+
+## During a session
+
+Typing `exit` closes Bast entirely when the SSH session ends.
+
+If a session gets stuck, press Enter then `~.` to force-close SSH and land back in the picker. That is the standard OpenSSH escape sequence.
+
+## Connection tracking
+
+Each successful connection updates last-used time and connection count in Bast metadata. That feeds into smart sort so your frequent servers stay at the top.

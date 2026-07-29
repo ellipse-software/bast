@@ -1,0 +1,17 @@
+---
+title: Key selector
+description: Pick an identity file, agent defaults, or password auth when setting up a host.
+---
+
+When you add or edit a host, the identity field is a picker, not just a text box. Bast offers detected keys, `ssh-agent` defaults, password-only auth, and a custom path if you need something else.
+
+## Options
+
+- **Detected keys**: every key Bast knows about, with name and fingerprint
+- **Agent defaults**: let OpenSSH try keys from `ssh-agent` in its usual order
+- **Password only**: disable public-key auth for hosts that require a password
+- **Custom path**: point at any identity file on disk
+
+This keeps host setup practical. Pick the key you mean instead of remembering file paths, or switch a host to password auth without hand-editing config syntax.
+
+The same picker appears when editing an existing host, so you can change identity files without touching `~/.ssh/config` by hand.

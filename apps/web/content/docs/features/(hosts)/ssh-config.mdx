@@ -1,0 +1,35 @@
+---
+title: SSH config
+description: How Bast reads, writes, and extends your existing OpenSSH configuration.
+---
+
+Bast treats your SSH config as the source of truth. It does not replace OpenSSH or maintain a separate host database.
+
+## First run
+
+On first use, Bast prepends a single line to your main SSH config:
+
+```
+Include ~/.ssh/bast/config
+```
+
+New hosts you create through Bast are written to that managed file. Everything else stays where it already lives.
+
+## Discovery
+
+Bast discovers hosts from your main config and every file it includes. Externally managed blocks keep their original source path. Bast-managed blocks are marked so you know which ones it owns.
+
+## Labels and aliases
+
+Display labels with spaces (like "Production web") map to safe OpenSSH alias names automatically. You can connect with either the label or the alias from the shell:
+
+```bash
+bast "Production web"
+bast Production_web
+```
+
+## What Bast stores separately
+
+Presentation metadata (groups, tags, colors, notes, favorites, recency) lives in `bast/state.json` under your OS user config directory. Connection settings live in SSH config files where they belong.
+
+Back up `~/.ssh` before testing unreleased builds against a production config.

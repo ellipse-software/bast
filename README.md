@@ -16,7 +16,7 @@ Browse SSH hosts, manage keys, and connect from the terminal.
 [Home](https://bast.sh) · [Releases](https://github.com/ellipse-software/bast/releases) · [Contributing](./CONTRIBUTING.md) · [Security](./SECURITY.md)
 
 [![License: MIT](https://img.shields.io/github/license/ellipse-software/bast)](LICENSE)
-[![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white)](apps/bast/go.mod)
 [![Release](https://img.shields.io/github/v/release/ellipse-software/bast)](https://github.com/ellipse-software/bast/releases)
 [![Tests](https://github.com/ellipse-software/bast/actions/workflows/test.yml/badge.svg)](https://github.com/ellipse-software/bast/actions/workflows/test.yml)
 
@@ -56,7 +56,7 @@ Script installs switch channels automatically: installing nightly removes a stab
 
 ```sh
 git clone https://github.com/ellipse-software/bast.git
-cd bast
+cd bast/apps/bast
 go build -trimpath -o bast .
 ```
 
@@ -165,7 +165,7 @@ Groups can nest up to five levels. Set them in the label with a path (`Work/Prod
 
 **Sync:** Enter open provider / run action · Esc back · `r` refresh
 
-During a session, `exit` closes Bast too. Stuck? Enter, then `~.` to force SSH closed.
+During a session, `exit` returns to Bast. Stuck? Enter, then `~.` to force SSH closed.
 
 ## Files
 
@@ -185,12 +185,15 @@ When an error occurs in an interactive session, Bast can offer to send an error 
 
 ## Development
 
+From the repository root:
+
 ```sh
-go mod download
-go build -trimpath -o bast .
-go test -race ./...
-go vet ./...
+bun install
+bun run check
+bun run build
 ```
+
+Run `bun run dev` for the website. The Go CLI is in [`apps/bast`](apps/bast), and the Next.js site is in [`apps/web`](apps/web).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md).
 

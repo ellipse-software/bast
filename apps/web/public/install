@@ -1,0 +1,268 @@
+#!/bin/sh
+
+set -eu
+
+repo="ellipse-software/bast"
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  bold=$(printf '\033[1m')
+  dim=$(printf '\033[2m')
+  green=$(printf '\033[32m')
+  cyan=$(printf '\033[36m')
+  yellow=$(printf '\033[33m')
+  red=$(printf '\033[31m')
+  purple=$(printf '\033[1;35m')
+  purple_bright=$(printf '\033[1;95m')
+  reset=$(printf '\033[0m')
+else
+  bold=''
+  dim=''
+  green=''
+  cyan=''
+  yellow=''
+  red=''
+  purple=''
+  purple_bright=''
+  reset=''
+fi
+
+blank() {
+  printf '\n'
+}
+
+print_banner() {
+  blank
+  printf '  %s%s%s\n' "$purple" '██████╗  █████╗ ███████╗████████╗' "$reset"
+  printf '  %s%s%s\n' "$purple" '██╔══██╗██╔══██╗██╔════╝╚══██╔══╝' "$reset"
+  printf '  %s%s%s\n' "$purple" '██████╔╝███████║███████╗   ██║   ' "$reset"
+  printf '  %s%s%s\n' "$purple" '██╔══██╗██╔══██║╚════██║   ██║   ' "$reset"
+  printf '  %s%s%s\n' "$purple" '██████╔╝██║  ██║███████║   ██║   ' "$reset"
+  printf '  %s%s%s\n' "$purple" '╚═════╝ ╚═╝  ╚═╝╚══════╝   ╚═╝   ' "$reset"
+  blank
+}
+
+info() {
+  printf '  %s%s%s\n' "$dim" "$1" "$reset"
+}
+
+step() {
+  printf '  %s→%s %s\n' "$cyan" "$reset" "$1"
+}
+
+success() {
+  printf '  %s✓%s %s\n' "$green" "$reset" "$1"
+}
+
+note() {
+  printf '  %s%s%s\n' "$yellow" "$1" "$reset"
+}
+
+print_telemetry_notice() {
+  info "Bast collects basic anonymous telemetry to help improve the tool."
+  printf '  %sOpt out with %sBAST_NO_TELEMETRY=1%s%s.\n' "$dim" "$bold" "$reset" "$dim"
+  blank
+}
+
+print_run_hint() {
+  blank
+  printf '  %sRun $ %sbast%s%s to get started.\n' "$dim" "$purple_bright" "$reset" "$dim"
+}
+
+send_telemetry() {
+  event_name="$1"
+
+  [ -n "${BAST_NO_TELEMETRY:-}" ] && return 0
+
+  payload="$(printf '{"event":"%s","version":"%s","os":"%s","arch":"%s","source":"installer"}' \
+    "$event_name" "$version" "$os" "$arch")"
+
+  curl -fsS -X POST \
+    -H "Content-Type: application/json" \
+    -d "$payload" \
+    "https://bast.sh/api/telemetry" >/dev/null 2>&1 || true
+}
+
+print_uninstall() {
+  blank
+  info "To uninstall later:"
+  printf '    %srm "%s" "%s"%s\n' "$dim" "$install_path" "$receipt_path" "$reset"
+}
+
+remove_script_install() {
+  if [ -e "$install_path" ] || [ -e "$receipt_path" ]; then
+    step "Removing existing Bast at ${install_path}..."
+    rm -f "$install_path" "$receipt_path"
+    success "Removed previous install"
+  fi
+}
+
+prepare_channel_switch() {
+  other_channel=0
+
+  if [ -f "$receipt_path" ]; then
+    installed_receipt="$(tr -d '\r\n' < "$receipt_path")"
+    if [ "$installed_receipt" = "https://bast.sh/install-nightly" ]; then
+      other_channel=1
+    fi
+  fi
+
+  if [ "$other_channel" -eq 0 ] && [ -x "$install_path" ]; then
+    installed_output="$("$install_path" --version 2>/dev/null || true)"
+    case "$installed_output" in
+    "bast nightly."*)
+      other_channel=1
+      ;;
+    esac
+  fi
+
+  if [ "$other_channel" -eq 1 ]; then
+    note "Switching from nightly to stable..."
+    remove_script_install
+  fi
+
+  if command -v brew >/dev/null 2>&1; then
+    if brew list --formula bast-nightly >/dev/null 2>&1; then
+      step "Uninstalling Homebrew bast-nightly..."
+      brew uninstall bast-nightly >/dev/null
+      success "Uninstalled bast-nightly"
+    fi
+  fi
+}
+
+write_receipt() {
+  printf '%s\n' 'https://bast.sh/install' > "$temp_dir/install-receipt"
+  mkdir -p "$install_dir"
+  install -m 0644 "$temp_dir/install-receipt" "$receipt_path"
+}
+
+fail() {
+  blank
+  printf '  %s✗%s %s\n' "$red" "$reset" "$1" >&2
+  blank
+  exit 1
+}
+
+print_banner
+print_telemetry_notice
+
+for command_name in curl install mktemp tar; do
+  command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
+done
+
+case "$(uname -s)" in
+Darwin) os="darwin" ;;
+Linux) os="linux" ;;
+*) fail "macOS and Linux are currently supported" ;;
+esac
+
+case "$(uname -m)" in
+arm64 | aarch64) arch="arm64" ;;
+x86_64 | amd64) arch="amd64" ;;
+*) fail "unsupported architecture: $(uname -m)" ;;
+esac
+
+info "Platform: ${os}/${arch}"
+
+if [ -n "${BAST_INSTALL_DIR:-}" ]; then
+  install_dir="$BAST_INSTALL_DIR"
+else
+  [ -n "${HOME:-}" ] || fail "HOME is not set; set BAST_INSTALL_DIR instead"
+  install_dir="$HOME/.local/bin"
+fi
+install_path="$install_dir/bast"
+receipt_path="$install_path.install-receipt"
+
+info "Install location: ${install_path}"
+blank
+
+prepare_channel_switch
+
+step "Checking for the latest release..."
+latest_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest")"
+version="${latest_url##*/}"
+
+case "$version" in
+v*) ;;
+*) fail "could not find the latest release" ;;
+esac
+
+success "Latest release: ${version}"
+
+temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/bast.XXXXXX")"
+
+cleanup() {
+  rm -rf "$temp_dir"
+}
+trap cleanup 0 HUP INT TERM
+
+current_version=""
+if [ -x "$install_path" ]; then
+  current_output="$("$install_path" --version 2>/dev/null || true)"
+  case "$current_output" in
+  "bast "*) current_version="${current_output#bast }" ;;
+  esac
+fi
+
+if [ "$current_version" = "$version" ]; then
+  write_receipt
+  blank
+  success "Bast ${version} is already up to date."
+  print_run_hint
+  send_telemetry "up_to_date"
+  print_uninstall
+  blank
+  exit 0
+fi
+
+bundle="bast_${version#v}_${os}_${arch}"
+archive="$bundle.tar.gz"
+download_url="https://github.com/$repo/releases/download/$version/$archive"
+
+blank
+if [ -n "$current_version" ]; then
+  step "Updating Bast from ${current_version} to ${version}..."
+else
+  step "Installing Bast ${version}..."
+fi
+
+step "Downloading ${archive}..."
+curl -fsSL "$download_url" -o "$temp_dir/$archive"
+curl -fsSL "$download_url.sha256" -o "$temp_dir/$archive.sha256"
+success "Download complete"
+
+step "Verifying SHA-256 checksum..."
+if command -v shasum >/dev/null 2>&1; then
+  (cd "$temp_dir" && shasum -a 256 -c "$archive.sha256") >/dev/null
+elif command -v sha256sum >/dev/null 2>&1; then
+  (cd "$temp_dir" && sha256sum -c "$archive.sha256") >/dev/null
+else
+  fail "shasum or sha256sum is required"
+fi
+success "Checksum verified"
+
+step "Installing to ${install_path}..."
+tar -xzf "$temp_dir/$archive" -C "$temp_dir"
+
+mkdir -p "$install_dir"
+install -m 0755 "$temp_dir/$bundle/bast" "$install_path"
+write_receipt
+
+blank
+if [ -n "$current_version" ]; then
+  success "Updated Bast to ${version}."
+  send_telemetry "update"
+else
+  success "Installed Bast ${version}."
+  send_telemetry "install"
+fi
+
+case ":${PATH:-}:" in
+*":$install_dir:"*) ;;
+*)
+  note "Add ${install_dir} to your PATH, then run bast."
+  ;;
+esac
+
+print_run_hint
+print_uninstall
+blank

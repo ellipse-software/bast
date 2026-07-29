@@ -1,0 +1,40 @@
+---
+title: Mobile layout
+description: How Bast adapts the TUI for narrow terminals, including phone SSH clients and small windows.
+---
+
+When your terminal is narrower than 60 columns, Bast switches to a mobile layout. The host and key lists stack above the detail panel instead of sitting side by side, so everything stays readable on a phone SSH app or a resized terminal window.
+
+## Layout
+
+In mobile layout:
+
+- The list takes the top half of the screen and scrolls independently
+- A horizontal rule separates the list from the details below
+- Detail fields use the full terminal width
+
+Resize back above 60 columns and Bast returns to the usual two-column layout automatically.
+
+## Connecting on narrow screens
+
+On the hosts tab, the detail panel shows a highlighted **Connect** button. Click or tap it to start a session — the same action as pressing Enter in the desktop layout.
+
+The footer hint updates to remind you: `click Connect` alongside the usual navigation keys.
+
+## Mouse and touch
+
+Mobile layout is built for pointer input as well as the keyboard:
+
+- Click a row in the list to select it
+- Click **Connect** in the host detail panel to connect
+- On the keys tab, click **Add to server** in the detail panel to install a public key
+
+Arrow keys and `j` / `k` still work for moving through the list.
+
+## When you might see it
+
+- SSH from a phone or tablet terminal app
+- A tmux or screen pane that is only a few dozen columns wide
+- A split editor terminal that does not leave much horizontal space
+
+For fully headless or scripted workflows, use the [CLI](/docs/features/cli) instead of the TUI.

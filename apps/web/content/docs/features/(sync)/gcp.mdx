@@ -1,0 +1,101 @@
+---
+title: GCP
+description: Import Google Cloud VMs into Bast as read-only hosts via the native gcloud CLI.
+---
+
+The **Sync** tab (`3`) pulls servers from cloud providers into Bast. Synced hosts show up in the host picker under a provider group, stay connectable with your system `ssh`, and keep connection details owned by the provider. You do not edit them like Bast-managed hosts.
+
+Bast talks to Google Cloud through the native **`gcloud` CLI** on your machine. There is no separate Bast cloud agent or custom API client. Auth, project access, and IAP tunnels all use the same tools you already use with `gcloud compute ssh`.
+
+Bast supports **GCP**, **AWS**, and **Azure** through each provider's native CLI.
+
+<Callout type="warn" title="Nightly only">
+GCP sync is currently available on the [nightly channel](/docs/reference/install#nightly-channel) only. It is not in stable releases yet.
+</Callout>
+
+## Requirements
+
+- Google Cloud SDK (`gcloud`) on your `PATH`
+- At least one authenticated account (`gcloud auth login`), and/or a service account JSON key
+- IAM that can list projects and Compute Engine instances
+- For private VMs: [IAP TCP forwarding](https://cloud.google.com/iap/docs/using-tcp-forwarding) allowed to the instance
+
+## Connect GCP
+
+1. Open Bast and press `3` for Sync.
+2. Select **GCP** and press Enter.
+3. Choose **Connect** or **Sync now**.
+
+Bast discovers every authenticated `gcloud` account, lists accessible projects, and imports running Linux instances. Windows guests and stopped VMs are skipped.
+
+Add more Google accounts with the usual CLI:
+
+```bash
+gcloud auth login
+gcloud auth login other@example.com
+```
+
+## What gets created
+
+Each instance becomes an SSH host Bast writes under:
+
+```
+~/.ssh/bast/sync/gcp/config
+```
+
+Your managed Bast config includes that file so OpenSSH (and Bast) can see the hosts. In the picker they are grouped as:
+
+```
+Google Cloud / <project name>
+  instance-name
+```
+
+Detail shows **GCP synced**. Connection settings, group, and label are owned by sync, so edit (`e`) and delete (`d`) are blocked. Favoriting and hiding still work. When the friendly label differs from the SSH alias, detail also shows **SSH name** (the `Host` alias used by `ssh`).
+
+## How Bast connects
+
+On connect (TUI Enter or `bast connect` / `bast <label>`), Bast prepares SSH access, then launches your system `ssh`. The same Bast connection banner appears in both paths, with muted progress lines while GCP work runs.
+
+| Situation | Behavior |
+| --- | --- |
+| Public IP | Direct SSH to the external address |
+| Private only | `ProxyCommand` via `gcloud compute start-iap-tunnel` |
+| Local key already authorized | Uses that key. Bast prefers a matching key in `~/.ssh/bast/keys` or `~/.ssh` over creating a Google key |
+| Metadata `ssh-keys` | Matches the public key to a local private key, then sets `User` + `IdentityFile` |
+| OS Login | Uses a local key already on your OS Login profile when possible; otherwise registers `~/.ssh/google_compute_engine` |
+| No matching local key | Ensures `~/.ssh/google_compute_engine` (like `gcloud compute ssh`), publishes it to instance/project metadata or OS Login if needed, then waits briefly for the guest agent |
+
+Publishing a new key can take a few seconds. Bast explains that in the connection status lines (for example when registering an OS Login key or waiting for the guest agent). If the key is already present, Bast skips publish and wait.
+
+If Auth in the detail panel says the user is unknown, set a **Default SSH user** in the GCP submenu (or put the right key on the VM / OS Login profile).
+
+## GCP settings
+
+Inside the GCP submenu:
+
+| Action | Purpose |
+| --- | --- |
+| Sync now | Re-run discovery and refresh SSH config |
+| Connect / Disconnect | Enable sync, or turn it off and remove generated hosts |
+| Enable / Disable auto-sync | Sync when the TUI opens (off by default) |
+| Default SSH user | Used when metadata / OS Login does not imply a user |
+| Project filter | Comma-separated project IDs; blank = all accessible |
+| Add / Remove service account key | JSON key paths for projects your user login cannot see |
+| Refresh status | Reload accounts and last-sync info |
+
+Press Esc to return to the provider list.
+
+## CLI
+
+```bash
+bast sync gcp                 # discover and write hosts
+bast sync status              # accounts, last sync, errors
+bast sync disable gcp         # turn off and remove sync hosts
+bast sync gcp --json
+bast sync status --json
+bast connect gcp_myproj_web   # banner + GCP access prepare, then ssh
+```
+
+## Re-sync and cleanup
+
+Press `r` on the Sync tab (or run `bast sync gcp`) after you create or delete VMs. Disconnecting GCP removes the generated sync config and the Include line Bast added for it. Your Bast-managed hosts and keys are left alone. `~/.ssh/google_compute_engine` is left in place if Bast created it.

@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  bast:
     name: Go (${{ matrix.os }})
     timeout-minutes: 10
     strategy:
@@ -16,16 +16,32 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/bast
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version-file: apps/bast/go.mod
           cache: true
-          cache-dependency-path: go.sum
+          cache-dependency-path: apps/bast/go.sum
       - run: go mod verify
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
       - run: go test -race ./...
       - run: go vet ./...
       - run: go build -trimpath -o /tmp/bast .
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun run lint:web
+      - run: bun run build:web

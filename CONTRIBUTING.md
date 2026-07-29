@@ -4,14 +4,14 @@ Thanks for helping improve Bast. Keep changes focused, preserve native OpenSSH b
 
 ## Development
 
-You need Go 1.26 and the native `ssh`, `ssh-keygen`, and `ssh-add` commands.
+You need Go 1.26, Bun 1.3+, and the native `ssh`, `ssh-keygen`, and `ssh-add` commands.
 
 ```sh
-go mod download
-go test -race ./...
-go vet ./...
-go build -o bast .
+bun install
+bun run check
 ```
+
+Run the web development server with `bun run dev`. Build the CLI alone with `bun run build:bast`.
 
 Run `gofmt` on changed Go files before opening a pull request. This repo ships a pre-commit hook that auto-formats staged `.go` files:
 
@@ -19,27 +19,19 @@ Run `gofmt` on changed Go files before opening a pull request. This repo ships a
 git config core.hooksPath .githooks
 ```
 
-CI still enforces `test -z "$(gofmt -l .)"`. Include tests for behavior changes, especially changes that write SSH configuration or private-key files.
+CI still enforces `test -z "$(gofmt -l .)"` within `apps/bast`. Include tests for behavior changes, especially changes that write SSH configuration or private-key files.
 
 ## Project layout
 
-- `internal/ui`: TUI lifecycle, loading, input, forms, state, and rendering
-- `internal/cli`: non-TUI command dispatch, prompts, text/JSON output, and command tests
-- `internal/sshconfig`: native SSH config discovery and Bast-managed host blocks
-- `internal/keys`: native key discovery and key operations
-- `internal/openssh`: calls to installed OpenSSH tools
-- `internal/metadata`: Bast-only presentation metadata
-- `internal/cloud`: provider clients (`gcp`, `aws`, `azure`) and the `sync` engine that imports cloud VMs as read-only SSH hosts
-- `internal/telemetry`: anonymous usage events and consented error reporting
-- `internal/paths`: home/config path resolution
-- `internal/updater`: release and nightly update checks
-- `internal/connectbanner`: pre-SSH connect status banner
+- `apps/bast`: Go CLI and terminal interface
+- `apps/bast/internal`: CLI, TUI, OpenSSH, metadata, cloud, telemetry, and updater packages
+- `apps/web`: Next.js site, documentation, installer scripts, telemetry, and error-reporting routes
 
 Never include real hostnames, private keys, fingerprints, or production SSH configuration in issues, fixtures, screenshots, or pull requests.
 
 ## Release channels
 
-Every push to `master` publishes a rolling nightly pre-release via `.github/workflows/nightly.yml`. Tagged releases (`v*`) are stable and use `.github/workflows/release.yml` instead.
+Every CLI change pushed to `master` publishes a rolling nightly pre-release via `.github/workflows/nightly.yml`. Tagged releases (`v*`) are stable and use `.github/workflows/release.yml` instead.
 
 Nightly builds use version strings like `nightly.YYYYMMDD.<sha>`, update the rolling GitHub release tagged `nightly`, and bump the `bast-nightly` Homebrew formula in `ellipse-software/homebrew-tap`.
 
