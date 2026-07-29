@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 const (
 	anchorCount  = 8
 	anchorBytes  = 4096
+	maxPending   = 200
 	maxRecordLen = 1024 * 1024
 )
 
@@ -89,6 +91,9 @@ func Scan(home string, getenv func(string) string, previous metadata.HistoryImpo
 		}
 		return next.Pending[i].ID < next.Pending[j].ID
 	})
+	if len(next.Pending) > maxPending {
+		next.Pending = next.Pending[:maxPending]
+	}
 	assignAliases(next.Pending, aliases)
 	return next, scanErrors
 }
@@ -116,7 +121,7 @@ func sourcePaths(home string, getenv func(string) string) []string {
 	if fishSession == "" || fishSession == "default" {
 		fishSession = "fish"
 	}
-	if fishSession != "" && !strings.ContainsAny(fishSession, `/\\`) {
+	if !strings.ContainsAny(fishSession, `/\`) {
 		paths = append(paths, filepath.Join(dataHome, "fish", fishSession+"_history"))
 	}
 
@@ -221,11 +226,11 @@ func scanSource(path string, info os.FileInfo, checkpoint metadata.HistorySource
 			return checkpoint, nil, walkErr
 		}
 	}
-	tailHash, err := tailHash(file, size)
+	tail, err := tailHash(file, size)
 	if err != nil {
 		return checkpoint, nil, err
 	}
-	return metadata.HistorySource{Offset: size, TailHash: tailHash, Anchors: anchors}, suggestions, nil
+	return metadata.HistorySource{Offset: size, TailHash: tail, Anchors: anchors}, suggestions, nil
 }
 
 func detectFormat(file *os.File, path string, size int64) (string, error) {
@@ -294,7 +299,7 @@ func locateAnchors(reader io.Reader, format string, want []string) (int64, []str
 		if len(window) > len(want) {
 			window = window[1:]
 		}
-		if len(window) == len(want) && equalStrings(window, want) {
+		if len(window) == len(want) && slices.Equal(window, want) {
 			lastMatch = records
 		}
 		return nil
@@ -326,26 +331,12 @@ func appendAnchors(current, added []string) []string {
 	return current
 }
 
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func recordHash(command string) string {
 	hash := sha256.Sum256([]byte(command))
 	return hex.EncodeToString(hash[:])
 }
 
 func walkRecords(reader io.Reader, format string, visit func(record) error) error {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 64*1024), maxRecordLen)
 	call := func(command string, seenAt int64) error {
 		command = strings.TrimSpace(command)
 		if command == "" {
@@ -353,13 +344,49 @@ func walkRecords(reader io.Reader, format string, visit func(record) error) erro
 		}
 		return visit(record{command: command, seenAt: seenAt})
 	}
+	walkLines := func(handle func(line string, oversized bool) error) error {
+		buffered := bufio.NewReaderSize(reader, 64*1024)
+		var line strings.Builder
+		oversized := false
+		for {
+			fragment, more, err := buffered.ReadLine()
+			if errors.Is(err, io.EOF) && len(fragment) == 0 && line.Len() == 0 && !oversized {
+				return nil
+			}
+			if err != nil && !errors.Is(err, io.EOF) {
+				return err
+			}
+			if !oversized {
+				if line.Len()+len(fragment) > maxRecordLen {
+					line.Reset()
+					oversized = true
+				} else {
+					_, _ = line.Write(fragment)
+				}
+			}
+			if !more {
+				if err := handle(line.String(), oversized); err != nil {
+					return err
+				}
+				line.Reset()
+				oversized = false
+			}
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+		}
+	}
 
 	switch format {
 	case "fish":
 		command := ""
 		var seenAt int64
-		for scanner.Scan() {
-			line := scanner.Text()
+		if err := walkLines(func(line string, oversized bool) error {
+			if oversized {
+				err := call(command, seenAt)
+				command, seenAt = "", 0
+				return err
+			}
 			if strings.HasPrefix(line, "- cmd: ") {
 				if err := call(command, seenAt); err != nil {
 					return err
@@ -368,50 +395,79 @@ func walkRecords(reader io.Reader, format string, visit func(record) error) erro
 			} else if command != "" && strings.HasPrefix(line, "  when: ") {
 				seenAt, _ = strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(line, "  when: ")), 10, 64)
 			}
+			return nil
+		}); err != nil {
+			return err
 		}
 		if err := call(command, seenAt); err != nil {
 			return err
 		}
 	case "zsh":
-		for scanner.Scan() {
-			line := scanner.Text()
-			command, seenAt := parseZshRecord(line)
-			if err := call(command, seenAt); err != nil {
-				return err
+		return walkLines(func(line string, oversized bool) error {
+			if oversized {
+				return nil
 			}
-		}
+			command, seenAt := parseZshRecord(line)
+			return call(command, seenAt)
+		})
 	default:
 		var command strings.Builder
 		var seenAt int64
 		timestamped := false
+		discard := false
 		flush := func() error {
-			err := call(command.String(), seenAt)
+			var err error
+			if !discard {
+				err = call(command.String(), seenAt)
+			}
 			command.Reset()
+			discard = false
 			return err
 		}
-		for scanner.Scan() {
-			line := scanner.Text()
+		if err := walkLines(func(line string, oversized bool) error {
 			if timestamp, ok := bashTimestamp(line); ok {
 				if err := flush(); err != nil {
 					return err
 				}
 				seenAt, timestamped = timestamp, true
-				continue
+				return nil
+			}
+			if oversized {
+				if timestamped {
+					command.Reset()
+					discard = true
+				}
+				return nil
 			}
 			if timestamped {
-				if command.Len() > 0 {
-					command.WriteByte('\n')
+				if discard {
+					return nil
 				}
-				command.WriteString(line)
+				length := command.Len() + len(line)
+				if command.Len() > 0 {
+					length++
+				}
+				if length > maxRecordLen {
+					command.Reset()
+					discard = true
+					return nil
+				}
+				if command.Len() > 0 {
+					_ = command.WriteByte('\n')
+				}
+				_, _ = command.WriteString(line)
 			} else if err := call(line, 0); err != nil {
 				return err
 			}
+			return nil
+		}); err != nil {
+			return err
 		}
 		if err := flush(); err != nil {
 			return err
 		}
 	}
-	return scanner.Err()
+	return nil
 }
 
 func parseZshRecord(line string) (string, int64) {

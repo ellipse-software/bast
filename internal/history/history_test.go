@@ -1,9 +1,11 @@
 package history
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -57,7 +59,9 @@ func TestWalkRecords(t *testing.T) {
 	}{
 		{name: "zsh extended", format: "zsh", input: ": 1700000000:2;ssh one\nssh two\n", want: []record{{command: "ssh one", seenAt: 1700000000}, {command: "ssh two"}}},
 		{name: "bash timestamps", format: "bash", input: "#1700000000\nssh one\n#1700000001\nssh two\n", want: []record{{command: "ssh one", seenAt: 1700000000}, {command: "ssh two", seenAt: 1700000001}}},
+		{name: "bash multiline", format: "bash", input: "#1700000000\necho one \\\n  two\n#1700000001\nssh next\n", want: []record{{command: "echo one \\\n  two", seenAt: 1700000000}, {command: "ssh next", seenAt: 1700000001}}},
 		{name: "bash plain", format: "bash", input: "ls\nssh one\n", want: []record{{command: "ls"}, {command: "ssh one"}}},
+		{name: "oversized record", format: "bash", input: "ssh before\n" + strings.Repeat("x", maxRecordLen+1) + "\nssh after\n", want: []record{{command: "ssh before"}, {command: "ssh after"}}},
 		{name: "fish", format: "fish", input: "- cmd: ssh one\n  when: 1700000000\n- cmd: ssh two\n  when: 1700000001\n", want: []record{{command: "ssh one", seenAt: 1700000000}, {command: "ssh two", seenAt: 1700000001}}},
 	}
 	for _, test := range tests {
@@ -143,6 +147,26 @@ func TestScanRecoversAfterHistoryRewriteWithoutReplaying(t *testing.T) {
 	}
 }
 
+func TestScanAdvancesPastOversizedRecord(t *testing.T) {
+	home := t.TempDir()
+	bash := filepath.Join(home, ".bash_history")
+	writeFile(t, bash, "ssh before.example.com\n"+strings.Repeat("x", maxRecordLen+1)+"\nssh after.example.com\n")
+
+	first, errs := Scan(home, func(string) string { return "" }, metadata.HistoryImport{}, nil)
+	if len(errs) != 0 || len(first.Pending) != 2 {
+		t.Fatalf("initial scan: pending=%+v errors=%v", first.Pending, errs)
+	}
+	if first.Sources[bash].Offset != int64(len("ssh before.example.com\n")+maxRecordLen+1+len("\nssh after.example.com\n")) {
+		t.Fatalf("checkpoint did not advance: %+v", first.Sources[bash])
+	}
+
+	first.Pending = nil
+	second, errs := Scan(home, func(string) string { return "" }, first, nil)
+	if len(errs) != 0 || len(second.Pending) != 0 {
+		t.Fatalf("oversized record was replayed: pending=%+v errors=%v", second.Pending, errs)
+	}
+}
+
 func TestScanAllStandardHistoriesAndDeduplicatesEndpoints(t *testing.T) {
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, ".zsh_history"), "ssh dev@shared.example.com\n")
@@ -174,16 +198,58 @@ func TestSourcePathsIncludeCommonZshLocations(t *testing.T) {
 		filepath.Join(zdotdir, ".zhistory"),
 	}
 	for _, path := range want {
-		found := false
-		for _, candidate := range paths {
-			if candidate == path {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(paths, path) {
 			t.Errorf("source paths do not include %q: %v", path, paths)
 		}
+	}
+}
+
+func TestSourcePathsEnvironmentLocations(t *testing.T) {
+	home := t.TempDir()
+	tests := []struct {
+		name    string
+		env     map[string]string
+		want    string
+		wantLen int
+	}{
+		{name: "HISTFILE", env: map[string]string{"HISTFILE": "~/custom/history"}, want: filepath.Join(home, "custom", "history"), wantLen: 5},
+		{name: "XDG_DATA_HOME", env: map[string]string{"XDG_DATA_HOME": "~/data"}, want: filepath.Join(home, "data", "fish", "fish_history"), wantLen: 4},
+		{name: "fish session", env: map[string]string{"fish_history": "work"}, want: filepath.Join(home, ".local", "share", "fish", "work_history"), wantLen: 4},
+		{name: "clean deduplication", env: map[string]string{"HISTFILE": filepath.Join(home, "nested", "..", ".zhistory")}, want: filepath.Join(home, ".zhistory"), wantLen: 4},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			paths := sourcePaths(home, func(name string) string { return test.env[name] })
+			if !slices.Contains(paths, test.want) {
+				t.Fatalf("source paths do not include %q: %v", test.want, paths)
+			}
+			if len(paths) != test.wantLen {
+				t.Fatalf("source path count = %d, want %d: %v", len(paths), test.wantLen, paths)
+			}
+		})
+	}
+}
+
+func TestScanKeepsNewestPendingSuggestions(t *testing.T) {
+	previous := metadata.HistoryImport{Pending: make([]metadata.HistorySuggestion, maxPending+5)}
+	for i := range previous.Pending {
+		previous.Pending[i] = metadata.HistorySuggestion{
+			ID:       fmt.Sprintf("suggestion-%03d", i),
+			Target:   fmt.Sprintf("host-%03d.example.com", i),
+			HostName: fmt.Sprintf("host-%03d.example.com", i),
+			SeenAt:   int64(i),
+		}
+	}
+
+	state, errs := Scan(t.TempDir(), func(string) string { return "" }, previous, nil)
+	if len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if len(state.Pending) != maxPending {
+		t.Fatalf("pending count = %d, want %d", len(state.Pending), maxPending)
+	}
+	if state.Pending[0].ID != "suggestion-204" || state.Pending[maxPending-1].ID != "suggestion-005" {
+		t.Fatalf("pending bounds = %q ... %q", state.Pending[0].ID, state.Pending[maxPending-1].ID)
 	}
 }
 
