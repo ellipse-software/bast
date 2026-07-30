@@ -1,13 +1,6 @@
 name: nightly
 
 on:
-  push:
-    branches:
-      - master
-    paths:
-      - "apps/bast/**"
-      - ".github/scripts/**"
-      - ".github/workflows/nightly.yml"
   workflow_dispatch:
 
 permissions:
@@ -22,11 +15,18 @@ jobs:
     name: Validate
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.value }}
     defaults:
       run:
         working-directory: apps/bast
     steps:
       - uses: actions/checkout@v7
+      - name: Require master
+        run: test "$GITHUB_REF" = "refs/heads/master"
+      - name: Resolve nightly version
+        id: version
+        run: echo "value=nightly.$(date -u +%Y%m%d).${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@v7
         with:
           go-version-file: apps/bast/go.mod
@@ -71,10 +71,11 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
 
-          version="nightly.$(date -u +%Y%m%d).${GITHUB_SHA:0:7}"
+          version="$VERSION"
           bundle="bast_${version}_${GOOS}_${GOARCH}"
           mkdir -p "dist/$bundle"
 
@@ -137,15 +138,24 @@ jobs:
           assets=(dist/bast_nightly.*.tar.gz dist/bast_nightly.*.tar.gz.sha256 dist/SHA256SUMS)
           title="Bast nightly (${VERSION})"
 
-          if gh release view nightly >/dev/null 2>&1; then
-            gh release upload nightly "${assets[@]}" --clobber
-            gh release edit nightly --prerelease --title "$title" --notes "Rolling nightly build from \`master\`. Version: \`${VERSION}\`."
+          notes="Nightly build from \`master\`. Version: \`${VERSION}\`."
+          state="$(gh release view "$VERSION" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+
+          if [[ "$state" == "true" ]]; then
+            gh release upload "$VERSION" "${assets[@]}" --clobber
+            gh release edit "$VERSION" --draft=false --prerelease --title "$title" --notes "$notes"
+          elif [[ "$state" == "false" ]]; then
+            echo "Nightly release ${VERSION} is already published."
           else
-            gh release create nightly "${assets[@]}" \
+            gh release create "$VERSION" \
+              --draft \
               --prerelease \
-              --target master \
+              --latest=false \
+              --target "$GITHUB_SHA" \
               --title "$title" \
-              --notes "Rolling nightly build from \`master\`. Version: \`${VERSION}\`."
+              --notes "$notes"
+            gh release upload "$VERSION" "${assets[@]}"
+            gh release edit "$VERSION" --draft=false --prerelease --latest=false --title "$title" --notes "$notes"
           fi
 
   bump-homebrew:

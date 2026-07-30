@@ -122,13 +122,26 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            dist/*.tar.gz \
-            dist/*.tar.gz.sha256 \
-            dist/SHA256SUMS \
-            --verify-tag \
-            --generate-notes \
-            --title "Bast $GITHUB_REF_NAME"
+          set -euo pipefail
+
+          assets=(dist/*.tar.gz dist/*.tar.gz.sha256 dist/SHA256SUMS)
+          title="Bast $GITHUB_REF_NAME"
+          state="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+
+          if [[ "$state" == "true" ]]; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+            gh release edit "$GITHUB_REF_NAME" --draft=false --latest --title "$title"
+          elif [[ "$state" == "false" ]]; then
+            echo "Release ${GITHUB_REF_NAME} is already published."
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --draft \
+              --verify-tag \
+              --generate-notes \
+              --title "$title"
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}"
+            gh release edit "$GITHUB_REF_NAME" --draft=false --latest --title "$title"
+          fi
 
   bump-homebrew:
     name: Bump Homebrew formula

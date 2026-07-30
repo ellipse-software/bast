@@ -2,7 +2,7 @@
 set -euo pipefail
 
 version="${1:?usage: bump-homebrew-tap-nightly.sh <version>}"
-tag="nightly"
+tag="$version"
 
 bast_repo="ellipse-software/bast"
 tap_repo="ellipse-software/homebrew-tap"
