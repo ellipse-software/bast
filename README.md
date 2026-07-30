@@ -19,7 +19,7 @@ Browse SSH hosts, manage keys, and connect from the terminal.
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white)](apps/bast/go.mod)
 [![Release](https://img.shields.io/github/v/release/ellipse-software/bast)](https://github.com/ellipse-software/bast/releases)
 [![Tests](https://github.com/ellipse-software/bast/actions/workflows/test.yml/badge.svg)](https://github.com/ellipse-software/bast/actions/workflows/test.yml)
-[![GitHub Stars](https://img.shields.io/github/stars/ellipse-software/bast?logo=github)](https://github.com/ellipse-software/bast/stargazers)
+[![Stars](https://img.shields.io/github/stars/ellipse-software/bast?style=flat&logo=github&label=Stars&color=181717)](https://github.com/ellipse-software/bast/stargazers)
 [![Sponsor](https://img.shields.io/badge/Sponsor-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/tedbrine)
 
 </div>
