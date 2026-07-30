@@ -18,7 +18,7 @@ const (
 	InstallerURL        = "https://bast.sh/install"
 	NightlyInstallerURL = "https://bast.sh/install-nightly"
 	LatestReleaseURL    = "https://api.github.com/repos/ellipse-software/bast/releases/latest"
-	NightlyReleaseURL   = "https://api.github.com/repos/ellipse-software/bast/releases/tags/nightly"
+	NightlyReleaseURL   = "https://api.github.com/repos/ellipse-software/bast/releases?per_page=20"
 	receiptSuffix       = ".install-receipt"
 )
 
@@ -130,6 +130,13 @@ func checkFrom[T any](
 	}
 }
 
+type githubRelease struct {
+	TagName    string `json:"tag_name"`
+	Name       string `json:"name"`
+	Draft      bool   `json:"draft"`
+	Prerelease bool   `json:"prerelease"`
+}
+
 func latestFrom(ctx context.Context, client *http.Client, url string, nightly bool) (string, error) {
 	if client == nil {
 		client = http.DefaultClient
@@ -149,17 +156,27 @@ func latestFrom(ctx context.Context, client *http.Client, url string, nightly bo
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("GitHub release check returned %s", resp.Status)
 	}
-	var release struct {
-		TagName string `json:"tag_name"`
-		Name    string `json:"name"`
+	if nightly {
+		var releases []githubRelease
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&releases); err != nil {
+			return "", fmt.Errorf("decode GitHub releases: %w", err)
+		}
+		for _, release := range releases {
+			if release.Draft || !release.Prerelease {
+				continue
+			}
+			if IsNightly(release.TagName) {
+				return release.TagName, nil
+			}
+			if version := nightlyVersionFromReleaseName(release.Name); version != "" {
+				return version, nil
+			}
+		}
+		return "", errors.New("no published nightly release found")
 	}
+	var release githubRelease
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&release); err != nil {
 		return "", fmt.Errorf("decode GitHub release: %w", err)
-	}
-	if nightly {
-		if version := nightlyVersionFromReleaseName(release.Name); version != "" {
-			return version, nil
-		}
 	}
 	return release.TagName, nil
 }

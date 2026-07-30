@@ -56,7 +56,7 @@ func TestCheckFindsOnlyNewerStableReleases(t *testing.T) {
 
 func TestCheckFindsOnlyNewerNightlyReleases(t *testing.T) {
 	releaseBody := func(version string) string {
-		return `{"tag_name":"nightly","name":"Bast nightly (` + version + `)"}`
+		return `[{"tag_name":"v1.4.0","prerelease":false},{"tag_name":"` + version + `","name":"Bast nightly (` + version + `)","prerelease":true}]`
 	}
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{
@@ -80,6 +80,22 @@ func TestCheckFindsOnlyNewerNightlyReleases(t *testing.T) {
 	}
 	if compareNightly(nightlyVersion{date: "20250725", sha: "0000000"}, nightlyVersion{date: "20250725", sha: "fffffff"}) != 1 {
 		t.Fatal("a differing SHA on the same date was not treated as newer")
+	}
+}
+
+func TestCheckNightlySupportsLegacyRollingReleaseDuringMigration(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`[{"tag_name":"nightly","name":"Bast nightly (nightly.20250725.deadbee)","prerelease":true}]`)),
+		}, nil
+	})}
+
+	available, err := CheckNightly(context.Background(), client, "nightly.20250724.abc1234")
+	if err != nil || available != "nightly.20250725.deadbee" {
+		t.Fatalf("available=%q err=%v", available, err)
 	}
 }
 

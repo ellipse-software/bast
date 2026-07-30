@@ -3,7 +3,6 @@
 set -eu
 
 repo="ellipse-software/bast"
-release_tag="nightly"
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   bold=$(printf '\033[1m')
@@ -183,8 +182,16 @@ step "Checking for the latest nightly build..."
 release_json="$(curl -fsSL \
   -H "Accept: application/vnd.github+json" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
-  "https://api.github.com/repos/$repo/releases/tags/$release_tag")"
-version="$(printf '%s' "$release_json" | sed -n 's/.*"name": "Bast nightly (\([^)]*\))".*/\1/p' | head -n1)"
+  "https://api.github.com/repos/$repo/releases?per_page=20")"
+version="$(printf '%s' "$release_json" | tr '{' '\n' | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\(nightly\.[0-9A-Za-z.]*\)".*/\1/p' | head -n1)"
+release_tag="$version"
+
+# Keep the previous rolling release installable until the first versioned
+# immutable nightly has been published.
+if [ -z "$version" ]; then
+  version="$(printf '%s' "$release_json" | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"Bast nightly (\([^)]*\))".*/\1/p' | head -n1)"
+  release_tag="nightly"
+fi
 
 case "$version" in
 nightly.*) ;;
