@@ -42,5 +42,5 @@ Try nightly builds with:
 ```sh
 curl -fsSL https://bast.sh/install-nightly | sh
 # or
-brew install bast-nightly
+brew install ellipse-software/tap/bast-nightly
 ```
