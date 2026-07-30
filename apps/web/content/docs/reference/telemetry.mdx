@@ -1,0 +1,20 @@
+---
+title: Telemetry
+description: What Bast collects, why, and how to opt out.
+---
+
+Bast sends optional anonymous telemetry to help improve the tool. This includes version, platform, and usage events. No hostnames, keys, project IDs, or SSH config contents are collected by default.
+
+When an error occurs in an interactive session, Bast may offer to send an anonymous error report. Press Space to send, or any other key to continue without sending. Error reports can include the error message shown on screen (which may contain paths or labels). SSH session endings are never reported.
+
+The bast.sh website and installer use the same policy. Usage events go to `/api/telemetry`. Consented error reports go to `/api/errors`.
+
+## Opt out
+
+Set this environment variable before running Bast:
+
+```bash
+export BAST_NO_TELEMETRY=1
+```
+
+This disables usage telemetry and error reporting. Add it to your shell profile to make it permanent.

@@ -1,0 +1,12 @@
+{
+  "title": "Hosts",
+  "defaultOpen": true,
+  "pages": [
+    "host-picker",
+    "history-import",
+    "host-management",
+    "advanced-host-options",
+    "ssh-config",
+    "connections"
+  ]
+}

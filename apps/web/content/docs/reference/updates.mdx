@@ -1,0 +1,34 @@
+---
+title: Updates
+description: How Bast checks for new releases and how to update your install.
+---
+
+Tagged builds check GitHub for a newer stable release in the background when you launch Bast. If one exists, a reminder appears in the footer without slowing startup. Network failures are ignored quietly.
+
+## Update suggestions
+
+The reminder depends on how you installed Bast:
+
+| Install method | Suggested action |
+| --- | --- |
+| bast.sh script | `bast update` |
+| bast.sh nightly script | `bast update` |
+| Homebrew | `brew upgrade bast` |
+| Homebrew nightly | `brew upgrade bast-nightly` |
+| Source build | Link back to bast.sh |
+
+Press `v` in the TUI to see version info and the update suggestion.
+
+## bast update
+
+```bash
+bast update
+```
+
+This only runs when the bast.sh installer receipt is present beside the executable. It works for both stable and nightly script installs, and will not overwrite Homebrew-managed or source-built copies.
+
+The script downloads the latest release, verifies the checksum, and replaces the binary in place.
+
+## Check manually
+
+Visit [github.com/ellipse-software/bast/releases](https://github.com/ellipse-software/bast/releases) for release notes and download links.

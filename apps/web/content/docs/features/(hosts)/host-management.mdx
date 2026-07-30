@@ -1,0 +1,52 @@
+---
+title: Host management
+description: Add, edit, favorite, hide, and organize SSH hosts with groups, tags, and colors.
+---
+
+Press `a` to add a host or `e` to edit the selected one. The form keeps the required label and hostname at the top, with separate menus for authentication, advanced SSH settings, and metadata. Press `Ctrl+Enter` to save from anywhere in the form.
+
+## Connection fields
+
+| Field | Purpose |
+| --- | --- |
+| Label | Display name shown in the list (spaces become SSH-safe aliases) |
+| Hostname | Server hostname or IP address |
+| User | Remote username (blank uses your SSH default) |
+| Port | Port number (blank defaults to 22) |
+| Identity | Key file, password auth, or ssh-agent defaults |
+
+Choose **Advanced** to configure jump hosts, startup commands, forwarding, keepalives, environment variables, and custom OpenSSH flags. See [Advanced host options](/docs/features/advanced-host-options) for each setting and its CLI equivalent.
+
+## Metadata fields
+
+**Groups** use slash paths like `Work/Production`. You can nest up to five levels. Press Space on a group header to collapse or expand it.
+
+**Tags** are comma-separated labels included in search.
+
+**Environment** is a free-form field (for example `production` or `staging`).
+
+**Color** tints the label in the list so you can spot servers at a glance. Use a hex value.
+
+**Notes** are short text included in the detail panel and search results.
+
+## Actions
+
+| Key | Action |
+| --- | --- |
+| `f` | Favorite the selected host |
+| `h` | Hide a host you rarely need |
+| `.` | Toggle whether hidden hosts appear in the list |
+| `d` | Delete a Bast-managed host |
+| `K` | Remove a host from your known-hosts file |
+
+Favoriting and hiding are presentation-only changes stored in Bast metadata. Deleting removes the host block from Bast's managed config.
+
+Removing a known-host entry (`K`) helps when a server fingerprint changes and SSH refuses to connect.
+
+## External hosts
+
+Hosts defined outside Bast's managed config can still be edited for metadata (group, tags, notes, and so on). Bast will not change their connection settings or delete them.
+
+## Synced hosts
+
+Hosts imported from [GCP](/docs/features/gcp), [AWS](/docs/features/aws), or [Azure](/docs/features/azure) are read-only for connection settings and grouping. You can still favorite or hide them. Disconnect the provider in the Sync tab to remove them. Bast prepares provider-specific SSH access immediately before connecting.

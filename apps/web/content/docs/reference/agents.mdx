@@ -1,0 +1,84 @@
+---
+title: AI agents
+description: Install the Bast skill for Cursor, Claude Code, and Codex, and use llms.txt for agent-friendly docs.
+---
+
+Bast ships resources for AI coding agents: an installable skill, machine-readable docs, and per-page shortcuts to open ChatGPT, Claude, or Cursor with context.
+
+## Agent skill
+
+The Bast skill teaches agents how to use the CLI correctly — `--json` automation, patch semantics for host edits, file paths, and safety rules (never paste private keys).
+
+It uses the standard `SKILL.md` format and works in **Cursor**, **Claude Code**, and **Codex**.
+
+### Install all agents
+
+```bash
+curl -fsSL https://bast.sh/install-skill | sh
+```
+
+This writes the skill to:
+
+| Agent | Path |
+| --- | --- |
+| Cursor | `~/.cursor/skills/bast/SKILL.md` |
+| Claude Code | `~/.claude/skills/bast/SKILL.md` |
+| Codex | `~/.codex/skills/bast/SKILL.md` |
+
+Restart or start a new agent session after installing.
+
+### Project-local skill
+
+Commit the skill with your repo so teammates and CI agents pick it up:
+
+```bash
+curl -fsSL https://bast.sh/install-skill | BAST_SKILL_SCOPE=project sh
+```
+
+That installs to `.cursor/skills/bast/`, `.claude/skills/bast/`, and `.codex/skills/bast/` in the current directory.
+
+### One agent
+
+```bash
+# Cursor
+mkdir -p ~/.cursor/skills/bast
+curl -fsSL https://bast.sh/bast.skill.md -o ~/.cursor/skills/bast/SKILL.md
+
+# Claude Code
+mkdir -p ~/.claude/skills/bast
+curl -fsSL https://bast.sh/bast.skill.md -o ~/.claude/skills/bast/SKILL.md
+
+# Codex
+mkdir -p ~/.codex/skills/bast
+curl -fsSL https://bast.sh/bast.skill.md -o ~/.codex/skills/bast/SKILL.md
+```
+
+You can also [download the skill file](https://bast.sh/bast.skill.md) and copy it to the path above.
+
+## llms.txt
+
+Agents can fetch curated documentation without scraping the site:
+
+| URL | Purpose |
+| --- | --- |
+| [llms.txt](https://bast.sh/llms.txt) | Index of all docs with descriptions |
+| [llms-full.txt](https://bast.sh/llms-full.txt) | Full docs in one file |
+
+Each doc page also exposes processed Markdown (use **Copy Markdown** or **Open** on any docs page) for pasting into a chat or loading into context.
+
+## Ask AI from the docs
+
+Every docs page includes **Copy Markdown** and an **Open** menu to start a conversation in ChatGPT, Claude, or Cursor with the current page URL as context.
+
+On the [homepage](https://bast.sh), the footer has the same shortcuts plus the skill installer.
+
+## What agents should know
+
+Brief version of what the skill covers — useful even without installing it:
+
+- Bast wraps **OpenSSH**, not a custom SSH protocol. Connection settings live in `~/.ssh/config`; metadata (groups, tags, notes) lives in `~/.config/bast/state.json`.
+- Use **`--json --no-input`** for scripts. Add **`--yes`** for deletes and exports.
+- Host and key edits are **patches**: only flags you pass change. Use `--clear-*` flags to remove values.
+- Prefer `bast hosts` / `bast keys` subcommands over the TUI in non-interactive environments.
+
+See [Command line](/docs/features/cli) and [Files and storage](/docs/reference/files) for the full reference.

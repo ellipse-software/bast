@@ -1,0 +1,35 @@
+---
+title: Import from shell history
+description: Turn SSH destinations from zsh, bash, and fish history into Bast hosts.
+---
+
+Bast scans supported shell history files in the background when it starts. SSH destinations that are not already configured appear in a muted, collapsible **(Suggested)** group below your hosts.
+
+## Review suggestions
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Add the selected suggestion |
+| `e` | Review and edit it before adding |
+| `x` | Dismiss it |
+| `Space` | Collapse or expand the Suggested group |
+
+Search includes suggestions and temporarily expands the group when necessary.
+
+Bast can recover the destination, username, port, identity file, and ProxyJump from common `ssh` commands. Review mode uses the normal host form, so you can change the label, group, authentication, or advanced SSH options before saving.
+
+## Supported history files
+
+| Shell | Files |
+| --- | --- |
+| zsh | `~/.zsh_history`, `~/.zhistory`, `$HISTFILE`, `$ZDOTDIR/.zsh_history`, and `$ZDOTDIR/.zhistory` |
+| bash | `~/.bash_history` and `$HISTFILE` |
+| fish | `$XDG_DATA_HOME/fish/${fish_history}_history`, defaulting to `~/.local/share/fish/fish_history` |
+
+Environment-defined paths are used when those variables are available to the Bast process. The standard zsh paths include `~/.zhistory` because `HISTFILE` is often assigned without being exported.
+
+## Rescanning and privacy
+
+The first scan reads each available history file in the background. Later starts use per-file checkpoints, including recovery for rotated or rewritten files, rather than replaying old entries. Accepted and dismissed entries are removed from the suggestion list. The same destination can be suggested again if a new SSH command for it is recorded later.
+
+Bast never executes history commands. It stores the normalized connection fields needed for pending suggestions and the scan checkpoints, not the original command text.

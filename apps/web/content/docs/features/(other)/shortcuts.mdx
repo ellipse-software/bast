@@ -1,0 +1,68 @@
+---
+title: Keyboard shortcuts
+description: Every keybinding in the Bast TUI, from navigation to host and key actions.
+---
+
+Press `?` inside Bast for the in-app reference. Press `v` for version info, credits, and update hints.
+
+## Navigation
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓` or `j` / `k` | Move selection |
+| Click / tap list row | Select item ([mobile layout](/docs/features/mobile-view)) |
+| `1` | Switch to hosts tab |
+| `2` | Switch to keys tab |
+| `3` | Switch to sync tab |
+| `/` | Search |
+| `r` | Reload config from disk (or refresh sync status on the Sync tab) |
+| `?` | Toggle help |
+| `v` | About and version info |
+| `q` | Quit |
+
+## Hosts
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Connect to selected host, or add selected history suggestion |
+| Click / tap **Connect** | Connect on narrow terminals ([mobile layout](/docs/features/mobile-view)) |
+| `a` | Add a host |
+| `e` | Edit selected host, or review selected history suggestion |
+| `x` | Dismiss selected history suggestion |
+| `d` | Delete selected host |
+| `f` | Toggle favorite |
+| `h` | Hide or show selected host |
+| `.` | Toggle hidden hosts in the list |
+| `Space` | Collapse or expand group, including Suggested |
+| `s` | Cycle sort mode |
+| `K` | Remove known-host entry |
+
+## Keys
+
+| Key | Action |
+| --- | --- |
+| `a` | Generate a key |
+| `i` | Import a key |
+| `e` | Edit public key comment |
+| `d` | Delete selected key |
+| `u` | Add public key to a server |
+| `x` | Export key files |
+| `p` | Change passphrase |
+| `c` | Copy public key |
+
+## Sync
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Open a provider, or run the selected action |
+| `Esc` | Back to the provider list |
+| `r` | Refresh sync status |
+
+See [GCP](/docs/features/gcp) for setup.
+
+## During SSH
+
+| Action | Result |
+| --- | --- |
+| `exit` | Close SSH session and quit Bast |
+| `Enter` then `~.` | Force-close a stuck SSH session and return to the picker |

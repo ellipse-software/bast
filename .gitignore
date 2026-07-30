@@ -1,5 +1,8 @@
 /bast
 /dist/
+/apps/bast/bast
+/apps/bast/dist/
+/node_modules/
 *.test
 coverage.out
 .DS_Store

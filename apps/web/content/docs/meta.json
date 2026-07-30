@@ -1,0 +1,10 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "---Features---",
+    "...features",
+    "---Reference---",
+    "...reference"
+  ]
+}

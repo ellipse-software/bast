@@ -1,0 +1,100 @@
+---
+title: Advanced host options
+description: Configure jump hosts, startup commands, forwarding, environment variables, and other OpenSSH settings.
+---
+
+Advanced host options control how OpenSSH starts and carries a connection. Open the host form, choose **Advanced**, then choose a section. Blank or **Default** values leave the decision to OpenSSH and your wider SSH config.
+
+## Jump and proxy
+
+| Option | What it does | Example |
+| --- | --- | --- |
+| Proxy jump | Connects through another SSH host before reaching the destination. Choose a host already known to Bast or enter an SSH alias manually. | `bastion` |
+
+This writes OpenSSH's `ProxyJump` setting. The jump value should be an SSH host alias, not a display label containing spaces.
+
+## Session
+
+| Option | What it does | Example |
+| --- | --- | --- |
+| Startup command | Runs a command on the server immediately after connecting. | `tmux attach -t main` |
+| Request TTY | Controls whether SSH allocates a terminal. **Force yes** is useful for interactive startup commands; **Disable** is useful for non-interactive commands. | `Force yes` |
+
+Startup command maps to `RemoteCommand`. Request TTY maps to `RequestTTY force` or `RequestTTY no`.
+
+## Forwarding
+
+| Option | What it does | Example |
+| --- | --- | --- |
+| Agent forwarding | Lets the remote server use keys from your local ssh-agent. Only enable it for servers you trust. | `Yes` |
+| Local forwards | Makes a service reachable on a local port. Use `local-port destination-host:destination-port`. Separate multiple forwards with semicolons. | `8080 localhost:80` |
+| Remote forwards | Makes a local service reachable from the remote side. Use `remote-port destination-host:destination-port`. Separate multiple forwards with semicolons. | `9000 localhost:3000` |
+| Dynamic forward | Starts a local SOCKS proxy on the given port. | `1080` |
+| Compression | Enables SSH compression. It can help on slow links but usually adds overhead on fast networks. | `Yes` |
+| Keepalive | Sends a server-alive message after this many idle seconds. This can keep connections alive through firewalls and NAT. | `30` |
+
+These values map to `ForwardAgent`, `LocalForward`, `RemoteForward`, `DynamicForward`, `Compression`, and `ServerAliveInterval`.
+
+Agent forwarding gives the remote host access to your agent while the session is open. It does not copy private-key files to the server, but a compromised server could use the forwarded agent during that session.
+
+## Environment
+
+Environment variables use `NAME=value` pairs and OpenSSH's `SetEnv` setting. Separate multiple values with semicolons:
+
+```text
+APP_ENV=production; LOG_LEVEL=info
+```
+
+The SSH server can restrict which environment variables it accepts.
+
+## Custom flags
+
+Use custom flags for OpenSSH options that do not have a dedicated field. Enter one directive and value per item, separated by semicolons:
+
+```text
+TCPKeepAlive yes; ConnectTimeout 10
+```
+
+Bast rejects directives that would redefine the host block or bypass dedicated fields. Avoid duplicating an option already available elsewhere in the form.
+
+## CLI equivalents
+
+Every advanced field has a matching option on `bast hosts add` and `bast hosts edit`:
+
+| TUI option | Set with | Remove or reset with |
+| --- | --- | --- |
+| Proxy jump | `--proxy-jump` | `--clear-proxy-jump` |
+| Agent forwarding | `--forward-agent yes\|no` | `--clear-forward-agent` |
+| Startup command | `--startup-command` | `--clear-startup-command` |
+| Request TTY | `--request-tty force\|no` | `--clear-request-tty` |
+| Environment variable | `--set-env` | `--clear-set-env` |
+| Local forward | `--local-forward` | `--clear-local-forward` |
+| Remote forward | `--remote-forward` | `--clear-remote-forward` |
+| Dynamic forward | `--dynamic-forward` | `--clear-dynamic-forward` |
+| Compression | `--compression yes\|no` | `--clear-compression` |
+| Keepalive | `--keepalive` | `--clear-keepalive` |
+| Custom flag | `--ssh-option` | `--clear-ssh-options` |
+
+Repeat `--set-env`, `--local-forward`, `--remote-forward`, or `--ssh-option` to add more than one value.
+
+```bash
+bast hosts add "Production web" \
+  --hostname prod.example.com \
+  --proxy-jump bastion \
+  --startup-command "tmux attach -t main" \
+  --request-tty force \
+  --set-env APP_ENV=production \
+  --local-forward "8080 localhost:80" \
+  --keepalive 30
+```
+
+Host edits are patches, so omitted options stay unchanged. Use the matching clear option to restore the OpenSSH default or remove existing values, for example:
+
+```bash
+bast hosts edit Production_web \
+  --clear-proxy-jump \
+  --clear-startup-command \
+  --clear-local-forward
+```
+
+Run `bast hosts add --help` or `bast hosts edit --help` for the option list.

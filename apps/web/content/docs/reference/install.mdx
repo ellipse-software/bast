@@ -1,0 +1,58 @@
+---
+title: Installation
+description: Install Bast on macOS or Linux via script, Homebrew, or from source.
+---
+
+Three ways to get Bast on macOS or Linux.
+
+## Installer script (recommended)
+
+Downloads the latest build for your architecture, verifies the SHA-256 checksum, and installs to `~/.local/bin` by default. Run the same command again to update. It skips the download when you are already on the latest version.
+
+```bash
+curl -fsSL https://bast.sh/install | sh
+```
+
+Set `BAST_INSTALL_DIR` to install somewhere else.
+
+Make sure the install directory is on your `PATH`, then run `bast`.
+
+## Homebrew
+
+```bash
+brew install ellipse-software/tap/bast
+```
+
+## Nightly channel
+
+Nightly builds track the latest `master` commit and install to the same `bast` command as stable releases. Only one channel can be active at a time — running either installer uninstalls the other channel first (including a Homebrew install of the other formula), then installs the requested channel.
+
+```bash
+curl -fsSL https://bast.sh/install-nightly | sh
+```
+
+Homebrew:
+
+```bash
+brew install ellipse-software/tap/bast-nightly
+```
+
+Run the same commands again to update. Use `bast update` for script installs on either channel.
+
+## From source
+
+Requires Go 1.26+:
+
+```bash
+git clone https://github.com/ellipse-software/bast.git
+cd bast/apps/bast
+go build -trimpath -o bast .
+```
+
+## Installer requirements
+
+The bast.sh script needs `curl`, `tar`, and `shasum` or `sha256sum`.
+
+## After install
+
+Run `bast` to open the host picker. Run `bast update` to update copies installed via the script (see [Updates](/docs/reference/updates)).

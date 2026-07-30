@@ -1,0 +1,83 @@
+---
+title: Command line
+description: Manage hosts and keys from the shell, with JSON output for scripts and automation.
+---
+
+Everything in the TUI is also available from the shell. That matters for scripts, automation, and tools that need stable output.
+
+## Host commands
+
+```bash
+bast hosts list --sort group
+bast hosts show production_web
+bast hosts add "Production web" --hostname prod.example.com --user deploy --group Work/Production --tag web
+bast hosts edit production_web --notes "Primary application server"
+bast hosts favorite production_web
+bast hosts hide old_server
+bast hosts known-host remove production_web
+bast hosts delete production_web
+```
+
+Host edits are patches: fields you omit stay unchanged. Flags like `--clear-group`, `--clear-notes`, and `--clear-identity` remove values on purpose.
+
+Advanced connection settings use dedicated flags:
+
+```bash
+bast hosts add "Production web" --hostname prod.example.com \
+  --proxy-jump bastion \
+  --forward-agent no \
+  --startup-command "tmux attach -t main" \
+  --request-tty force \
+  --set-env APP_ENV=production \
+  --local-forward "8080 localhost:80" \
+  --keepalive 30
+```
+
+Repeat `--set-env`, `--local-forward`, `--remote-forward`, and `--ssh-option` for multiple values. On edit, use the matching `--clear-*` flag to remove a value or return to the OpenSSH default.
+
+See [Advanced host options](/docs/features/advanced-host-options) for what every option does, syntax examples, and security notes.
+
+Run `bast hosts <command> --help` for the full option list per command.
+
+## Key commands
+
+```bash
+bast keys list
+bast keys generate work --algorithm ed25519
+bast keys import work --private ~/.ssh/id_ed25519
+bast keys comment work --comment "Work laptop"
+bast keys public work
+bast keys install work --host production_web
+bast keys export work --directory ~/Desktop --yes
+bast keys delete work --yes
+```
+
+Run `bast keys <command> --help` for command-specific usage.
+
+## Sync commands
+
+```bash
+bast sync gcp
+bast sync aws
+bast sync azure
+bast sync status
+bast sync disable gcp
+```
+
+Sync imports cloud VMs as read-only hosts. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), or [Azure](/docs/features/azure) for provider setup and routing.
+
+## JSON mode
+
+Pass `--json` anywhere in the command for machine-readable output. It disables prompts, so pair it with flags like `--yes` for destructive actions:
+
+```bash
+bast hosts list --json
+bast --json hosts show production_web
+bast keys generate automation --no-passphrase --json
+```
+
+Success looks like `{"ok":true,"data":...}`. Errors go to stderr with a non-zero exit code. Commands that need an interactive SSH session or passphrase entry reject `--json` with `interactive_required`.
+
+## Prompts and confirmations
+
+Commands prompt for missing input and sensitive confirmations when attached to a terminal. Pass `--yes` to explicitly approve deletion, known-host removal, or private-key export in unattended use. Pass `--no-input` to never prompt (fields must be provided via flags).

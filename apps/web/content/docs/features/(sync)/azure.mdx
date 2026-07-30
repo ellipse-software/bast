@@ -1,0 +1,160 @@
+---
+title: Azure
+description: Import Azure Linux VMs into Bast as read-only hosts via the native Azure CLI.
+---
+
+The **Sync** tab (`3`) imports running standalone Linux virtual machines from Azure. Synced hosts remain ordinary OpenSSH entries, while their connection details, label, and group stay owned by Azure sync.
+
+Bast uses the native **Azure CLI (`az`)** on your machine. It does not store Azure credentials, use an Azure SDK, or run a cloud agent.
+
+Bast supports **GCP**, **AWS**, and **Azure** through each provider's native CLI.
+
+<Callout type="warn" title="Nightly only">
+Azure sync is currently available on the [nightly channel](/docs/reference/install#nightly-channel) only. It is not in stable releases yet.
+</Callout>
+
+## Requirements
+
+- Azure CLI 2.62 or later on your `PATH`
+- At least one enabled subscription available through `az login`
+- A local private key matching a public key in the VM model, or Microsoft Entra SSH login enabled on the VM
+- For Microsoft Entra certificates: the Azure CLI `ssh` extension
+- For private-only VMs: a Standard or Premium Azure Bastion with native-client tunnelling enabled, plus the Azure CLI `bastion` extension
+
+Install the optional extensions when you need those connection methods:
+
+```bash
+az extension add --name ssh
+az extension add --name bastion
+```
+
+## Authenticate Azure CLI
+
+Install Azure CLI using the [official Microsoft instructions](https://learn.microsoft.com/cli/azure/install-azure-cli), then sign in:
+
+```bash
+az version
+az login
+az account list --output table
+```
+
+Bast scans enabled subscriptions in the Azure cloud currently selected by the CLI. Subscription filters accept exact subscription names or IDs.
+
+## Connect Azure
+
+1. Open Bast and press `3` for Sync.
+2. Select **Azure** and press Enter.
+3. Choose **Connect** or **Sync now**.
+
+By default Bast scans every enabled subscription and resource group. Use **Subscription filter** or **Resource group filter** before syncing when only part of the account should appear.
+
+Discovery is fail-closed per subscription. If one selected subscription cannot be scanned, Bast keeps that subscription's previous synced hosts. Subscriptions that were scanned successfully still reconcile normally. If no selected subscription can be confirmed, Bast leaves the generated inventory unchanged and reports an incomplete discovery.
+
+## What gets created
+
+Each VM becomes an SSH host under:
+
+```text
+~/.ssh/bast/sync/azure/config
+```
+
+The host picker groups VMs by subscription and resource group:
+
+```text
+Microsoft Azure / <subscription> / <resource group>
+  vm-name
+```
+
+Detail shows **Azure synced**. Connection settings, group, and label are read-only. Favoriting and hiding still work.
+
+Bast imports only running standalone Linux VMs with a usable route. Windows VMs, stopped VMs, virtual machine scale sets, Azure Arc machines, and VMs without either a public address or a matching Azure Bastion route are not imported.
+
+## How Bast connects
+
+On connect (TUI Enter or `bast connect` / `bast <label>`), Bast rechecks the VM and prepares authentication before launching your system `ssh`.
+
+| Situation | Behavior |
+| --- | --- |
+| Public IPv4 or IPv6 | Direct OpenSSH connection |
+| Private address only | OpenSSH `ProxyCommand` through Azure Bastion |
+| Deployment public key matches a local key | Uses the local private key with `IdentitiesOnly yes` |
+| No matching local key and Entra SSH login is enabled | Requests a short-lived Entra OpenSSH certificate with `az ssh config` |
+| Neither method is available | Stops with an actionable access error; the VM is not modified |
+
+### Local deployment keys
+
+Bast compares public keys in the Azure VM model with `.pub` files under:
+
+```text
+~/.ssh/bast/keys
+~/.ssh
+```
+
+The matching private key must exist beside its `.pub` file. Bast rechecks the VM on every connection rather than trusting stale sync metadata.
+
+### Microsoft Entra certificates
+
+When no local key matches, Bast checks for `AADSSHLoginForLinux` and uses the Azure CLI `ssh` extension to request an OpenSSH certificate. Azure CLI material is kept under:
+
+```text
+~/.ssh/bast/azure
+```
+
+The certificate is refreshed for each connection. The user must have the **Virtual Machine User Login** or **Virtual Machine Administrator Login** role at an applicable scope.
+
+Bast does not install the Entra extension or assign Azure roles.
+
+### Azure Bastion
+
+Private VMs require an existing Bastion attached to the same virtual network. The Bastion must use Standard or Premium SKU and have native-client tunnelling enabled.
+
+The generated SSH host uses an internal Bast `ProxyCommand` that starts `az network bastion tunnel`, connects OpenSSH to its local port, and shuts the tunnel down with the SSH session. Required access includes Reader permission on the VM, NIC, and Bastion resource, plus any VM login role required by the selected authentication method.
+
+Bast does not create or update Bastion resources, virtual networks, network security groups, routes, public addresses, or VMs.
+
+## Azure settings
+
+Inside the Azure submenu:
+
+| Action | Purpose |
+| --- | --- |
+| Sync now | Re-run discovery and refresh SSH config |
+| Connect / Disconnect | Enable sync, or turn it off and remove generated hosts |
+| Enable / Disable auto-sync | Sync when the TUI opens (off by default) |
+| Default SSH user | Override the VM admin username for local-key connections |
+| Subscription filter | Comma-separated exact names or IDs; blank = all enabled |
+| Resource group filter | Comma-separated exact names; blank = all |
+| Refresh status | Reload subscriptions, extension checks, and last-sync information |
+
+Press Esc to return to the provider list.
+
+## CLI
+
+```bash
+bast sync azure
+bast sync status
+bast sync disable azure
+bast sync azure --json
+bast sync status --json
+bast connect azure_Production_apps_web
+```
+
+## Re-sync and cleanup
+
+Press `r` on the Sync tab (or run `bast sync azure`) after creating, deleting, moving, or changing a VM. Disconnecting Azure removes the generated Azure sync config and its Include line. It does not affect Bast-managed hosts or Azure resources.
+
+The `~/.ssh/bast/azure` directory remains available for later Entra connections. Bast does not modify Azure CLI credentials or append keys through VMAccess.
+
+## Troubleshooting
+
+| Error or missing host | Check |
+| --- | --- |
+| No Azure subscriptions selected | Run `az login` and `az account list`, then clear or update the subscription filter |
+| Azure CLI 2.62 required | Upgrade Azure CLI using Microsoft's installation instructions |
+| Incomplete Azure discovery | Confirm Reader access to every selected subscription, VM, NIC, and Bastion resource |
+| Private VM missing | Confirm a Standard or Premium Bastion exists in the same virtual network with tunnelling enabled |
+| Bastion extension required | Run `az extension add --name bastion` |
+| SSH extension required | Run `az extension add --name ssh` |
+| Entra login is not enabled | Install `AADSSHLoginForLinux` through your Azure administration workflow, or restore the VM's matching local key |
+| Entra access denied | Check the Virtual Machine User Login or Administrator Login role and Conditional Access requirements |
+| SSH user could not be determined | Set **Default SSH user** in the Azure submenu |

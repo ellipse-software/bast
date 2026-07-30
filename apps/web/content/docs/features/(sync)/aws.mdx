@@ -1,0 +1,202 @@
+---
+title: AWS
+description: Import Amazon EC2 instances into Bast as read-only hosts via AWS CLI v2.
+---
+
+The **Sync** tab (`3`) imports running Linux EC2 instances into Bast. Synced hosts remain ordinary OpenSSH entries, while their connection details, label, and group stay owned by AWS sync.
+
+Bast uses **AWS CLI v2** on your machine. It does not store AWS credentials or use a separate cloud agent. Discovery, EC2 Instance Connect keys, and private tunnels run through the AWS CLI profiles you already use.
+
+Bast supports **GCP**, **AWS**, and **Azure** through each provider's native CLI.
+
+<Callout type="warn" title="Nightly only">
+AWS sync is currently available on the [nightly channel](/docs/reference/install#nightly-channel) only. It is not in stable releases yet.
+</Callout>
+
+## Requirements
+
+- AWS CLI v2 on your `PATH`
+- At least one authenticated AWS CLI profile
+- IAM access to discover EC2 instances and their connection routes
+- A running Linux instance with SSH available
+- For direct connections: a public IPv4 or IPv6 address reachable on port 22
+- For private-only instances: an active [EC2 Instance Connect Endpoint](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-with-ec2-instance-connect-endpoint.html) with working routes and security groups
+
+Windows and stopped instances are skipped.
+
+## Install and authenticate AWS CLI
+
+Install AWS CLI v2 using the [official AWS instructions](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), then verify it:
+
+```bash
+aws --version
+```
+
+For browser-based console credentials on a current CLI:
+
+```bash
+aws login --profile default
+```
+
+For IAM Identity Center:
+
+```bash
+aws configure sso --profile production
+aws sso login --profile production
+```
+
+Check the profiles Bast will find and confirm the identity behind one of them:
+
+```bash
+aws configure list-profiles
+aws sts get-caller-identity --profile default
+```
+
+`default`, `production`, and similar names are AWS CLI profiles. Bast uses them as the second level of the managed host group.
+
+## Connect AWS
+
+1. Open Bast and press `3` for Sync.
+2. Select **AWS** and press Enter.
+3. Choose **Connect** or **Sync now**.
+
+By default Bast scans every configured profile and every enabled region. Use **Profile filter** or **Region filter** before syncing when an account is large or a profile should stay out of Bast.
+
+Discovery fails closed. If a selected profile or region cannot be scanned, Bast reports an incomplete discovery and keeps the previous synced inventory instead of deleting hosts from a partial result.
+
+## What gets created
+
+Each instance becomes an SSH host under:
+
+```text
+~/.ssh/bast/sync/aws/config
+```
+
+The host picker groups instances by the AWS CLI profile and region used to discover them:
+
+```text
+Amazon EC2 / <profile> / <region>
+  instance-name
+```
+
+For example:
+
+```text
+Amazon EC2 / default / eu-west-2
+  web-01
+```
+
+Detail shows **AWS synced**. Connection settings, group, and label are read-only. Favoriting and hiding still work. Bast uses the EC2 `Name` tag as the label, falling back to the instance ID when no name is set.
+
+## How Bast connects
+
+On connect (TUI Enter or `bast connect` / `bast <label>`), Bast confirms the AWS account and instance, prepares SSH authentication, then launches your system `ssh`.
+
+| Situation | Behavior |
+| --- | --- |
+| Public IPv4 or IPv6 | Direct OpenSSH connection |
+| Private address only | `ProxyCommand` through an EC2 Instance Connect Endpoint in the same VPC |
+| Matching EC2 launch key exists locally | Uses that private key with `IdentitiesOnly yes` |
+| Launch key is missing | Publishes Bast's SSH public key through EC2 Instance Connect immediately before SSH |
+| Instance launched without a key pair | Uses the same EC2 Instance Connect path, when the AMI and IAM policy support it |
+
+Bast infers common AMI users such as `ubuntu` and `ec2-user`. Set **Default SSH user** in the AWS submenu when the AMI does not expose enough information to identify the user.
+
+### EC2 launch keys
+
+When the instance has an EC2 key pair, keep its private key under a matching name. For an EC2 key pair named `production`, Bast checks:
+
+```text
+~/.ssh/bast/keys/production
+~/.ssh/bast/keys/production.pem
+~/.ssh/bast/keys/production.key
+~/.ssh/production
+~/.ssh/production.pem
+~/.ssh/production.key
+```
+
+The file must contain a private key. On macOS and Linux, restrict a downloaded key before connecting:
+
+```bash
+chmod 400 ~/.ssh/production.pem
+```
+
+AWS does not provide the private half of an existing EC2 key pair again. If it is unavailable, Bast tries EC2 Instance Connect rather than guessing another identity.
+
+### No launch key pair
+
+An instance can be launched with **Proceed without a key pair** when its AMI is configured for another login method. For Bast, that method is [EC2 Instance Connect](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-connect-prerequisites.html).
+
+When no matching launch key exists, Bast:
+
+1. Creates `~/.ssh/bast/aws_compute` if needed.
+2. Sends its public key to the instance with `ec2-instance-connect:SendSSHPublicKey`.
+3. Starts OpenSSH while AWS makes that key available for 60 seconds.
+
+The 60-second limit applies to starting authentication. An established SSH session continues normally.
+
+## IAM permissions
+
+Sync uses these AWS API actions:
+
+```text
+sts:GetCallerIdentity
+ec2:DescribeRegions
+ec2:DescribeInstances
+ec2:DescribeImages
+ec2:DescribeInstanceConnectEndpoints
+```
+
+Connections may additionally require:
+
+```text
+ec2-instance-connect:SendSSHPublicKey
+ec2-instance-connect:OpenTunnel
+```
+
+`SendSSHPublicKey` is required only when Bast cannot use the EC2 launch key. `OpenTunnel` is required only for a private instance reached through an EC2 Instance Connect Endpoint. Scope both permissions to the intended instances, endpoints, tags, and OS users where possible. See AWS's guidance for [EC2 Instance Connect IAM](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-connect-configure-IAM-role.html) and [endpoint permissions](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/permissions-for-ec2-instance-connect-endpoint.html).
+
+## AWS settings
+
+Inside the AWS submenu:
+
+| Action | Purpose |
+| --- | --- |
+| Sync now | Re-run discovery and refresh SSH config |
+| Connect / Disconnect | Enable sync, or turn it off and remove generated hosts |
+| Enable / Disable auto-sync | Sync when the TUI opens (off by default) |
+| Default SSH user | Override AMI username inference |
+| Profile filter | Comma-separated AWS CLI profiles; blank = all configured |
+| Region filter | Comma-separated AWS regions; blank = all enabled |
+| Refresh status | Reload profiles and last-sync information |
+
+Press Esc to return to the provider list.
+
+## CLI
+
+```bash
+bast sync aws                              # discover and write hosts
+bast sync status                           # profiles, filters, last sync, errors
+bast sync disable aws                      # turn off and remove AWS sync hosts
+bast sync aws --json
+bast sync status --json
+bast connect aws_default_eu-west-2_web-01  # prepare AWS access, then ssh
+```
+
+## Re-sync and cleanup
+
+Press `r` on the Sync tab (or run `bast sync aws`) after creating, deleting, or changing EC2 instances. Disconnecting AWS removes the generated AWS sync config and its Include line. It does not affect Bast-managed hosts, EC2 instances, security groups, endpoints, or key pairs.
+
+`~/.ssh/bast/aws_compute` remains available for later EC2 Instance Connect sessions. Bast does not create endpoints, change security groups, start instances, or modify AWS credentials.
+
+## Troubleshooting
+
+| Error or missing host | Check |
+| --- | --- |
+| No AWS profiles selected | Run `aws configure list-profiles`, then clear or update the profile filter |
+| Authentication failure | Refresh `aws login` or `aws sso login` for the named profile |
+| Incomplete AWS discovery | Confirm every selected profile can read every selected region |
+| SSH user could not be determined | Set **Default SSH user** to the AMI user, such as `ubuntu` or `ec2-user` |
+| `SendSSHPublicKey` denied | Check IAM and confirm EC2 Instance Connect is installed on the AMI |
+| Private instance missing | Confirm an active endpoint exists in the VPC and the instance has a private address |
+| Private SSH fails | Check endpoint routes, endpoint and instance security groups, and `OpenTunnel` permission |
