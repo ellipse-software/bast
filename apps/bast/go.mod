@@ -8,7 +8,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/x/term v0.2.2
-	golang.org/x/sync v0.21.0
+	golang.org/x/sync v0.22.0
 )
 
 require (
