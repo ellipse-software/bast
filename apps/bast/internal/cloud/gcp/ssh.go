@@ -1,16 +1,13 @@
 package gcp
 
 import (
-	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"bast/internal/cloud"
+	"bast/internal/cloud/sshutil"
 	"bast/internal/sshconfig"
 )
-
-var unsafeAliasChars = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 func ToSyncHost(inst cloud.Instance, alias string) sshconfig.SyncHostInput {
 	if alias == "" {
@@ -60,21 +57,21 @@ func shortenHomePath(path, home string) string {
 
 func IAPProxyCommand(inst cloud.Instance) string {
 	args := []string{
-		"gcloud", "compute", "start-iap-tunnel", proxyLiteral(inst.Name), "%p",
+		"gcloud", "compute", "start-iap-tunnel", sshutil.ProxyLiteral(inst.Name), "%p",
 		"--listen-on-stdin",
-		"--project=" + proxyLiteral(inst.ProjectID),
-		"--zone=" + proxyLiteral(inst.Zone),
+		"--project=" + sshutil.ProxyLiteral(inst.ProjectID),
+		"--zone=" + sshutil.ProxyLiteral(inst.Zone),
 		"--verbosity=warning",
 	}
 	if inst.CredentialAccount != "" {
-		args = append(args, "--account="+proxyLiteral(inst.CredentialAccount))
+		args = append(args, "--account="+sshutil.ProxyLiteral(inst.CredentialAccount))
 	}
 	for i := range args {
-		args[i] = shellQuote(args[i])
+		args[i] = sshutil.ShellQuote(args[i])
 	}
 	command := strings.Join(args, " ")
 	if inst.CredentialFile != "" {
-		command = "env CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=" + shellQuote(proxyLiteral(inst.CredentialFile)) + " " + command
+		command = "env CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=" + sshutil.ShellQuote(sshutil.ProxyLiteral(inst.CredentialFile)) + " " + command
 	}
 	return command
 }
@@ -92,8 +89,8 @@ func GroupPath(inst cloud.Instance) string {
 }
 
 func AliasFor(inst cloud.Instance) string {
-	project := sanitizeAliasPart(inst.ProjectID)
-	name := sanitizeAliasPart(inst.Name)
+	project := sshutil.SanitizeAliasPart(inst.ProjectID)
+	name := sshutil.SanitizeAliasPart(inst.Name)
 	if project == "" {
 		project = "gcp"
 	}
@@ -104,37 +101,5 @@ func AliasFor(inst cloud.Instance) string {
 }
 
 func UniqueAlias(base string, used map[string]bool) string {
-	if !used[base] {
-		return base
-	}
-	for i := 2; ; i++ {
-		candidate := fmt.Sprintf("%s_%d", base, i)
-		if !used[candidate] {
-			return candidate
-		}
-	}
-}
-
-func sanitizeAliasPart(value string) string {
-	value = strings.TrimSpace(value)
-	value = unsafeAliasChars.ReplaceAllString(value, "_")
-	value = strings.Trim(value, "_")
-	if len(value) > 48 {
-		value = value[:48]
-	}
-	return value
-}
-
-func proxyLiteral(value string) string {
-	return strings.ReplaceAll(value, "%", "%%")
-}
-
-func shellQuote(value string) string {
-	if value != "" && strings.IndexFunc(value, func(r rune) bool {
-		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') || strings.ContainsRune("-_=./:@%+", r))
-	}) < 0 {
-		return value
-	}
-	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+	return sshutil.UniqueAlias(base, used)
 }

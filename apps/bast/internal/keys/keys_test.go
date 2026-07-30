@@ -219,7 +219,7 @@ func TestSetCommentAfterImport(t *testing.T) {
 	if err := m.SetComment(key, "updated comment"); err != nil {
 		t.Fatal(err)
 	}
-	public, err := PublicText(key)
+	public, err := readPublicKeyFile(key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestSetCommentAfterImport(t *testing.T) {
 	if err := m.SetComment(key, ""); err != nil {
 		t.Fatal(err)
 	}
-	public, err = PublicText(key)
+	public, err = readPublicKeyFile(key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,5 +264,22 @@ func TestExportRefusesPartialOverwrite(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(destination, "key")); !os.IsNotExist(err) {
 		t.Fatal("private key was partially exported")
+	}
+}
+
+func TestExportRemovesPrivateKeyWhenPublicCopyFails(t *testing.T) {
+	m := keyManager(t)
+	sourceDir := t.TempDir()
+	private := filepath.Join(sourceDir, "key")
+	if err := os.WriteFile(private, []byte("private"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	destination := t.TempDir()
+	err := m.Export(Key{Name: "key", PrivatePath: private, PublicPath: filepath.Join(sourceDir, "missing.pub")}, destination)
+	if err == nil {
+		t.Fatal("expected public-key copy failure")
+	}
+	if _, statErr := os.Stat(filepath.Join(destination, "key")); !os.IsNotExist(statErr) {
+		t.Fatalf("private destination was not removed: %v", statErr)
 	}
 }

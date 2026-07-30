@@ -42,9 +42,7 @@ func TestTrackSendsCliPayload(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	original := endpoint
-	endpoint = server.URL
-	t.Cleanup(func() { endpoint = original })
+	t.Cleanup(setEndpoint(server.URL))
 
 	Track("connect", "v1.2.3")
 
@@ -71,9 +69,7 @@ func TestTrackSkipsWhenDisabled(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	original := endpoint
-	endpoint = server.URL
-	t.Cleanup(func() { endpoint = original })
+	t.Cleanup(setEndpoint(server.URL))
 
 	Track("tui_open", "v1.2.3")
 
@@ -98,9 +94,7 @@ func TestReportErrorSendsPayload(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	original := errorEndpoint
-	errorEndpoint = server.URL
-	t.Cleanup(func() { errorEndpoint = original })
+	t.Cleanup(SetErrorEndpoint(server.URL))
 
 	ReportError(Report{
 		Message: "boom",
@@ -132,9 +126,7 @@ func TestReportErrorSkipsWhenDisabled(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	original := errorEndpoint
-	errorEndpoint = server.URL
-	t.Cleanup(func() { errorEndpoint = original })
+	t.Cleanup(SetErrorEndpoint(server.URL))
 
 	ReportError(Report{Message: "boom", Version: "v1.2.3"})
 
@@ -159,9 +151,7 @@ func TestOfferReportSendsOnSpace(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	original := errorEndpoint
-	errorEndpoint = server.URL
-	t.Cleanup(func() { errorEndpoint = original })
+	t.Cleanup(SetErrorEndpoint(server.URL))
 
 	var out strings.Builder
 	OfferReport(strings.NewReader(" "), &out, Report{Message: "fail", Version: "v1.2.3", Context: "tui"})
@@ -189,9 +179,7 @@ func TestOfferReportSkipsSendOnOtherKey(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	original := errorEndpoint
-	errorEndpoint = server.URL
-	t.Cleanup(func() { errorEndpoint = original })
+	t.Cleanup(SetErrorEndpoint(server.URL))
 
 	OfferReport(strings.NewReader("k"), ioDiscard{}, Report{Message: "fail", Version: "v1.2.3"})
 

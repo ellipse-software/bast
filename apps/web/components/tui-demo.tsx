@@ -322,7 +322,9 @@ function appendGroupRows(
   node: HostGroupNode,
   depth: number,
   collapsed: Record<string, boolean>,
+  parentSynced = false,
 ): HostListRow[] {
+  const synced = Boolean(parentSynced || node.synced || node.googleCloud);
   rows.push({
     kind: "group",
     id: node.path,
@@ -330,13 +332,7 @@ function appendGroupRows(
     depth,
     count: groupCount(node),
     googleCloud: node.googleCloud,
-    synced:
-      node.synced ||
-      node.googleCloud ||
-      node.path === "Google Cloud" ||
-      node.path.startsWith("Google Cloud/") ||
-      node.path.startsWith("Amazon EC2/") ||
-      node.path.startsWith("Microsoft Azure/"),
+    synced,
   });
   if (collapsed[node.path]) {
     return rows;
@@ -350,7 +346,7 @@ function appendGroupRows(
     });
   }
   for (const child of node.children ?? []) {
-    appendGroupRows(rows, child, depth + 1, collapsed);
+    appendGroupRows(rows, child, depth + 1, collapsed, synced);
   }
   return rows;
 }
@@ -454,6 +450,15 @@ export function TuiDemo() {
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
+      if (
+        (event.key === "Enter" || event.key === " ") &&
+        event.target !== event.currentTarget &&
+        (event.target as HTMLElement).closest(
+          "button, a, input, select, textarea, [role='button']",
+        )
+      ) {
+        return;
+      }
       switch (event.key) {
         case "j":
         case "ArrowDown":
@@ -685,7 +690,7 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`cursor-pointer border-0 bg-transparent p-0 font-inherit font-bold transition-colors ${
+      className={`cursor-pointer border-0 bg-transparent p-0 font-[inherit] font-bold transition-colors ${
         active ? "text-accent" : "text-muted hover:text-foreground"
       }`}
     >
@@ -725,7 +730,7 @@ function HostList({
                   onToggleGroup(row.id);
                 }}
                 style={pad}
-                className={`w-full cursor-pointer truncate whitespace-nowrap border-0 py-0.5 text-left font-inherit font-bold transition-colors ${
+                className={`w-full cursor-pointer truncate whitespace-nowrap border-0 py-0.5 text-left font-[inherit] font-bold transition-colors ${
                   isSelected
                     ? "bg-highlight text-foreground"
                     : "bg-transparent text-accent hover:bg-highlight/70"
@@ -746,7 +751,7 @@ function HostList({
               type="button"
               onClick={() => onSelect(index)}
               style={pad}
-              className={`w-full cursor-pointer truncate whitespace-pre border-0 py-0.5 text-left font-inherit transition-colors ${
+              className={`w-full cursor-pointer truncate whitespace-pre border-0 py-0.5 text-left font-[inherit] transition-colors ${
                 isSelected
                   ? "bg-highlight font-bold text-foreground"
                   : "bg-transparent text-foreground hover:bg-highlight/70"
@@ -783,7 +788,7 @@ function KeyList({
             <button
               type="button"
               onClick={() => onSelect(index)}
-              className={`w-full cursor-pointer truncate whitespace-nowrap border-0 py-0.5 text-left font-inherit transition-colors ${
+              className={`w-full cursor-pointer truncate whitespace-nowrap border-0 py-0.5 text-left font-[inherit] transition-colors ${
                 isSelected
                   ? "bg-highlight font-bold text-foreground"
                   : "bg-transparent text-foreground hover:bg-highlight/70"
@@ -918,7 +923,7 @@ function SyncPanel({
               <button
                 type="button"
                 onClick={onBack}
-                className="cursor-pointer border-0 bg-transparent p-0 font-inherit text-muted hover:text-foreground"
+                className="cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-muted hover:text-foreground"
               >
                 esc
               </button>
@@ -939,7 +944,7 @@ function SyncPanel({
                   type="button"
                   disabled={item.disabled}
                   onClick={() => onSelect(index)}
-                  className={`flex w-full items-baseline gap-4 border-0 py-0.5 text-left font-inherit transition-colors ${
+                  className={`flex w-full items-baseline gap-4 border-0 py-0.5 text-left font-[inherit] transition-colors ${
                     item.disabled
                       ? "cursor-default bg-transparent text-muted"
                       : isSelected

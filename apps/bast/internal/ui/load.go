@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -54,6 +55,7 @@ func (m *App) enrichCmd(discovered []sshconfig.Host) tea.Cmd {
 		identities := make([][]string, len(hosts))
 		jobs := make(chan int)
 		var workers sync.WaitGroup
+		var enrichmentErrors atomic.Int64
 		for range min(8, len(hosts)) {
 			workers.Add(1)
 			go func() {
@@ -66,6 +68,7 @@ func (m *App) enrichCmd(discovered []sshconfig.Host) tea.Cmd {
 					}
 					resolved, resolveErr := m.openSSH.Resolve(ctx, hosts[i].Alias)
 					if resolveErr != nil {
+						enrichmentErrors.Add(1)
 						continue
 					}
 					hosts[i].Resolved = resolved
@@ -111,7 +114,11 @@ func (m *App) enrichCmd(discovered []sshconfig.Host) tea.Cmd {
 					if alreadyKnown[i] {
 						continue
 					}
-					known, _ := m.openSSH.Fingerprints(ctx, endpoints[i].host, endpoints[i].port)
+					known, err := m.openSSH.Fingerprints(ctx, endpoints[i].host, endpoints[i].port)
+					if err != nil {
+						enrichmentErrors.Add(1)
+						continue
+					}
 					knownHosts[i] = known != ""
 				}
 			}()
@@ -134,6 +141,6 @@ func (m *App) enrichCmd(discovered []sshconfig.Host) tea.Cmd {
 			}
 		}
 		keyList, err := m.keyring.Discover(ctx, referenced)
-		return loadedMsg{hosts: hosts, keys: keyList, err: err}
+		return loadedMsg{hosts: hosts, keys: keyList, enrichmentErrors: int(enrichmentErrors.Load()), err: err}
 	}
 }

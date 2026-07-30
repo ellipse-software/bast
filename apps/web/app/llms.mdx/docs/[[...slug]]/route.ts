@@ -9,6 +9,7 @@ export async function GET(
   props: RouteContext<"/llms.mdx/docs/[[...slug]]">,
 ) {
   const { slug } = await props.params;
+  if (slug?.at(-1) !== "index.md") notFound();
   const page = source.getPage(slug?.slice(0, -1));
   if (!page) notFound();
 

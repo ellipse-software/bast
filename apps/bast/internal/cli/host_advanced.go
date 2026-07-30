@@ -2,7 +2,6 @@ package cli
 
 import (
 	"flag"
-	"sort"
 	"strings"
 
 	"bast/internal/sshconfig"
@@ -271,32 +270,7 @@ func validateAdvancedFlagValues(settings sshconfig.AdvancedSettings) error {
 	if err := sshconfig.ValidateAdvanced(settings); err != nil {
 		return fail("validation", err.Error())
 	}
-	for _, value := range []struct {
-		name, raw string
-		allowed   map[string]bool
-	}{
-		{"forward-agent", settings.ForwardAgent, map[string]bool{"": true, "yes": true, "no": true}},
-		{"compression", settings.Compression, map[string]bool{"": true, "yes": true, "no": true}},
-		{"request-tty", settings.RequestTTY, map[string]bool{"": true, "force": true, "no": true}},
-	} {
-		if !value.allowed[value.raw] {
-			return usagef("%s must be one of: %s", value.name, strings.Join(allowedList(value.allowed), ", "))
-		}
-	}
 	return nil
-}
-
-func allowedList(values map[string]bool) []string {
-	out := []string{}
-	for value := range values {
-		if value == "" {
-			out = append(out, "default")
-			continue
-		}
-		out = append(out, value)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func promptAdvancedSettings(r *Runner, current sshconfig.AdvancedSettings) (sshconfig.AdvancedSettings, error) {

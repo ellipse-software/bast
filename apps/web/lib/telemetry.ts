@@ -1,3 +1,5 @@
+import { MAX_VERSION } from "./errors";
+
 const VERSION_PATTERN =
   /^(dev|v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|nightly\.[0-9]{8}\.[0-9a-fA-F]+)$/;
 
@@ -46,6 +48,7 @@ export function parseTelemetryPayload(body: unknown): TelemetryPayload | null {
   if (
     typeof event !== "string" ||
     typeof version !== "string" ||
+    version.length > MAX_VERSION ||
     !VERSION_PATTERN.test(version) ||
     typeof os !== "string" ||
     !/^(darwin|linux)$/.test(os) ||

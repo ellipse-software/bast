@@ -29,6 +29,9 @@ func TestGCPIntegrationRoundTrip(t *testing.T) {
 	if len(gcp.ProjectFilter) != 1 || gcp.ProjectFilter[0] != "demo" {
 		t.Fatalf("filter = %+v", gcp.ProjectFilter)
 	}
+	if len(gcp.ServiceAccounts) != 1 || gcp.ServiceAccounts[0] != "/tmp/sa.json" {
+		t.Fatalf("service accounts = %+v", gcp.ServiceAccounts)
+	}
 }
 
 func TestAWSIntegrationRoundTrip(t *testing.T) {

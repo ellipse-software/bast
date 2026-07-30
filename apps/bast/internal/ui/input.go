@@ -82,12 +82,12 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	m.scrollbarDragging = false
 
 	if mouse.Y == 0 {
-		tabsStart := lipgloss.Width(" BAST ") + 2
-		hostsEnd := tabsStart + lipgloss.Width("[1] Hosts")
-		keysStart := hostsEnd + 3
-		keysEnd := keysStart + lipgloss.Width("[2] Keys")
-		syncStart := keysEnd + 3
-		syncEnd := syncStart + lipgloss.Width("[3] Sync")
+		tabsStart := lipgloss.Width(headerTitle) + 2
+		hostsEnd := tabsStart + lipgloss.Width(headerTabLabels[0])
+		keysStart := hostsEnd + lipgloss.Width(headerTabSpacing)
+		keysEnd := keysStart + lipgloss.Width(headerTabLabels[1])
+		syncStart := keysEnd + lipgloss.Width(headerTabSpacing)
+		syncEnd := syncStart + lipgloss.Width(headerTabLabels[2])
 		switch {
 		case mouse.X >= tabsStart && mouse.X < hostsEnd:
 			m.section, m.cursor, m.search = hostsSection, 0, ""
@@ -503,35 +503,26 @@ func (m *App) connectSelected() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if host.Synced && host.SyncSource == "gcp" && host.SyncID != "" {
-		return m.startSSH(host, func(status func(string)) error {
-			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-			defer cancel()
-			if err := m.syncer.EnsureGCPAccess(ctx, host, status); err != nil {
-				return err
-			}
-			return m.metadata.RecordUse(host.Alias)
-		})
-	}
-	if host.Synced && host.SyncSource == "aws" && host.SyncID != "" {
-		return m.startSSH(host, func(status func(string)) error {
-			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-			defer cancel()
-			if err := m.syncer.EnsureAWSAccess(ctx, host, status); err != nil {
-				return err
-			}
-			return m.metadata.RecordUse(host.Alias)
-		})
-	}
-	if host.Synced && host.SyncSource == "azure" && host.SyncID != "" {
-		return m.startSSH(host, func(status func(string)) error {
-			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-			defer cancel()
-			if err := m.syncer.EnsureAzureAccess(ctx, host, status); err != nil {
-				return err
-			}
-			return m.metadata.RecordUse(host.Alias)
-		})
+	if host.Synced && host.SyncID != "" {
+		var ensure func(context.Context, sshconfig.Host, func(string)) error
+		switch host.SyncSource {
+		case "gcp":
+			ensure = m.syncer.EnsureGCPAccess
+		case "aws":
+			ensure = m.syncer.EnsureAWSAccess
+		case "azure":
+			ensure = m.syncer.EnsureAzureAccess
+		}
+		if ensure != nil {
+			return m.startSSH(host, func(status func(string)) error {
+				ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+				defer cancel()
+				if err := ensure(ctx, host, status); err != nil {
+					return err
+				}
+				return m.metadata.RecordUse(host.Alias)
+			})
+		}
 	}
 	return m.startSSH(host, nil)
 }

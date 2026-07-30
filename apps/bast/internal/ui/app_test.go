@@ -74,7 +74,7 @@ func enterHostFormSection(t *testing.T, m *App, section string) {
 func enterAdvancedSubsection(t *testing.T, m *App, section string) {
 	t.Helper()
 	enterHostFormSection(t, m, formSectionAdvanced)
-	for i, item := range advancedHubItems() {
+	for i, item := range advancedHubList {
 		if item.section == section {
 			m.form.hubIndex = i
 			m.enterAdvancedSubsection(section)

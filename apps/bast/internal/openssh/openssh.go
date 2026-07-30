@@ -34,8 +34,8 @@ func (c Client) Check() error {
 }
 
 func (c Client) Resolve(ctx context.Context, alias string) (sshconfig.Resolved, error) {
-	if alias == "" || strings.HasPrefix(alias, "-") {
-		return sshconfig.Resolved{}, errors.New("invalid host label")
+	if err := validateAlias(alias); err != nil {
+		return sshconfig.Resolved{}, err
 	}
 	cmd := exec.CommandContext(ctx, c.SSH, "-G", "--", alias)
 	out, err := cmd.Output()
@@ -75,8 +75,8 @@ func (c Client) Resolve(ctx context.Context, alias string) (sshconfig.Resolved, 
 }
 
 func (c Client) InstallPublicKeyCommand(alias, publicKey string) (*exec.Cmd, error) {
-	if alias == "" || strings.HasPrefix(alias, "-") || strings.ContainsAny(alias, "\r\n\x00") {
-		return nil, errors.New("invalid host label")
+	if err := validateAlias(alias); err != nil {
+		return nil, err
 	}
 	publicKey = strings.TrimSpace(publicKey)
 	if publicKey == "" || strings.ContainsAny(publicKey, "\r\n\x00") {
@@ -102,8 +102,8 @@ fi`
 }
 
 func (c Client) SSHCommand(alias string) (*exec.Cmd, error) {
-	if alias == "" || strings.HasPrefix(alias, "-") || strings.ContainsAny(alias, "\r\n\x00") {
-		return nil, errors.New("invalid host label")
+	if err := validateAlias(alias); err != nil {
+		return nil, err
 	}
 	cmd := exec.Command(c.SSH, "--", alias)
 	cmd.Stdin = os.Stdin
@@ -132,6 +132,9 @@ func (c Client) Fingerprints(ctx context.Context, host string, port string) (str
 }
 
 func (c Client) RemoveKnownHost(ctx context.Context, host, port string) error {
+	if strings.TrimSpace(host) == "" {
+		return errors.New("host is required")
+	}
 	lookup := host
 	if port != "" && port != "22" {
 		lookup = "[" + host + "]:" + port
@@ -139,6 +142,13 @@ func (c Client) RemoveKnownHost(ctx context.Context, host, port string) error {
 	cmd := exec.CommandContext(ctx, c.SSHKeygen, "-R", lookup)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("remove known host: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+func validateAlias(alias string) error {
+	if alias == "" || strings.HasPrefix(alias, "-") || strings.ContainsAny(alias, "\r\n\x00") {
+		return errors.New("invalid host label")
 	}
 	return nil
 }

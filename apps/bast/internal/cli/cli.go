@@ -71,6 +71,7 @@ type Runner struct {
 	config  sshconfig.Manager
 	keyring keys.Manager
 	store   *metadata.Store
+	reader  *bufio.Reader
 }
 
 type reportedError struct{ code int }
@@ -78,7 +79,8 @@ type reportedError struct{ code int }
 func (e reportedError) Error() string { return "CLI error already reported" }
 func ExitCode(err error) (int, bool) {
 	var reported reportedError
-	return reported.code, errors.As(err, &reported)
+	ok := errors.As(err, &reported)
+	return reported.code, ok
 }
 
 type commandError struct {
@@ -99,6 +101,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 		Paths: p, OpenSSH: client, Version: "dev", In: in, Out: out, Err: errOut,
 		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig},
 		keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
+		reader:  bufio.NewReader(in),
 	}, nil
 }
 
@@ -190,8 +193,12 @@ func (r *Runner) Run(args []string) error {
 func commandUsage(resource, command string) string {
 	usage := map[string]string{
 		"update --help": "Usage: bast update",
-		"hosts list":    "Usage: bast hosts list [--search text] [--sort smart|label|recent|group] [--all]",
-		"hosts show":    "Usage: bast hosts show <host>",
+		"hosts --help": `Usage: bast hosts <command>
+
+Commands: list, show, add, edit, delete, favorite, unfavorite, hide,
+          show-hidden, sort, known-host remove`,
+		"hosts list": "Usage: bast hosts list [--search text] [--sort smart|label|recent|group] [--all]",
+		"hosts show": "Usage: bast hosts show <host>",
 		"hosts add": `Usage: bast hosts add [label] --hostname host [options]
 
 Connection: --user, --port, --identity, --password-only, --proxy-jump
@@ -210,7 +217,11 @@ Metadata: --label paths like Work/api set the group; or --group, --tag,
           --environment, --color, --notes
 Repeat list options to provide multiple values. Use the corresponding --clear-*
 option to restore a default or remove values.`,
-		"hosts delete":    "Usage: bast hosts delete <host> [--yes]",
+		"hosts delete": "Usage: bast hosts delete <host> [--yes]",
+		"keys --help": `Usage: bast keys <command>
+
+Commands: list, show, generate, import, comment, export, install,
+          passphrase, public, copy, delete`,
 		"keys list":       "Usage: bast keys list [--search text]",
 		"keys show":       "Usage: bast keys show <name>",
 		"keys generate":   "Usage: bast keys generate [name] [--algorithm ed25519|rsa] [--no-passphrase]",
@@ -284,6 +295,7 @@ type hostRecord struct {
 	SyncID          string                     `json:"syncId,omitempty"`
 	Source          string                     `json:"source"`
 	KnownHost       bool                       `json:"knownHost"`
+	ResolveError    string                     `json:"resolveError,omitempty"`
 	LastUsedAt      *time.Time                 `json:"lastUsedAt,omitempty"`
 	ConnectionCount int                        `json:"connectionCount"`
 	raw             sshconfig.Host
@@ -360,10 +372,13 @@ func (r *Runner) load(ctx context.Context) ([]hostRecord, []keyRecord, error) {
 	}()
 
 	timedOut := false
+	resolveErrors := make([]string, len(hosts))
 	for res := range results {
 		if res.err != nil {
 			if ctx.Err() != nil {
 				timedOut = true
+			} else {
+				resolveErrors[res.index] = res.err.Error()
 			}
 			continue
 		}
@@ -400,7 +415,7 @@ func (r *Runner) load(ctx context.Context) ([]hostRecord, []keyRecord, error) {
 			Group: meta.Group,
 			Tags:  nonNil(meta.Tags), Environment: meta.Environment, Color: meta.Color, Notes: meta.Notes, Favorite: meta.Favorite,
 			Hidden: meta.Hidden, Managed: hosts[i].Managed, Synced: hosts[i].Synced, SyncSource: hosts[i].SyncSource,
-			SyncID: hosts[i].SyncID, Source: hosts[i].Source, KnownHost: hosts[i].KnownHost,
+			SyncID: hosts[i].SyncID, Source: hosts[i].Source, KnownHost: hosts[i].KnownHost, ResolveError: resolveErrors[i],
 			LastUsedAt: meta.LastUsedAt, ConnectionCount: meta.ConnectionCount, raw: hosts[i], meta: meta,
 		}
 	}
@@ -524,7 +539,10 @@ func (r *Runner) prompt(label, current string, required bool) (string, error) {
 	} else {
 		fmt.Fprintf(r.Err, "%s [%s]: ", label, current)
 	}
-	line, err := bufio.NewReader(r.In).ReadString('\n')
+	if r.reader == nil {
+		r.reader = bufio.NewReader(r.In)
+	}
+	line, err := r.reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return "", err
 	}

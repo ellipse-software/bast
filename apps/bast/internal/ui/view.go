@@ -16,6 +16,8 @@ import (
 )
 
 const (
+	headerTitle          = " BAST "
+	headerTabSpacing     = "   "
 	connectAction        = " Connect "
 	addAction            = " Add "
 	connectActionRow     = 0
@@ -24,6 +26,8 @@ const (
 	keyInstallAction    = "[u] Add to server"
 	keyInstallActionRow = 4
 )
+
+var headerTabLabels = [...]string{"[1] Hosts", "[2] Keys", "[3] Sync"}
 
 func (m *App) connectButtonBounds(layout panelLayout) (x, y, width int) {
 	return m.hostActionButtonBounds(layout, connectAction)
@@ -41,7 +45,7 @@ func (m *App) render() string {
 	styles := m.styles()
 	width := m.terminalWidth()
 	bodyHeight := max(1, m.terminalHeight()-3)
-	header := styles.title.Render(" BAST ") + "  " + m.renderTabs(styles)
+	header := styles.title.Render(headerTitle) + "  " + m.renderTabs(styles)
 	if m.version != "" && m.version != "dev" {
 		space := width - lipgloss.Width(header) - lipgloss.Width(m.version)
 		if space > 0 {
@@ -116,7 +120,7 @@ func (m *App) styles() styleSet {
 }
 
 func (m *App) renderTabs(s styleSet) string {
-	hosts, keyTab, syncTab := "[1] Hosts", "[2] Keys", "[3] Sync"
+	hosts, keyTab, syncTab := headerTabLabels[0], headerTabLabels[1], headerTabLabels[2]
 	switch m.section {
 	case hostsSection:
 		hosts = s.active.Render(hosts)
@@ -131,7 +135,7 @@ func (m *App) renderTabs(s styleSet) string {
 		keyTab = s.inactive.Render(keyTab)
 		syncTab = s.active.Render(syncTab)
 	}
-	return hosts + "   " + keyTab + "   " + syncTab
+	return hosts + headerTabSpacing + keyTab + headerTabSpacing + syncTab
 }
 
 func (m *App) renderHosts(s styleSet) string {

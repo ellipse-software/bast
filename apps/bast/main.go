@@ -111,19 +111,25 @@ func run(args []string) error {
 	if err := client.Check(); err != nil {
 		return err
 	}
-	if len(args) > 1 {
+	positional := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg != "--json" && arg != "--no-input" {
+			positional = append(positional, arg)
+		}
+	}
+	if len(positional) > 1 {
 		return errors.New("usage: bast [label]")
 	}
-	if len(args) == 1 {
+	if len(positional) == 1 {
 		runner, err := cli.New(p, client, os.Stdin, os.Stdout, os.Stderr)
 		if err != nil {
 			return err
 		}
 		runner.Version = buildVersion()
-		return runner.Run([]string{"connect", args[0]})
+		return runner.Run(append([]string{"connect"}, args...))
 	}
 	telemetry.Track("tui_open", buildVersion())
-	model, err := ui.New(p, client, version)
+	model, err := ui.New(p, client, buildVersion())
 	if err != nil {
 		return err
 	}
@@ -132,11 +138,11 @@ func run(args []string) error {
 }
 
 func buildVersion() string {
-	if version != "dev" {
+	if version != "" && version != "dev" {
 		return version
 	}
 	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
 		return info.Main.Version
 	}
-	return version
+	return "dev"
 }

@@ -12,9 +12,27 @@ import (
 
 func (m *App) visibleHistorySuggestions() []metadata.HistorySuggestion {
 	query := strings.ToLower(m.searchText())
+	aliases := make(map[string]bool, len(m.hosts))
+	destinations := make(map[string]bool, len(m.hosts))
+	for _, host := range m.hosts {
+		aliases[strings.ToLower(host.Alias)] = true
+		hostname := host.Resolved.HostName
+		if hostname == "" {
+			hostname = host.Alias
+		}
+		port := host.Resolved.Port
+		if port == "" {
+			port = "22"
+		}
+		destinations[historyDestination(hostname, host.Resolved.User, port)] = true
+	}
 	visible := make([]metadata.HistorySuggestion, 0, len(m.historySuggestions))
 	for _, suggestion := range m.historySuggestions {
-		if m.historySuggestionExists(suggestion) {
+		port := suggestion.Port
+		if port == "" {
+			port = "22"
+		}
+		if aliases[strings.ToLower(suggestion.Target)] || destinations[historyDestination(suggestion.HostName, suggestion.User, port)] {
 			continue
 		}
 		if query != "" {
@@ -31,29 +49,8 @@ func (m *App) visibleHistorySuggestions() []metadata.HistorySuggestion {
 	return visible
 }
 
-func (m *App) historySuggestionExists(suggestion metadata.HistorySuggestion) bool {
-	port := suggestion.Port
-	if port == "" {
-		port = "22"
-	}
-	for _, host := range m.hosts {
-		if strings.EqualFold(host.Alias, suggestion.Target) {
-			return true
-		}
-		hostname := host.Resolved.HostName
-		if hostname == "" {
-			hostname = host.Alias
-		}
-		hostPort := host.Resolved.Port
-		if hostPort == "" {
-			hostPort = "22"
-		}
-		if strings.EqualFold(hostname, suggestion.HostName) &&
-			strings.EqualFold(host.Resolved.User, suggestion.User) && hostPort == port {
-			return true
-		}
-	}
-	return false
+func historyDestination(hostname, user, port string) string {
+	return strings.ToLower(hostname) + "\x00" + strings.ToLower(user) + "\x00" + port
 }
 
 func (m *App) selectedHistorySuggestion() (metadata.HistorySuggestion, bool) {
@@ -113,21 +110,23 @@ func (m *App) importSelectedHistorySuggestion() (tea.Model, tea.Cmd) {
 	input := historyHostInput(suggestion, alias)
 	m.historyImporting = suggestion.ID
 	return m, func() tea.Msg {
-		added, err := m.config.Add(input)
-		if err != nil {
-			return historyImportDoneMsg{id: suggestion.ID, alias: alias, err: fmt.Errorf("import history host: %w", err)}
-		}
-		if err := m.metadata.AcceptHistorySuggestion(alias, metadata.Host{}, suggestion.ID); err != nil {
-			rollbackErr := m.config.Delete(added.ManagedID)
-			if rollbackErr != nil {
-				err = fmt.Errorf("save imported host: %w; rollback failed: %v", err, rollbackErr)
-			} else {
-				err = fmt.Errorf("save imported host: %w", err)
-			}
-			return historyImportDoneMsg{id: suggestion.ID, alias: alias, err: err}
-		}
-		return historyImportDoneMsg{id: suggestion.ID, alias: alias}
+		err := m.addHistoryHost(input, metadata.Host{}, suggestion.ID)
+		return historyImportDoneMsg{id: suggestion.ID, alias: alias, err: err}
 	}
+}
+
+func (m *App) addHistoryHost(input sshconfig.HostInput, meta metadata.Host, suggestionID string) error {
+	added, err := m.config.Add(input)
+	if err != nil {
+		return fmt.Errorf("add history host: %w", err)
+	}
+	if err := m.metadata.AcceptHistorySuggestion(input.Alias, meta, suggestionID); err != nil {
+		if rollbackErr := m.config.Delete(added.ManagedID); rollbackErr != nil {
+			return fmt.Errorf("save history host: %w; rollback failed: %v", err, rollbackErr)
+		}
+		return fmt.Errorf("save history host: %w", err)
+	}
+	return nil
 }
 
 func historyHostInput(suggestion metadata.HistorySuggestion, alias string) sshconfig.HostInput {

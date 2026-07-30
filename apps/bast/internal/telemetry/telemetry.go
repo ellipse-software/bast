@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/x/term"
@@ -21,12 +22,32 @@ const (
 var (
 	endpoint      = defaultEndpoint
 	errorEndpoint = defaultErrorEndpoint
+	endpointMu    sync.RWMutex
 )
 
+// SetErrorEndpoint overrides the error-report destination and returns a restore function.
 func SetErrorEndpoint(url string) func() {
+	endpointMu.Lock()
 	prev := errorEndpoint
 	errorEndpoint = url
-	return func() { errorEndpoint = prev }
+	endpointMu.Unlock()
+	return func() {
+		endpointMu.Lock()
+		errorEndpoint = prev
+		endpointMu.Unlock()
+	}
+}
+
+func setEndpoint(url string) func() {
+	endpointMu.Lock()
+	prev := endpoint
+	endpoint = url
+	endpointMu.Unlock()
+	return func() {
+		endpointMu.Lock()
+		endpoint = prev
+		endpointMu.Unlock()
+	}
 }
 
 type payload struct {
@@ -37,6 +58,7 @@ type payload struct {
 	Source  string `json:"source"`
 }
 
+// Report contains a CLI or TUI error report.
 type Report struct {
 	Message string `json:"message"`
 	Version string `json:"version"`
@@ -62,10 +84,13 @@ func Track(event, version string) {
 		return
 	}
 
-	go send(event, version)
+	endpointMu.RLock()
+	target := endpoint
+	endpointMu.RUnlock()
+	go send(target, event, version)
 }
 
-// CLI callers wait for this to flush; TUI callers should use a tea.Cmd to stay responsive.
+// ReportError sends an error report synchronously so CLI callers can wait for it to flush.
 func ReportError(r Report) error {
 	if !Enabled() {
 		return nil
@@ -82,9 +107,13 @@ func ReportError(r Report) error {
 	if r.Source == "" {
 		r.Source = "cli"
 	}
-	return sendError(r)
+	endpointMu.RLock()
+	target := errorEndpoint
+	endpointMu.RUnlock()
+	return sendError(target, r)
 }
 
+// OfferReport prompts for consent and sends the report when accepted.
 func OfferReport(in io.Reader, out io.Writer, r Report) {
 	if !Enabled() {
 		return
@@ -114,7 +143,7 @@ func OfferReport(in io.Reader, out io.Writer, r Report) {
 	}
 }
 
-func send(event, version string) {
+func send(target, event, version string) {
 	body, err := json.Marshal(payload{
 		Event:   event,
 		Version: version,
@@ -126,7 +155,7 @@ func send(event, version string) {
 		return
 	}
 
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return
 	}
@@ -140,13 +169,13 @@ func send(event, version string) {
 	defer resp.Body.Close()
 }
 
-func sendError(r Report) error {
+func sendError(target string, r Report) error {
 	body, err := json.Marshal(r)
 	if err != nil {
 		return err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, errorEndpoint, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

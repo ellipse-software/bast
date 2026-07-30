@@ -45,6 +45,8 @@ func RunBastionProxy(ctx context.Context, options ProxyOptions, in io.Reader, ou
 	if err := New().CheckExtension(ctx, "bastion"); err != nil {
 		return err
 	}
+	// The probe releases the port before az binds it, so another process can win
+	// that race. An intermittent bind failure is therefore safe to retry.
 	localPort, err := availableLocalPort(ctx)
 	if err != nil {
 		return fmt.Errorf("choose Azure Bastion tunnel port: %w", err)

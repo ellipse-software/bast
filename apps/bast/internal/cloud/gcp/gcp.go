@@ -23,6 +23,7 @@ const (
 	discoverConcurrency = 8
 )
 
+// Runner executes a gcloud command with additional environment variables.
 type Runner func(ctx context.Context, args []string, env []string) ([]byte, error)
 
 type Client struct {
@@ -72,6 +73,7 @@ func (c *Client) run(ctx context.Context, args []string, env []string) ([]byte, 
 	return run(ctx, full, env)
 }
 
+// Account describes an authenticated gcloud account.
 type Account struct {
 	Account string `json:"account"`
 	Status  string `json:"status"`
@@ -89,6 +91,7 @@ func (c *Client) CheckAvailable(ctx context.Context) error {
 	return nil
 }
 
+// ListAccounts returns the accounts configured in gcloud.
 func (c *Client) ListAccounts(ctx context.Context) ([]Account, error) {
 	out, err := c.run(ctx, []string{"auth", "list", "--format=json"}, nil)
 	if err != nil {
@@ -126,6 +129,7 @@ type credential struct {
 	args           []string
 }
 
+// Discovery contains GCP instances and the completeness state of discovery.
 type Discovery struct {
 	Instances []cloud.Instance
 	// ConfirmedProjects are project IDs whose instance inventory was successfully
@@ -151,6 +155,7 @@ func (c *Client) Discover(ctx context.Context, cfg cloud.DiscoverConfig) ([]clou
 	return d.Instances, nil
 }
 
+// DiscoverAll discovers instances and records partial-discovery warnings.
 func (c *Client) DiscoverAll(ctx context.Context, cfg cloud.DiscoverConfig) (Discovery, error) {
 	if err := c.CheckAvailable(ctx); err != nil {
 		return Discovery{}, err

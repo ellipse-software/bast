@@ -61,9 +61,6 @@ func (m *App) formTextInputActive() bool {
 				return false
 			}
 			item := &f.fields[f.index]
-			if f.selecting {
-				return false
-			}
 			return len(item.options) == 0 || item.options[item.selected].custom
 		}
 		items := hostHubItems(f)
@@ -268,10 +265,19 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			input.ExtraOptions = append([]string{"IdentitiesOnly yes"}, input.ExtraOptions...)
 		}
 		oldAlias := values["Original label"]
+		meta := metadata.Host{Label: label, Group: group, Tags: splitCSV(values["Tags"]), Environment: values["Environment"], Color: values["Color"], Notes: values["Notes"]}
+		if meta.Label == input.Alias {
+			meta.Label = ""
+		}
+		if oldAlias != "" {
+			old := m.metadata.Host(oldAlias)
+			meta.Favorite, meta.Hidden, meta.LastUsedAt, meta.ConnectionCount = old.Favorite, old.Hidden, old.LastUsedAt, old.ConnectionCount
+		}
 		var err error
-		var added sshconfig.Host
-		if f.action == "host_add" || f.action == "history_host_add" {
-			added, err = m.config.Add(input)
+		if f.action == "history_host_add" {
+			err = m.addHistoryHost(input, meta, values["History suggestion"])
+		} else if f.action == "host_add" {
+			_, err = m.config.Add(input)
 		} else {
 			host, ok := m.findHost(oldAlias)
 			if !ok {
@@ -280,28 +286,14 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 				err = m.config.Update(host.ManagedID, input)
 			}
 		}
-		if err == nil {
-			meta := metadata.Host{Label: label, Group: group, Tags: splitCSV(values["Tags"]), Environment: values["Environment"], Color: values["Color"], Notes: values["Notes"]}
-			if meta.Label == input.Alias {
-				meta.Label = ""
+		if err == nil && f.action != "history_host_add" {
+			if oldAlias != "" && oldAlias != input.Alias {
+				err = m.metadata.RenameHost(oldAlias, input.Alias)
 			}
-			if oldAlias != "" {
-				old := m.metadata.Host(oldAlias)
-				meta.Favorite, meta.Hidden, meta.LastUsedAt, meta.ConnectionCount = old.Favorite, old.Hidden, old.LastUsedAt, old.ConnectionCount
-				if oldAlias != input.Alias {
-					_ = m.metadata.RenameHost(oldAlias, input.Alias)
-				}
+			if err != nil {
+				return m.finishMutation(err, "Host saved")
 			}
-			if f.action == "history_host_add" {
-				err = m.metadata.AcceptHistorySuggestion(input.Alias, meta, values["History suggestion"])
-				if err != nil && added.ManagedID != "" {
-					if rollbackErr := m.config.Delete(added.ManagedID); rollbackErr != nil {
-						err = fmt.Errorf("%w; rollback failed: %v", err, rollbackErr)
-					}
-				}
-			} else {
-				err = m.metadata.SetHost(input.Alias, meta)
-			}
+			err = m.metadata.SetHost(input.Alias, meta)
 		}
 		if err == nil {
 			if f.action == "history_host_add" {
@@ -383,7 +375,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		return m.finishMutation(m.keyring.SetComment(key, values["Comment"]), "Key comment saved")
 	case "key_export":
 		if values["Type EXPORT"] != "EXPORT" {
-			return m.formError("type EXPORT to acknowledge private-key export")
+			return m.formValidationError("type EXPORT to acknowledge private-key export")
 		}
 		key, ok := m.findKey(values["Key"])
 		if !ok {

@@ -397,7 +397,10 @@ func (m *App) renameGroup(oldPath, newSegment string) (string, error) {
 		return "", fmt.Errorf("group name cannot be empty")
 	}
 	parts := groupPathParts(oldPath)
-	parent := strings.Join(parts[:len(parts)-1], "/")
+	parent := ""
+	if len(parts) > 0 {
+		parent = strings.Join(parts[:len(parts)-1], "/")
+	}
 	newPath := newSegment
 	if parent != "" {
 		newPath = parent + "/" + newSegment
@@ -526,8 +529,9 @@ func (m *App) selectAfterLoad() {
 }
 
 func (m *App) groupExists(group string) bool {
+	metadataByHost := m.hostMetadata()
 	for _, host := range m.hosts {
-		existing, err := normalizeGroupPath(m.metadata.Host(host.Alias).Group)
+		existing, err := normalizeGroupPath(metadataByHost[host.Alias].Group)
 		if err == nil && (existing == group || strings.HasPrefix(existing, group+"/")) {
 			return true
 		}
@@ -569,7 +573,6 @@ func (m *App) collapseAllGroups() tea.Cmd {
 		return m.setNotice("Clear the search filter to collapse groups")
 	}
 	m.collapsedGroups = map[string]bool{}
-	m.collapseRevision++
 	for _, row := range m.hostRows() {
 		if row.header {
 			m.collapsedGroups[row.group] = true
@@ -596,8 +599,9 @@ func (m *App) expandAllGroups() tea.Cmd {
 
 func (m *App) persistCollapsedGroups() error {
 	live := map[string]bool{}
+	metadataByHost := m.hostMetadata()
 	for _, host := range m.hosts {
-		group := strings.TrimSpace(m.metadata.Host(host.Alias).Group)
+		group := strings.TrimSpace(metadataByHost[host.Alias].Group)
 		if group == "" {
 			continue
 		}

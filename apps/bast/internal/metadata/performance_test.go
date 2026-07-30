@@ -12,7 +12,6 @@ func BenchmarkHostMetadataWrites100(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		b.ResetTimer()
 		for b.Loop() {
 			for i := range 100 {
 				alias := fmt.Sprintf("host-%03d", i)
@@ -28,7 +27,6 @@ func BenchmarkHostMetadataWrites100(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		b.ResetTimer()
 		for b.Loop() {
 			if err := store.UpdateHosts(func(hosts map[string]Host) {
 				for i := range 100 {

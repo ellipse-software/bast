@@ -29,8 +29,9 @@ func TestStatusDoesNotHoldProviderLocksDuringExternalProbes(t *testing.T) {
 	engine := New(p, store)
 	probeStarted := make(chan struct{})
 	releaseProbe := make(chan struct{})
+	var probeOnce sync.Once
 	engine.GCP.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
-		close(probeStarted)
+		probeOnce.Do(func() { close(probeStarted) })
 		select {
 		case <-releaseProbe:
 			return []byte(`[]`), nil
@@ -142,8 +143,9 @@ func TestStatusProbesProvidersConcurrently(t *testing.T) {
 	gcpStarted := make(chan struct{})
 	awsStarted := make(chan struct{})
 	azureStarted := make(chan struct{})
+	var gcpOnce, awsOnce, azureOnce sync.Once
 	engine.GCP.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
-		close(gcpStarted)
+		gcpOnce.Do(func() { close(gcpStarted) })
 		select {
 		case <-release:
 			return []byte(`[]`), nil
@@ -153,7 +155,7 @@ func TestStatusProbesProvidersConcurrently(t *testing.T) {
 	}
 	engine.AWS.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
 		if strings.Contains(strings.Join(args[1:], " "), "--version") {
-			close(awsStarted)
+			awsOnce.Do(func() { close(awsStarted) })
 			select {
 			case <-release:
 				return []byte("aws-cli/2"), nil
@@ -166,7 +168,7 @@ func TestStatusProbesProvidersConcurrently(t *testing.T) {
 	engine.Azure.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
 		joined := strings.Join(args[1:], " ")
 		if strings.HasPrefix(joined, "version") {
-			close(azureStarted)
+			azureOnce.Do(func() { close(azureStarted) })
 			select {
 			case <-release:
 				return []byte(`{"azure-cli":"2.62.0"}`), nil

@@ -33,14 +33,12 @@ func isAdvancedSubsection(screen string) bool {
 	}
 }
 
-func advancedHubItems() []advancedHubItem {
-	return []advancedHubItem{
-		{id: "jump", title: "Jump & proxy", section: formSectionAdvancedJump},
-		{id: "session", title: "Session", section: formSectionAdvancedSession},
-		{id: "forwarding", title: "Forwarding", section: formSectionAdvancedForwarding},
-		{id: "env", title: "Environment", section: formSectionAdvancedEnv},
-		{id: "custom", title: "Custom flags", section: formSectionAdvancedCustom},
-	}
+var advancedHubList = []advancedHubItem{
+	{id: "jump", title: "Jump & proxy", section: formSectionAdvancedJump},
+	{id: "session", title: "Session", section: formSectionAdvancedSession},
+	{id: "forwarding", title: "Forwarding", section: formSectionAdvancedForwarding},
+	{id: "env", title: "Environment", section: formSectionAdvancedEnv},
+	{id: "custom", title: "Custom flags", section: formSectionAdvancedCustom},
 }
 
 func (m *App) enterAdvancedHub() {
@@ -67,7 +65,7 @@ func (m *App) enterAdvancedSubsection(section string) {
 
 func (m *App) focusAdvancedHubItem() {
 	f := m.form
-	if f.hubIndex < 0 || f.hubIndex >= len(advancedHubItems()) {
+	if f.hubIndex < 0 || f.hubIndex >= len(advancedHubList) {
 		f.hubIndex = 0
 	}
 	f.index = -1
@@ -78,7 +76,7 @@ func (m *App) focusAdvancedHubItem() {
 func (m *App) moveAdvancedHub(direction int) {
 	f := m.form
 	next := f.hubIndex + direction
-	if next < 0 || next >= len(advancedHubItems()) {
+	if next < 0 || next >= len(advancedHubList) {
 		return
 	}
 	f.hubIndex = next
@@ -87,7 +85,7 @@ func (m *App) moveAdvancedHub(direction int) {
 
 func (m *App) advancedHubEnter() (tea.Model, tea.Cmd) {
 	f := m.form
-	items := advancedHubItems()
+	items := advancedHubList
 	if f.hubIndex >= len(items) {
 		return m, nil
 	}
@@ -99,7 +97,7 @@ func (m *App) exitAdvancedSubsection() {
 	f := m.form
 	section := f.screen
 	f.screen = formScreenAdvancedHub
-	for i, item := range advancedHubItems() {
+	for i, item := range advancedHubList {
 		if item.section == section {
 			f.hubIndex = i
 			break
@@ -163,7 +161,7 @@ func (m *App) advancedSubsectionSummary(section string) string {
 
 func (m *App) hostAdvancedSummary() string {
 	parts := []string{}
-	for _, item := range advancedHubItems() {
+	for _, item := range advancedHubList {
 		if summary := m.advancedSubsectionSummary(item.section); summary != "" && summary != "—" && summary != "Direct connection" {
 			parts = append(parts, item.title)
 		}
@@ -197,7 +195,7 @@ func (m *App) renderAdvancedHubForm(s styleSet) string {
 	f := m.form
 	var b strings.Builder
 	b.WriteString("\n  " + s.active.Render(f.title) + "  " + s.muted.Render("› Advanced") + "\n\n")
-	for i, item := range advancedHubItems() {
+	for i, item := range advancedHubList {
 		summary := m.advancedSubsectionSummary(item.section)
 		line := item.title + "  " + summary
 		if i == f.hubIndex {
@@ -280,16 +278,16 @@ func advancedFormFields(m *App, adv sshconfig.AdvancedSettings) []field {
 
 	return []field{
 		jump,
-		field{label: "Startup command", section: formSectionAdvancedSession, description: descHostRemoteCommand, value: adv.RemoteCommand, placeholder: "tmux attach -t main", optional: true},
+		{label: "Startup command", section: formSectionAdvancedSession, description: descHostRemoteCommand, value: adv.RemoteCommand, placeholder: "tmux attach -t main", optional: true},
 		requestTTY,
 		forwardAgent,
-		field{label: "Local forwards", section: formSectionAdvancedForwarding, description: descHostLocalForward, value: sshconfig.FormatForwardList(adv.LocalForwards), placeholder: "8080 localhost:80", optional: true},
-		field{label: "Remote forwards", section: formSectionAdvancedForwarding, description: descHostRemoteForward, value: sshconfig.FormatForwardList(adv.RemoteForwards), placeholder: "8080 localhost:80", optional: true},
-		field{label: "Dynamic forward", section: formSectionAdvancedForwarding, description: descHostDynamicForward, value: adv.DynamicForward, placeholder: "1080", optional: true},
+		{label: "Local forwards", section: formSectionAdvancedForwarding, description: descHostLocalForward, value: sshconfig.FormatForwardList(adv.LocalForwards), placeholder: "8080 localhost:80", optional: true},
+		{label: "Remote forwards", section: formSectionAdvancedForwarding, description: descHostRemoteForward, value: sshconfig.FormatForwardList(adv.RemoteForwards), placeholder: "8080 localhost:80", optional: true},
+		{label: "Dynamic forward", section: formSectionAdvancedForwarding, description: descHostDynamicForward, value: adv.DynamicForward, placeholder: "1080", optional: true},
 		compression,
-		field{label: "Keepalive (seconds)", section: formSectionAdvancedForwarding, description: descHostKeepalive, value: adv.ServerAliveInterval, placeholder: "30", optional: true},
-		field{label: "Environment variables", section: formSectionAdvancedEnv, description: descHostSetEnv, value: sshconfig.FormatSetEnvList(adv.SetEnv), placeholder: "FOO=bar; BAZ=qux", optional: true},
-		field{label: "Custom SSH flags", section: formSectionAdvancedCustom, description: descHostSSHFlags, value: sshconfig.FormatSSHFlags(adv.Custom), placeholder: "IdentitiesOnly yes", optional: true},
+		{label: "Keepalive (seconds)", section: formSectionAdvancedForwarding, description: descHostKeepalive, value: adv.ServerAliveInterval, placeholder: "30", optional: true},
+		{label: "Environment variables", section: formSectionAdvancedEnv, description: descHostSetEnv, value: sshconfig.FormatSetEnvList(adv.SetEnv), placeholder: "FOO=bar; BAZ=qux", optional: true},
+		{label: "Custom SSH flags", section: formSectionAdvancedCustom, description: descHostSSHFlags, value: sshconfig.FormatSSHFlags(adv.Custom), placeholder: "IdentitiesOnly yes", optional: true},
 	}
 }
 

@@ -61,9 +61,10 @@ type form struct {
 }
 
 type loadedMsg struct {
-	hosts []sshconfig.Host
-	keys  []keys.Key
-	err   error
+	hosts            []sshconfig.Host
+	keys             []keys.Key
+	enrichmentErrors int
+	err              error
 }
 
 type discoveredMsg struct {
@@ -331,6 +332,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.keys = msg.keys
 		m.selectAfterLoad()
+		if msg.enrichmentErrors > 0 {
+			return m, tea.Batch(m.autoSyncCmds(), m.setNotice(fmt.Sprintf("%d host details could not be resolved", msg.enrichmentErrors)))
+		}
 		return m, m.autoSyncCmds()
 	case discoveredMsg:
 		if msg.err != nil {
@@ -405,6 +409,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.setNotice("Report sent")
 	case syncDoneMsg:
 		delete(m.syncingProviders, msg.provider)
+		m.clampSyncCursor(m.syncMenuItems())
 		if msg.err != nil {
 			telemetry.Track("sync_"+msg.provider+"_fail", m.version)
 			m.setError(msg.err)

@@ -5,8 +5,8 @@ export function BackgroundGrid() {
       className="pointer-events-none fixed inset-0 -z-10"
       style={{
         backgroundImage: `
-          linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-          linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px)
+          linear-gradient(to right, color-mix(in srgb, var(--color-border) 35%, transparent) 1px, transparent 1px),
+          linear-gradient(to bottom, color-mix(in srgb, var(--color-border) 35%, transparent) 1px, transparent 1px)
         `,
         backgroundSize: "48px 48px",
         maskImage:

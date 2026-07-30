@@ -1,16 +1,13 @@
 package aws
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
+	"bast/internal/cloud/sshutil"
 	"bast/internal/sshconfig"
 )
-
-var unsafeAliasChars = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 func ToSyncHost(inst Instance, alias string) sshconfig.SyncHostInput {
 	if alias == "" {
@@ -29,14 +26,14 @@ func ToSyncHost(inst Instance, alias string) sshconfig.SyncHostInput {
 
 func EICEProxyCommand(inst Instance) string {
 	args := []string{"aws", "ec2-instance-connect", "open-tunnel",
-		"--instance-id=" + proxyLiteral(inst.HostName),
-		"--instance-connect-endpoint-id=" + proxyLiteral(inst.EndpointID),
+		"--instance-id=" + sshutil.ProxyLiteral(inst.HostName),
+		"--instance-connect-endpoint-id=" + sshutil.ProxyLiteral(inst.EndpointID),
 		"--remote-port=%p",
-		"--profile=" + proxyLiteral(inst.Profile),
-		"--region=" + proxyLiteral(inst.Region),
+		"--profile=" + sshutil.ProxyLiteral(inst.Profile),
+		"--region=" + sshutil.ProxyLiteral(inst.Region),
 		"--no-cli-pager"}
 	for i := range args {
-		args[i] = shellQuote(args[i])
+		args[i] = sshutil.ShellQuote(args[i])
 	}
 	return strings.Join(args, " ")
 }
@@ -54,9 +51,9 @@ func GroupPath(inst Instance) string {
 }
 
 func AliasFor(inst Instance) string {
-	profile := sanitizeAliasPart(inst.Profile)
-	region := sanitizeAliasPart(inst.Region)
-	name := sanitizeAliasPart(inst.Name)
+	profile := sshutil.SanitizeAliasPart(inst.Profile)
+	region := sshutil.SanitizeAliasPart(inst.Region)
+	name := sshutil.SanitizeAliasPart(inst.Name)
 	if profile == "" {
 		profile = "default"
 	}
@@ -70,24 +67,7 @@ func AliasFor(inst Instance) string {
 }
 
 func UniqueAlias(base string, used map[string]bool) string {
-	if !used[base] {
-		return base
-	}
-	for i := 2; ; i++ {
-		candidate := fmt.Sprintf("%s_%d", base, i)
-		if !used[candidate] {
-			return candidate
-		}
-	}
-}
-
-func sanitizeAliasPart(value string) string {
-	value = unsafeAliasChars.ReplaceAllString(strings.TrimSpace(value), "_")
-	value = strings.Trim(value, "_")
-	if len(value) > 48 {
-		value = value[:48]
-	}
-	return value
+	return sshutil.UniqueAlias(base, used)
 }
 
 func findLaunchKey(home, managedKeys, keyName string) string {
@@ -128,15 +108,4 @@ func shortenHomePath(path, home string) string {
 		}
 	}
 	return path
-}
-
-func proxyLiteral(value string) string { return strings.ReplaceAll(value, "%", "%%") }
-
-func shellQuote(value string) string {
-	if value != "" && strings.IndexFunc(value, func(r rune) bool {
-		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || strings.ContainsRune("-_=./:@%+", r))
-	}) < 0 {
-		return value
-	}
-	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }

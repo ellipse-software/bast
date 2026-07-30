@@ -67,11 +67,11 @@ func NightlyScriptInstalled(executable string) bool {
 }
 
 func Check(ctx context.Context, client *http.Client, current string) (string, error) {
-	return checkFrom(ctx, client, current, LatestReleaseURL, parseVersion, compareStable)
+	return checkFrom(ctx, client, current, LatestReleaseURL, false, parseVersion, compareStable)
 }
 
 func CheckNightly(ctx context.Context, client *http.Client, current string) (string, error) {
-	return checkFrom(ctx, client, current, NightlyReleaseURL, parseNightlyVersion, compareNightly)
+	return checkFrom(ctx, client, current, NightlyReleaseURL, true, parseNightlyVersion, compareNightly)
 }
 
 func Suggestion(executable string) string {
@@ -102,18 +102,19 @@ func Update(ctx context.Context, client *http.Client, executable string, stdout,
 	}
 }
 
-func checkFrom(
+func checkFrom[T any](
 	ctx context.Context,
 	client *http.Client,
 	current, url string,
-	parse func(string) (any, bool),
-	compare func(any, any) int,
+	nightly bool,
+	parse func(string) (T, bool),
+	compare func(T, T) int,
 ) (string, error) {
 	currentVersion, ok := parse(current)
 	if !ok {
 		return "", nil
 	}
-	latest, err := latestFrom(ctx, client, url)
+	latest, err := latestFrom(ctx, client, url, nightly)
 	if err != nil {
 		return "", err
 	}
@@ -129,7 +130,10 @@ func checkFrom(
 	}
 }
 
-func latestFrom(ctx context.Context, client *http.Client, url string) (string, error) {
+func latestFrom(ctx context.Context, client *http.Client, url string, nightly bool) (string, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -152,7 +156,7 @@ func latestFrom(ctx context.Context, client *http.Client, url string) (string, e
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&release); err != nil {
 		return "", fmt.Errorf("decode GitHub release: %w", err)
 	}
-	if url == NightlyReleaseURL {
+	if nightly {
 		if version := nightlyVersionFromReleaseName(release.Name); version != "" {
 			return version, nil
 		}
@@ -174,6 +178,9 @@ func nightlyVersionFromReleaseName(name string) string {
 }
 
 func updateFrom(ctx context.Context, client *http.Client, installerURL, executable string, stdout, stderr io.Writer) error {
+	if client == nil {
+		client = http.DefaultClient
+	}
 	executable = resolveExecutable(executable)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, installerURL, nil)
 	if err != nil {
@@ -185,7 +192,7 @@ func updateFrom(ctx context.Context, client *http.Client, installerURL, executab
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download installer: %s", resp.Status)
+		return fmt.Errorf("download installer: unexpected response (%s)", resp.Status)
 	}
 	script, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -230,7 +237,7 @@ func resolveExecutable(executable string) string {
 	return executable
 }
 
-func parseVersion(version string) (any, bool) {
+func parseVersion(version string) ([3]int, bool) {
 	var parsed [3]int
 	if !strings.HasPrefix(version, "v") {
 		return parsed, false
@@ -254,7 +261,7 @@ type nightlyVersion struct {
 	sha  string
 }
 
-func parseNightlyVersion(version string) (any, bool) {
+func parseNightlyVersion(version string) (nightlyVersion, bool) {
 	if !IsNightly(version) {
 		return nightlyVersion{}, false
 	}
@@ -270,9 +277,7 @@ func parseNightlyVersion(version string) (any, bool) {
 	return nightlyVersion{date: parts[0], sha: parts[1]}, true
 }
 
-func compareStable(latest, current any) int {
-	latestParts := latest.([3]int)
-	currentParts := current.([3]int)
+func compareStable(latestParts, currentParts [3]int) int {
 	for i := range latestParts {
 		if latestParts[i] > currentParts[i] {
 			return 1
@@ -284,18 +289,14 @@ func compareStable(latest, current any) int {
 	return 0
 }
 
-func compareNightly(latest, current any) int {
-	latestParts := latest.(nightlyVersion)
-	currentParts := current.(nightlyVersion)
+func compareNightly(latestParts, currentParts nightlyVersion) int {
 	switch {
 	case latestParts.date > currentParts.date:
 		return 1
 	case latestParts.date < currentParts.date:
 		return -1
-	case latestParts.sha > currentParts.sha:
+	case latestParts.sha != currentParts.sha:
 		return 1
-	case latestParts.sha < currentParts.sha:
-		return -1
 	default:
 		return 0
 	}

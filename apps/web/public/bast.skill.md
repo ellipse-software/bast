@@ -30,8 +30,17 @@ Docs: https://bast.sh/llms.txt
 
 ## Install
 
+Choose one installation method.
+
+Installer:
+
 ```sh
 curl -fsSL https://bast.sh/install | sh
+```
+
+Homebrew:
+
+```sh
 brew install ellipse-software/tap/bast
 ```
 

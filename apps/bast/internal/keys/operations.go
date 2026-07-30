@@ -208,15 +208,19 @@ func (m Manager) Export(key Key, directory string) error {
 	if key.PublicPath != "" && regular(filepath.Join(directory, name+".pub")) {
 		return fmt.Errorf("refusing to overwrite %s", filepath.Join(directory, name+".pub"))
 	}
+	privateDestination := ""
 	if key.PrivatePath != "" {
-		destination := filepath.Join(directory, name)
-		if err := copyFile(key.PrivatePath, destination, 0600); err != nil {
+		privateDestination = filepath.Join(directory, name)
+		if err := copyFile(key.PrivatePath, privateDestination, 0600); err != nil {
 			return err
 		}
 	}
 	if key.PublicPath != "" {
 		destination := filepath.Join(directory, name+".pub")
 		if err := copyFile(key.PublicPath, destination, 0644); err != nil {
+			if privateDestination != "" {
+				_ = os.Remove(privateDestination)
+			}
 			return err
 		}
 	}
@@ -251,7 +255,7 @@ func (m Manager) Delete(key Key, confirmation string) error {
 
 func (m Manager) PublicText(key Key) (string, error) {
 	if key.PublicPath != "" {
-		return PublicText(key)
+		return readPublicKeyFile(key)
 	}
 	if key.PrivatePath == "" {
 		return "", errors.New("no public key file is available")
@@ -263,7 +267,7 @@ func (m Manager) PublicText(key Key) (string, error) {
 	return strings.TrimSpace(string(public)), nil
 }
 
-func PublicText(key Key) (string, error) {
+func readPublicKeyFile(key Key) (string, error) {
 	if key.PublicPath == "" {
 		return "", errors.New("no public key file is available")
 	}

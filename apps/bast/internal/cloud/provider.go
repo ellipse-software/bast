@@ -20,12 +20,12 @@ type Instance struct {
 	OSLogin             bool
 	BlockProjectSSHKeys bool
 	SSHKeys             []SSHKey // merged instance + project ssh-keys metadata
-	Image               string
-	IdentityFile        string // filled during sync host mapping
-	IdentitiesOnly      bool   // true when IdentityFile came from a confident metadata match
+	Image               string   // source image reported by the cloud provider
+	IdentityFile        string   // filled during sync host mapping
+	IdentitiesOnly      bool     // true when IdentityFile came from a confident metadata match
 	Tags                []string
-	CredentialAccount   string
-	CredentialFile      string
+	CredentialAccount   string // account used to discover the instance
+	CredentialFile      string // credential file used to discover the instance
 }
 
 type Provider interface {
@@ -37,6 +37,6 @@ type DiscoverConfig struct {
 	ProjectFilter   []string
 	DefaultSSHUser  string
 	ServiceAccounts []string
-	Home            string
-	ManagedKeys     string
+	Home            string // user home used when resolving local SSH material
+	ManagedKeys     string // Bast-managed key directory used for identity matching
 }

@@ -20,35 +20,107 @@ type syncMenuItem struct {
 	disabled bool
 }
 
+type providerDetail struct {
+	enabled           bool
+	autoSync          bool
+	lastSyncAt        *time.Time
+	lastInstanceCount int
+	lastSyncError     string
+	sshUser           string
+	status            []providerRow
+	filters           []providerRow
+}
+
+type providerRow struct {
+	label string
+	value string
+}
+
 func (m *App) syncProviders() []syncMenuItem {
-	gcp := m.metadata.GCP()
-	gcpDetail := "disabled"
-	if gcp.Enabled {
-		gcpDetail = fmt.Sprintf("%d instances", gcp.LastInstanceCount)
-		if gcp.LastSyncAt != nil {
-			gcpDetail = fmt.Sprintf("%d · %s", gcp.LastInstanceCount, gcp.LastSyncAt.Local().Format("2006-01-02 15:04"))
+	providers := []struct{ label, name string }{{"GCP", "gcp"}, {"AWS", "aws"}, {"Azure", "azure"}}
+	items := make([]syncMenuItem, 0, len(providers))
+	for _, provider := range providers {
+		detail := m.providerDetail(provider.name)
+		text := "disabled"
+		if detail.enabled {
+			text = fmt.Sprintf("%d instances", detail.lastInstanceCount)
+			if detail.lastSyncAt != nil {
+				text = fmt.Sprintf("%d · %s", detail.lastInstanceCount, detail.lastSyncAt.Local().Format("2006-01-02 15:04"))
+			}
 		}
+		items = append(items, syncMenuItem{label: provider.label, detail: text, provider: provider.name})
 	}
-	aws := m.metadata.AWS()
-	awsDetail := "disabled"
-	if aws.Enabled {
-		awsDetail = fmt.Sprintf("%d instances", aws.LastInstanceCount)
-		if aws.LastSyncAt != nil {
-			awsDetail = fmt.Sprintf("%d · %s", aws.LastInstanceCount, aws.LastSyncAt.Local().Format("2006-01-02 15:04"))
+	return items
+}
+
+func (m *App) providerDetail(provider string) providerDetail {
+	switch provider {
+	case "gcp":
+		integration := m.metadata.GCP()
+		status := m.syncStatus.GCP
+		accountValue := "none"
+		accountLabel := "Accounts"
+		if status.GCloudError != "" {
+			accountLabel, accountValue = "gcloud", status.GCloudError
+		} else if len(status.Accounts) > 0 {
+			accountValue = strings.Join(status.Accounts, ", ")
 		}
-	}
-	azure := m.metadata.Azure()
-	azureDetail := "disabled"
-	if azure.Enabled {
-		azureDetail = fmt.Sprintf("%d instances", azure.LastInstanceCount)
-		if azure.LastSyncAt != nil {
-			azureDetail = fmt.Sprintf("%d · %s", azure.LastInstanceCount, azure.LastSyncAt.Local().Format("2006-01-02 15:04"))
+		projects := "all"
+		if len(integration.ProjectFilter) > 0 {
+			projects = strings.Join(integration.ProjectFilter, ", ")
 		}
-	}
-	return []syncMenuItem{
-		{label: "GCP", detail: gcpDetail, provider: "gcp"},
-		{label: "AWS", detail: awsDetail, provider: "aws"},
-		{label: "Azure", detail: azureDetail, provider: "azure"},
+		filters := []providerRow{{"Projects", projects}}
+		if len(integration.ServiceAccounts) > 0 {
+			filters = append(filters, providerRow{"SA keys", strings.Join(integration.ServiceAccounts, ", ")})
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, []providerRow{{accountLabel, accountValue}}, filters}
+	case "aws":
+		integration := m.metadata.AWS()
+		status := m.syncStatus.AWS
+		profileValue := "none"
+		profileLabel := "Profiles"
+		if status.AWSCLIError != "" {
+			profileLabel, profileValue = "aws", status.AWSCLIError
+		} else if len(status.Profiles) > 0 {
+			profileValue = strings.Join(status.Profiles, ", ")
+		}
+		profiles := "all"
+		if len(integration.ProfileFilter) > 0 {
+			profiles = strings.Join(integration.ProfileFilter, ", ")
+		}
+		regions := "all enabled"
+		if len(integration.RegionFilter) > 0 {
+			regions = strings.Join(integration.RegionFilter, ", ")
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, []providerRow{{profileLabel, profileValue}}, []providerRow{{"Profile filter", profiles}, {"Regions", regions}}}
+	case "azure":
+		integration := m.metadata.Azure()
+		status := m.syncStatus.Azure
+		subscriptionValue := "none"
+		subscriptionLabel := "Subscriptions"
+		if status.AzureCLIError != "" {
+			subscriptionLabel, subscriptionValue = "az", status.AzureCLIError
+		} else if len(status.Subscriptions) > 0 {
+			subscriptionValue = strings.Join(status.Subscriptions, ", ")
+		}
+		statusRows := []providerRow{{subscriptionLabel, subscriptionValue}}
+		if status.SSHExtensionError != "" {
+			statusRows = append(statusRows, providerRow{"ssh extension", status.SSHExtensionError})
+		}
+		if status.BastionExtensionError != "" {
+			statusRows = append(statusRows, providerRow{"bastion extension", status.BastionExtensionError})
+		}
+		subscriptions := "all enabled"
+		if len(integration.SubscriptionFilter) > 0 {
+			subscriptions = strings.Join(integration.SubscriptionFilter, ", ")
+		}
+		resourceGroups := "all"
+		if len(integration.ResourceGroupFilter) > 0 {
+			resourceGroups = strings.Join(integration.ResourceGroupFilter, ", ")
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, statusRows, []providerRow{{"Subscription filter", subscriptions}, {"Resource groups", resourceGroups}}}
+	default:
+		return providerDetail{}
 	}
 }
 
@@ -215,9 +287,6 @@ func (m *App) disableAzureCmd() tea.Cmd {
 
 func (m *App) renderSync(s styleSet) string {
 	items := m.syncMenuItems()
-	if m.syncCursor >= len(items) {
-		m.syncCursor = max(0, len(items)-1)
-	}
 
 	var b strings.Builder
 	if m.syncProvider == "" {
@@ -269,134 +338,38 @@ func (m *App) renderSyncMenuLine(s styleSet, index int, item syncMenuItem) strin
 func (m *App) renderProviderStatus(s styleSet, provider string) string {
 	width := m.terminalWidth()
 	var b strings.Builder
-	switch provider {
-	case "gcp":
-		gcp := m.metadata.GCP()
-		status := m.syncStatus.GCP
-		enabled := "disabled"
-		if gcp.Enabled {
-			enabled = "enabled"
-		}
-		b.WriteString(compactRow(s, "Status", enabled, width))
-		if status.GCloudError != "" {
-			b.WriteString(compactRow(s, "gcloud", status.GCloudError, width))
-		} else if len(status.Accounts) > 0 {
-			b.WriteString(compactRow(s, "Accounts", strings.Join(status.Accounts, ", "), width))
-		} else {
-			b.WriteString(compactRow(s, "Accounts", "none", width))
-		}
-		if gcp.LastSyncAt != nil {
-			b.WriteString(compactRow(s, "Last sync", gcp.LastSyncAt.Local().Format("2006-01-02 15:04")+" · "+fmt.Sprintf("%d", gcp.LastInstanceCount), width))
-		} else {
-			b.WriteString(compactRow(s, "Last sync", "never", width))
-		}
-		if gcp.LastSyncError != "" {
-			b.WriteString(compactRow(s, "Error", gcp.LastSyncError, width))
-		}
-		auto := "off"
-		if gcp.AutoSync {
-			auto = "on"
-		}
-		b.WriteString(compactRow(s, "Auto-sync", auto, width))
-		b.WriteString(compactRow(s, "SSH user", noneValue(gcp.DefaultSSHUser), width))
-		if len(gcp.ProjectFilter) > 0 {
-			b.WriteString(compactRow(s, "Projects", strings.Join(gcp.ProjectFilter, ", "), width))
-		} else {
-			b.WriteString(compactRow(s, "Projects", "all", width))
-		}
-		if len(gcp.ServiceAccounts) > 0 {
-			b.WriteString(compactRow(s, "SA keys", strings.Join(gcp.ServiceAccounts, ", "), width))
-		}
-	case "aws":
-		aws := m.metadata.AWS()
-		status := m.syncStatus.AWS
-		enabled := "disabled"
-		if aws.Enabled {
-			enabled = "enabled"
-		}
-		b.WriteString(compactRow(s, "Status", enabled, width))
-		if status.AWSCLIError != "" {
-			b.WriteString(compactRow(s, "aws", status.AWSCLIError, width))
-		} else if len(status.Profiles) > 0 {
-			b.WriteString(compactRow(s, "Profiles", strings.Join(status.Profiles, ", "), width))
-		} else {
-			b.WriteString(compactRow(s, "Profiles", "none", width))
-		}
-		if aws.LastSyncAt != nil {
-			b.WriteString(compactRow(s, "Last sync", aws.LastSyncAt.Local().Format("2006-01-02 15:04")+" · "+fmt.Sprintf("%d", aws.LastInstanceCount), width))
-		} else {
-			b.WriteString(compactRow(s, "Last sync", "never", width))
-		}
-		if aws.LastSyncError != "" {
-			b.WriteString(compactRow(s, "Error", aws.LastSyncError, width))
-		}
-		auto := "off"
-		if aws.AutoSync {
-			auto = "on"
-		}
-		b.WriteString(compactRow(s, "Auto-sync", auto, width))
-		b.WriteString(compactRow(s, "SSH user", noneValue(aws.DefaultSSHUser), width))
-		profiles := "all"
-		if len(aws.ProfileFilter) > 0 {
-			profiles = strings.Join(aws.ProfileFilter, ", ")
-		}
-		regions := "all enabled"
-		if len(aws.RegionFilter) > 0 {
-			regions = strings.Join(aws.RegionFilter, ", ")
-		}
-		b.WriteString(compactRow(s, "Profile filter", profiles, width))
-		b.WriteString(compactRow(s, "Regions", regions, width))
-	case "azure":
-		azure := m.metadata.Azure()
-		status := m.syncStatus.Azure
-		enabled := "disabled"
-		if azure.Enabled {
-			enabled = "enabled"
-		}
-		b.WriteString(compactRow(s, "Status", enabled, width))
-		if status.AzureCLIError != "" {
-			b.WriteString(compactRow(s, "az", status.AzureCLIError, width))
-		} else if len(status.Subscriptions) > 0 {
-			b.WriteString(compactRow(s, "Subscriptions", strings.Join(status.Subscriptions, ", "), width))
-		} else {
-			b.WriteString(compactRow(s, "Subscriptions", "none", width))
-		}
-		if status.SSHExtensionError != "" {
-			b.WriteString(compactRow(s, "ssh extension", status.SSHExtensionError, width))
-		}
-		if status.BastionExtensionError != "" {
-			b.WriteString(compactRow(s, "bastion extension", status.BastionExtensionError, width))
-		}
-		if azure.LastSyncAt != nil {
-			b.WriteString(compactRow(s, "Last sync", azure.LastSyncAt.Local().Format("2006-01-02 15:04")+" · "+fmt.Sprintf("%d", azure.LastInstanceCount), width))
-		} else {
-			b.WriteString(compactRow(s, "Last sync", "never", width))
-		}
-		if azure.LastSyncError != "" {
-			b.WriteString(compactRow(s, "Error", azure.LastSyncError, width))
-		}
-		auto := "off"
-		if azure.AutoSync {
-			auto = "on"
-		}
-		b.WriteString(compactRow(s, "Auto-sync", auto, width))
-		b.WriteString(compactRow(s, "SSH user", noneValue(azure.DefaultSSHUser), width))
-		subscriptions := "all enabled"
-		if len(azure.SubscriptionFilter) > 0 {
-			subscriptions = strings.Join(azure.SubscriptionFilter, ", ")
-		}
-		resourceGroups := "all"
-		if len(azure.ResourceGroupFilter) > 0 {
-			resourceGroups = strings.Join(azure.ResourceGroupFilter, ", ")
-		}
-		b.WriteString(compactRow(s, "Subscription filter", subscriptions, width))
-		b.WriteString(compactRow(s, "Resource groups", resourceGroups, width))
+	detail := m.providerDetail(provider)
+	enabled := "disabled"
+	if detail.enabled {
+		enabled = "enabled"
+	}
+	b.WriteString(compactRow(s, "Status", enabled, width))
+	for _, row := range detail.status {
+		b.WriteString(compactRow(s, row.label, row.value, width))
+	}
+	lastSync := "never"
+	if detail.lastSyncAt != nil {
+		lastSync = detail.lastSyncAt.Local().Format("2006-01-02 15:04") + " · " + fmt.Sprintf("%d", detail.lastInstanceCount)
+	}
+	b.WriteString(compactRow(s, "Last sync", lastSync, width))
+	if detail.lastSyncError != "" {
+		b.WriteString(compactRow(s, "Error", detail.lastSyncError, width))
+	}
+	autoSync := "off"
+	if detail.autoSync {
+		autoSync = "on"
+	}
+	b.WriteString(compactRow(s, "Auto-sync", autoSync, width))
+	b.WriteString(compactRow(s, "SSH user", noneValue(detail.sshUser), width))
+	for _, row := range detail.filters {
+		b.WriteString(compactRow(s, row.label, row.value, width))
 	}
 	return b.String()
 }
 
 func (m *App) updateSyncKeys(key string) (tea.Model, tea.Cmd) {
 	items := m.syncMenuItems()
+	m.clampSyncCursor(items)
 	switch key {
 	case "up", "k":
 		m.syncCursor = prevEnabledSyncItem(items, m.syncCursor)
@@ -434,6 +407,12 @@ func (m *App) updateSyncKeys(key string) (tea.Model, tea.Cmd) {
 		return m.runSyncAction(item.action)
 	}
 	return m, nil
+}
+
+func (m *App) clampSyncCursor(items []syncMenuItem) {
+	if m.syncCursor >= len(items) {
+		m.syncCursor = max(0, len(items)-1)
+	}
 }
 
 func firstEnabledSyncItem(items []syncMenuItem) int {

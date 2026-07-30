@@ -144,7 +144,6 @@ export function SkillInstallMenu({
     await navigator.clipboard.writeText(command);
     setCopied(command);
     window.setTimeout(() => setCopied(null), 2000);
-    setOpen(false);
   }
 
   const triggerClassName =

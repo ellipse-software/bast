@@ -2,13 +2,11 @@ package azure
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
+	"bast/internal/cloud/sshutil"
 	"bast/internal/sshconfig"
 )
-
-var unsafeAliasChars = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 func ToSyncHost(inst Instance, alias, bastExecutable string) sshconfig.SyncHostInput {
 	if alias == "" {
@@ -39,9 +37,9 @@ func BastionProxyCommand(inst Instance, bastExecutable string) string {
 	}
 	for i := range args {
 		if args[i] != "%p" {
-			args[i] = proxyLiteral(args[i])
+			args[i] = sshutil.ProxyLiteral(args[i])
 		}
-		args[i] = shellQuote(args[i])
+		args[i] = sshutil.ShellQuote(args[i])
 	}
 	return strings.Join(args, " ")
 }
@@ -59,11 +57,11 @@ func GroupPath(inst Instance) string {
 }
 
 func AliasFor(inst Instance) string {
-	subscription := sanitizeAliasPart(inst.SubscriptionName)
-	group := sanitizeAliasPart(inst.ResourceGroup)
-	name := sanitizeAliasPart(inst.Name)
+	subscription := sshutil.SanitizeAliasPart(inst.SubscriptionName)
+	group := sshutil.SanitizeAliasPart(inst.ResourceGroup)
+	name := sshutil.SanitizeAliasPart(inst.Name)
 	if subscription == "" {
-		subscription = sanitizeAliasPart(inst.SubscriptionID)
+		subscription = sshutil.SanitizeAliasPart(inst.SubscriptionID)
 	}
 	if subscription == "" {
 		subscription = "subscription"
@@ -78,15 +76,7 @@ func AliasFor(inst Instance) string {
 }
 
 func UniqueAlias(base string, used map[string]bool) string {
-	if !used[base] {
-		return base
-	}
-	for i := 2; ; i++ {
-		candidate := fmt.Sprintf("%s_%d", base, i)
-		if !used[candidate] {
-			return candidate
-		}
-	}
+	return sshutil.UniqueAlias(base, used)
 }
 
 func ParseSyncID(syncID string) (subscriptionID, resourceGroup, name string, err error) {
@@ -103,26 +93,6 @@ func ParseSyncID(syncID string) (subscriptionID, resourceGroup, name string, err
 	return subscriptionID, resourceGroup, name, nil
 }
 
-func sanitizeAliasPart(value string) string {
-	value = unsafeAliasChars.ReplaceAllString(strings.TrimSpace(value), "_")
-	value = strings.Trim(value, "_")
-	if len(value) > 48 {
-		value = value[:48]
-	}
-	return value
-}
-
 func safeGroupPart(value string) string {
 	return strings.ReplaceAll(strings.TrimSpace(value), "/", "-")
-}
-
-func proxyLiteral(value string) string { return strings.ReplaceAll(value, "%", "%%") }
-
-func shellQuote(value string) string {
-	if value != "" && strings.IndexFunc(value, func(r rune) bool {
-		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || strings.ContainsRune("-_=./:@%+", r))
-	}) < 0 {
-		return value
-	}
-	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }

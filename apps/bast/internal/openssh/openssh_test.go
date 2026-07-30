@@ -8,11 +8,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestResolveAndCommandValidation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX shell fixture")
+	}
 	dir := t.TempDir()
 	ssh := filepath.Join(dir, "ssh")
 	script := "#!/bin/sh\nif [ \"$1\" = \"-G\" ]; then printf 'hostname prod.example\\nuser deploy\\nport 2222\\nidentityfile ~/.ssh/id_test\\nidentitiesonly yes\\npubkeyauthentication no\\npasswordauthentication yes\\npreferredauthentications keyboard-interactive,password\\nproxyjump bastion\\n'; fi\n"
@@ -29,6 +33,12 @@ func TestResolveAndCommandValidation(t *testing.T) {
 	}
 	if _, err := c.SSHCommand("-oProxyCommand=evil"); err == nil {
 		t.Fatal("expected option-like alias rejection")
+	}
+	if _, err := c.Resolve(context.Background(), "prod\nHost evil"); err == nil {
+		t.Fatal("expected newline alias rejection")
+	}
+	if err := c.RemoveKnownHost(context.Background(), "", "22"); err == nil || !strings.Contains(err.Error(), "required") {
+		t.Fatalf("expected empty-host rejection, got %v", err)
 	}
 }
 
@@ -58,6 +68,9 @@ func TestInstallPublicKeyCommandUsesStdinAndAuthorizedKeys(t *testing.T) {
 }
 
 func TestInstallPublicKeyCommandAppendsOnce(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX shell fixture")
+	}
 	dir := t.TempDir()
 	ssh := filepath.Join(dir, "ssh")
 	script := "#!/bin/sh\nshift 2\nexec /bin/sh -c \"$1\"\n"

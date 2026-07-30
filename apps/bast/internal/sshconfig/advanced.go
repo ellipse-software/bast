@@ -2,6 +2,7 @@ package sshconfig
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -157,6 +158,37 @@ func ValidateAdvanced(settings AdvancedSettings) error {
 	}
 	if settings.ProxyJump != "" && strings.ContainsAny(settings.ProxyJump, " \t") {
 		return fmt.Errorf("proxy jump cannot contain whitespace")
+	}
+	for name, value := range map[string]struct {
+		value   string
+		allowed map[string]bool
+	}{
+		"forward agent": {settings.ForwardAgent, map[string]bool{"": true, "yes": true, "no": true}},
+		"compression":   {settings.Compression, map[string]bool{"": true, "yes": true, "no": true}},
+		"request TTY":   {settings.RequestTTY, map[string]bool{"": true, "auto": true, "yes": true, "no": true, "force": true}},
+	} {
+		if !value.allowed[strings.ToLower(strings.TrimSpace(value.value))] {
+			return fmt.Errorf("%s has an unsupported value", name)
+		}
+	}
+	if value := strings.TrimSpace(settings.DynamicForward); value != "" {
+		if strings.ContainsAny(value, " \t\r\n\x00") {
+			return fmt.Errorf("dynamic forward must be a port or bind address and port")
+		}
+		port := value
+		if colon := strings.LastIndex(value, ":"); colon >= 0 {
+			port = value[colon+1:]
+		}
+		parsed, err := strconv.Atoi(port)
+		if err != nil || parsed < 1 || parsed > 65535 {
+			return fmt.Errorf("dynamic forward port must be between 1 and 65535")
+		}
+	}
+	if value := strings.TrimSpace(settings.ServerAliveInterval); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 0 {
+			return fmt.Errorf("server alive interval must be a non-negative integer")
+		}
 	}
 	for _, env := range settings.SetEnv {
 		if strings.ContainsAny(env, "\r\n\x00") {

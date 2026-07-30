@@ -144,7 +144,10 @@ func TestHistoryImportRollsBackSSHBlockWhenStateWriteFails(t *testing.T) {
 	}
 
 	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	result := cmd().(historyImportDoneMsg)
+	result, ok := cmd().(historyImportDoneMsg)
+	if !ok {
+		t.Fatal("history import command returned an unexpected message type")
+	}
 	if result.err == nil {
 		t.Fatal("history import unexpectedly succeeded")
 	}

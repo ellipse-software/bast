@@ -3,6 +3,7 @@
 set -eu
 
 SKILL_URL="${BAST_SKILL_URL:-https://bast.sh/bast.skill.md}"
+CHECKSUM_URL="${BAST_SKILL_CHECKSUM_URL:-$SKILL_URL.sha256}"
 SCOPE="${BAST_SKILL_SCOPE:-user}"
 
 case "$SCOPE" in
@@ -14,10 +15,22 @@ case "$SCOPE" in
     ;;
 esac
 
-tmp=$(mktemp)
-trap 'rm -f "$tmp"' EXIT INT TERM
+temp_dir=$(mktemp -d)
+tmp="$temp_dir/bast.skill.md"
+checksum="$temp_dir/bast.skill.md.sha256"
+trap 'rm -rf "$temp_dir"' EXIT INT TERM
 
 curl -fsSL "$SKILL_URL" -o "$tmp"
+curl -fsSL "$CHECKSUM_URL" -o "$checksum"
+
+if command -v shasum >/dev/null 2>&1; then
+  (cd "$temp_dir" && shasum -a 256 -c "bast.skill.md.sha256") >/dev/null
+elif command -v sha256sum >/dev/null 2>&1; then
+  (cd "$temp_dir" && sha256sum -c "bast.skill.md.sha256") >/dev/null
+else
+  echo "bast install-skill: shasum or sha256sum is required" >&2
+  exit 1
+fi
 
 install_skill() {
   agent="$1"

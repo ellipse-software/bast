@@ -13,6 +13,7 @@ import (
 	"bast/internal/cloud"
 )
 
+// EnsureConfig controls credential and key preparation for a GCP connection.
 type EnsureConfig struct {
 	Home            string
 	ManagedKeys     string
@@ -24,6 +25,7 @@ type EnsureConfig struct {
 	Status          func(string)
 }
 
+// EnsureResult contains the SSH settings prepared for a GCP connection.
 type EnsureResult struct {
 	User           string
 	IdentityFile   string
@@ -31,6 +33,7 @@ type EnsureResult struct {
 	KeyAdded       bool
 }
 
+// ParseSyncID extracts the project, zone, and instance name from a GCP sync ID.
 func ParseSyncID(syncID string) (projectID, zone, name string, err error) {
 	syncID = normalizeSelfLink(strings.TrimSpace(syncID))
 	parts := strings.Split(syncID, "/")
@@ -51,6 +54,7 @@ func reportStatus(status func(string), message string) {
 	status(message)
 }
 
+// EnsureAccess prepares local SSH credentials for a synced GCP instance.
 func (c *Client) EnsureAccess(ctx context.Context, syncID string, cfg EnsureConfig) (EnsureResult, error) {
 	projectID, zone, name, err := ParseSyncID(syncID)
 	if err != nil {

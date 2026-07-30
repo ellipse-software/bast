@@ -324,15 +324,25 @@ func (s *Store) Preferences() Preferences {
 func (s *Store) SetSort(sortOrder string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous := s.state.Preferences
 	s.state.Preferences.Sort = sortOrder
-	return s.saveQuick()
+	if err := s.saveQuick(); err != nil {
+		s.state.Preferences = previous
+		return err
+	}
+	return nil
 }
 
 func (s *Store) SetCollapsedGroups(groups []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous := s.state.Preferences
 	s.state.Preferences.CollapsedGroups = cleanCollapsedGroups(groups)
-	return s.saveQuick()
+	if err := s.saveQuick(); err != nil {
+		s.state.Preferences = previous
+		return err
+	}
+	return nil
 }
 
 func (s *Store) HistoryImport() HistoryImport {
@@ -438,6 +448,7 @@ func (s *Store) GCP() GCPIntegration {
 func (s *Store) SetGCP(gcp GCPIntegration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous := s.state.Integrations.GCP
 	if !gcp.Enabled && len(gcp.ServiceAccounts) == 0 && len(gcp.ProjectFilter) == 0 &&
 		gcp.DefaultSSHUser == "" && !gcp.AutoSync && gcp.LastSyncAt == nil &&
 		gcp.LastSyncError == "" && gcp.LastInstanceCount == 0 {
@@ -446,7 +457,11 @@ func (s *Store) SetGCP(gcp GCPIntegration) error {
 		copy := cloneGCP(gcp)
 		s.state.Integrations.GCP = &copy
 	}
-	return s.save()
+	if err := s.save(); err != nil {
+		s.state.Integrations.GCP = previous
+		return err
+	}
+	return nil
 }
 
 func (s *Store) AWS() AWSIntegration {
@@ -461,6 +476,7 @@ func (s *Store) AWS() AWSIntegration {
 func (s *Store) SetAWS(aws AWSIntegration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous := s.state.Integrations.AWS
 	if !aws.Enabled && len(aws.ProfileFilter) == 0 && len(aws.RegionFilter) == 0 &&
 		aws.DefaultSSHUser == "" && !aws.AutoSync && aws.LastSyncAt == nil &&
 		aws.LastSyncError == "" && aws.LastInstanceCount == 0 {
@@ -469,7 +485,11 @@ func (s *Store) SetAWS(aws AWSIntegration) error {
 		copy := cloneAWS(aws)
 		s.state.Integrations.AWS = &copy
 	}
-	return s.save()
+	if err := s.save(); err != nil {
+		s.state.Integrations.AWS = previous
+		return err
+	}
+	return nil
 }
 
 func (s *Store) Azure() AzureIntegration {
@@ -484,6 +504,7 @@ func (s *Store) Azure() AzureIntegration {
 func (s *Store) SetAzure(azure AzureIntegration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous := s.state.Integrations.Azure
 	if !azure.Enabled && len(azure.SubscriptionFilter) == 0 && len(azure.ResourceGroupFilter) == 0 &&
 		azure.DefaultSSHUser == "" && !azure.AutoSync && azure.LastSyncAt == nil &&
 		azure.LastSyncError == "" && azure.LastInstanceCount == 0 {
@@ -492,7 +513,11 @@ func (s *Store) SetAzure(azure AzureIntegration) error {
 		copy := cloneAzure(azure)
 		s.state.Integrations.Azure = &copy
 	}
-	return s.save()
+	if err := s.save(); err != nil {
+		s.state.Integrations.Azure = previous
+		return err
+	}
+	return nil
 }
 
 func cloneHost(host Host) Host {
@@ -624,13 +649,28 @@ func (s *Store) writeState(syncDisk bool) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, s.path)
+	if err := os.Rename(tmpName, s.path); err != nil {
+		return err
+	}
+	if !syncDisk {
+		return nil
+	}
+	directory, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	if err := directory.Sync(); err != nil {
+		_ = directory.Close()
+		return err
+	}
+	return directory.Close()
 }
 
 func cleanTags(tags []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(tags))
 	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
 		if tag != "" && !seen[tag] {
 			seen[tag] = true
 			out = append(out, tag)

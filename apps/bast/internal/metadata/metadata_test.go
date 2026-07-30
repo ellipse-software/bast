@@ -15,7 +15,7 @@ func TestStoreRoundTripAndPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetHost("prod", Host{Label: "Production web", Favorite: true, Hidden: true, Tags: []string{"web", "web", "prod"}, Group: "work"}); err != nil {
+	if err := store.SetHost("prod", Host{Label: "Production web", Favorite: true, Hidden: true, Tags: []string{" web ", "web", "prod"}, Group: "work"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.RecordUse("prod"); err != nil {
@@ -247,6 +247,38 @@ func TestFailedHostMutationRestoresStateAndRevision(t *testing.T) {
 				t.Fatalf("revision changed after failed save: before=%d after=%d", beforeRevision, afterRevision)
 			}
 		})
+	}
+}
+
+func TestFailedPreferenceAndIntegrationMutationsRestoreState(t *testing.T) {
+	root := t.TempDir()
+	store, err := Open(filepath.Join(root, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSort("smart"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetGCP(GCPIntegration{Enabled: true, DefaultSSHUser: "before"}); err != nil {
+		t.Fatal(err)
+	}
+	blockedPath := filepath.Join(root, "blocked")
+	if err := os.Mkdir(blockedPath, 0700); err != nil {
+		t.Fatal(err)
+	}
+	store.path = blockedPath
+
+	if err := store.SetSort("group"); err == nil {
+		t.Fatal("sort mutation unexpectedly succeeded")
+	}
+	if got := store.Preferences().Sort; got != "smart" {
+		t.Fatalf("sort changed after failed save: %q", got)
+	}
+	if err := store.SetGCP(GCPIntegration{Enabled: true, DefaultSSHUser: "after"}); err == nil {
+		t.Fatal("GCP mutation unexpectedly succeeded")
+	}
+	if got := store.GCP().DefaultSSHUser; got != "before" {
+		t.Fatalf("GCP state changed after failed save: %q", got)
 	}
 }
 
