@@ -63,16 +63,17 @@ func RenameRemote(session *Session, oldPath, newPath string) error {
 }
 
 // RemoveRemote removes a remote file or recursively removes a directory.
+// Symlinks are removed as links and are never followed into their targets.
 func RemoveRemote(session *Session, path string) error {
 	path, err := CleanRemote(path)
 	if err != nil {
 		return err
 	}
-	info, err := session.client.Stat(path)
+	info, err := session.client.Lstat(path)
 	if err != nil {
 		return err
 	}
-	if !info.IsDir() {
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return session.client.Remove(path)
 	}
 	return removeRemoteDir(session.client, path)
@@ -88,7 +89,17 @@ func removeRemoteDir(client *sftp.Client, dir string) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
+		childInfo, err := client.Lstat(child)
+		if err != nil {
+			return err
+		}
+		if childInfo.Mode()&os.ModeSymlink != 0 {
+			if err := client.Remove(child); err != nil {
+				return err
+			}
+			continue
+		}
+		if childInfo.IsDir() {
 			if err := removeRemoteDir(client, child); err != nil {
 				return err
 			}
@@ -98,14 +109,23 @@ func removeRemoteDir(client *sftp.Client, dir string) error {
 			return err
 		}
 	}
-	return client.Remove(dir)
+	return client.RemoveDirectory(dir)
 }
 
-// StatRemote returns file info for a remote path.
+// StatRemote returns file info for a remote path (follows symlinks).
 func StatRemote(session *Session, path string) (os.FileInfo, error) {
 	path, err := CleanRemote(path)
 	if err != nil {
 		return nil, err
 	}
 	return session.client.Stat(path)
+}
+
+// LstatRemote returns file info for a remote path without following symlinks.
+func LstatRemote(session *Session, path string) (os.FileInfo, error) {
+	path, err := CleanRemote(path)
+	if err != nil {
+		return nil, err
+	}
+	return session.client.Lstat(path)
 }

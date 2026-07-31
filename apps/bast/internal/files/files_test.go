@@ -1,6 +1,7 @@
 package files
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -85,5 +86,58 @@ func TestShellCommandRequiresDirectory(t *testing.T) {
 	}
 	if cmd.Dir != root {
 		t.Fatalf("Dir = %q", cmd.Dir)
+	}
+}
+
+func TestCopyLocalRejectsSamePath(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "a.txt")
+	if err := os.WriteFile(file, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CopyLocal(file, file); err == nil {
+		t.Fatal("expected same-path rejection")
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("file truncated to %q", data)
+	}
+}
+
+func TestTransferLocalLocalProgressCountsNested(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	dstDir := filepath.Join(root, "dst")
+	if err := os.MkdirAll(filepath.Join(src, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "sub", "b.txt"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(dstDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var last Progress
+	err := TransferAny(context.Background(), Endpoint{}, Endpoint{}, []string{src}, dstDir, false, func(p Progress) error {
+		last = p
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last.Total < 3 {
+		t.Fatalf("total = %d, want nested items", last.Total)
+	}
+	if last.Done != last.Total {
+		t.Fatalf("done=%d total=%d", last.Done, last.Total)
+	}
+	if last.Bytes == 0 {
+		t.Fatal("expected bytes progress for local transfer")
 	}
 }

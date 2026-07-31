@@ -118,15 +118,7 @@ func transferLocalLocal(ctx context.Context, sources []string, destDir string, m
 		if err != nil {
 			return err
 		}
-		state.CurrentName = name
-		if err := progress(state); err != nil {
-			return err
-		}
-		if err := CopyLocal(src, dest); err != nil {
-			return err
-		}
-		state.Done++
-		if err := progress(state); err != nil {
+		if err := transferLocalOne(ctx, src, dest, &state, progress); err != nil {
 			return err
 		}
 		if move {
@@ -136,6 +128,86 @@ func transferLocalLocal(ctx context.Context, sources []string, destDir string, m
 		}
 	}
 	return nil
+}
+
+func transferLocalOne(ctx context.Context, src, dest string, state *Progress, progress ProgressFunc) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	src, err := CleanLocal(src)
+	if err != nil {
+		return err
+	}
+	dest, err = CleanLocal(dest)
+	if err != nil {
+		return err
+	}
+	if src == dest {
+		return errSamePath
+	}
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	state.CurrentName = BaseName(src)
+	if err := progress(*state); err != nil {
+		return err
+	}
+	if info.IsDir() {
+		if LocalPathContained(src, dest) {
+			return errSamePath
+		}
+		if err := os.MkdirAll(dest, info.Mode().Perm()); err != nil {
+			return err
+		}
+		if err := os.Chmod(dest, info.Mode().Perm()); err != nil {
+			return err
+		}
+		state.Done++
+		if err := progress(*state); err != nil {
+			return err
+		}
+		entries, err := os.ReadDir(src)
+		if err != nil {
+			return err
+		}
+		for _, item := range entries {
+			from := filepath.Join(src, item.Name())
+			to := filepath.Join(dest, item.Name())
+			if err := transferLocalOne(ctx, from, to, state, progress); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return copyFileLocalLocal(ctx, src, dest, info.Mode(), state, progress)
+}
+
+func copyFileLocalLocal(ctx context.Context, src, dest string, mode os.FileMode, state *Progress, progress ProgressFunc) error {
+	if src == dest {
+		return errSamePath
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode.Perm())
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if err := copyWithProgress(ctx, out, in, state, progress); err != nil {
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	state.Done++
+	return progress(*state)
 }
 
 func transferRemoteRemote(ctx context.Context, srcSession, dstSession *Session, sources []string, destDir string, move bool, progress ProgressFunc) error {
@@ -173,7 +245,18 @@ func transferRemoteOne(ctx context.Context, srcSession, dstSession *Session, src
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	info, err := StatRemote(srcSession, src)
+	src, err := CleanRemote(src)
+	if err != nil {
+		return err
+	}
+	dest, err = CleanRemote(dest)
+	if err != nil {
+		return err
+	}
+	if src == dest {
+		return errSamePath
+	}
+	info, err := LstatRemote(srcSession, src)
 	if err != nil {
 		return err
 	}
@@ -181,10 +264,17 @@ func transferRemoteOne(ctx context.Context, srcSession, dstSession *Session, src
 	if err := progress(*state); err != nil {
 		return err
 	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return copyRemoteFileToRemote(ctx, srcSession, dstSession, src, dest, info.Mode(), state, progress)
+	}
 	if info.IsDir() {
+		if RemotePathContained(src, dest) {
+			return errSamePath
+		}
 		if err := dstSession.client.MkdirAll(dest); err != nil {
 			return err
 		}
+		_ = dstSession.client.Chmod(dest, info.Mode().Perm())
 		state.Done++
 		if err := progress(*state); err != nil {
 			return err
@@ -205,6 +295,10 @@ func transferRemoteOne(ctx context.Context, srcSession, dstSession *Session, src
 		}
 		return nil
 	}
+	return copyRemoteFileToRemote(ctx, srcSession, dstSession, src, dest, info.Mode(), state, progress)
+}
+
+func copyRemoteFileToRemote(ctx context.Context, srcSession, dstSession *Session, src, dest string, mode os.FileMode, state *Progress, progress ProgressFunc) error {
 	in, err := srcSession.client.Open(src)
 	if err != nil {
 		return err
@@ -220,22 +314,25 @@ func transferRemoteOne(ctx context.Context, srcSession, dstSession *Session, src
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 	if err := copyWithProgress(ctx, out, in, state, progress); err != nil {
+		_ = out.Close()
 		return err
 	}
-	_ = dstSession.client.Chmod(dest, info.Mode().Perm())
+	if err := out.Close(); err != nil {
+		return err
+	}
+	_ = dstSession.client.Chmod(dest, mode.Perm())
 	state.Done++
 	return progress(*state)
 }
 
 func countItems(session *Session, src string, local bool) (int, error) {
 	if local {
-		info, err := os.Stat(src)
+		info, err := os.Lstat(src)
 		if err != nil {
 			return 0, err
 		}
-		if !info.IsDir() {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return 1, nil
 		}
 		n := 1
@@ -247,15 +344,18 @@ func countItems(session *Session, src string, local bool) (int, error) {
 				return nil
 			}
 			n++
+			if info.Mode()&os.ModeSymlink != 0 {
+				return filepath.SkipDir
+			}
 			return nil
 		})
 		return n, err
 	}
-	info, err := StatRemote(session, src)
+	info, err := LstatRemote(session, src)
 	if err != nil {
 		return 0, err
 	}
-	if !info.IsDir() {
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return 1, nil
 	}
 	return countRemote(session, src)
@@ -272,7 +372,15 @@ func countRemote(session *Session, dir string) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		if info.IsDir() {
+		childInfo, err := LstatRemote(session, child)
+		if err != nil {
+			return 0, err
+		}
+		if childInfo.Mode()&os.ModeSymlink != 0 {
+			n++
+			continue
+		}
+		if childInfo.IsDir() {
 			sub, err := countRemote(session, child)
 			if err != nil {
 				return 0, err
@@ -290,7 +398,15 @@ func transferOne(ctx context.Context, session *Session, src, dest string, localT
 		return err
 	}
 	if localToRemote {
-		info, err := os.Stat(src)
+		src, err := CleanLocal(src)
+		if err != nil {
+			return err
+		}
+		dest, err = CleanRemote(dest)
+		if err != nil {
+			return err
+		}
+		info, err := os.Lstat(src)
 		if err != nil {
 			return err
 		}
@@ -298,10 +414,14 @@ func transferOne(ctx context.Context, session *Session, src, dest string, localT
 		if err := progress(*state); err != nil {
 			return err
 		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return copyFileLocalToRemote(ctx, session, src, dest, info.Mode(), state, progress)
+		}
 		if info.IsDir() {
 			if err := session.client.MkdirAll(dest); err != nil {
 				return err
 			}
+			_ = session.client.Chmod(dest, info.Mode().Perm())
 			state.Done++
 			if err := progress(*state); err != nil {
 				return err
@@ -322,7 +442,15 @@ func transferOne(ctx context.Context, session *Session, src, dest string, localT
 		return copyFileLocalToRemote(ctx, session, src, dest, info.Mode(), state, progress)
 	}
 
-	info, err := StatRemote(session, src)
+	src, err := CleanRemote(src)
+	if err != nil {
+		return err
+	}
+	dest, err = CleanLocal(dest)
+	if err != nil {
+		return err
+	}
+	info, err := LstatRemote(session, src)
 	if err != nil {
 		return err
 	}
@@ -330,8 +458,14 @@ func transferOne(ctx context.Context, session *Session, src, dest string, localT
 	if err := progress(*state); err != nil {
 		return err
 	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return copyFileRemoteToLocal(ctx, session, src, dest, info.Mode(), state, progress)
+	}
 	if info.IsDir() {
-		if err := os.MkdirAll(dest, 0o755); err != nil {
+		if err := os.MkdirAll(dest, info.Mode().Perm()); err != nil {
+			return err
+		}
+		if err := os.Chmod(dest, info.Mode().Perm()); err != nil {
 			return err
 		}
 		state.Done++
@@ -373,8 +507,11 @@ func copyFileLocalToRemote(ctx context.Context, session *Session, src, dest stri
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 	if err := copyWithProgress(ctx, out, in, state, progress); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
 		return err
 	}
 	_ = session.client.Chmod(dest, mode.Perm())

@@ -153,10 +153,16 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if key == "esc" {
+		if m.form != nil && m.form.action == "files_delete" {
+			m.files.deletePaths = nil
+		}
 		m.form = nil
 		return m, nil
 	}
 	if (key == "backspace" || key == "ctrl+h") && !m.formTextInputActive() {
+		if m.form != nil && m.form.action == "files_delete" {
+			m.files.deletePaths = nil
+		}
 		m.form = nil
 		return m, nil
 	}

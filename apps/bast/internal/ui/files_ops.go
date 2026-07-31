@@ -27,6 +27,8 @@ func (m *App) refreshFilesPane(index int) tea.Cmd {
 	}
 	pane.loading = true
 	pane.err = ""
+	pane.listGen++
+	gen := pane.listGen
 	cwd := pane.cwd
 	showHidden := pane.showHidden
 	session := pane.session
@@ -39,7 +41,7 @@ func (m *App) refreshFilesPane(index int) tea.Cmd {
 		} else {
 			entries, err = files.ListRemote(session, cwd, showHidden)
 		}
-		return filesListMsg{pane: index, cwd: cwd, entries: entries, err: err}
+		return filesListMsg{pane: index, cwd: cwd, gen: gen, entries: entries, err: err}
 	}
 }
 
@@ -49,18 +51,19 @@ func (m *App) refreshAllFilesPanes() tea.Cmd {
 
 func (m *App) setFilesPaneLocal(index int) tea.Cmd {
 	pane := &m.files.panes[index]
+	saved := pane.cwd
+	wasLocal := pane.kind == filesPaneLocal
 	pane.closeSession()
 	pane.kind = filesPaneLocal
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "."
 	}
-	if pane.cwd == "" {
-		pane.cwd = home
-	} else if cleaned, cleanErr := files.CleanLocal(pane.cwd); cleanErr == nil {
-		pane.cwd = cleaned
-	} else {
-		pane.cwd = home
+	pane.cwd = home
+	if wasLocal && saved != "" {
+		if cleaned, cleanErr := files.CleanLocal(saved); cleanErr == nil {
+			pane.cwd = cleaned
+		}
 	}
 	pane.hostSearch = ""
 	return tea.Batch(m.refreshFilesPane(index), m.setNotice("Local"))
@@ -95,25 +98,33 @@ func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
 	pane.connecting = true
 	pane.alias = host.Alias
 	pane.err = ""
+	pane.connectGen++
+	gen := pane.connectGen
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	pane.connectCancel = cancel
 	openSSH := m.openSSH
 	alias := host.Alias
 	prepare := m.filesPrepareFn(host)
 	return func() tea.Msg {
+		defer cancel()
 		if prepare != nil {
 			if err := prepare(func(string) {}); err != nil {
-				return filesConnectMsg{pane: index, alias: alias, err: err}
+				return filesConnectMsg{pane: index, gen: gen, alias: alias, err: err}
 			}
 		}
-		session, err := files.OpenSession(openSSH, alias)
+		if err := ctx.Err(); err != nil {
+			return filesConnectMsg{pane: index, gen: gen, alias: alias, err: err}
+		}
+		session, err := files.OpenSession(ctx, openSSH, alias)
 		if err != nil {
-			return filesConnectMsg{pane: index, alias: alias, err: err}
+			return filesConnectMsg{pane: index, gen: gen, alias: alias, err: err}
 		}
 		cwd, err := session.Home()
 		if err != nil {
 			_ = session.Close()
-			return filesConnectMsg{pane: index, alias: alias, err: err}
+			return filesConnectMsg{pane: index, gen: gen, alias: alias, err: err}
 		}
-		return filesConnectMsg{pane: index, session: session, cwd: cwd, alias: alias}
+		return filesConnectMsg{pane: index, gen: gen, session: session, cwd: cwd, alias: alias}
 	}
 }
 
@@ -152,7 +163,7 @@ func (m *App) handleFilesListMsg(msg filesListMsg) tea.Cmd {
 		return nil
 	}
 	pane := &m.files.panes[msg.pane]
-	if msg.cwd != pane.cwd {
+	if msg.gen != pane.listGen || msg.cwd != pane.cwd {
 		return nil
 	}
 	pane.loading = false
@@ -172,17 +183,32 @@ func (m *App) handleFilesConnectMsg(msg filesConnectMsg) tea.Cmd {
 		return nil
 	}
 	pane := &m.files.panes[msg.pane]
+	if msg.gen != pane.connectGen {
+		if msg.session != nil {
+			_ = msg.session.Close()
+		}
+		return nil
+	}
 	pane.connecting = false
+	pane.connectCancel = nil
 	if msg.err != nil {
 		pane.alias = ""
 		if msg.session != nil {
 			_ = msg.session.Close()
 		}
 		notice := msg.err.Error()
-		if formatted := openssh.FormatError(msg.err); formatted != "" && !strings.Contains(notice, formatted) {
+		if errors.Is(msg.err, context.Canceled) || errors.Is(msg.err, context.DeadlineExceeded) {
+			notice = "Connect cancelled"
+			if errors.Is(msg.err, context.DeadlineExceeded) {
+				notice = "Connect timed out"
+			}
+		} else if formatted := openssh.FormatError(msg.err); formatted != "" && !strings.Contains(notice, formatted) {
 			notice = formatted
 		}
 		return m.setNotice(notice)
+	}
+	if pane.session != nil {
+		_ = pane.session.Close()
 	}
 	pane.session = msg.session
 	pane.alias = msg.alias
@@ -214,6 +240,23 @@ func (m *App) handleFilesTransferDone(msg filesTransferDoneMsg) tea.Cmd {
 	m.files.panes[1].clearMarks()
 	cmds = append(cmds, m.setNotice(action))
 	return tea.Batch(cmds...)
+}
+
+func (m *App) handleFilesOpDone(msg filesOpDoneMsg) tea.Cmd {
+	if msg.pane < 0 || msg.pane > 1 {
+		return nil
+	}
+	pane := &m.files.panes[msg.pane]
+	if msg.err != nil {
+		return m.setNotice(msg.err.Error())
+	}
+	pane.clearMarks()
+	m.files.deletePaths = nil
+	notice := msg.notice
+	if notice == "" {
+		notice = "Done"
+	}
+	return tea.Batch(m.refreshFilesPane(msg.pane), m.setNotice(notice))
 }
 
 func (m *App) startFilesTransfer(move bool) (tea.Model, tea.Cmd) {
@@ -294,9 +337,9 @@ func (m *App) openFilesDeleteForm() (tea.Model, tea.Cmd) {
 		placeholder = confirm
 		title = "Delete — " + confirm
 	}
+	m.files.deletePaths = append([]string(nil), paths...)
 	m.openForm(title, "files_delete", []field{
 		{label: "Pane", value: fmt.Sprintf("%d", m.files.focus), hidden: true},
-		{label: "Paths", value: strings.Join(paths, "\n"), hidden: true},
 		{label: "Confirmation", value: confirm, hidden: true},
 		{label: "Type the name to confirm", placeholder: placeholder},
 	})
@@ -323,17 +366,22 @@ func (m *App) submitFilesForm(values map[string]string) (tea.Model, tea.Cmd) {
 			if err := files.MkdirLocal(path); err != nil {
 				return m.formError(err.Error())
 			}
-		} else {
-			path, err := files.JoinRemote(pane.cwd, name)
-			if err != nil {
-				return m.formError(err.Error())
-			}
-			if err := files.MkdirRemote(pane.session, path); err != nil {
-				return m.formError(err.Error())
-			}
+			m.form = nil
+			return m, tea.Batch(m.refreshFilesPane(index), m.setNotice("Created"))
 		}
+		if pane.session == nil {
+			return m.formError("not connected")
+		}
+		path, err := files.JoinRemote(pane.cwd, name)
+		if err != nil {
+			return m.formError(err.Error())
+		}
+		session := pane.session
 		m.form = nil
-		return m, tea.Batch(m.refreshFilesPane(index), m.setNotice("Created"))
+		return m, func() tea.Msg {
+			err := files.MkdirRemote(session, path)
+			return filesOpDoneMsg{pane: index, action: "files_mkdir", err: err, notice: "Created"}
+		}
 	case "files_rename":
 		name := strings.TrimSpace(values["Name"])
 		if name == "" {
@@ -348,39 +396,56 @@ func (m *App) submitFilesForm(values map[string]string) (tea.Model, tea.Cmd) {
 			if err := files.RenameLocal(oldPath, newPath); err != nil {
 				return m.formError(err.Error())
 			}
-		} else {
-			newPath, err := files.JoinRemote(pane.cwd, name)
-			if err != nil {
-				return m.formError(err.Error())
-			}
-			if err := files.RenameRemote(pane.session, oldPath, newPath); err != nil {
-				return m.formError(err.Error())
-			}
+			m.form = nil
+			pane.clearMarks()
+			return m, tea.Batch(m.refreshFilesPane(index), m.setNotice("Renamed"))
 		}
+		if pane.session == nil {
+			return m.formError("not connected")
+		}
+		newPath, err := files.JoinRemote(pane.cwd, name)
+		if err != nil {
+			return m.formError(err.Error())
+		}
+		session := pane.session
 		m.form = nil
-		pane.clearMarks()
-		return m, tea.Batch(m.refreshFilesPane(index), m.setNotice("Renamed"))
+		return m, func() tea.Msg {
+			err := files.RenameRemote(session, oldPath, newPath)
+			return filesOpDoneMsg{pane: index, action: "files_rename", err: err, notice: "Renamed"}
+		}
 	case "files_delete":
 		if values["Type the name to confirm"] != values["Confirmation"] {
 			return m.formValidationError("Name does not match")
 		}
-		for _, path := range strings.Split(values["Paths"], "\n") {
-			if path == "" {
-				continue
-			}
-			var err error
-			if pane.kind == filesPaneLocal {
-				err = files.RemoveLocal(path)
-			} else {
-				err = files.RemoveRemote(pane.session, path)
-			}
-			if err != nil {
-				return m.formError(err.Error())
-			}
+		paths := append([]string(nil), m.files.deletePaths...)
+		if len(paths) == 0 {
+			return m.formError("nothing to delete")
 		}
+		if pane.kind == filesPaneLocal {
+			for _, path := range paths {
+				if err := files.RemoveLocal(path); err != nil {
+					return m.formError(err.Error())
+				}
+			}
+			m.form = nil
+			m.files.deletePaths = nil
+			pane.clearMarks()
+			return m, tea.Batch(m.refreshFilesPane(index), m.setNotice("Deleted"))
+		}
+		if pane.session == nil {
+			return m.formError("not connected")
+		}
+		session := pane.session
 		m.form = nil
-		pane.clearMarks()
-		return m, tea.Batch(m.refreshFilesPane(index), m.setNotice("Deleted"))
+		m.files.deletePaths = nil
+		return m, func() tea.Msg {
+			for _, path := range paths {
+				if err := files.RemoveRemote(session, path); err != nil {
+					return filesOpDoneMsg{pane: index, action: "files_delete", err: err}
+				}
+			}
+			return filesOpDoneMsg{pane: index, action: "files_delete", notice: "Deleted"}
+		}
 	}
 	return m, nil
 }

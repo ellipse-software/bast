@@ -11,7 +11,64 @@ import (
 var (
 	errEmptyPath   = errors.New("path is required")
 	errInvalidPath = errors.New("invalid path")
+	errSamePath    = errors.New("source and destination are the same")
 )
+
+// SameLocalPath reports whether two local paths resolve to the same location.
+func SameLocalPath(a, b string) bool {
+	ca, errA := CleanLocal(a)
+	cb, errB := CleanLocal(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return ca == cb
+}
+
+// SameRemotePath reports whether two remote paths resolve to the same location.
+func SameRemotePath(a, b string) bool {
+	ca, errA := CleanRemote(a)
+	cb, errB := CleanRemote(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return ca == cb
+}
+
+// LocalPathContained reports whether child is equal to parent or nested under it.
+func LocalPathContained(parent, child string) bool {
+	parent, err := CleanLocal(parent)
+	if err != nil {
+		return false
+	}
+	child, err = CleanLocal(child)
+	if err != nil {
+		return false
+	}
+	if parent == child {
+		return true
+	}
+	sep := string(filepath.Separator)
+	return strings.HasPrefix(child, parent+sep)
+}
+
+// RemotePathContained reports whether child is equal to parent or nested under it.
+func RemotePathContained(parent, child string) bool {
+	parent, err := CleanRemote(parent)
+	if err != nil {
+		return false
+	}
+	child, err = CleanRemote(child)
+	if err != nil {
+		return false
+	}
+	if parent == child {
+		return true
+	}
+	if parent == "/" {
+		return true
+	}
+	return strings.HasPrefix(child, parent+"/")
+}
 
 // CleanRemote returns a cleaned absolute remote (slash) path.
 func CleanRemote(p string) (string, error) {

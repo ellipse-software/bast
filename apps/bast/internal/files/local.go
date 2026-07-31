@@ -84,11 +84,17 @@ func CopyLocal(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	info, err := os.Stat(src)
+	if src == dst {
+		return errSamePath
+	}
+	info, err := os.Lstat(src)
 	if err != nil {
 		return err
 	}
 	if info.IsDir() {
+		if LocalPathContained(src, dst) {
+			return errSamePath
+		}
 		return copyLocalDir(src, dst, info.Mode())
 	}
 	return copyLocalFile(src, dst, info.Mode())
@@ -105,11 +111,11 @@ func copyLocalDir(src, dst string, mode fs.FileMode) error {
 	for _, item := range entries {
 		from := filepath.Join(src, item.Name())
 		to := filepath.Join(dst, item.Name())
-		info, err := item.Info()
+		info, err := os.Lstat(from)
 		if err != nil {
 			return err
 		}
-		if item.IsDir() {
+		if info.IsDir() {
 			if err := copyLocalDir(from, to, info.Mode()); err != nil {
 				return err
 			}
@@ -130,6 +136,9 @@ func copyLocalFile(src, dst string, mode fs.FileMode) error {
 	defer in.Close()
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
+	}
+	if src == dst {
+		return errSamePath
 	}
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode.Perm())
 	if err != nil {

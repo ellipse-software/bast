@@ -34,12 +34,15 @@ type filesPane struct {
 	pathInput   textinput.Model
 	err         string
 	loading     bool
+	listGen     uint64
+	connectGen  uint64
 
-	session    *files.Session
-	alias      string
-	connecting bool
-	hostCursor int
-	hostSearch string
+	session       *files.Session
+	alias         string
+	connecting    bool
+	connectCancel context.CancelFunc
+	hostCursor    int
+	hostSearch    string
 }
 
 type filesTransfer struct {
@@ -55,22 +58,25 @@ type filesJump struct {
 }
 
 type filesState struct {
-	panes    [2]filesPane
-	focus    int
-	transfer filesTransfer
-	jump     filesJump
-	ready    bool
+	panes       [2]filesPane
+	focus       int
+	transfer    filesTransfer
+	jump        filesJump
+	deletePaths []string
+	ready       bool
 }
 
 type filesListMsg struct {
 	pane    int
 	cwd     string
+	gen     uint64
 	entries []files.Entry
 	err     error
 }
 
 type filesConnectMsg struct {
 	pane    int
+	gen     uint64
 	session *files.Session
 	cwd     string
 	err     error
@@ -80,6 +86,13 @@ type filesConnectMsg struct {
 type filesTransferDoneMsg struct {
 	err  error
 	move bool
+}
+
+type filesOpDoneMsg struct {
+	pane   int
+	action string
+	err    error
+	notice string
 }
 
 func (m *App) initFilesState() {
@@ -193,6 +206,10 @@ func (p *filesPane) pickingHost() bool {
 }
 
 func (p *filesPane) closeSession() {
+	if p.connectCancel != nil {
+		p.connectCancel()
+		p.connectCancel = nil
+	}
 	if p.session != nil {
 		_ = p.session.Close()
 		p.session = nil
@@ -290,7 +307,7 @@ func (m *App) renderFilesBrowser(s styleSet, pane *filesPane, focused bool, list
 	}
 	if pane.err != "" {
 		b.WriteString("  " + s.error.Render(pane.err) + "\n")
-	} else if pane.loading || pane.connecting {
+	} else if len(pane.entries) == 0 && (pane.loading || pane.connecting) {
 		b.WriteString("  " + s.muted.Render("Loading…") + "\n")
 	} else if len(pane.entries) == 0 {
 		b.WriteString("  " + s.muted.Render("Empty") + "\n")
@@ -417,6 +434,16 @@ func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	pane := m.filesFocusedPane()
+	if pane.connecting {
+		switch key {
+		case "esc", "x":
+			if pane.connectCancel != nil {
+				pane.connectCancel()
+			}
+			return m, m.setNotice("Cancelling connect…")
+		}
+		return m, nil
+	}
 	if m.files.jump.active {
 		return m.updateFilesJump(key)
 	}
@@ -510,6 +537,9 @@ func (m *App) filesTyping() bool {
 		return true
 	}
 	pane := m.filesFocusedPane()
+	if pane.connecting {
+		return true
+	}
 	if pane.pathEdit {
 		return true
 	}
@@ -520,59 +550,64 @@ func (m *App) filesTyping() bool {
 }
 
 func (m *App) updateFilesPathEdit(key string, pane *filesPane) (tea.Model, tea.Cmd) {
+	// Retained for tests that drive path edit with string keys.
 	switch key {
 	case "esc":
 		pane.pathEdit = false
 		pane.pathInput.Blur()
 		return m, nil
 	case "enter":
-		value := strings.TrimSpace(pane.pathInput.Value())
-		pane.pathEdit = false
-		pane.pathInput.Blur()
-		if value == "" {
-			return m, nil
-		}
-		if pane.kind == filesPaneLocal {
-			cleaned, err := files.CleanLocal(value)
-			if err != nil {
-				pane.err = err.Error()
-				return m, nil
-			}
-			pane.cwd = cleaned
-		} else {
-			cleaned, err := files.CleanRemote(value)
-			if err != nil {
-				pane.err = err.Error()
-				return m, nil
-			}
-			pane.cwd = cleaned
-		}
-		pane.clearMarks()
-		return m, m.refreshFilesPane(m.files.focus)
+		return m.commitFilesPathEdit(pane)
+	case "space":
+		return m.updateFilesPathInputMsg(pane, tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
 	default:
-		return m.updateFilesPathInputKey(pane, key)
+		if len([]rune(key)) == 1 {
+			return m.updateFilesPathInputMsg(pane, tea.KeyPressMsg(tea.Key{Text: key}))
+		}
+		return m.updateFilesPathInputMsg(pane, tea.KeyPressMsg(tea.Key{Text: key}))
 	}
 }
 
-func (m *App) updateFilesPathInputKey(pane *filesPane, key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "backspace", "ctrl+h":
-		val := pane.pathInput.Value()
-		if len(val) > 0 {
-			runes := []rune(val)
-			pane.pathInput.SetValue(string(runes[:len(runes)-1]))
-			pane.pathInput.SetCursor(len(runes) - 1)
+func (m *App) commitFilesPathEdit(pane *filesPane) (tea.Model, tea.Cmd) {
+	value := strings.TrimSpace(pane.pathInput.Value())
+	pane.pathEdit = false
+	pane.pathInput.Blur()
+	if value == "" {
+		return m, nil
+	}
+	if pane.kind == filesPaneLocal {
+		cleaned, err := files.CleanLocal(value)
+		if err != nil {
+			pane.err = err.Error()
+			return m, nil
 		}
-	case "ctrl+u":
-		pane.pathInput.SetValue("")
-		pane.pathInput.SetCursor(0)
-	default:
-		if len([]rune(key)) == 1 {
-			pane.pathInput.SetValue(pane.pathInput.Value() + key)
-			pane.pathInput.SetCursor(len([]rune(pane.pathInput.Value())))
+		pane.cwd = cleaned
+	} else {
+		cleaned, err := files.CleanRemote(value)
+		if err != nil {
+			pane.err = err.Error()
+			return m, nil
+		}
+		pane.cwd = cleaned
+	}
+	pane.clearMarks()
+	return m, m.refreshFilesPane(m.files.focus)
+}
+
+func (m *App) updateFilesPathInputMsg(pane *filesPane, msg tea.Msg) (tea.Model, tea.Cmd) {
+	if key, ok := msg.(tea.KeyPressMsg); ok {
+		switch key.String() {
+		case "esc":
+			pane.pathEdit = false
+			pane.pathInput.Blur()
+			return m, nil
+		case "enter":
+			return m.commitFilesPathEdit(pane)
 		}
 	}
-	return m, nil
+	var cmd tea.Cmd
+	pane.pathInput, cmd = pane.pathInput.Update(msg)
+	return m, cmd
 }
 
 func (m *App) updateFilesHostSearch(key string, pane *filesPane) (tea.Model, tea.Cmd) {
@@ -585,9 +620,13 @@ func (m *App) updateFilesHostSearch(key string, pane *filesPane) (tea.Model, tea
 		pane.hostSearch = ""
 	case "backspace", "ctrl+h":
 		if len(query) > 0 {
-			query = query[:len(query)-1]
+			runes := []rune(query)
+			query = string(runes[:len(runes)-1])
 		}
 		pane.hostSearch = "\x00" + query
+		pane.hostCursor = 0
+	case "space":
+		pane.hostSearch = "\x00" + query + " "
 		pane.hostCursor = 0
 	default:
 		if len([]rune(key)) == 1 {

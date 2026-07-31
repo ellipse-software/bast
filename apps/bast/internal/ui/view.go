@@ -144,11 +144,16 @@ func (m *App) renderTabs(s styleSet) string {
 		keyTab = s.inactive.Render(keyTab)
 		syncTab = s.active.Render(syncTab)
 		filesTab = s.inactive.Render(filesTab)
-	default:
+	case filesSection:
 		hosts = s.inactive.Render(hosts)
 		keyTab = s.inactive.Render(keyTab)
 		syncTab = s.inactive.Render(syncTab)
 		filesTab = s.active.Render(filesTab)
+	default:
+		hosts = s.inactive.Render(hosts)
+		keyTab = s.inactive.Render(keyTab)
+		syncTab = s.inactive.Render(syncTab)
+		filesTab = s.inactive.Render(filesTab)
 	}
 	return hosts + headerTabSpacing + keyTab + headerTabSpacing + syncTab + headerTabSpacing + filesTab
 }
@@ -812,6 +817,8 @@ func helpSections() []helpSection {
 				{"t", "Shell in directory"},
 				{".", "Toggle hidden files"},
 				{"D", "Disconnect remote"},
+				{"Esc", "Clear marks / disconnect / quit"},
+				{"Esc  x", "Cancel transfer or connect"},
 			},
 		},
 		{

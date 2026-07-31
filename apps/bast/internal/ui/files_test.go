@@ -11,6 +11,17 @@ import (
 	"bast/internal/files"
 )
 
+func applyFilesList(m *App, pane int, cwd string, entries []files.Entry) {
+	m.files.panes[pane].cwd = cwd
+	m.files.panes[pane].listGen++
+	m.Update(filesListMsg{
+		pane:    pane,
+		cwd:     cwd,
+		gen:     m.files.panes[pane].listGen,
+		entries: entries,
+	})
+}
+
 func TestFilesTabNavigationAndMarks(t *testing.T) {
 	m := testApp(t)
 	dir := t.TempDir()
@@ -25,12 +36,11 @@ func TestFilesTabNavigationAndMarks(t *testing.T) {
 	if m.section != filesSection {
 		t.Fatalf("section = %v", m.section)
 	}
-	m.files.panes[0].cwd = dir
 	entries, err := files.ListLocal(dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.Update(filesListMsg{pane: 0, cwd: dir, entries: entries})
+	applyFilesList(m, 0, dir, entries)
 
 	body := m.renderFiles(m.styles())
 	if !strings.Contains(body, "local") || !strings.Contains(body, "remote") {
@@ -114,12 +124,11 @@ func TestFilesJumpAllowsTypingFullName(t *testing.T) {
 		}
 	}
 	_ = m.enterFilesSection()
-	m.files.panes[0].cwd = dir
 	entries, err := files.ListLocal(dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.Update(filesListMsg{pane: 0, cwd: dir, entries: entries})
+	applyFilesList(m, 0, dir, entries)
 
 	m.updateFilesKeys("f")
 	m.updateFilesKeys("b")
@@ -155,12 +164,11 @@ func TestFilesJumpAutoJumpsSingleMatch(t *testing.T) {
 		}
 	}
 	_ = m.enterFilesSection()
-	m.files.panes[0].cwd = dir
 	entries, err := files.ListLocal(dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.Update(filesListMsg{pane: 0, cwd: dir, entries: entries})
+	applyFilesList(m, 0, dir, entries)
 
 	m.updateFilesKeys("f")
 	m.updateFilesKeys("u")
@@ -181,12 +189,11 @@ func TestFilesJumpLabelStillJumps(t *testing.T) {
 		}
 	}
 	_ = m.enterFilesSection()
-	m.files.panes[0].cwd = dir
 	entries, err := files.ListLocal(dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.Update(filesListMsg{pane: 0, cwd: dir, entries: entries})
+	applyFilesList(m, 0, dir, entries)
 
 	m.updateFilesKeys("f")
 	m.updateFilesKeys("a")
@@ -217,12 +224,11 @@ func TestFilesLEntersDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = m.enterFilesSection()
-	m.files.panes[0].cwd = dir
 	entries, err := files.ListLocal(dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.Update(filesListMsg{pane: 0, cwd: dir, entries: entries})
+	applyFilesList(m, 0, dir, entries)
 	for i, entry := range m.files.panes[0].entries {
 		if entry.Name == "nested" {
 			m.files.panes[0].cursor = i
@@ -232,5 +238,44 @@ func TestFilesLEntersDirectory(t *testing.T) {
 	m.updateFilesKeys("l")
 	if m.files.panes[0].cwd != sub {
 		t.Fatalf("l should enter directory, cwd=%q", m.files.panes[0].cwd)
+	}
+}
+
+func TestFilesLocalPaneKeepsCwd(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	_ = m.enterFilesSection()
+	m.files.panes[0].cwd = dir
+	m.updateFilesKeys("L")
+	if m.files.panes[0].cwd != dir {
+		t.Fatalf("L on local pane should keep cwd, got %q", m.files.panes[0].cwd)
+	}
+}
+
+func TestFilesPathEditAcceptsSpace(t *testing.T) {
+	m := testApp(t)
+	_ = m.enterFilesSection()
+	m.files.panes[0].cwd = t.TempDir()
+	m.updateFilesKeys("/")
+	m.updateFilesKeys("space")
+	if !strings.Contains(m.files.panes[0].pathInput.Value(), " ") {
+		t.Fatalf("path input should accept space, got %q", m.files.panes[0].pathInput.Value())
+	}
+}
+
+func TestFilesStaleListMsgIgnored(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	staleGen := m.files.panes[0].listGen
+	m.files.panes[0].listGen++
+	m.Update(filesListMsg{pane: 0, cwd: dir, gen: staleGen, entries: []files.Entry{{Name: "stale"}}})
+	if len(m.files.panes[0].entries) == 1 && m.files.panes[0].entries[0].Name == "stale" {
+		t.Fatal("stale list message should be ignored")
 	}
 }

@@ -2,6 +2,7 @@ package files
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -23,7 +24,11 @@ type Session struct {
 }
 
 // OpenSession starts ssh -s sftp for alias using the given OpenSSH client.
-func OpenSession(openSSH openssh.Client, alias string) (*Session, error) {
+// If ctx is cancelled before the handshake finishes, the SSH process is killed.
+func OpenSession(ctx context.Context, openSSH openssh.Client, alias string) (*Session, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	cmd, err := openSSH.SFTPCommand(alias)
 	if err != nil {
 		return nil, err
@@ -41,19 +46,37 @@ func OpenSession(openSSH openssh.Client, alias string) (*Session, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start sftp: %w", err)
 	}
-	client, err := sftp.NewClientPipe(stdout, stdin)
-	if err != nil {
+
+	type result struct {
+		client *sftp.Client
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		client, err := sftp.NewClientPipe(stdout, stdin)
+		done <- result{client: client, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
 		_ = stdin.Close()
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
-		detail := strings.TrimSpace(session.stderr.String())
-		if detail != "" {
-			return nil, fmt.Errorf("sftp handshake: %w (%s)", err, detail)
+		return nil, ctx.Err()
+	case res := <-done:
+		if res.err != nil {
+			_ = stdin.Close()
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			detail := strings.TrimSpace(session.stderr.String())
+			if detail != "" {
+				return nil, fmt.Errorf("sftp handshake: %w (%s)", res.err, detail)
+			}
+			return nil, fmt.Errorf("sftp handshake: %w; unlock keys with ssh-add or connect once from Hosts to accept the host key", res.err)
 		}
-		return nil, fmt.Errorf("sftp handshake: %w; unlock keys with ssh-add or connect once from Hosts to accept the host key", err)
+		session.client = res.client
+		return session, nil
 	}
-	session.client = client
-	return session, nil
 }
 
 // Client returns the underlying SFTP client.

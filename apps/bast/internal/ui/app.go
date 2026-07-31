@@ -461,6 +461,8 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleFilesConnectMsg(msg)
 	case filesTransferDoneMsg:
 		return m, m.handleFilesTransferDone(msg)
+	case filesOpDoneMsg:
+		return m, m.handleFilesOpDone(msg)
 	case clearStatusMsg:
 		if uint64(msg) == m.statusID && !m.statusError {
 			m.status = ""
@@ -487,6 +489,13 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		if m.form != nil {
 			return m.updateFormPaste(msg)
+		}
+		if m.section == filesSection {
+			m.initFilesState()
+			pane := m.filesFocusedPane()
+			if pane.pathEdit {
+				return m.updateFilesPathInputMsg(pane, msg)
+			}
 		}
 		return m, nil
 	case tea.KeyPressMsg:

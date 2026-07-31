@@ -318,6 +318,11 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	if m.section == filesSection {
+		m.initFilesState()
+		pane := m.filesFocusedPane()
+		if pane.pathEdit && !m.files.transfer.active && !pane.connecting && !m.files.jump.active {
+			return m.updateFilesPathInputMsg(pane, msg)
+		}
 		return m.updateFilesKeys(key)
 	}
 	switch key {
