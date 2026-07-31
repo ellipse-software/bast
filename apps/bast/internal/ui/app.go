@@ -513,7 +513,7 @@ func (m *App) View() tea.View {
 	view := tea.NewView(content)
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
-	if m.form != nil {
+	if m.form != nil && !isHostForm(m.form) {
 		view.MouseMode = tea.MouseModeNone
 	}
 	view.WindowTitle = "Bast — SSH picker"

@@ -76,10 +76,20 @@ func (c *connectionProcess) SetStderr(output io.Writer) {
 
 func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
-	if mouse.Button != tea.MouseLeft || m.help || m.credits || m.form != nil {
+	if mouse.Button != tea.MouseLeft || m.help || m.credits || (m.statusError && m.status != "") {
 		return m, nil
 	}
 	m.scrollbarDragging = false
+	if m.form != nil {
+		if isHostForm(m.form) {
+			x, y, width := m.hostFormSaveButtonBounds()
+			if mouse.Y == y && mouse.X >= x && mouse.X < x+width {
+				m.commitFormField()
+				return m.submitForm()
+			}
+		}
+		return m, nil
+	}
 
 	if mouse.Y == 0 {
 		tabsStart := lipgloss.Width(headerTitle) + 2
@@ -383,6 +393,10 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			m.openEditKeyForm()
+		}
+	case "m":
+		if m.section == hostsSection {
+			m.openGroupAssignmentForm()
 		}
 	case "d":
 		if m.section == syncSection {

@@ -3,7 +3,7 @@ title: Host management
 description: Add, edit, favorite, hide, and organize SSH hosts with groups, tags, and colors.
 ---
 
-Press `a` to add a host or `e` to edit the selected one. The form keeps the required label and hostname at the top, with separate menus for authentication, advanced SSH settings, and metadata. Press `Ctrl+Enter` to save from anywhere in the form.
+Press `a` to add a host or `e` to edit the selected one. The form keeps the required label and hostname at the top, with separate menus for authentication, advanced SSH settings, and metadata. Click **Save** or press `Ctrl+J` to save from anywhere in the form. `Ctrl+Enter` remains available when your terminal reports it.
 
 ## Connection fields
 
@@ -19,7 +19,7 @@ Choose **Advanced** to configure jump hosts, startup commands, forwarding, keepa
 
 ## Metadata fields
 
-**Groups** use slash paths like `Work/Production`. You can nest up to five levels. Press Space on a group header to collapse or expand it.
+**Groups** use slash paths like `Work/Production`. You can nest up to five levels. Press `m` on a local host, then type to fuzzy-search existing groups. Choose a match, select the create row for a new path, or clear the group with **No group**. Press Space on a group header to collapse or expand it.
 
 **Tags** are comma-separated labels included in search.
 
@@ -34,6 +34,7 @@ Choose **Advanced** to configure jump hosts, startup commands, forwarding, keepa
 | Key | Action |
 | --- | --- |
 | `f` | Favorite the selected host |
+| `m` | Move the selected local host to a group |
 | `h` | Hide a host you rarely need |
 | `.` | Toggle whether hidden hosts appear in the list |
 | `d` | Delete a Bast-managed host |

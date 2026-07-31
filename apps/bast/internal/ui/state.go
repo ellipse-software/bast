@@ -597,6 +597,31 @@ func (m *App) expandAllGroups() tea.Cmd {
 	return nil
 }
 
+func (m *App) revealGroup(group string) error {
+	if m.collapsedGroups == nil {
+		return nil
+	}
+	parts := groupPathParts(group)
+	path := ""
+	changed := false
+	for _, part := range parts {
+		if path == "" {
+			path = part
+		} else {
+			path += "/" + part
+		}
+		if m.collapsedGroups[path] {
+			delete(m.collapsedGroups, path)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	m.collapseRevision++
+	return m.persistCollapsedGroups()
+}
+
 func (m *App) persistCollapsedGroups() error {
 	live := map[string]bool{}
 	metadataByHost := m.hostMetadata()

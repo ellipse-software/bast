@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -52,6 +53,9 @@ func (m *App) formTextInputActive() bool {
 	if f == nil {
 		return false
 	}
+	if isGroupAssignmentForm(f) {
+		return true
+	}
 	if isHostForm(f) {
 		if f.selecting {
 			return false
@@ -93,6 +97,9 @@ func (m *App) updateFormQuit(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if model, cmd, quit := m.updateFormQuit(msg); quit {
 		return model, cmd
+	}
+	if isGroupAssignmentForm(m.form) {
+		return m.updateGroupAssignmentForm(msg)
 	}
 	if isHostForm(m.form) {
 		return m.updateHostForm(msg)
@@ -207,6 +214,9 @@ func isEditForm(f *form) bool {
 
 func (m *App) updateFormPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	f := m.form
+	if isGroupAssignmentForm(f) {
+		return m.updateGroupAssignmentInput(msg)
+	}
 	f.validationError = ""
 	content := strings.TrimSpace(msg.Content)
 	if f.action == "key_import" && f.fields[f.index].label == "Private key" && strings.Contains(content, "PRIVATE KEY-----") {
@@ -331,6 +341,22 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			m.selectAfterLoadSection, m.selectAfterLoadName, m.selectAfterLoadGroup = hostsSection, group, true
 		}
 		return m.finishMutation(err, "Host metadata saved")
+	case "group_assign":
+		alias := values["Alias"]
+		group, err := metadata.NormalizeGroupPath(values["Group"])
+		if err != nil {
+			return m.formValidationError(err.Error())
+		}
+		host := m.metadata.Host(alias)
+		host.Group = group
+		err = m.metadata.SetHost(alias, host)
+		if err == nil {
+			err = m.revealGroup(group)
+		}
+		if err == nil {
+			m.selectAfterLoadSection, m.selectAfterLoadName, m.selectAfterLoadGroup = hostsSection, alias, false
+		}
+		return m.finishMutation(err, "Host group saved")
 	case "host_delete":
 		alias := values["Alias"]
 		if values["Type the name to confirm"] != values["Confirmation"] {
@@ -535,6 +561,69 @@ func (m *App) openEditHostForm() {
 		passwordOnly:      isPasswordOnly,
 		advanced:          adv,
 	}, []field{{label: "Original label", value: host.Alias, hidden: true}}))
+}
+
+func (m *App) openGroupAssignmentForm() {
+	host, ok := m.selectedHost()
+	if !ok {
+		return
+	}
+	if host.Synced {
+		m.status, m.statusError = "Synced hosts are read-only; manage them in the Sync tab", true
+		return
+	}
+	meta := m.metadata.Host(host.Alias)
+	m.openForm("Move host — "+m.hostLabel(host), "group_assign", []field{
+		{label: "Alias", value: host.Alias, hidden: true},
+		{label: "Current group", value: meta.Group, hidden: true},
+		m.groupAssignmentField(meta.Group),
+	})
+	m.form.selecting = false
+	m.form.input.SetValue("")
+	m.form.input.Placeholder = "Search or create a group"
+	m.form.input.Focus()
+}
+
+func (m *App) groupAssignmentField(current string) field {
+	paths := map[string]bool{}
+	metadataByHost := m.hostMetadata()
+	for _, host := range m.hosts {
+		parts := groupPathParts(metadataByHost[host.Alias].Group)
+		path := ""
+		for _, part := range parts {
+			if path == "" {
+				path = part
+			} else {
+				path += "/" + part
+			}
+			paths[path] = true
+		}
+	}
+	ordered := make([]string, 0, len(paths))
+	for path := range paths {
+		ordered = append(ordered, path)
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		left, right := strings.ToLower(ordered[i]), strings.ToLower(ordered[j])
+		if left == right {
+			return ordered[i] < ordered[j]
+		}
+		return left < right
+	})
+
+	item := field{
+		label:       "Group",
+		description: "Choose an existing group, clear the group, or enter a new path",
+		placeholder: "Work/Production",
+		options:     []fieldOption{{label: "No group"}},
+	}
+	for _, path := range ordered {
+		item.options = append(item.options, fieldOption{label: path, value: path})
+		if path == current {
+			item.selected = len(item.options) - 1
+		}
+	}
+	return item
 }
 
 func (m *App) openDeleteHostForm() {

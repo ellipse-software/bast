@@ -194,7 +194,7 @@ func (m *App) updateAdvancedHubForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *App) renderAdvancedHubForm(s styleSet) string {
 	f := m.form
 	var b strings.Builder
-	b.WriteString("\n  " + s.active.Render(f.title) + "  " + s.muted.Render("› Advanced") + "\n\n")
+	b.WriteString(m.renderHostFormHeader(s, "› Advanced"))
 	for i, item := range advancedHubList {
 		summary := m.advancedSubsectionSummary(item.section)
 		line := item.title + "  " + summary

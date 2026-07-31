@@ -45,13 +45,7 @@ func (m *App) render() string {
 	styles := m.styles()
 	width := m.terminalWidth()
 	bodyHeight := max(1, m.terminalHeight()-3)
-	header := styles.title.Render(headerTitle) + "  " + m.renderTabs(styles)
-	if m.version != "" && m.version != "dev" {
-		space := width - lipgloss.Width(header) - lipgloss.Width(m.version)
-		if space > 0 {
-			header += strings.Repeat(" ", space) + styles.muted.Render(m.version)
-		}
-	}
+	header := m.renderHeader(styles)
 	var body string
 	if m.statusError && m.status != "" {
 		body = m.renderError(styles)
@@ -71,6 +65,17 @@ func (m *App) render() string {
 	body = lipgloss.NewStyle().Width(width).Height(bodyHeight).Render(body)
 	footer := m.renderFooter(styles)
 	return lipgloss.NewStyle().Width(width).Render(header + "\n" + m.renderHeaderRule(styles) + "\n" + body + "\n" + footer)
+}
+
+func (m *App) renderHeader(s styleSet) string {
+	header := s.title.Render(headerTitle) + "  " + m.renderTabs(s)
+	if m.version != "" && m.version != "dev" {
+		space := m.terminalWidth() - lipgloss.Width(header) - lipgloss.Width(m.version)
+		if space > 0 {
+			header += strings.Repeat(" ", space) + s.muted.Render(m.version)
+		}
+	}
+	return header
 }
 
 func (m *App) renderError(s styleSet) string {
@@ -557,6 +562,9 @@ func (m *App) renderKeyDetail(s styleSet, key keys.Key, width int) string {
 }
 
 func (m *App) renderForm(s styleSet) string {
+	if isGroupAssignmentForm(m.form) {
+		return m.renderGroupAssignmentForm(s)
+	}
 	if isHostForm(m.form) {
 		return m.renderHostForm(s)
 	}
@@ -628,6 +636,9 @@ func (m *App) renderForm(s styleSet) string {
 }
 
 func (m *App) formHint() string {
+	if isGroupAssignmentForm(m.form) {
+		return groupAssignmentHint()
+	}
 	if isHostForm(m.form) {
 		return hostFormHint(m.form, m.formTextInputActive())
 	}
@@ -735,6 +746,7 @@ func helpSections() []helpSection {
 				{"󰌑", "Connect or add suggestion"},
 				{"a", "Add host"},
 				{"e", "Edit or review suggestion"},
+				{"m", "Move host to group"},
 				{"x", "Dismiss history suggestion"},
 				{"d", "Delete host"},
 				{"␣", "Collapse or expand group"},
@@ -930,9 +942,9 @@ func (m *App) renderFooter(s styleSet) string {
 				hint = collapse + " • e rename • a add • v about • ? help"
 			}
 		} else if m.isMobileLayout() {
-			hint = "↑/↓ or j/k move • enter/click Connect • a add • v about • ? help"
+			hint = "↑/↓ or j/k move • enter/click Connect • m group • a add • v about • ? help"
 		} else {
-			hint = "󰌑 connect • ␣ " + m.collapseActionLabel() + " • a add • h hide • v about • ? help"
+			hint = "󰌑 connect • m group • ␣ " + m.collapseActionLabel() + " • a add • h hide • v about • ? help"
 		}
 	} else if m.section == keysSection {
 		hint = "a generate • i import • u add to server • x export • v about • ? help"
