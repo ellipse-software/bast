@@ -91,6 +91,8 @@ type processDoneMsg struct {
 
 type clearStatusMsg uint64
 
+type hostSaveHintTickMsg uint64
+
 type reportResultMsg struct {
 	err error
 }
@@ -156,6 +158,8 @@ type App struct {
 	status            string
 	statusError       bool
 	statusID          uint64
+	hostSaveHintID    uint64
+	hostSaveHintEnter bool
 	width             int
 	height            int
 	dark              bool
@@ -453,6 +457,12 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = ""
 		}
 		return m, nil
+	case hostSaveHintTickMsg:
+		if uint64(msg) != m.hostSaveHintID || m.form == nil || !isHostForm(m.form) {
+			return m, nil
+		}
+		m.hostSaveHintEnter = !m.hostSaveHintEnter
+		return m, m.hostSaveHintTickCmd()
 	case updateAvailableMsg:
 		m.latestVersion, m.updateSuggestion = msg.version, msg.suggestion
 		return m, nil
@@ -503,7 +513,11 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.form != nil {
 			return m.updateForm(msg)
 		}
-		return m.updateKeys(msg)
+		model, cmd := m.updateKeys(msg)
+		if m.form != nil && isHostForm(m.form) {
+			cmd = tea.Batch(cmd, m.hostSaveHintTickCmd())
+		}
+		return model, cmd
 	}
 	return m, nil
 }

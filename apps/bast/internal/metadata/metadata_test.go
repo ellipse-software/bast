@@ -197,6 +197,9 @@ func TestFailedHostMutationRestoresStateAndRevision(t *testing.T) {
 		{name: "set", mutate: func(store *Store) error {
 			return store.SetHost("source", Host{Label: "changed"})
 		}},
+		{name: "move", mutate: func(store *Store) error {
+			return store.MoveHost("source", "Moved", []string{"Moved"})
+		}},
 		{name: "delete", mutate: func(store *Store) error {
 			return store.DeleteHost("source")
 		}},
@@ -230,6 +233,7 @@ func TestFailedHostMutationRestoresStateAndRevision(t *testing.T) {
 				t.Fatal(err)
 			}
 			beforeHosts, beforeRevision := store.HostsSnapshot()
+			beforePreferences := store.Preferences()
 			blockedPath := filepath.Join(root, "blocked")
 			if err := os.Mkdir(blockedPath, 0700); err != nil {
 				t.Fatal(err)
@@ -245,6 +249,9 @@ func TestFailedHostMutationRestoresStateAndRevision(t *testing.T) {
 			}
 			if afterRevision != beforeRevision {
 				t.Fatalf("revision changed after failed save: before=%d after=%d", beforeRevision, afterRevision)
+			}
+			if afterPreferences := store.Preferences(); !reflect.DeepEqual(afterPreferences, beforePreferences) {
+				t.Fatalf("preferences changed after failed save: before=%+v after=%+v", beforePreferences, afterPreferences)
 			}
 		})
 	}

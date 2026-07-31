@@ -18,6 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	cloudsync "bast/internal/cloud/sync"
 	"bast/internal/connectbanner"
 	keymodel "bast/internal/keys"
 	"bast/internal/metadata"
@@ -717,6 +718,9 @@ func TestQuickGroupAssignmentSupportsExistingNewAndNoGroup(t *testing.T) {
 			}
 		}
 		m.collapsedGroups = map[string]bool{"Work": true, "Work/Production": true, "Work/Production/API": true}
+		if err := m.metadata.SetCollapsedGroups([]string{"Work", "Work/Production", "Work/Production/API"}); err != nil {
+			t.Fatal(err)
+		}
 		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 		if m.form != nil {
 			t.Fatal("existing group assignment did not close the picker")
@@ -727,6 +731,9 @@ func TestQuickGroupAssignmentSupportsExistingNewAndNoGroup(t *testing.T) {
 		}
 		if len(m.collapsedGroups) != 0 {
 			t.Fatalf("destination path stayed collapsed: %#v", m.collapsedGroups)
+		}
+		if got := m.metadata.Preferences().CollapsedGroups; len(got) != 0 {
+			t.Fatalf("persisted destination path stayed collapsed: %#v", got)
 		}
 		m.selectAfterLoad()
 		selected, ok := m.selectedHost()
@@ -834,6 +841,28 @@ func TestQuickGroupAssignmentSupportsExistingNewAndNoGroup(t *testing.T) {
 			t.Fatalf("invalid group did not stay in the picker: %#v", m.form)
 		}
 	})
+
+	t.Run("reserved cloud group", func(t *testing.T) {
+		m := testApp(t)
+		if err := m.metadata.SetHost("beta", metadata.Host{Group: "Google Cloud/project"}); err != nil {
+			t.Fatal(err)
+		}
+		selectHostAlias(t, m, "alpha")
+		m.updateKeys(press("m"))
+		for _, option := range m.form.fieldByLabel("Group").options {
+			if cloudsync.IsSyncedGroup(option.value) {
+				t.Fatalf("picker includes reserved cloud group %q", option.value)
+			}
+		}
+		m.updateFormPaste(tea.PasteMsg{Content: "Google Cloud/custom"})
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+		if m.form == nil || !strings.Contains(m.form.validationError, "read-only") {
+			t.Fatalf("reserved group did not stay in the picker: %#v", m.form)
+		}
+		if got := m.metadata.Host("alpha").Group; got != "" {
+			t.Fatalf("host moved into reserved group %q", got)
+		}
+	})
 }
 
 func TestGroupPickerRoutesPasteAndEscape(t *testing.T) {
@@ -937,6 +966,32 @@ func TestHostEditorSaveIsVisiblePortableAndClickable(t *testing.T) {
 			t.Fatal("unrelated form unexpectedly enabled mouse reporting")
 		}
 	})
+}
+
+func TestHostEditorSaveHintAlternatesWithoutStaleTicks(t *testing.T) {
+	m := testApp(t)
+	_, cmd := m.Update(press("a"))
+	if cmd == nil {
+		t.Fatal("opening the host editor did not schedule the save hint")
+	}
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+J save") || strings.Contains(footer, "Ctrl+↵ save") {
+		t.Fatalf("initial save hint = %q", footer)
+	}
+
+	hintID := m.hostSaveHintID
+	_, cmd = m.Update(hostSaveHintTickMsg(hintID))
+	if cmd == nil {
+		t.Fatal("active host editor did not schedule the next save hint")
+	}
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+↵ save") || strings.Contains(footer, "Ctrl+J save") {
+		t.Fatalf("alternate save hint = %q", footer)
+	}
+
+	m.form = nil
+	_, cmd = m.Update(hostSaveHintTickMsg(hintID))
+	if cmd != nil {
+		t.Fatal("closed host editor kept the save hint timer alive")
+	}
 }
 
 func TestMouseSelectsTabsAndListRowsOnly(t *testing.T) {

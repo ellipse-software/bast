@@ -640,7 +640,7 @@ func (m *App) formHint() string {
 		return groupAssignmentHint()
 	}
 	if isHostForm(m.form) {
-		return hostFormHint(m.form, m.formTextInputActive())
+		return hostFormHint(m.form, m.formTextInputActive(), m.hostSaveHintEnter)
 	}
 	f := m.form
 	action := "󰌑 next"

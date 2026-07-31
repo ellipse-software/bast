@@ -597,9 +597,10 @@ func (m *App) expandAllGroups() tea.Cmd {
 	return nil
 }
 
-func (m *App) revealGroup(group string) error {
-	if m.collapsedGroups == nil {
-		return nil
+func (m *App) collapsedGroupsRevealing(group string) (map[string]bool, []string, bool) {
+	next := make(map[string]bool, len(m.collapsedGroups))
+	for path, collapsed := range m.collapsedGroups {
+		next[path] = collapsed
 	}
 	parts := groupPathParts(group)
 	path := ""
@@ -610,16 +611,18 @@ func (m *App) revealGroup(group string) error {
 		} else {
 			path += "/" + part
 		}
-		if m.collapsedGroups[path] {
-			delete(m.collapsedGroups, path)
+		if next[path] {
+			delete(next, path)
 			changed = true
 		}
 	}
-	if !changed {
-		return nil
+	collapsedPaths := make([]string, 0, len(next))
+	for path, collapsed := range next {
+		if collapsed {
+			collapsedPaths = append(collapsedPaths, path)
+		}
 	}
-	m.collapseRevision++
-	return m.persistCollapsedGroups()
+	return next, collapsedPaths, changed
 }
 
 func (m *App) persistCollapsedGroups() error {

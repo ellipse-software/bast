@@ -347,13 +347,16 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		if err != nil {
 			return m.formValidationError(err.Error())
 		}
-		host := m.metadata.Host(alias)
-		host.Group = group
-		err = m.metadata.SetHost(alias, host)
-		if err == nil {
-			err = m.revealGroup(group)
+		if sync.IsSyncedGroup(group) {
+			return m.formValidationError("cloud sync groups are read-only")
 		}
+		collapsedGroups, collapsedPaths, collapseChanged := m.collapsedGroupsRevealing(group)
+		err = m.metadata.MoveHost(alias, group, collapsedPaths)
 		if err == nil {
+			m.collapsedGroups = collapsedGroups
+			if collapseChanged {
+				m.collapseRevision++
+			}
 			m.selectAfterLoadSection, m.selectAfterLoadName, m.selectAfterLoadGroup = hostsSection, alias, false
 		}
 		return m.finishMutation(err, "Host group saved")
@@ -596,7 +599,9 @@ func (m *App) groupAssignmentField(current string) field {
 			} else {
 				path += "/" + part
 			}
-			paths[path] = true
+			if !sync.IsSyncedGroup(path) {
+				paths[path] = true
+			}
 		}
 	}
 	ordered := make([]string, 0, len(paths))

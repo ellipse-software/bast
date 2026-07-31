@@ -189,6 +189,32 @@ func (s *Store) SetHost(alias string, host Host) error {
 	return nil
 }
 
+// MoveHost updates a host's group and the collapsed-group preferences in one
+// state-file replacement so the UI cannot report a failed move after the host
+// change has already been persisted.
+func (s *Store) MoveHost(alias, group string, collapsedGroups []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	host, existed := s.state.Hosts[alias]
+	previousHost := host
+	previousPreferences := s.state.Preferences
+	host.Group = group
+	s.state.Hosts[alias] = host
+	s.state.Preferences.CollapsedGroups = cleanCollapsedGroups(collapsedGroups)
+	if err := s.save(); err != nil {
+		if existed {
+			s.state.Hosts[alias] = previousHost
+		} else {
+			delete(s.state.Hosts, alias)
+		}
+		s.state.Preferences = previousPreferences
+		return err
+	}
+	s.hostRevision.Add(1)
+	return nil
+}
+
 // UpdateHosts applies a related set of host metadata changes with one atomic
 // persistence operation. The callback must not call other Store methods.
 func (s *Store) UpdateHosts(update func(map[string]Host)) error {
