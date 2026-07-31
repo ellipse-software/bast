@@ -2,20 +2,24 @@ package ui
 
 import (
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"bast/internal/metadata"
 	"bast/internal/sshconfig"
 )
 
 const (
-	formSectionBasics   = "basics"
-	formSectionAuth     = "auth"
-	formSectionAdvanced = "advanced"
-	formSectionMetadata = "metadata"
+	formSectionBasics       = "basics"
+	formSectionAuth         = "auth"
+	formSectionAdvanced     = "advanced"
+	formSectionMetadata     = "metadata"
+	hostFormSaveButtonLabel = " Save "
+	hostSaveHintInterval    = 2 * time.Second
 )
 
 type hostHubItem struct {
@@ -31,6 +35,42 @@ func isHostForm(f *form) bool {
 	default:
 		return false
 	}
+}
+
+func (m *App) hostFormSaveButtonBounds() (x, y, width int) {
+	width = lipgloss.Width(hostFormSaveButtonLabel)
+	x = max(2, m.terminalWidth()-2-width)
+	s := m.styles()
+	header := m.renderHeader(s) + "\n" + m.renderHeaderRule(s)
+	y = lipgloss.Height(lipgloss.NewStyle().Width(m.terminalWidth()).Render(header)) + 1
+	return x, y, width
+}
+
+func (m *App) renderHostFormHeader(s styleSet, breadcrumb string) string {
+	x, _, _ := m.hostFormSaveButtonBounds()
+	text := m.form.title
+	if breadcrumb != "" {
+		text += "  " + breadcrumb
+	}
+	available := max(0, x-3)
+	if available == 0 {
+		text = ""
+	} else {
+		text = ansi.Truncate(text, available, "…")
+	}
+
+	var b strings.Builder
+	b.WriteString("\n  ")
+	if text != "" {
+		b.WriteString(s.active.Render(text))
+	}
+	currentX := 2 + lipgloss.Width(text)
+	if currentX < x {
+		b.WriteString(strings.Repeat(" ", x-currentX))
+	}
+	b.WriteString(s.title.Render(hostFormSaveButtonLabel))
+	b.WriteString("\n\n")
+	return b.String()
 }
 
 func (f *form) fieldByLabel(label string) *field {
@@ -176,7 +216,16 @@ func (m *App) openHostForm(title, action string, fields []field) {
 		title: title, action: action, fields: fields, input: input,
 		screen: "hub", hubIndex: 0,
 	}
+	m.hostSaveHintID++
+	m.hostSaveHintEnter = false
 	m.focusHostHubItem()
+}
+
+func (m *App) hostSaveHintTickCmd() tea.Cmd {
+	hintID := m.hostSaveHintID
+	return tea.Tick(hostSaveHintInterval, func(time.Time) tea.Msg {
+		return hostSaveHintTickMsg(hintID)
+	})
 }
 
 func (m *App) focusHostHubItem() {
@@ -504,7 +553,7 @@ func (m *App) renderHostHubForm(s styleSet) string {
 	f := m.form
 	items := hostHubItems(f)
 	var b strings.Builder
-	b.WriteString("\n  " + s.active.Render(f.title) + "\n\n")
+	b.WriteString(m.renderHostFormHeader(s, ""))
 	b.WriteString("  " + s.active.Render("Basics") + "\n")
 	for _, hub := range items {
 		if hub.section == formSectionBasics {
@@ -640,7 +689,7 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 		sectionTitle, breadcrumb = "Metadata", "› Metadata"
 	}
 	var b strings.Builder
-	b.WriteString("\n  " + s.active.Render(f.title) + "  " + s.muted.Render(breadcrumb) + "\n\n")
+	b.WriteString(m.renderHostFormHeader(s, breadcrumb))
 
 	indices := f.sectionFieldIndices(f.screen)
 	for _, idx := range indices {
@@ -696,9 +745,13 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 	return b.String()
 }
 
-func hostFormHint(f *form, textInputActive bool) string {
+func hostFormHint(f *form, textInputActive, showEnterKey bool) string {
+	save := "Ctrl+J save"
+	if showEnterKey {
+		save = "Ctrl+↵ save"
+	}
 	if f.screen == formScreenAdvancedHub {
-		return "Enter open section • ↑/↓ or j/k move • ⌫/Esc back • Ctrl+Enter save • q quit"
+		return "Enter open section • ↑/↓ or j/k move • ⌫/Esc back • " + save + " • q quit"
 	}
 	if f.screen != "" && f.screen != "hub" {
 		if f.selecting {
@@ -710,23 +763,23 @@ func hostFormHint(f *form, textInputActive bool) string {
 			action = "Enter change"
 		}
 		if len(item.options) > 0 && item.options[item.selected].custom {
-			return action + " • Esc choices • ⌫ edit • Ctrl+Enter save"
+			return action + " • Esc choices • ⌫ edit • " + save
 		}
 		hint := action + " • ↑/↓ or Tab move • ⌫/Esc back"
 		if !textInputActive {
 			hint += " • q quit"
 		}
-		return hint + " • Ctrl+Enter save"
+		return hint + " • " + save
 	}
 
 	items := hostHubItems(f)
 	if f.hubIndex >= 0 && f.hubIndex < len(items) {
 		hub := items[f.hubIndex]
 		if hub.id == "label" || hub.id == "hostname" {
-			return "Enter next • ↑/↓ or Tab move • Ctrl+Enter save • q type • Esc cancel"
+			return "Enter next • ↑/↓ or Tab move • " + save + " • q type • Esc cancel"
 		}
 	}
-	return "Enter open section • ↑/↓ or j/k move • Tab next • ⌫/Esc cancel • Ctrl+Enter save • q quit"
+	return "Enter open section • ↑/↓ or j/k move • Tab next • ⌫/Esc cancel • " + save + " • q quit"
 }
 
 func hostFormFields(m *App, meta metadataHostValues, conn hostConnectionValues, hidden []field) []field {

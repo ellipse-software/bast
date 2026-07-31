@@ -18,6 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	cloudsync "bast/internal/cloud/sync"
 	"bast/internal/connectbanner"
 	keymodel "bast/internal/keys"
 	"bast/internal/metadata"
@@ -43,6 +44,10 @@ func press(text string) tea.KeyPressMsg {
 
 func ctrlEnter() tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Text: "\x00", Mod: tea.ModCtrl})
+}
+
+func ctrlJ() tea.KeyPressMsg {
+	return tea.KeyPressMsg(tea.Key{Code: 'j', Mod: tea.ModCtrl})
 }
 
 func ctrlC() tea.KeyPressMsg {
@@ -90,6 +95,17 @@ func formFieldByLabel(m *App, label string) field {
 		return field{}
 	}
 	return *t
+}
+
+func selectHostAlias(t *testing.T, m *App, alias string) {
+	t.Helper()
+	for i, row := range m.hostListRows() {
+		if !row.header && row.suggestion == nil && row.host.Alias == alias {
+			m.cursor = i
+			return
+		}
+	}
+	t.Fatalf("host %q not found", alias)
 }
 
 func TestNumberedNavigationAndSearch(t *testing.T) {
@@ -669,6 +685,315 @@ func TestGroupPathsAreNormalizedAndLimitedToFiveLevels(t *testing.T) {
 	}
 }
 
+func TestQuickGroupAssignmentSupportsExistingNewAndNoGroup(t *testing.T) {
+	t.Run("fuzzy existing ancestor", func(t *testing.T) {
+		m := testApp(t)
+		if err := m.metadata.SetHost("alpha", metadata.Host{Notes: "keep"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.metadata.SetHost("beta", metadata.Host{Group: "Work/Production/API"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.metadata.SetHost("removed", metadata.Host{Group: "Removed/Phantom"}); err != nil {
+			t.Fatal(err)
+		}
+		selectHostAlias(t, m, "alpha")
+		m.Update(press("m"))
+		if m.form == nil || m.form.action != "group_assign" || !m.form.input.Focused() {
+			t.Fatalf("m did not open a focused searchable group picker: %#v", m.form)
+		}
+		if rendered := m.renderGroupAssignmentForm(m.styles()); !strings.Contains(rendered, "No group") || !strings.Contains(rendered, "Current: No group") {
+			t.Fatalf("initial picker is incorrect:\n%s", rendered)
+		}
+		for _, key := range []string{"w", "p", "a"} {
+			m.Update(press(key))
+		}
+		choices := m.groupPickerChoices()
+		if len(choices) < 2 || choices[0].value != "Work/Production/API" || !choices[1].create {
+			t.Fatalf("fuzzy choices for wpa = %#v", choices)
+		}
+		for _, choice := range choices {
+			if choice.value == "Removed/Phantom" {
+				t.Fatalf("picker includes metadata for an absent host: %#v", choices)
+			}
+		}
+		m.collapsedGroups = map[string]bool{"Work": true, "Work/Production": true, "Work/Production/API": true}
+		if err := m.metadata.SetCollapsedGroups([]string{"Work", "Work/Production", "Work/Production/API"}); err != nil {
+			t.Fatal(err)
+		}
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+		if m.form != nil {
+			t.Fatal("existing group assignment did not close the picker")
+		}
+		got := m.metadata.Host("alpha")
+		if got.Group != "Work/Production/API" || got.Notes != "keep" {
+			t.Fatalf("metadata after assignment = %#v", got)
+		}
+		if len(m.collapsedGroups) != 0 {
+			t.Fatalf("destination path stayed collapsed: %#v", m.collapsedGroups)
+		}
+		if got := m.metadata.Preferences().CollapsedGroups; len(got) != 0 {
+			t.Fatalf("persisted destination path stayed collapsed: %#v", got)
+		}
+		m.selectAfterLoad()
+		selected, ok := m.selectedHost()
+		if !ok || selected.Alias != "alpha" {
+			t.Fatalf("selected host after assignment = %#v, ok=%t", selected, ok)
+		}
+	})
+
+	t.Run("current group selected", func(t *testing.T) {
+		m := testApp(t)
+		if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Work/Production/API"}); err != nil {
+			t.Fatal(err)
+		}
+		selectHostAlias(t, m, "alpha")
+		m.updateKeys(press("m"))
+		group := m.form.fieldByLabel("Group")
+		choices := m.groupPickerChoices()
+		if got := choices[group.selected].value; got != "Work/Production/API" {
+			t.Fatalf("selected group = %q", got)
+		}
+		m.updateForm(press("x"))
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+		choices = m.groupPickerChoices()
+		if got := choices[group.selected].value; got != "Work/Production/API" {
+			t.Fatalf("selected group after clearing search = %q", got)
+		}
+	})
+
+	t.Run("new normalized path", func(t *testing.T) {
+		m := testApp(t)
+		selectHostAlias(t, m, "alpha")
+		m.updateKeys(press("m"))
+		m.updateFormPaste(tea.PasteMsg{Content: "Team / Platform"})
+		choices := m.groupPickerChoices()
+		if len(choices) != 1 || !choices[0].create {
+			t.Fatalf("new-path choices = %#v", choices)
+		}
+		if rendered := m.renderGroupAssignmentForm(m.styles()); !strings.Contains(rendered, `Create "Team / Platform"`) {
+			t.Fatalf("picker does not offer creation:\n%s", rendered)
+		}
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+		if got := m.metadata.Host("alpha").Group; got != "Team/Platform" {
+			t.Fatalf("new group = %q", got)
+		}
+	})
+
+	t.Run("normalized exact match", func(t *testing.T) {
+		m := testApp(t)
+		if err := m.metadata.SetHost("beta", metadata.Host{Group: "Work/Production"}); err != nil {
+			t.Fatal(err)
+		}
+		selectHostAlias(t, m, "alpha")
+		m.updateKeys(press("m"))
+		m.updateFormPaste(tea.PasteMsg{Content: "Work / Production"})
+		choices := m.groupPickerChoices()
+		if len(choices) != 1 || choices[0].value != "Work/Production" || choices[0].create {
+			t.Fatalf("normalized exact choices = %#v", choices)
+		}
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+		if got := m.metadata.Host("alpha").Group; got != "Work/Production" {
+			t.Fatalf("matched group = %q", got)
+		}
+	})
+
+	t.Run("custom alongside fuzzy match", func(t *testing.T) {
+		m := testApp(t)
+		if err := m.metadata.SetHost("beta", metadata.Host{Group: "Work/Production"}); err != nil {
+			t.Fatal(err)
+		}
+		selectHostAlias(t, m, "alpha")
+		m.updateKeys(press("m"))
+		m.updateFormPaste(tea.PasteMsg{Content: "prod"})
+		choices := m.groupPickerChoices()
+		if len(choices) < 2 || choices[0].value != "Work/Production" || !choices[1].create {
+			t.Fatalf("pick/create choices = %#v", choices)
+		}
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+		if got := m.metadata.Host("alpha").Group; got != "prod" {
+			t.Fatalf("custom group = %q", got)
+		}
+	})
+
+	t.Run("no group", func(t *testing.T) {
+		m := testApp(t)
+		if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Work"}); err != nil {
+			t.Fatal(err)
+		}
+		selectHostAlias(t, m, "alpha")
+		m.updateKeys(press("m"))
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+		if got := m.metadata.Host("alpha").Group; got != "" {
+			t.Fatalf("cleared group = %q", got)
+		}
+	})
+
+	t.Run("invalid path", func(t *testing.T) {
+		m := testApp(t)
+		selectHostAlias(t, m, "alpha")
+		m.updateKeys(press("m"))
+		m.updateFormPaste(tea.PasteMsg{Content: "one/two/three/four/five/six"})
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+		if m.form == nil || !strings.Contains(m.form.validationError, "at most 5") {
+			t.Fatalf("invalid group did not stay in the picker: %#v", m.form)
+		}
+	})
+
+	t.Run("reserved cloud group", func(t *testing.T) {
+		m := testApp(t)
+		if err := m.metadata.SetHost("beta", metadata.Host{Group: "Google Cloud/project"}); err != nil {
+			t.Fatal(err)
+		}
+		selectHostAlias(t, m, "alpha")
+		m.updateKeys(press("m"))
+		for _, option := range m.form.fieldByLabel("Group").options {
+			if cloudsync.IsSyncedGroup(option.value) {
+				t.Fatalf("picker includes reserved cloud group %q", option.value)
+			}
+		}
+		m.updateFormPaste(tea.PasteMsg{Content: "Google Cloud/custom"})
+		m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+		if m.form == nil || !strings.Contains(m.form.validationError, "read-only") {
+			t.Fatalf("reserved group did not stay in the picker: %#v", m.form)
+		}
+		if got := m.metadata.Host("alpha").Group; got != "" {
+			t.Fatalf("host moved into reserved group %q", got)
+		}
+	})
+}
+
+func TestGroupPickerRoutesPasteAndEscape(t *testing.T) {
+	m := testApp(t)
+	selectHostAlias(t, m, "alpha")
+	m.Update(press("m"))
+	m.Update(tea.PasteMsg{Content: "Team/Platform"})
+	if m.form == nil || m.form.input.Value() != "Team/Platform" {
+		t.Fatalf("paste was not routed to group search: %#v", m.form)
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	if m.form != nil {
+		t.Fatal("Esc did not cancel the group picker")
+	}
+}
+
+func TestFuzzyGroupScoreUsesBestAlignment(t *testing.T) {
+	short, shortOK := fuzzyGroupScore("P/Prod", "prod")
+	long, longOK := fuzzyGroupScore("X/ProdLong", "prod")
+	if !shortOK || !longOK || short <= long {
+		t.Fatalf("fuzzy scores: P/Prod=%d (%t), X/ProdLong=%d (%t)", short, shortOK, long, longOK)
+	}
+}
+
+func TestQuickGroupAssignmentRejectsSyncedHosts(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{Alias: "cloud", Synced: true}}
+	selectHostAlias(t, m, "cloud")
+	m.updateKeys(press("m"))
+	if m.form != nil || !m.statusError || !strings.Contains(m.status, "read-only") {
+		t.Fatalf("synced assignment: form=%#v status=%q", m.form, m.status)
+	}
+}
+
+func TestHostEditorSaveIsVisiblePortableAndClickable(t *testing.T) {
+	t.Run("Ctrl+J", func(t *testing.T) {
+		m := testApp(t)
+		m.openEditHostForm()
+		m.form.input.SetValue("Portable label")
+		m.updateForm(ctrlJ())
+		if m.form != nil {
+			t.Fatal("Ctrl+J did not save the host form")
+		}
+		if got := m.metadata.Host("alpha").Label; got != "Portable label" {
+			t.Fatalf("saved label = %q", got)
+		}
+	})
+
+	t.Run("click", func(t *testing.T) {
+		m := testApp(t)
+		m.openEditHostForm()
+		if view := m.renderHostForm(m.styles()); !strings.Contains(view, m.styles().title.Render(hostFormSaveButtonLabel)) {
+			t.Fatalf("host form has no Connect-style Save target:\n%s", view)
+		}
+		if m.View().MouseMode != tea.MouseModeCellMotion {
+			t.Fatal("host form did not enable mouse reporting")
+		}
+		x, y, width := m.hostFormSaveButtonBounds()
+		lines := strings.Split(m.render(), "\n")
+		if y >= len(lines) || !strings.Contains(lines[y], hostFormSaveButtonLabel) {
+			t.Fatalf("Save bounds row %d does not contain the button", y)
+		}
+		buttonOffset := strings.Index(lines[y], hostFormSaveButtonLabel)
+		if got := lipgloss.Width(lines[y][:buttonOffset]); got != x {
+			t.Fatalf("Save bounds x = %d, rendered x = %d", x, got)
+		}
+		m.form.input.SetValue("Clicked label")
+		m.Update(tea.MouseClickMsg(tea.Mouse{X: x + width/2, Y: y, Button: tea.MouseLeft}))
+		if m.form != nil {
+			t.Fatal("clicking Save did not close the host form")
+		}
+		if got := m.metadata.Host("alpha").Label; got != "Clicked label" {
+			t.Fatalf("saved label = %q", got)
+		}
+	})
+
+	t.Run("wide title", func(t *testing.T) {
+		m := testApp(t)
+		m.width = 30
+		if err := m.metadata.SetHost("alpha", metadata.Host{Label: "生产服务器"}); err != nil {
+			t.Fatal(err)
+		}
+		m.openEditHostForm()
+		x, y, width := m.hostFormSaveButtonBounds()
+		lines := strings.Split(m.render(), "\n")
+		buttonOffset := strings.Index(lines[y], hostFormSaveButtonLabel)
+		if buttonOffset < 0 || lipgloss.Width(lines[y][:buttonOffset]) != x {
+			t.Fatalf("wide title shifted Save away from x=%d: %q", x, lines[y])
+		}
+		m.Update(tea.MouseClickMsg(tea.Mouse{X: x + width/2, Y: y, Button: tea.MouseLeft}))
+		if m.form != nil {
+			t.Fatal("clicking Save with a wide title did not close the form")
+		}
+	})
+
+	t.Run("unrelated form", func(t *testing.T) {
+		m := testApp(t)
+		m.hosts[0].Managed = true
+		m.openDeleteHostForm()
+		if m.View().MouseMode != tea.MouseModeNone {
+			t.Fatal("unrelated form unexpectedly enabled mouse reporting")
+		}
+	})
+}
+
+func TestHostEditorSaveHintAlternatesWithoutStaleTicks(t *testing.T) {
+	m := testApp(t)
+	_, cmd := m.Update(press("a"))
+	if cmd == nil {
+		t.Fatal("opening the host editor did not schedule the save hint")
+	}
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+J save") || strings.Contains(footer, "Ctrl+↵ save") {
+		t.Fatalf("initial save hint = %q", footer)
+	}
+
+	hintID := m.hostSaveHintID
+	_, cmd = m.Update(hostSaveHintTickMsg(hintID))
+	if cmd == nil {
+		t.Fatal("active host editor did not schedule the next save hint")
+	}
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+↵ save") || strings.Contains(footer, "Ctrl+J save") {
+		t.Fatalf("alternate save hint = %q", footer)
+	}
+
+	m.form = nil
+	_, cmd = m.Update(hostSaveHintTickMsg(hintID))
+	if cmd != nil {
+		t.Fatal("closed host editor kept the save hint timer alive")
+	}
+}
+
 func TestMouseSelectsTabsAndListRowsOnly(t *testing.T) {
 	m := testApp(t)
 	if m.View().MouseMode != tea.MouseModeCellMotion {
@@ -710,7 +1035,7 @@ func TestExternalHostEditOnlyOffersMetadataAndIsFullyRevealed(t *testing.T) {
 		t.Fatalf("metadata section was not opened:\n%s", rendered)
 	}
 	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "Ctrl+Enter save") || strings.Contains(footer, "connect") {
+	if !strings.Contains(footer, "Ctrl+J save") || strings.Contains(footer, "connect") {
 		t.Fatalf("metadata editor footer is incorrect: %q", footer)
 	}
 }
@@ -718,12 +1043,12 @@ func TestExternalHostEditOnlyOffersMetadataAndIsFullyRevealed(t *testing.T) {
 func TestFooterShowsControlsForTheActiveFormState(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Enter next") || !strings.Contains(footer, "Ctrl+Enter save") || !strings.Contains(footer, "Esc cancel") || strings.Contains(footer, "connect") {
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Enter next") || !strings.Contains(footer, "Ctrl+J save") || !strings.Contains(footer, "Esc cancel") || strings.Contains(footer, "connect") {
 		t.Fatalf("create footer = %q", footer)
 	}
 
 	m.openEditHostForm()
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+Enter save") || !strings.Contains(footer, "Tab move") || strings.Contains(footer, "connect") {
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+J save") || !strings.Contains(footer, "Tab move") || strings.Contains(footer, "connect") {
 		t.Fatalf("edit footer = %q", footer)
 	}
 	enterHostFormSection(t, m, formSectionMetadata)

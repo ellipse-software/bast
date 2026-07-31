@@ -597,6 +597,34 @@ func (m *App) expandAllGroups() tea.Cmd {
 	return nil
 }
 
+func (m *App) collapsedGroupsRevealing(group string) (map[string]bool, []string, bool) {
+	next := make(map[string]bool, len(m.collapsedGroups))
+	for path, collapsed := range m.collapsedGroups {
+		next[path] = collapsed
+	}
+	parts := groupPathParts(group)
+	path := ""
+	changed := false
+	for _, part := range parts {
+		if path == "" {
+			path = part
+		} else {
+			path += "/" + part
+		}
+		if next[path] {
+			delete(next, path)
+			changed = true
+		}
+	}
+	collapsedPaths := make([]string, 0, len(next))
+	for path, collapsed := range next {
+		if collapsed {
+			collapsedPaths = append(collapsedPaths, path)
+		}
+	}
+	return next, collapsedPaths, changed
+}
+
 func (m *App) persistCollapsedGroups() error {
 	live := map[string]bool{}
 	metadataByHost := m.hostMetadata()
