@@ -76,7 +76,7 @@ func (c *connectionProcess) SetStderr(output io.Writer) {
 
 func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
-	if mouse.Button != tea.MouseLeft || m.help || m.credits || (m.statusError && m.status != "") {
+	if mouse.Button != tea.MouseLeft || m.help || m.credits || m.vaultBusy != "" || (m.statusError && m.status != "") {
 		return m, nil
 	}
 	m.scrollbarDragging = false
@@ -205,7 +205,7 @@ func (m *App) updateMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
-	if m.credits || m.form != nil {
+	if m.credits || m.form != nil || m.vaultBusy != "" {
 		return m, nil
 	}
 	if m.help {
@@ -423,7 +423,13 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.openInstallKeyForm()
 		}
 	case "p":
+		if m.section == hostsSection {
+			return m, m.promoteSelectedHost()
+		}
 		if m.section == keysSection {
+			if key, ok := m.selectedKey(); ok && !key.Managed {
+				return m, m.promoteSelectedKey()
+			}
 			return m.runPassphraseAction()
 		}
 	case "c":
@@ -571,4 +577,44 @@ func (m *App) runPassphraseAction() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, tea.ExecProcess(cmd, func(err error) tea.Msg { return processDoneMsg{name: "Passphrase change", err: err} })
+}
+
+func (m *App) promoteSelectedHost() tea.Cmd {
+	host, ok := m.selectedHost()
+	if !ok {
+		return nil
+	}
+	if host.Synced {
+		return m.setNotice("Synced cloud hosts cannot be promoted")
+	}
+	if host.Managed {
+		return m.setNotice("Host is already Bast managed")
+	}
+	if (m.loading || m.enriching) && host.Resolved.HostName == "" {
+		return m.setNotice("Host details are still loading")
+	}
+	if _, err := m.config.Promote(host); err != nil {
+		m.setError(err)
+		return nil
+	}
+	m.loading = true
+	m.enriching = false
+	return tea.Batch(m.loadCmd(), m.setNotice("Host promoted to Bast managed"))
+}
+
+func (m *App) promoteSelectedKey() tea.Cmd {
+	key, ok := m.selectedKey()
+	if !ok {
+		return nil
+	}
+	if key.Managed {
+		return m.setNotice("Key is already Bast managed")
+	}
+	if err := m.keyring.Promote(key, key.Name); err != nil {
+		m.setError(err)
+		return nil
+	}
+	m.loading = true
+	m.enriching = false
+	return tea.Batch(m.loadCmd(), m.setNotice("Key promoted to Bast managed"))
 }

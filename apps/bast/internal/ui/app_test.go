@@ -2217,10 +2217,13 @@ func TestDetailsAreCompactAndOmitEmptyMetadata(t *testing.T) {
 	if !strings.Contains(host, "Access") || !strings.Contains(host, "Auth") {
 		t.Fatalf("host details missing Access section:\n%s", host)
 	}
-	if lipgloss.Height(host) > 8 {
+	if !strings.Contains(host, "[p] Promote to Bast managed") {
+		t.Fatalf("external host details missing promote action:\n%s", host)
+	}
+	if lipgloss.Height(host) > 10 {
 		t.Fatalf("host details are too tall: %d lines\n%s", lipgloss.Height(host), host)
 	}
-	key := m.renderKeyDetail(m.styles(), keymodel.Key{Name: "work", Algorithm: "ED25519", Fingerprint: "SHA256:test", PrivatePath: "/tmp/work"}, 50)
+	key := m.renderKeyDetail(m.styles(), keymodel.Key{Name: "work", Algorithm: "ED25519", Fingerprint: "SHA256:test", PrivatePath: "/tmp/work", Managed: true}, 50)
 	if strings.Contains(key, "Name") || strings.Contains(key, "Public") || strings.Contains(key, "Used by") {
 		t.Fatalf("key details contain redundant or empty fields:\n%s", key)
 	}
@@ -2501,27 +2504,38 @@ func TestSyncTabRenders(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
 	body := m.renderSync(m.styles())
-	if !strings.Contains(body, "Providers") || !strings.Contains(body, "GCP") {
-		t.Fatalf("provider list body:\n%s", body)
+	if !strings.Contains(body, "Vault") || !strings.Contains(body, "GCP") {
+		t.Fatalf("sync list body:\n%s", body)
 	}
 	if strings.Contains(body, "Sync now") {
-		t.Fatalf("provider list should not show submenu actions:\n%s", body)
+		t.Fatalf("sync list should not show submenu actions:\n%s", body)
 	}
 	if !strings.Contains(body, "AWS") || !strings.Contains(body, "Azure") || !strings.Contains(body, "disabled") {
-		t.Fatalf("expected enabled AWS provider:\n%s", body)
+		t.Fatalf("expected cloud providers:\n%s", body)
 	}
 	m.updateSyncKeys("enter")
-	if m.syncProvider != "gcp" {
+	if m.syncProvider != "vault" {
 		t.Fatalf("syncProvider = %q", m.syncProvider)
+	}
+	body = m.renderSync(m.styles())
+	if !strings.Contains(body, "Link account") && !strings.Contains(body, "not linked") {
+		t.Fatalf("vault submenu body:\n%s", body)
+	}
+	m.updateSyncKeys("esc")
+	if m.syncProvider != "" {
+		t.Fatalf("expected esc to return to sync list, got %q", m.syncProvider)
+	}
+	m.updateSyncKeys("down")
+	m.updateSyncKeys("enter")
+	if m.syncProvider != "gcp" {
+		t.Fatalf("expected GCP provider, got %q", m.syncProvider)
 	}
 	body = m.renderSync(m.styles())
 	if !strings.Contains(body, "Sync now") || !strings.Contains(body, "Connect") {
 		t.Fatalf("gcp submenu body:\n%s", body)
 	}
 	m.updateSyncKeys("esc")
-	if m.syncProvider != "" {
-		t.Fatalf("expected esc to return to providers, got %q", m.syncProvider)
-	}
+	m.updateSyncKeys("down")
 	m.updateSyncKeys("down")
 	m.updateSyncKeys("enter")
 	if m.syncProvider != "aws" {
@@ -2532,6 +2546,7 @@ func TestSyncTabRenders(t *testing.T) {
 		t.Fatalf("aws submenu body:\n%s", body)
 	}
 	m.updateSyncKeys("esc")
+	m.updateSyncKeys("down")
 	m.updateSyncKeys("down")
 	m.updateSyncKeys("down")
 	m.updateSyncKeys("enter")

@@ -99,6 +99,10 @@ Run `bast hosts <command> --help`, `bast keys <command> --help`, or `bast sync <
 
 The Sync tab (`3` in the TUI) and `bast sync` commands import read-only virtual machines from [GCP](https://bast.sh/docs/features/gcp), [AWS](https://bast.sh/docs/features/aws), and [Azure](https://bast.sh/docs/features/azure). Each provider guide covers prerequisites, filters, private networking, authentication, and the changes Bast will and will not make.
 
+## Vault
+
+[Vault](https://bast.sh/docs/features/vault) syncs Bast-managed hosts and keys between machines with end-to-end encryption (`bast vault login`). Cloud VM inventory still re-syncs per machine via provider CLIs.
+
 ## What Bast does
 
 Bast reads your existing OpenSSH configuration, adds organization and key management, discovers hosts from shell history, and launches the system `ssh` binary for connections. OpenSSH remains the source of truth. Start with the [documentation](https://bast.sh/docs), or read about [host management](https://bast.sh/docs/features/host-management), [history import](https://bast.sh/docs/features/history-import), and [SSH keys](https://bast.sh/docs/features/keys).

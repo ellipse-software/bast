@@ -53,6 +53,8 @@ func (m *App) render() string {
 		body = m.renderCredits(styles)
 	} else if m.help {
 		body = m.renderHelp(styles)
+	} else if m.vaultBusy != "" {
+		body = m.renderVaultBusy(styles)
 	} else if m.form != nil {
 		body = m.renderForm(styles)
 	} else if m.section == hostsSection {
@@ -100,6 +102,10 @@ func (m *App) renderError(s styleSet) string {
 		BorderForeground(lipgloss.Color("#EF4444")).
 		Render(content)
 	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, panel)
+}
+
+func (m *App) renderVaultBusy(s styleSet) string {
+	return "\n  " + s.active.Render(m.vaultBusy) + "\n"
 }
 
 type styleSet struct{ title, active, inactive, selected, muted, label, value, error, success, rule lipgloss.Style }
@@ -427,6 +433,10 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	if label != host.Alias {
 		b.WriteString(compactRow(s, "SSH name", host.Alias, width))
 	}
+	if !host.Managed && !host.Synced {
+		b.WriteString("\n")
+		b.WriteString("  " + s.active.Render("[p] Promote to Bast managed") + "\n")
+	}
 
 	var about strings.Builder
 	if meta.Group != "" {
@@ -535,6 +545,9 @@ func (m *App) renderKeyDetail(s styleSet, key keys.Key, width int) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
+	if !key.Managed && key.PrivatePath != "" {
+		b.WriteString("  " + s.active.Render("[p] Promote to Bast managed") + "\n\n")
+	}
 	if key.PublicPath != "" || key.PrivatePath != "" {
 		b.WriteString("  " + s.active.Render(keyInstallAction) + "\n\n")
 	}
@@ -626,6 +639,9 @@ func (m *App) renderForm(s styleSet) string {
 		if len(item.options) > 0 && !item.options[item.selected].custom {
 			value = item.options[item.selected].label
 		}
+		if item.secret && value != "" {
+			value = strings.Repeat("*", len([]rune(value)))
+		}
 		if value == "" {
 			value = "—"
 		}
@@ -658,6 +674,12 @@ func (m *App) formHint() string {
 		action = "󰌑 save"
 		if f.action == "host_delete" || f.action == "key_delete" || f.action == "known_delete" {
 			action = "󰌑 delete"
+		}
+		if f.action == "vault_reset_passphrase" {
+			action = "󰌑 reset"
+		}
+		if f.action == "vault_rotate_passphrase" {
+			action = "󰌑 rotate"
 		}
 	}
 	if destructiveConfirmationTarget(f) != "" {
@@ -749,6 +771,7 @@ func helpSections() []helpSection {
 				{"m", "Move host to group"},
 				{"x", "Dismiss history suggestion"},
 				{"d", "Delete host"},
+				{"p", "Promote external host"},
 				{"␣", "Collapse or expand group"},
 				{"[", "Collapse all groups"},
 				{"]", "Expand all groups"},
@@ -768,14 +791,14 @@ func helpSections() []helpSection {
 				{"d", "Delete key"},
 				{"u", "Add to server"},
 				{"x", "Export key"},
-				{"p", "Change passphrase"},
+				{"p", "Promote external / change passphrase"},
 				{"c", "Copy public key"},
 			},
 		},
 		{
 			title: "Sync",
 			bindings: []helpBinding{
-				{"󰌑", "Open provider or run action"},
+				{"󰌑", "Open Vault/provider or run action"},
 				{"Esc", "Back"},
 				{"r", "Refresh"},
 			},
@@ -902,6 +925,10 @@ func (m *App) renderFooter(s styleSet) string {
 		}
 		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
 	}
+	if m.vaultBusy != "" {
+		left := s.muted.Render("please wait…")
+		return left + strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(left)))
+	}
 	query := m.searchText()
 	left := ""
 	switch {
@@ -959,7 +986,7 @@ func (m *App) renderFooter(s styleSet) string {
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.section == syncSection || m.itemCount() == 0 {
+	if m.statusError || m.credits || m.help || m.form != nil || m.vaultBusy != "" || m.loading || m.section == syncSection || m.itemCount() == 0 {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	if m.isMobileLayout() {

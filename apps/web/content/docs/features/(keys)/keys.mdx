@@ -21,7 +21,7 @@ Switch to the keys tab with `2`. Bast lists keys it finds on disk, keys in `ssh-
 | `e` | Edit the comment on a public key |
 | `u` | Push a public key to a remote `~/.ssh/authorized_keys` |
 | `x` | Export key files to a folder you choose |
-| `p` | Change a key passphrase via `ssh-keygen` |
+| `p` | Promote an external key into Bast-managed storage, or change a managed key passphrase |
 | `c` | Copy the public key to your clipboard |
 | `d` | Delete a Bast-managed keypair |
 
@@ -37,6 +37,14 @@ Import from stdin without putting key material in shell history:
 
 ```bash
 bast keys import work --private - < id_ed25519
+```
+
+## Promote
+
+Copy an external key from `~/.ssh` into Bast-managed keys so it can participate in [Vault](/docs/features/vault):
+
+```bash
+bast keys promote id_ed25519 --name work
 ```
 
 ## Add to server

@@ -40,6 +40,19 @@ func renderBlock(id string, input HostInput) []byte {
 	return []byte(b.String())
 }
 
+// RenderManagedBlock renders a Bast-managed host block for vault apply/rebuild.
+func RenderManagedBlock(id string, input HostInput) []byte {
+	return renderBlock(id, input)
+}
+
+// WriteManagedConfig atomically replaces the managed SSH config file.
+func WriteManagedConfig(path string, content []byte) error {
+	if len(content) > 0 && content[len(content)-1] != '\n' {
+		content = append(content, '\n')
+	}
+	return atomicWrite(path, content, 0600)
+}
+
 func RenderSyncBlock(input SyncHostInput) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s%s=%s\nHost %s\n", syncMarkerPrefix, input.SyncSource, input.SyncID, input.Alias)

@@ -37,23 +37,28 @@ Usage:
   bast hosts <command>         Manage SSH hosts
   bast keys <command>          Manage SSH keys
   bast sync <command>          Sync cloud VMs into Bast
+  bast vault <command>         Sync Bast-managed config via encrypted vault
 
 Host commands:
-  list, show, add, edit, delete, favorite, unfavorite, hide, show-hidden,
-  sort, known-host remove
+  list, show, add, edit, delete, promote, favorite, unfavorite, hide, show-hidden,
+  sort, known-host
 
 Key commands:
-  list, show, generate, import, comment, export, install, passphrase,
+  list, show, generate, import, promote, comment, export, install, passphrase,
   public, copy, delete
 
 Sync commands:
   gcp, aws, azure, status, disable
 
+Vault commands:
+  login, status, push, pull, logout, passphrase
+
 Global options:
   --json                      Emit structured JSON
   --no-input                  Never prompt for missing input
 
-Run "bast hosts <command> --help", "bast keys <command> --help", or "bast sync <command> --help" for details.
+Run "bast hosts <command> --help", "bast keys <command> --help", "bast sync <command> --help",
+or "bast vault <command> --help" for details.
 `
 
 func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
@@ -107,7 +112,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "connect", "hosts", "keys", "sync":
+	case "tui", "update", "connect", "hosts", "keys", "sync", "vault":
 		return true
 	}
 	return false
@@ -159,6 +164,8 @@ func (r *Runner) Run(args []string) error {
 				err = r.keys(args[1:])
 			case "sync":
 				err = r.sync(args[1:])
+			case "vault":
+				err = r.vault(args[1:])
 			default:
 				err = usagef("unknown command %q", args[0])
 			}
@@ -195,7 +202,7 @@ func commandUsage(resource, command string) string {
 		"update --help": "Usage: bast update",
 		"hosts --help": `Usage: bast hosts <command>
 
-Commands: list, show, add, edit, delete, favorite, unfavorite, hide,
+Commands: list, show, add, edit, delete, promote, favorite, unfavorite, hide,
           show-hidden, sort, known-host remove`,
 		"hosts list": "Usage: bast hosts list [--search text] [--sort smart|label|recent|group] [--all]",
 		"hosts show": "Usage: bast hosts show <host>",
@@ -217,29 +224,38 @@ Metadata: --label paths like Work/api set the group; or --group, --tag,
           --environment, --color, --notes
 Repeat list options to provide multiple values. Use the corresponding --clear-*
 option to restore a default or remove values.`,
-		"hosts delete": "Usage: bast hosts delete <host> [--yes]",
+		"hosts delete":  "Usage: bast hosts delete <host> [--yes]",
+		"hosts promote": "Usage: bast hosts promote <host>",
 		"keys --help": `Usage: bast keys <command>
 
-Commands: list, show, generate, import, comment, export, install,
+Commands: list, show, generate, import, promote, comment, export, install,
           passphrase, public, copy, delete`,
-		"keys list":       "Usage: bast keys list [--search text]",
-		"keys show":       "Usage: bast keys show <name>",
-		"keys generate":   "Usage: bast keys generate [name] [--algorithm ed25519|rsa] [--no-passphrase]",
-		"keys import":     "Usage: bast keys import [name] --private path|- [--public path|-] [--comment text]",
-		"keys comment":    "Usage: bast keys comment <name> (--comment text|--clear-comment)",
-		"keys export":     "Usage: bast keys export <name> --directory path [--yes]",
-		"keys install":    "Usage: bast keys install <name> --host host",
-		"keys passphrase": "Usage: bast keys passphrase <name>",
-		"keys public":     "Usage: bast keys public <name>",
-		"keys copy":       "Usage: bast keys copy <name>",
-		"keys delete":     "Usage: bast keys delete <name> [--yes]",
-		"connect --help":  "Usage: bast connect <host>",
-		"sync gcp":        "Usage: bast sync gcp",
-		"sync aws":        "Usage: bast sync aws",
-		"sync azure":      "Usage: bast sync azure",
-		"sync status":     "Usage: bast sync status",
-		"sync disable":    "Usage: bast sync disable <gcp|aws|azure>",
-		"sync --help":     "Usage: bast sync <gcp|aws|azure|status|disable>",
+		"keys list":        "Usage: bast keys list [--search text]",
+		"keys show":        "Usage: bast keys show <name>",
+		"keys generate":    "Usage: bast keys generate [name] [--algorithm ed25519|rsa] [--no-passphrase]",
+		"keys import":      "Usage: bast keys import [name] --private path|- [--public path|-] [--comment text]",
+		"keys promote":     "Usage: bast keys promote <key> [--name managed-name]",
+		"keys comment":     "Usage: bast keys comment <name> (--comment text|--clear-comment)",
+		"keys export":      "Usage: bast keys export <name> --directory path [--yes]",
+		"keys install":     "Usage: bast keys install <name> --host host",
+		"keys passphrase":  "Usage: bast keys passphrase <name>",
+		"keys public":      "Usage: bast keys public <name>",
+		"keys copy":        "Usage: bast keys copy <name>",
+		"keys delete":      "Usage: bast keys delete <name> [--yes]",
+		"connect --help":   "Usage: bast connect <host>",
+		"sync gcp":         "Usage: bast sync gcp",
+		"sync aws":         "Usage: bast sync aws",
+		"sync azure":       "Usage: bast sync azure",
+		"sync status":      "Usage: bast sync status",
+		"sync disable":     "Usage: bast sync disable <gcp|aws|azure>",
+		"sync --help":      "Usage: bast sync <gcp|aws|azure|status|disable>",
+		"vault --help":     "Usage: bast vault <login|status|push|pull|logout|passphrase>",
+		"vault login":      "Usage: bast vault login [--email address]",
+		"vault status":     "Usage: bast vault status",
+		"vault push":       "Usage: bast vault push",
+		"vault pull":       "Usage: bast vault pull",
+		"vault logout":     "Usage: bast vault logout",
+		"vault passphrase": "Usage: bast vault passphrase [--force]",
 	}
 	if value := usage[resource+" "+command]; value != "" {
 		return value

@@ -6,6 +6,8 @@ The installer is served from `public/install` (stable) and `public/install-night
 
 Telemetry events from the installer and Bast CLI are sent to `/api/telemetry` and forwarded to PostHog. Consented error reports from the CLI are sent to `/api/errors` and forwarded via the Sentry SDK to Better Stack. Set `POSTHOG_API_KEY` (and optionally `POSTHOG_HOST`) and `SENTRY_DSN` in the deployment environment. Users can opt out with `BAST_NO_TELEMETRY=1`.
 
+Vault (encrypted Bast config sync) needs `BETTER_AUTH_SECRET`, Upstash Redis (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`), Cloudflare R2 (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`), and Cloudflare Email Sending via `@opencoredev/email-sdk` (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` or reuse `R2_ACCOUNT_ID`, optional `CLOUDFLARE_EMAIL_FROM`). Enable Email Sending for `bast.sh` in Cloudflare before production sends. See `.env.example`.
+
 ## Development
 
 From the repository root:

@@ -57,6 +57,22 @@ func (m Manager) AgentCommand(key Key, load bool) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
+// Promote copies an external keypair into ~/.ssh/bast/keys under name.
+// Agent-only keys (no private file) cannot be promoted.
+func (m Manager) Promote(key Key, name string) error {
+	if key.Managed {
+		return errors.New("key is already Bast managed")
+	}
+	if key.PrivatePath == "" {
+		return errors.New("agent-only keys cannot be promoted; export or import the private key first")
+	}
+	if name == "" {
+		name = key.Name
+	}
+	public := key.PublicPath
+	return m.Import(key.PrivatePath, public, name, "")
+}
+
 func (m Manager) Import(privateSource, publicSource, name, comment string) error {
 	if err := validateName(name); err != nil {
 		return err

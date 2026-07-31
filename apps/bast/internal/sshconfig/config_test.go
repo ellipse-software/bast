@@ -290,3 +290,65 @@ func TestManagedExtras(t *testing.T) {
 		t.Fatalf("ManagedExtras() = %#v", extras)
 	}
 }
+
+func TestPromoteExternalHost(t *testing.T) {
+	m := testManager(t)
+	writeTestFile(t, m.MainConfig, "Host staging\n  HostName staging.example\n  User deploy\n  Port 2222\n  IdentityFile ~/.ssh/id_ed25519\n", 0600)
+
+	hosts, err := m.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var staging Host
+	for _, host := range hosts {
+		if host.Alias == "staging" {
+			staging = host
+			break
+		}
+	}
+	if staging.Alias == "" || staging.Managed {
+		t.Fatalf("expected external staging host, got %+v", staging)
+	}
+
+	promoted, err := m.Promote(staging)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !promoted.Managed || promoted.ManagedID == "" {
+		t.Fatalf("promoted = %+v", promoted)
+	}
+	managed, err := os.ReadFile(m.ManagedConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(managed)
+	if !strings.Contains(text, "Host staging") || !strings.Contains(text, "HostName staging.example") || !strings.Contains(text, "IdentityFile ~/.ssh/id_ed25519") {
+		t.Fatalf("managed config = %q", text)
+	}
+
+	if _, err := m.Promote(staging); err == nil {
+		t.Fatal("expected second promote to fail once managed")
+	}
+	hosts, err = m.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, host := range hosts {
+		if host.Alias == "staging" && !host.Managed {
+			t.Fatalf("Discover should prefer managed staging, got %+v", host)
+		}
+	}
+}
+
+func TestPromoteRejectsSyncedAndManaged(t *testing.T) {
+	m := testManager(t)
+	if _, err := m.Promote(Host{Alias: "x", Managed: true, ManagedID: "abc", Resolved: Resolved{HostName: "x.example"}}); err == nil {
+		t.Fatal("expected managed reject")
+	}
+	if _, err := m.Promote(Host{Alias: "x", Synced: true, SyncSource: "gcp", Resolved: Resolved{HostName: "x.example"}}); err == nil {
+		t.Fatal("expected synced reject")
+	}
+	if _, err := m.Promote(Host{Alias: "x", Resolved: Resolved{}}); err == nil {
+		t.Fatal("expected missing hostname reject")
+	}
+}

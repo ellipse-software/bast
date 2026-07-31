@@ -16,7 +16,7 @@ import (
 
 func (r *Runner) hosts(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast hosts <list|show|add|edit|delete|favorite|unfavorite|hide|show-hidden|sort|known-host>")
+		fmt.Fprintln(r.Out, "Usage: bast hosts <list|show|add|edit|delete|promote|favorite|unfavorite|hide|show-hidden|sort|known-host>")
 		return nil
 	}
 	switch args[0] {
@@ -30,6 +30,8 @@ func (r *Runner) hosts(args []string) error {
 		return r.hostEdit(args[1:])
 	case "delete":
 		return r.hostDelete(args[1:])
+	case "promote":
+		return r.hostPromote(args[1:])
 	case "favorite":
 		return r.hostState(args[1:], "favorite")
 	case "unfavorite":
@@ -551,6 +553,47 @@ func (r *Runner) hostDelete(args []string) error {
 		return err
 	}
 	return r.success(map[string]string{"alias": host.Alias}, "Host deleted: "+host.Alias)
+}
+
+func (r *Runner) hostPromote(args []string) error {
+	fs := newFlagSet("hosts promote")
+	if err := fs.Parse(positionalFirst(args)); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 1 {
+		return usagef("usage: bast hosts promote <host>")
+	}
+	hosts, _, err := r.snapshot()
+	if err != nil {
+		return err
+	}
+	host, err := r.findHost(fs.Arg(0), hosts)
+	if err != nil {
+		return err
+	}
+	if host.Synced {
+		return fail("synced_host", "synced cloud hosts cannot be promoted")
+	}
+	if host.Managed {
+		return fail("already_managed", "host is already Bast managed")
+	}
+	if host.Hostname == "" {
+		resolved, resolveErr := r.OpenSSH.Resolve(context.Background(), host.Alias)
+		if resolveErr != nil {
+			return fail("resolve_failed", "could not resolve host details: "+resolveErr.Error())
+		}
+		host.raw.Resolved = resolved
+		host.Hostname = resolved.HostName
+		host.User = resolved.User
+		host.Port = resolved.Port
+		host.IdentityFiles = resolved.IdentityFiles
+		host.ProxyJump = resolved.ProxyJump
+	}
+	promoted, err := r.config.Promote(host.raw)
+	if err != nil {
+		return err
+	}
+	return r.success(map[string]string{"alias": promoted.Alias, "managedId": promoted.ManagedID}, "Host promoted: "+promoted.Alias)
 }
 
 func (r *Runner) hostState(args []string, action string) error {

@@ -37,9 +37,14 @@ type providerRow struct {
 }
 
 func (m *App) syncProviders() []syncMenuItem {
-	providers := []struct{ label, name string }{{"GCP", "gcp"}, {"AWS", "aws"}, {"Azure", "azure"}}
+	vaultDetail := m.vaultStatusDetail()
+	providers := []struct{ label, name string }{{"Vault", "vault"}, {"GCP", "gcp"}, {"AWS", "aws"}, {"Azure", "azure"}}
 	items := make([]syncMenuItem, 0, len(providers))
 	for _, provider := range providers {
+		if provider.name == "vault" {
+			items = append(items, syncMenuItem{label: provider.label, detail: vaultDetail, provider: provider.name})
+			continue
+		}
 		detail := m.providerDetail(provider.name)
 		text := "disabled"
 		if detail.enabled {
@@ -126,6 +131,8 @@ func (m *App) providerDetail(provider string) providerDetail {
 
 func (m *App) syncProviderActions(provider string) []syncMenuItem {
 	switch provider {
+	case "vault":
+		return m.vaultMenuItems()
 	case "gcp":
 		return m.gcpSyncActions()
 	case "aws":
@@ -290,8 +297,8 @@ func (m *App) renderSync(s styleSet) string {
 
 	var b strings.Builder
 	if m.syncProvider == "" {
-		b.WriteString("\n  " + s.active.Render("Providers") + "\n")
-		b.WriteString("  " + s.muted.Render("Browse and connect to VMs from your cloud accounts.") + "\n\n")
+		b.WriteString("\n  " + s.active.Render("Sync") + "\n")
+		b.WriteString("  " + s.muted.Render("Vault syncs Bast-managed hosts and keys. Cloud providers import VMs.") + "\n\n")
 		for i, item := range items {
 			b.WriteString(m.renderSyncMenuLine(s, i, item) + "\n")
 		}
@@ -300,13 +307,19 @@ func (m *App) renderSync(s styleSet) string {
 
 	title := strings.ToUpper(m.syncProvider)
 	switch m.syncProvider {
+	case "vault":
+		title = "Vault"
 	case "gcp":
 		title = "GCP"
 	case "azure":
 		title = "Azure"
 	}
 	b.WriteString("\n  " + s.active.Render(title) + "\n")
-	b.WriteString(m.renderProviderStatus(s, m.syncProvider))
+	if m.syncProvider == "vault" {
+		b.WriteString(m.renderVaultStatus(s))
+	} else {
+		b.WriteString(m.renderProviderStatus(s, m.syncProvider))
+	}
 	b.WriteString("\n")
 	for i, item := range items {
 		b.WriteString(m.renderSyncMenuLine(s, i, item) + "\n")
@@ -399,7 +412,13 @@ func (m *App) updateSyncKeys(key string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "" {
 			m.syncProvider = item.provider
 			m.syncCursor = 0
+			if item.provider == "vault" {
+				return m, nil
+			}
 			return m, m.syncStatusCmd()
+		}
+		if m.syncProvider == "vault" {
+			return m.runVaultAction(item.action)
 		}
 		if m.anySyncing() {
 			return m, nil

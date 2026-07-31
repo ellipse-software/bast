@@ -455,6 +455,54 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		}
 		err := m.openSSH.RemoveKnownHost(context.Background(), host.Resolved.HostName, host.Resolved.Port)
 		return m.finishMutation(err, "Known-host entry removed")
+	case "vault_login":
+		cmd := m.submitVaultLogin()
+		if m.form != nil && m.form.validationError != "" {
+			return m, nil
+		}
+		m.form = nil
+		m.vaultBusy = "Sending code…"
+		return m, cmd
+	case "vault_code":
+		cmd := m.submitVaultCode()
+		if m.form != nil && m.form.validationError != "" {
+			return m, nil
+		}
+		m.form = nil
+		m.vaultBusy = "Verifying code…"
+		return m, cmd
+	case "vault_passphrase":
+		cmd := m.submitVaultPassphrase()
+		if m.form != nil && m.form.validationError != "" {
+			return m, nil
+		}
+		m.form = nil
+		m.vaultBusy = "Linking vault…"
+		return m, cmd
+	case "vault_unlock":
+		cmd := m.submitVaultUnlock()
+		if m.form != nil && m.form.validationError != "" {
+			return m, nil
+		}
+		m.form = nil
+		m.vaultBusy = "Unlocking vault…"
+		return m, cmd
+	case "vault_reset_passphrase":
+		cmd := m.submitVaultResetPassphrase()
+		if m.form != nil && m.form.validationError != "" {
+			return m, nil
+		}
+		m.form = nil
+		m.vaultBusy = "Resetting vault passphrase…"
+		return m, cmd
+	case "vault_rotate_passphrase":
+		cmd := m.submitVaultRotatePassphrase()
+		if m.form != nil && m.form.validationError != "" {
+			return m, nil
+		}
+		m.form = nil
+		m.vaultBusy = "Rotating vault passphrase…"
+		return m, cmd
 	}
 	return m.formError("unknown form action")
 }
@@ -466,7 +514,11 @@ func (m *App) finishMutation(err error, success string) (tea.Model, tea.Cmd) {
 	m.form = nil
 	m.loading = true
 	m.enriching = false
-	return m, tea.Batch(m.loadCmd(), m.setNotice(success))
+	cmds := []tea.Cmd{m.loadCmd(), m.setNotice(success)}
+	if push := m.scheduleVaultPush(); push != nil {
+		cmds = append(cmds, push)
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m *App) formError(message string) (tea.Model, tea.Cmd) {
@@ -491,9 +543,12 @@ func destructiveConfirmationTarget(f *form) string {
 		return ""
 	}
 	label := "Confirmation"
-	if f.action == "key_delete" {
+	switch f.action {
+	case "key_delete":
 		label = "Key"
-	} else if f.action != "host_delete" && f.action != "known_delete" {
+	case "host_delete", "known_delete", "vault_reset_passphrase":
+		// keep Confirmation
+	default:
 		return ""
 	}
 	for _, item := range f.fields {
@@ -786,6 +841,13 @@ func (m *App) openForm(title, action string, fields []field) {
 func (m *App) focusFormField() {
 	f := m.form
 	item := &f.fields[f.index]
+	if item.secret {
+		f.input.EchoMode = textinput.EchoPassword
+		f.input.EchoCharacter = '*'
+	} else {
+		f.input.EchoMode = textinput.EchoNormal
+		f.input.EchoCharacter = '*'
+	}
 	if len(item.options) > 0 {
 		option := item.options[item.selected]
 		if option.custom {
@@ -824,6 +886,8 @@ func (m *App) commitFormField() {
 		} else {
 			item.value = option.value
 		}
+	} else if item.secret {
+		item.value = m.form.input.Value()
 	} else {
 		item.value = strings.TrimSpace(m.form.input.Value())
 	}
