@@ -455,6 +455,8 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		}
 		err := m.openSSH.RemoveKnownHost(context.Background(), host.Resolved.HostName, host.Resolved.Port)
 		return m.finishMutation(err, "Known-host entry removed")
+	case "files_mkdir", "files_rename", "files_delete":
+		return m.submitFilesForm(values)
 	}
 	return m.formError("unknown form action")
 }
@@ -493,7 +495,7 @@ func destructiveConfirmationTarget(f *form) string {
 	label := "Confirmation"
 	if f.action == "key_delete" {
 		label = "Key"
-	} else if f.action != "host_delete" && f.action != "known_delete" {
+	} else if f.action != "host_delete" && f.action != "known_delete" && f.action != "files_delete" {
 		return ""
 	}
 	for _, item := range f.fields {

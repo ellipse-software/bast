@@ -24,6 +24,7 @@ const (
 	hostsSection section = iota
 	keysSection
 	syncSection
+	filesSection
 )
 
 type field struct {
@@ -172,6 +173,8 @@ type App struct {
 	syncStatus        sync.Status
 	syncProvider      string
 	syncCursor        int
+
+	files filesState
 
 	selectAfterLoadSection section
 	selectAfterLoadName    string
@@ -452,6 +455,12 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadCmd()
 		}
 		return m, tea.Batch(m.loadCmd(), m.setNotice(msg.name+" completed"))
+	case filesListMsg:
+		return m, m.handleFilesListMsg(msg)
+	case filesConnectMsg:
+		return m, m.handleFilesConnectMsg(msg)
+	case filesTransferDoneMsg:
+		return m, m.handleFilesTransferDone(msg)
 	case clearStatusMsg:
 		if uint64(msg) == m.statusID && !m.statusError {
 			m.status = ""

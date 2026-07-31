@@ -27,7 +27,7 @@ const (
 	keyInstallActionRow = 4
 )
 
-var headerTabLabels = [...]string{"[1] Hosts", "[2] Keys", "[3] Sync"}
+var headerTabLabels = [...]string{"[1] Hosts", "[2] Keys", "[3] Sync", "[4] Files"}
 
 func (m *App) connectButtonBounds(layout panelLayout) (x, y, width int) {
 	return m.hostActionButtonBounds(layout, connectAction)
@@ -59,6 +59,8 @@ func (m *App) render() string {
 		body = m.renderHosts(styles)
 	} else if m.section == keysSection {
 		body = m.renderKeys(styles)
+	} else if m.section == filesSection {
+		body = m.renderFiles(styles)
 	} else {
 		body = m.renderSync(styles)
 	}
@@ -125,22 +127,30 @@ func (m *App) styles() styleSet {
 }
 
 func (m *App) renderTabs(s styleSet) string {
-	hosts, keyTab, syncTab := headerTabLabels[0], headerTabLabels[1], headerTabLabels[2]
+	hosts, keyTab, syncTab, filesTab := headerTabLabels[0], headerTabLabels[1], headerTabLabels[2], headerTabLabels[3]
 	switch m.section {
 	case hostsSection:
 		hosts = s.active.Render(hosts)
 		keyTab = s.inactive.Render(keyTab)
 		syncTab = s.inactive.Render(syncTab)
+		filesTab = s.inactive.Render(filesTab)
 	case keysSection:
 		hosts = s.inactive.Render(hosts)
 		keyTab = s.active.Render(keyTab)
 		syncTab = s.inactive.Render(syncTab)
-	default:
+		filesTab = s.inactive.Render(filesTab)
+	case syncSection:
 		hosts = s.inactive.Render(hosts)
 		keyTab = s.inactive.Render(keyTab)
 		syncTab = s.active.Render(syncTab)
+		filesTab = s.inactive.Render(filesTab)
+	default:
+		hosts = s.inactive.Render(hosts)
+		keyTab = s.inactive.Render(keyTab)
+		syncTab = s.inactive.Render(syncTab)
+		filesTab = s.active.Render(filesTab)
 	}
-	return hosts + headerTabSpacing + keyTab + headerTabSpacing + syncTab
+	return hosts + headerTabSpacing + keyTab + headerTabSpacing + syncTab + headerTabSpacing + filesTab
 }
 
 func (m *App) renderHosts(s styleSet) string {
@@ -656,7 +666,7 @@ func (m *App) formHint() string {
 	}
 	if !isEditForm(f) && !hasNextFormField(f) {
 		action = "󰌑 save"
-		if f.action == "host_delete" || f.action == "key_delete" || f.action == "known_delete" {
+		if f.action == "host_delete" || f.action == "key_delete" || f.action == "known_delete" || f.action == "files_delete" {
 			action = "󰌑 delete"
 		}
 	}
@@ -735,6 +745,7 @@ func helpSections() []helpSection {
 				{"1", "Hosts"},
 				{"2", "Keys"},
 				{"3", "Sync"},
+				{"4", "Files"},
 				{"?", "Help"},
 				{"v", "About"},
 				{"q", "Quit"},
@@ -754,6 +765,7 @@ func helpSections() []helpSection {
 				{"]", "Expand all groups"},
 				{"s", "Cycle sort"},
 				{"f", "Toggle favorite"},
+				{"F", "Open Files for host"},
 				{"h", "Hide or show selected"},
 				{".", "Toggle hidden hosts"},
 				{"K", "Remove known-host entry"},
@@ -778,6 +790,28 @@ func helpSections() []helpSection {
 				{"󰌑", "Open provider or run action"},
 				{"Esc", "Back"},
 				{"r", "Refresh"},
+			},
+		},
+		{
+			title: "Files",
+			bindings: []helpBinding{
+				{"Tab", "Switch pane"},
+				{"w", "Swap panes"},
+				{"L  R", "Pane local / remote"},
+				{"h  l", "Parent / enter"},
+				{"󰌑", "Enter dir or connect host"},
+				{"j k  g G", "Move / top / bottom"},
+				{"f  s", "Fuzzy jump"},
+				{"/", "Path jump or host search"},
+				{"␣", "Toggle mark"},
+				{"v", "Range mark"},
+				{"c  m", "Copy / move to other pane"},
+				{"d", "Delete"},
+				{"a", "New directory"},
+				{"r", "Rename"},
+				{"t", "Shell in directory"},
+				{".", "Toggle hidden files"},
+				{"D", "Disconnect remote"},
 			},
 		},
 		{
@@ -926,32 +960,11 @@ func (m *App) renderFooter(s styleSet) string {
 	} else if left == "" && m.latestVersion != "" {
 		left = s.active.Render("Update " + m.latestVersion + " · " + m.updateSuggestion)
 	}
-	hint := "v about • ? help"
+	hint := "?"
 	if m.form != nil {
 		hint = m.formHint()
-	} else if m.section == hostsSection {
-		if _, suggestionSelected := m.selectedHistorySuggestion(); suggestionSelected {
-			hint = "󰌑 add • e review • x dismiss • v about • ? help"
-		} else if m.historySuggestionsHeaderSelected() {
-			hint = "␣ collapse/expand • v about • ? help"
-		} else if _, groupSelected := m.selectedGroupHeader(); groupSelected {
-			collapse := "␣ " + m.collapseActionLabel()
-			if m.isMobileLayout() {
-				hint = "↑/↓ or j/k move • e rename • " + collapse + " • a add • v about • ? help"
-			} else {
-				hint = collapse + " • e rename • a add • v about • ? help"
-			}
-		} else if m.isMobileLayout() {
-			hint = "↑/↓ or j/k move • enter/click Connect • m group • a add • v about • ? help"
-		} else {
-			hint = "󰌑 connect • m group • ␣ " + m.collapseActionLabel() + " • a add • h hide • v about • ? help"
-		}
-	} else if m.section == keysSection {
-		hint = "a generate • i import • u add to server • x export • v about • ? help"
-	} else if m.syncProvider == "" {
-		hint = "󰌑 open • j/k move • v about • ? help"
-	} else {
-		hint = "󰌑 run • j/k move • Esc back • r refresh • v about • ? help"
+	} else if m.section == filesSection {
+		hint = m.filesFooterHint()
 	}
 	space := max(1, m.terminalWidth()-lipgloss.Width(left)-lipgloss.Width(hint)-1)
 	return left + strings.Repeat(" ", space) + s.muted.Render(hint)
@@ -959,7 +972,7 @@ func (m *App) renderFooter(s styleSet) string {
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.section == syncSection || m.itemCount() == 0 {
+	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.section == syncSection || m.section == filesSection || m.itemCount() == 0 {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	if m.isMobileLayout() {

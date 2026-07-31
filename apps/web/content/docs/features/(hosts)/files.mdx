@@ -1,0 +1,80 @@
+---
+title: Files
+description: Browse local and remote files over SFTP, transfer between panes, and open a shell in the current directory.
+---
+
+The Files tab is a dual-pane browser. Each pane can be **local** or **remote**, in any combination (local↔local, local↔remote, remote↔remote). Press `4`, or `F` on a host from Hosts to open Files and connect that host on the right pane.
+
+## Pane modes
+
+| Tone | Meaning |
+| --- | --- |
+| Slate label `local` | Local filesystem |
+| Amber `remote` | Disconnected: pick a host |
+| Teal host alias | Connected over SFTP |
+
+| Key | Action |
+| --- | --- |
+| `L` / `R` | Make the focused pane local / remote |
+| `w` | Swap left and right panes |
+| `h` / `l` | Parent / enter directory |
+| `g` / `G` | Top / bottom of list |
+| `/` | Edit path (or search hosts on a picker) |
+| `f` / `s` | Fuzzy jump (type to filter, then a label letter to land) |
+| `D` | Disconnect a connected remote pane |
+
+## Connecting
+
+In a remote pane, select a host and press Enter. Bast prepares cloud access the same way as a normal [connection](/docs/features/connections), then opens OpenSSH SFTP (`ssh -s sftp`).
+
+SFTP uses `BatchMode`, so passphrase and host-key prompts cannot interrupt the TUI. If connect fails, unlock the key with `ssh-add`, or Connect once from Hosts to accept the host key, then retry.
+
+## Navigation
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓` or `j` / `k` | Move |
+| `Enter` | Enter directory, or connect selected host |
+| `h` / `Backspace` | Parent directory |
+| `Tab` | Switch pane |
+| `/` | Jump to a typed path (or search hosts) |
+| `.` | Toggle hidden files |
+| `␣` | Toggle mark |
+| `v` | Start or finish a range mark |
+| `f` / `s` | Fuzzy jump |
+
+### Fuzzy jump
+
+Press `f` or `s` on a file list. Entries go muted until you type. Matches light up and get a letter label (`a`, `s`, `d`, …). Keep typing to narrow, or type a label letter to jump there (flash-style). `Esc` cancels.
+
+Copy and move always target the **other** pane’s current directory.
+
+## Transfers and edits
+
+| Key | Action |
+| --- | --- |
+| `c` | Copy marked items (or the cursor row) to the other pane |
+| `m` | Move (copy, then delete source) |
+| `d` | Delete (confirm by typing the name, or `DELETE` for a batch) |
+| `a` | Create directory |
+| `r` | Rename |
+| `esc` / `x` | Cancel an in-progress transfer |
+
+## Open a shell here
+
+Press `t` on a local pane for `$SHELL` in that directory, or on a connected remote pane for `ssh` with cwd set (host `RemoteCommand` is cleared for this jump). On a host picker, `t` opens a normal SSH session for the selected host.
+
+## What this is not (yet)
+
+Deferred for later:
+
+- Fuzzy find across the whole tree (current `f` jump is per-pane listing)
+- Directory sync / mirror
+- Trash / undo
+- chmod / chown UI
+- Inline previews
+- Shared ControlMaster connections
+
+## Native OpenSSH
+
+Transfers use your system `ssh` binary and the same SSH config as Connect, including ProxyJump and cloud ProxyCommand tunnels.
