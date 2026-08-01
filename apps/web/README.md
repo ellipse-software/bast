@@ -14,6 +14,8 @@ Health checks:
 - `GET /api/health/docs` — docs content source loads
 - `GET /api/health/vault` — Redis ping and R2 reachability (503 when misconfigured or a dependency fails)
 
+Status page (`/status`) reads three Better Stack Uptime monitors via the authenticated API (`BETTERSTACK_API_TOKEN` plus `BETTERSTACK_MONITOR_MARKETING`, `BETTERSTACK_MONITOR_DOCS`, `BETTERSTACK_MONITOR_VAULT`). Point those monitors at the health endpoints above. A public Better Stack status page is not required.
+
 ## Development
 
 From the repository root:

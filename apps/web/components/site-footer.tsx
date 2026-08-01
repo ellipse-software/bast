@@ -2,7 +2,13 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { AgentResources } from "@/components/ask-ai-menu";
+import { FooterWordmark } from "@/components/footer-wordmark";
 import { WordmarkLogo } from "@/components/wordmark-logo";
+import {
+  aggregateLabel,
+  getStatusPageData,
+  type AggregateStatus,
+} from "@/lib/betterstack";
 import { bastRepoUrl, bastReleasesUrl, bastSponsorUrl } from "@/lib/github";
 import {
   comparisonNavItems,
@@ -64,9 +70,40 @@ function FooterLink({
   );
 }
 
-export function SiteFooter() {
+function statusDotClass(status: AggregateStatus): string {
+  switch (status) {
+    case "operational":
+      return "bg-[#3fb950]";
+    case "downtime":
+      return "bg-[#f85149]";
+    case "maintenance":
+    case "degraded":
+      return "bg-[#d4a72c]";
+    case "unknown":
+      return "bg-muted";
+  }
+}
+
+function footerStatusLabel(status: AggregateStatus): string {
+  switch (status) {
+    case "operational":
+      return "Systems operational";
+    case "downtime":
+      return "Major outage";
+    case "maintenance":
+      return "Under maintenance";
+    case "degraded":
+      return "Partial outage";
+    case "unknown":
+      return "Status";
+  }
+}
+
+export async function SiteFooter() {
+  const status = await getStatusPageData();
+
   return (
-    <footer className="border-t border-border">
+    <footer className="relative z-10 border-t border-border bg-background">
       <div
         className={`mx-auto w-full ${pageMaxWidthClass} px-4 py-12 sm:px-6 sm:py-14`}
       >
@@ -105,6 +142,7 @@ export function SiteFooter() {
           <FooterColumn title="Product">
             <FooterLink href="/docs">Docs</FooterLink>
             <FooterLink href="/changelog">Changelog</FooterLink>
+            <FooterLink href="/status">Status</FooterLink>
             <FooterLink href="/docs/install">Install</FooterLink>
             <FooterLink href="/docs/features/cli">CLI</FooterLink>
             <FooterLink href="/docs/features/vault">Vault</FooterLink>
@@ -126,11 +164,44 @@ export function SiteFooter() {
           </FooterColumn>
         </div>
 
-        <div className="mt-12 flex flex-col gap-2 border-t border-border pt-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
-          <p>© {new Date().getFullYear()} Bast.sh</p>
-          <p>MIT licensed · ellipse Software</p>
+        <div className="mt-12 flex flex-col gap-3 border-t border-border pt-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
+          <p>
+            © {new Date().getFullYear()} Bast.sh
+            <span aria-hidden className="mx-2 text-border">
+              ·
+            </span>
+            An{" "}
+            <a
+              href="https://ellipse.software"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="transition-colors hover:text-foreground"
+            >
+              ellipse Software
+            </a>{" "}
+            product.
+          </p>
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <Link
+              href="/status"
+              className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
+              title={aggregateLabel(status.aggregate)}
+            >
+              <span
+                className={`size-1.5 shrink-0 rounded-full ${statusDotClass(status.aggregate)}`}
+                aria-hidden
+              />
+              {footerStatusLabel(status.aggregate)}
+            </Link>
+            <span aria-hidden className="text-border">
+              ·
+            </span>
+            <span>MIT licensed</span>
+          </p>
         </div>
       </div>
+
+      <FooterWordmark />
     </footer>
   );
 }

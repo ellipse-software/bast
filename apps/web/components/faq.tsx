@@ -1,5 +1,8 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
+import { useId, useState, type ReactNode } from "react";
 
 const faqs: { question: string; answer: ReactNode }[] = [
   {
@@ -171,6 +174,72 @@ const faqJsonLd = {
   ],
 };
 
+const panelSpring = {
+  type: "spring" as const,
+  bounce: 0,
+  duration: 0.42,
+};
+
+function FaqItem({
+  question,
+  answer,
+}: {
+  question: string;
+  answer: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const reduceMotion = useReducedMotion();
+  const panelId = useId();
+
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full cursor-pointer items-center justify-between gap-4 px-4 py-4 text-left text-sm font-medium tracking-tight"
+      >
+        <span>{question}</span>
+        <motion.span
+          aria-hidden
+          className="shrink-0 text-muted"
+          animate={{ rotate: open ? 45 : 0 }}
+          transition={
+            reduceMotion ? { duration: 0 } : { type: "spring", bounce: 0, duration: 0.35 }
+          }
+        >
+          +
+        </motion.span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open ? (
+          <motion.div
+            id={panelId}
+            key="panel"
+            initial={
+              reduceMotion ? { height: "auto" } : { height: 0, opacity: 0.35 }
+            }
+            animate={{ height: "auto", opacity: 1 }}
+            exit={
+              reduceMotion
+                ? { height: "auto", opacity: 1 }
+                : { height: 0, opacity: 0.35 }
+            }
+            transition={reduceMotion ? { duration: 0 } : panelSpring}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4 text-sm leading-relaxed text-muted">
+              {answer}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export function Faq() {
   return (
     <section className="w-full">
@@ -188,20 +257,11 @@ export function Faq() {
       <div className="bg-border p-px">
         <div className="divide-y divide-border bg-background">
           {faqs.map((item) => (
-            <details key={item.question} className="group">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 text-sm font-medium tracking-tight marker:content-none [&::-webkit-details-marker]:hidden">
-                <span>{item.question}</span>
-                <span
-                  aria-hidden
-                  className="shrink-0 text-muted transition-transform group-open:rotate-45"
-                >
-                  +
-                </span>
-              </summary>
-              <div className="px-4 pb-4 text-sm leading-relaxed text-muted">
-                {item.answer}
-              </div>
-            </details>
+            <FaqItem
+              key={item.question}
+              question={item.question}
+              answer={item.answer}
+            />
           ))}
         </div>
       </div>

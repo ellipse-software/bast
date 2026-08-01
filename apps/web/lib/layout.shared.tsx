@@ -9,6 +9,9 @@ export function baseOptions(): BaseLayoutProps {
       title: <WordmarkLogo />,
       url: "/",
     },
+    themeSwitch: {
+      enabled: false,
+    },
     links: [
       {
         type: "icon",

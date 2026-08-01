@@ -13,7 +13,7 @@ export default async function Home() {
   const version = await getLatestBastVersion();
   return (
     <div className="relative flex min-h-full flex-col">
-      <BackgroundGrid />
+      <BackgroundGrid accentWash />
       <SiteHeader />
       <main
         className={`mx-auto flex w-full ${pageMaxWidthClass} flex-1 flex-col items-center px-4 pb-16 pt-12 sm:px-6 sm:pb-16 sm:pt-14 md:pt-16 lg:pt-20`}

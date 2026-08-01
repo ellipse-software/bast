@@ -85,7 +85,7 @@ export function Comparison() {
               </th>
               <th
                 scope="col"
-                className="border-b border-border bg-surface px-4 py-3 font-medium text-foreground"
+                className="border-b border-border bg-[color-mix(in_srgb,var(--accent)_9%,var(--background))] px-4 py-3 font-medium text-foreground"
               >
                 Bast
                 <span className="mt-0.5 block text-xs font-normal text-muted">
@@ -113,25 +113,35 @@ export function Comparison() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.question}>
-                <th
-                  scope="row"
-                  className="border-b border-border bg-background px-4 py-3.5 align-top font-medium text-foreground"
-                >
-                  {row.question}
-                </th>
-                <td className="border-b border-border bg-surface px-4 py-3.5 align-top leading-relaxed text-foreground">
-                  {row.bast}
-                </td>
-                <td className="border-b border-border bg-background px-4 py-3.5 align-top leading-relaxed text-muted">
-                  {row.termius}
-                </td>
-                <td className="border-b border-border bg-background px-4 py-3.5 align-top leading-relaxed text-muted">
-                  {row.putty}
-                </td>
-              </tr>
-            ))}
+            {rows.map((row, index) => {
+              const isLast = index === rows.length - 1;
+              const edge = isLast ? "" : "border-b border-border";
+              return (
+                <tr key={row.question}>
+                  <th
+                    scope="row"
+                    className={`${edge} bg-background px-4 py-3.5 align-top font-medium text-foreground`}
+                  >
+                    {row.question}
+                  </th>
+                  <td
+                    className={`${edge} bg-[color-mix(in_srgb,var(--accent)_9%,var(--background))] px-4 py-3.5 align-top leading-relaxed text-foreground`}
+                  >
+                    {row.bast}
+                  </td>
+                  <td
+                    className={`${edge} bg-background px-4 py-3.5 align-top leading-relaxed text-muted`}
+                  >
+                    {row.termius}
+                  </td>
+                  <td
+                    className={`${edge} bg-background px-4 py-3.5 align-top leading-relaxed text-muted`}
+                  >
+                    {row.putty}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

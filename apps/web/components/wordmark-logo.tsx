@@ -1,7 +1,6 @@
 import Image from "next/image";
 
-const wordmarkDark = "https://cdn.bast.sh/bast-word-dark.png";
-const wordmarkLight = "https://cdn.bast.sh/bast-word.png";
+const wordmark = "https://cdn.bast.sh/bast-word-dark.png";
 
 type WordmarkLogoProps = {
   className?: string;
@@ -13,23 +12,13 @@ export function WordmarkLogo({
   priority = false,
 }: WordmarkLogoProps) {
   return (
-    <>
-      <Image
-        src={wordmarkDark}
-        alt="Bast"
-        width={120}
-        height={32}
-        className={`${className} hidden dark:block`}
-        priority={priority}
-      />
-      <Image
-        src={wordmarkLight}
-        alt="Bast"
-        width={120}
-        height={32}
-        className={`${className} block dark:hidden`}
-        priority={priority}
-      />
-    </>
+    <Image
+      src={wordmark}
+      alt="Bast"
+      width={120}
+      height={32}
+      className={className}
+      priority={priority}
+    />
   );
 }

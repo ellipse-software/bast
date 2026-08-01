@@ -45,6 +45,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "weekly",
       priority: 0.75,
     },
+    {
+      url: `${siteUrl}/status`,
+      changeFrequency: "hourly",
+      priority: 0.7,
+    },
     ...comparisonPages,
     ...guidePages,
     {
