@@ -53,8 +53,6 @@ func (m *App) render() string {
 		body = m.renderCredits(styles)
 	} else if m.help {
 		body = m.renderHelp(styles)
-	} else if m.vaultBusy != "" {
-		body = m.renderVaultBusy(styles)
 	} else if m.form != nil {
 		body = m.renderForm(styles)
 	} else if m.section == hostsSection {
@@ -104,10 +102,6 @@ func (m *App) renderError(s styleSet) string {
 		BorderForeground(lipgloss.Color("#EF4444")).
 		Render(content)
 	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, panel)
-}
-
-func (m *App) renderVaultBusy(s styleSet) string {
-	return "\n  " + s.active.Render(m.vaultBusy) + "\n"
 }
 
 type styleSet struct{ title, active, inactive, selected, muted, label, value, error, success, rule lipgloss.Style }
@@ -829,7 +823,7 @@ func helpSections() []helpSection {
 				{"h  l", "Parent / enter"},
 				{"󰌑", "Enter dir or connect host"},
 				{"j k  g G", "Move / top / bottom"},
-				{"f  s", "Fuzzy jump"},
+				{"f", "Fuzzy jump"},
 				{"/", "Path jump or host search"},
 				{"␣", "Toggle mark"},
 				{"v", "Range mark"},
@@ -842,7 +836,7 @@ func helpSections() []helpSection {
 				{"t", "Shell in directory"},
 				{".", "Toggle hidden files"},
 				{"D", "Disconnect remote"},
-				{"Esc", "Clear marks / disconnect / quit"},
+				{"Esc", "Clear marks / disconnect / Hosts"},
 				{"Esc  x", "Cancel transfer or connect"},
 			},
 		},
@@ -854,6 +848,35 @@ func helpSections() []helpSection {
 			},
 		},
 	}
+}
+
+func (m *App) contextualHelpSections() []helpSection {
+	all := helpSections()
+	nav := all[0]
+	byTitle := map[string]helpSection{}
+	for _, section := range all[1:] {
+		byTitle[section.title] = section
+	}
+	current := "Hosts"
+	switch m.section {
+	case keysSection:
+		current = "Keys"
+	case syncSection:
+		current = "Sync"
+	case filesSection:
+		current = "Files"
+	}
+	out := []helpSection{nav, byTitle[current]}
+	if current == "Hosts" {
+		out = append(out, byTitle["During SSH"])
+	}
+	out = append(out, helpSection{
+		title: "Docs",
+		bindings: []helpBinding{
+			{"bast.sh/docs", "Full shortcut reference"},
+		},
+	})
+	return out
 }
 
 func (m *App) helpContentWidth() int {
@@ -868,7 +891,7 @@ func (m *App) helpLines(s styleSet) []string {
 		s.active.Render("Keyboard shortcuts"),
 		"",
 	}
-	for i, section := range helpSections() {
+	for i, section := range m.contextualHelpSections() {
 		if i > 0 {
 			lines = append(lines, "")
 		}
@@ -968,13 +991,11 @@ func (m *App) renderFooter(s styleSet) string {
 		}
 		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
 	}
-	if m.vaultBusy != "" {
-		left := s.muted.Render("please wait…")
-		return left + strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(left)))
-	}
 	query := m.searchText()
 	left := ""
 	switch {
+	case m.vaultBusy != "":
+		left = s.muted.Render(m.vaultBusy + " · esc cancel")
 	case m.anySyncing():
 		left = s.muted.Render("syncing…")
 	case m.loading:
@@ -984,7 +1005,7 @@ func (m *App) renderFooter(s styleSet) string {
 	case query != "":
 		left = "filter: " + query
 	}
-	if !m.anySyncing() && !m.loading && m.status != "" {
+	if m.vaultBusy == "" && !m.anySyncing() && !m.loading && m.status != "" {
 		if left != "" {
 			left += "  •  "
 		}
@@ -999,8 +1020,9 @@ func (m *App) renderFooter(s styleSet) string {
 	hint := "?"
 	if m.form != nil {
 		hint = m.formHint()
-	} else if m.section == filesSection {
-		hint = m.filesFooterHint()
+	} else {
+		budget := max(8, m.terminalWidth()-lipgloss.Width(left)-1)
+		hint = m.browseFooterHint(budget)
 	}
 	space := max(1, m.terminalWidth()-lipgloss.Width(left)-lipgloss.Width(hint)-1)
 	return left + strings.Repeat(" ", space) + s.muted.Render(hint)
@@ -1008,7 +1030,7 @@ func (m *App) renderFooter(s styleSet) string {
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.credits || m.help || m.form != nil || m.vaultBusy != "" || m.loading || m.section == syncSection || m.section == filesSection || m.itemCount() == 0 {
+	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.section == syncSection || m.section == filesSection || m.itemCount() == 0 {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	if m.isMobileLayout() {

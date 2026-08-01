@@ -183,6 +183,8 @@ type App struct {
 	vaultDirty        bool
 	vaultBusy         string
 	vaultPushID       uint64
+	vaultOpGen        uint64
+	vaultConflict     *vaultConflictState
 
 	files filesState
 
@@ -459,7 +461,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case vaultOTPStartedMsg:
-		m.vaultBusy = ""
+		m.clearVaultBusy()
 		if msg.err != nil {
 			m.setError(msg.err)
 			return m, nil
@@ -467,7 +469,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.openVaultCodeForm(msg.email)
 		return m, m.setNotice("Code sent to " + msg.email)
 	case vaultOTPVerifiedMsg:
-		m.vaultBusy = ""
+		m.clearVaultBusy()
 		if msg.err != nil {
 			m.setError(msg.err)
 			return m, nil
@@ -475,7 +477,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.openVaultPassphraseForm(msg.email, msg.token, msg.userID, msg.deviceID, msg.apiBase, true)
 		return m, nil
 	case vaultUnlockedMsg:
-		m.vaultBusy = ""
+		m.clearVaultBusy()
 		if msg.err != nil {
 			m.setError(msg.err)
 			return m, nil
@@ -486,7 +488,10 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.setNotice("Vault unlocked")
 	case vaultPullMsg:
-		m.vaultBusy = ""
+		if msg.opGen != 0 && msg.opGen != m.vaultOpGen {
+			return m, nil
+		}
+		m.clearVaultBusy()
 		if msg.session != nil {
 			m.vaultSession = msg.session
 		}
@@ -512,20 +517,16 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.vaultStatus = ""
 		if msg.thenPush {
-			m.vaultBusy = "Syncing vault…"
+			m.beginVaultBusy("Syncing vault…")
 			m.vaultStatus = "syncing…"
 			var cmds []tea.Cmd
 			if msg.changed {
-				m.loading = true
-				m.enriching = false
 				cmds = append(cmds, m.loadCmd())
 			}
 			cmds = append(cmds, m.vaultPushCmdOpts(true))
 			return m, tea.Batch(cmds...)
 		}
 		if msg.changed {
-			m.loading = true
-			m.enriching = false
 			notice := msg.notice
 			if notice == "" {
 				notice = "Vault pulled"
@@ -536,8 +537,15 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.setNotice(msg.notice)
 		}
 		return m, nil
+	case vaultConflictMsg:
+		if msg.opGen != 0 && msg.opGen != m.vaultOpGen {
+			return m, nil
+		}
+		m.clearVaultBusy()
+		m.openVaultConflictForm(msg)
+		return m, nil
 	case vaultPushMsg:
-		m.vaultBusy = ""
+		m.clearVaultBusy()
 		if msg.session != nil {
 			m.vaultSession = msg.session
 		}
@@ -592,6 +600,8 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleFilesConnectMsg(msg)
 	case filesTransferDoneMsg:
 		return m, m.handleFilesTransferDone(msg)
+	case filesTransferProgressMsg:
+		return m, m.handleFilesTransferProgress(msg)
 	case filesOpDoneMsg:
 		return m, m.handleFilesOpDone(msg)
 	case clearStatusMsg:
@@ -618,9 +628,6 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		return m.updateMouseWheel(msg)
 	case tea.PasteMsg:
-		if m.vaultBusy != "" {
-			return m, nil
-		}
 		if m.form != nil {
 			return m.updateFormPaste(msg)
 		}
@@ -662,8 +669,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if m.vaultBusy != "" {
-			return m, nil
+		if msg.String() == "esc" && m.vaultBusy != "" && m.form == nil {
+			m.cancelVaultOp()
+			return m, m.setNotice("Vault cancelled")
 		}
 		if m.form != nil {
 			return m.updateForm(msg)
@@ -683,9 +691,6 @@ func (m *App) View() tea.View {
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
 	if m.form != nil && !isHostForm(m.form) {
-		view.MouseMode = tea.MouseModeNone
-	}
-	if m.vaultBusy != "" {
 		view.MouseMode = tea.MouseModeNone
 	}
 	view.WindowTitle = "Bast — SSH picker"

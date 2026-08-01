@@ -32,7 +32,7 @@ bast vault login --email you@example.com
 
 Lost passphrase means the remote vault cannot be decrypted. Bast cannot recover it.
 
-On first link, local and remote state are merged by stable IDs (`ManagedID` for hosts, key fingerprint for keys). True conflicts (same alias, different managed IDs) must be resolved with:
+On first link, local and remote state are merged by stable IDs (`ManagedID` for hosts, key fingerprint for keys). True conflicts (same alias, different managed IDs) open a chooser in the TUI: keep this machine, keep remote, or cancel. From the CLI:
 
 ```bash
 bast vault pull --mode replace_local   # keep remote

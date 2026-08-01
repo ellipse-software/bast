@@ -49,6 +49,43 @@ func (m *App) refreshAllFilesPanes() tea.Cmd {
 	return tea.Batch(m.refreshFilesPane(0), m.refreshFilesPane(1))
 }
 
+func filesConnectErrorNotice(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.Canceled) {
+		return "Connect cancelled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "Connect timed out"
+	}
+	text := err.Error()
+	lower := strings.ToLower(text)
+	switch {
+	case strings.Contains(lower, "ssh-add") && strings.Contains(lower, "host"):
+		return "Connect failed. Unlock with ssh-add, or Connect once from Hosts."
+	case strings.Contains(lower, "permission denied"),
+		strings.Contains(lower, "authentication"),
+		strings.Contains(lower, "publickey"),
+		strings.Contains(lower, "no mutual signature"):
+		return "Auth failed. Unlock the key with ssh-add, then retry."
+	case strings.Contains(lower, "not in the list of known hosts"),
+		strings.Contains(lower, "known_hosts"),
+		strings.Contains(lower, "host key verification"):
+		return "Host key unknown. Connect once from Hosts to accept it, then retry."
+	case strings.Contains(lower, "ssh-add"),
+		strings.Contains(lower, "accept the host key"):
+		return "Connect failed. Unlock with ssh-add, or Connect once from Hosts."
+	}
+	if formatted := openssh.FormatError(err); formatted != "" {
+		if formatted == "connection failed, refused, or interrupted" {
+			return "Connect failed. Unlock with ssh-add, or Connect once from Hosts."
+		}
+		return formatted
+	}
+	return text
+}
+
 func (m *App) setFilesPaneLocal(index int) tea.Cmd {
 	pane := &m.files.panes[index]
 	saved := pane.cwd
@@ -196,15 +233,7 @@ func (m *App) handleFilesConnectMsg(msg filesConnectMsg) tea.Cmd {
 		if msg.session != nil {
 			_ = msg.session.Close()
 		}
-		notice := msg.err.Error()
-		if errors.Is(msg.err, context.Canceled) || errors.Is(msg.err, context.DeadlineExceeded) {
-			notice = "Connect cancelled"
-			if errors.Is(msg.err, context.DeadlineExceeded) {
-				notice = "Connect timed out"
-			}
-		} else if formatted := openssh.FormatError(msg.err); formatted != "" && !strings.Contains(notice, formatted) {
-			notice = formatted
-		}
+		notice := filesConnectErrorNotice(msg.err)
 		return m.setNotice(notice)
 	}
 	if pane.session != nil {
@@ -221,8 +250,13 @@ func (m *App) handleFilesConnectMsg(msg filesConnectMsg) tea.Cmd {
 }
 
 func (m *App) handleFilesTransferDone(msg filesTransferDoneMsg) tea.Cmd {
+	if msg.gen != 0 && msg.gen != m.files.transfer.gen {
+		return nil
+	}
 	m.files.transfer.active = false
 	m.files.transfer.cancel = nil
+	m.files.transfer.progressCh = nil
+	m.files.transfer.preparing = false
 	cmds := []tea.Cmd{m.refreshAllFilesPanes()}
 	if msg.err != nil {
 		if errors.Is(msg.err, context.Canceled) {
@@ -242,21 +276,49 @@ func (m *App) handleFilesTransferDone(msg filesTransferDoneMsg) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (m *App) handleFilesOpDone(msg filesOpDoneMsg) tea.Cmd {
-	if msg.pane < 0 || msg.pane > 1 {
+func (m *App) handleFilesTransferProgress(msg filesTransferProgressMsg) tea.Cmd {
+	if !m.files.transfer.active || msg.gen != m.files.transfer.gen {
+		return m.listenFilesTransferProgress()
+	}
+	m.files.transfer.preparing = false
+	m.files.transfer.name = msg.progress.CurrentName
+	m.files.transfer.done = msg.progress.Done
+	m.files.transfer.total = msg.progress.Total
+	m.files.transfer.bytes = msg.progress.Bytes
+	return m.listenFilesTransferProgress()
+}
+
+func (m *App) listenFilesTransferProgress() tea.Cmd {
+	ch := m.files.transfer.progressCh
+	gen := m.files.transfer.gen
+	if ch == nil || !m.files.transfer.active {
 		return nil
 	}
-	pane := &m.files.panes[msg.pane]
-	if msg.err != nil {
-		return m.setNotice(msg.err.Error())
+	return func() tea.Msg {
+		p, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return filesTransferProgressMsg{gen: gen, progress: p}
 	}
-	pane.clearMarks()
-	m.files.deletePaths = nil
-	notice := msg.notice
-	if notice == "" {
-		notice = "Done"
+}
+
+func sendFilesTransferProgress(ch chan files.Progress, p files.Progress) {
+	if ch == nil {
+		return
 	}
-	return tea.Batch(m.refreshFilesPane(msg.pane), m.setNotice(notice))
+	select {
+	case ch <- p:
+	default:
+		select {
+		case <-ch:
+		default:
+		}
+		select {
+		case ch <- p:
+		default:
+		}
+	}
 }
 
 func (m *App) startFilesTransfer(move bool) (tea.Model, tea.Cmd) {
@@ -279,16 +341,44 @@ func (m *App) startFilesTransfer(move bool) (tea.Model, tea.Cmd) {
 		return m, m.setNotice("Nothing selected")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m.files.transfer = filesTransfer{cancel: cancel, active: true, move: move}
+	progressCh := make(chan files.Progress, 1)
+	gen := m.files.transfer.gen + 1
+	m.files.transfer = filesTransfer{
+		cancel:     cancel,
+		active:     true,
+		move:       move,
+		gen:        gen,
+		preparing:  true,
+		progressCh: progressCh,
+	}
 	srcEnd := m.filesEndpoint(src)
 	dstEnd := m.filesEndpoint(dst)
 	dest := dst.cwd
-	return m, func() tea.Msg {
-		err := files.TransferAny(ctx, srcEnd, dstEnd, sources, dest, move, func(files.Progress) error {
+	return m, tea.Batch(m.listenFilesTransferProgress(), func() tea.Msg {
+		err := files.TransferAny(ctx, srcEnd, dstEnd, sources, dest, move, func(p files.Progress) error {
+			sendFilesTransferProgress(progressCh, p)
 			return ctx.Err()
 		})
-		return filesTransferDoneMsg{err: err, move: move}
+		close(progressCh)
+		return filesTransferDoneMsg{err: err, move: move, gen: gen}
+	})
+}
+
+func (m *App) handleFilesOpDone(msg filesOpDoneMsg) tea.Cmd {
+	if msg.pane < 0 || msg.pane > 1 {
+		return nil
 	}
+	pane := &m.files.panes[msg.pane]
+	if msg.err != nil {
+		return m.setNotice(msg.err.Error())
+	}
+	pane.clearMarks()
+	m.files.deletePaths = nil
+	notice := msg.notice
+	if notice == "" {
+		notice = "Done"
+	}
+	return tea.Batch(m.refreshFilesPane(msg.pane), m.setNotice(notice))
 }
 
 func (m *App) openFilesMkdirForm() (tea.Model, tea.Cmd) {

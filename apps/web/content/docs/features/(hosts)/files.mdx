@@ -20,7 +20,7 @@ The Files tab is a dual-pane browser. Each pane can be **local** or **remote**, 
 | `h` / `l` | Parent / enter directory |
 | `g` / `G` | Top / bottom of list |
 | `/` | Edit path (or search hosts on a picker) |
-| `f` / `s` | Fuzzy jump (type to filter, then a label letter to land) |
+| `f` | Fuzzy jump (type to filter, then a label letter to land) |
 | `D` | Disconnect a connected remote pane |
 
 ## Connecting
@@ -41,13 +41,13 @@ SFTP uses `BatchMode`, so passphrase and host-key prompts cannot interrupt the T
 | `.` | Toggle hidden files |
 | `␣` | Toggle mark |
 | `v` | Start or finish a range mark |
-| `f` / `s` | Fuzzy jump |
+| `f` | Fuzzy jump |
 
 Click a pane to focus it, a row to select it, and the same row again to enter a directory or connect a host. Click the path header to edit the path (or search hosts on a picker). Scroll wheel moves the pane under the pointer.
 
 ### Fuzzy jump
 
-Press `f` or `s` on a file list. Entries go muted until you type. Matches light up and get a letter label (`a`, `s`, `d`, …). Keep typing to narrow, or type a label letter to jump there (flash-style). `Esc` cancels.
+Press `f` on a file list. Entries go muted until you type. Matches light up and get a letter label (`a`, `s`, `d`, …). Keep typing to narrow, or type a label letter to jump there (flash-style). `Esc` cancels.
 
 Copy and move always target the **other** pane’s current directory.
 

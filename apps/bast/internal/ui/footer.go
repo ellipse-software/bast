@@ -1,0 +1,130 @@
+package ui
+
+import (
+	"strings"
+
+	"charm.land/lipgloss/v2"
+
+	"bast/internal/cloud/sync"
+)
+
+// browseFooterHint returns contextual key chords for the current browse mode.
+// Keep these short: a few primary actions for the selection, then "?".
+func (m *App) browseFooterHint(maxWidth int) string {
+	var parts []string
+	switch m.section {
+	case hostsSection:
+		parts = m.hostsFooterParts()
+	case keysSection:
+		parts = m.keysFooterParts()
+	case syncSection:
+		parts = m.syncFooterParts()
+	case filesSection:
+		return fitFooterHint(splitFooterHint(m.filesFooterHint()), maxWidth)
+	default:
+		parts = []string{"?"}
+	}
+	return fitFooterHint(parts, maxWidth)
+}
+
+func (m *App) hostsFooterParts() []string {
+	if m.itemCount() == 0 {
+		if m.hasHiddenHosts() && !m.showHidden {
+			return []string{". show hidden", "a add", "?"}
+		}
+		return []string{"a add", "?"}
+	}
+	if m.historySuggestionsHeaderSelected() {
+		label := "collapse"
+		if m.historySuggestionsCollapsed && m.searchText() == "" {
+			label = "expand"
+		}
+		return []string{"␣ " + label, "?"}
+	}
+	if _, ok := m.selectedHistorySuggestion(); ok {
+		return []string{"enter add", "e review", "x dismiss", "?"}
+	}
+	if group, ok := m.selectedGroupHeader(); ok {
+		parts := []string{"␣ " + m.collapseActionLabel()}
+		if !sync.IsSyncedGroup(group) {
+			parts = append(parts, "e rename")
+		}
+		return append(parts, "?")
+	}
+	if _, ok := m.selectedHost(); ok {
+		if m.isMobileLayout() {
+			return []string{"enter connect", "e edit", "?"}
+		}
+		return []string{"enter", "e edit", "F files", "?"}
+	}
+	return []string{"a add", "?"}
+}
+
+func (m *App) keysFooterParts() []string {
+	if len(m.filteredKeys()) == 0 {
+		return []string{"a generate", "i import", "?"}
+	}
+	key, ok := m.selectedKey()
+	if !ok {
+		return []string{"a generate", "i import", "?"}
+	}
+	if key.PublicPath == "" && key.PrivatePath == "" {
+		return []string{"a generate", "i import", "?"}
+	}
+	return []string{"u add", "c copy", "e edit", "?"}
+}
+
+func (m *App) syncFooterParts() []string {
+	if m.syncProvider == "" {
+		return []string{"enter open", "?"}
+	}
+	return []string{"enter", "esc back", "?"}
+}
+
+func splitFooterHint(hint string) []string {
+	hint = strings.TrimSpace(hint)
+	if hint == "" {
+		return []string{"?"}
+	}
+	parts := strings.Split(hint, " · ")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	if len(out) == 0 {
+		return []string{"?"}
+	}
+	return out
+}
+
+// fitFooterHint joins chords with " · ", dropping trailing actions when the
+// terminal is too narrow. The first chord and a trailing "?" are always kept.
+func fitFooterHint(parts []string, maxWidth int) string {
+	parts = append([]string(nil), parts...)
+	if len(parts) == 0 {
+		return "?"
+	}
+	if parts[len(parts)-1] != "?" {
+		parts = append(parts, "?")
+	}
+	join := func(items []string) string {
+		return strings.Join(items, " · ")
+	}
+	if maxWidth <= 0 || lipgloss.Width(join(parts)) <= maxWidth {
+		return join(parts)
+	}
+	for len(parts) > 2 {
+		// Drop the second-to-last action (keep primary + "?").
+		parts = append(parts[:len(parts)-2], parts[len(parts)-1])
+		if lipgloss.Width(join(parts)) <= maxWidth {
+			return join(parts)
+		}
+	}
+	if lipgloss.Width(parts[0]) <= maxWidth {
+		return parts[0]
+	}
+	return "?"
+}

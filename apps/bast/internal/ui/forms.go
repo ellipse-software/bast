@@ -156,12 +156,18 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.form != nil && m.form.action == "files_delete" {
 			m.files.deletePaths = nil
 		}
+		if m.form != nil && m.form.action == "vault_resolve" {
+			m.vaultConflict = nil
+		}
 		m.form = nil
 		return m, nil
 	}
 	if (key == "backspace" || key == "ctrl+h") && !m.formTextInputActive() {
 		if m.form != nil && m.form.action == "files_delete" {
 			m.files.deletePaths = nil
+		}
+		if m.form != nil && m.form.action == "vault_resolve" {
+			m.vaultConflict = nil
 		}
 		m.form = nil
 		return m, nil
@@ -467,7 +473,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.form = nil
-		m.vaultBusy = "Sending code…"
+		m.beginVaultBusy("Sending code…")
 		return m, cmd
 	case "vault_code":
 		cmd := m.submitVaultCode()
@@ -475,7 +481,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.form = nil
-		m.vaultBusy = "Verifying code…"
+		m.beginVaultBusy("Verifying code…")
 		return m, cmd
 	case "vault_passphrase":
 		cmd := m.submitVaultPassphrase()
@@ -483,7 +489,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.form = nil
-		m.vaultBusy = "Linking vault…"
+		m.beginVaultBusy("Linking vault…")
 		return m, cmd
 	case "vault_unlock":
 		cmd := m.submitVaultUnlock()
@@ -491,7 +497,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.form = nil
-		m.vaultBusy = "Unlocking vault…"
+		m.beginVaultBusy("Unlocking vault…")
 		return m, cmd
 	case "vault_reset_passphrase":
 		cmd := m.submitVaultResetPassphrase()
@@ -499,7 +505,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.form = nil
-		m.vaultBusy = "Resetting vault passphrase…"
+		m.beginVaultBusy("Resetting vault passphrase…")
 		return m, cmd
 	case "vault_rotate_passphrase":
 		cmd := m.submitVaultRotatePassphrase()
@@ -507,8 +513,10 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.form = nil
-		m.vaultBusy = "Rotating vault passphrase…"
+		m.beginVaultBusy("Rotating vault passphrase…")
 		return m, cmd
+	case "vault_resolve":
+		return m, m.submitVaultResolve()
 	case "files_mkdir", "files_rename", "files_delete":
 		return m.submitFilesForm(values)
 	}

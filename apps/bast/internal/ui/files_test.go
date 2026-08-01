@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -634,5 +635,62 @@ func TestFilesInfoInline(t *testing.T) {
 	m.updateFilesKeys("i")
 	if m.files.info {
 		t.Fatal("i should toggle info closed")
+	}
+}
+
+func TestFilesEscReturnsToHosts(t *testing.T) {
+	m := testApp(t)
+	_ = m.enterFilesSection()
+	if m.section != filesSection {
+		t.Fatal("expected files section")
+	}
+	m.updateFilesKeys("esc")
+	if m.section != hostsSection {
+		t.Fatalf("esc should return to hosts, got %v", m.section)
+	}
+}
+
+func TestFilesTransferProgressHint(t *testing.T) {
+	m := testApp(t)
+	_ = m.enterFilesSection()
+	m.files.transfer = filesTransfer{active: true, move: false, preparing: true}
+	hint := m.filesFooterHint()
+	if !strings.Contains(hint, "preparing") {
+		t.Fatalf("preparing hint = %q", hint)
+	}
+	m.files.transfer.preparing = false
+	m.files.transfer.name = "big.bin"
+	m.files.transfer.done = 2
+	m.files.transfer.total = 5
+	m.files.transfer.bytes = 1536
+	hint = m.filesFooterHint()
+	if !strings.Contains(hint, "big.bin") || !strings.Contains(hint, "2/5") || !strings.Contains(hint, "1.5 KB") {
+		t.Fatalf("progress hint = %q", hint)
+	}
+}
+
+func TestFilesConnectErrorNotice(t *testing.T) {
+	got := filesConnectErrorNotice(fmt.Errorf("sftp handshake: eof; unlock keys with ssh-add or connect once from Hosts to accept the host key"))
+	if !strings.Contains(got, "ssh-add") {
+		t.Fatalf("notice = %q", got)
+	}
+	got = filesConnectErrorNotice(fmt.Errorf("Permission denied (publickey)"))
+	if !strings.Contains(got, "Auth failed") {
+		t.Fatalf("auth notice = %q", got)
+	}
+}
+
+func TestVaultConflictFormOpens(t *testing.T) {
+	m := testApp(t)
+	m.Update(vaultConflictMsg{count: 2, interactive: true})
+	if m.form == nil || m.form.action != "vault_resolve" {
+		t.Fatalf("expected vault_resolve form, got %#v", m.form)
+	}
+	if m.vaultConflict == nil || m.vaultConflict.count != 2 {
+		t.Fatalf("pending conflict = %#v", m.vaultConflict)
+	}
+	footer := m.renderFooter(m.styles())
+	if strings.Contains(footer, "please wait") {
+		t.Fatalf("conflict form should not lock footer: %q", footer)
 	}
 }

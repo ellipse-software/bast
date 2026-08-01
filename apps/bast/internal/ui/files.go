@@ -46,9 +46,21 @@ type filesPane struct {
 }
 
 type filesTransfer struct {
-	cancel context.CancelFunc
-	active bool
-	move   bool
+	cancel     context.CancelFunc
+	active     bool
+	move       bool
+	gen        uint64
+	preparing  bool
+	name       string
+	done       int
+	total      int
+	bytes      int64
+	progressCh chan files.Progress
+}
+
+type filesTransferProgressMsg struct {
+	gen      uint64
+	progress files.Progress
 }
 
 type filesJump struct {
@@ -88,6 +100,7 @@ type filesConnectMsg struct {
 type filesTransferDoneMsg struct {
 	err  error
 	move bool
+	gen  uint64
 }
 
 type filesOpDoneMsg struct {
@@ -324,7 +337,7 @@ func (m *App) renderFilesBrowser(s styleSet, pane *filesPane, focused bool, list
 	if len(pane.entries) == 0 && (pane.loading || pane.connecting) {
 		b.WriteString("  " + s.muted.Render("Loading…") + "\n")
 	} else if len(pane.entries) == 0 {
-		b.WriteString("  " + s.muted.Render("Empty") + "\n")
+		b.WriteString("  " + s.muted.Render("Empty · a new folder · / jump") + "\n")
 	} else {
 		jumping := focused && m.files.jump.active
 		pane.ensureVisible(max(1, listHeight-1))
@@ -489,7 +502,7 @@ func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 		return m, m.setFilesPaneLocal(m.files.focus)
 	case "R":
 		return m, m.setFilesPaneRemote(m.files.focus)
-	case "f", "s":
+	case "f":
 		return m.beginFilesJump()
 	case "esc":
 		if len(pane.marked) > 0 || pane.rangeAnchor != nil {
@@ -499,7 +512,9 @@ func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 		if pane.connected() {
 			return m, m.disconnectFilesPane(m.files.focus)
 		}
-		return m, tea.Quit
+		m.clearFilesOverlays()
+		m.section, m.cursor, m.search = hostsSection, 0, ""
+		return m, nil
 	case "up", "k":
 		return m.moveFilesCursor(-1)
 	case "down", "j":
@@ -984,15 +999,55 @@ func (m *App) filesFooterHint() string {
 		return "j/k next · p chmod · i/esc close"
 	}
 	if m.files.transfer.active {
-		if m.files.transfer.move {
-			return "moving… esc"
-		}
-		return "copying… esc"
+		return m.filesTransferHint()
 	}
 	if m.files.jump.active {
 		return "type · label jumps · esc"
 	}
-	return "?"
+	pane := m.filesFocusedPane()
+	if pane.connecting {
+		return "connecting… esc"
+	}
+	if pane.pickingHost() {
+		return "enter connect · / search · esc back · ?"
+	}
+	return "tab · c copy · m move · f jump · esc back · ?"
+}
+
+func (m *App) filesTransferHint() string {
+	t := m.files.transfer
+	action := "copying"
+	if t.move {
+		action = "moving"
+	}
+	if t.preparing && t.total == 0 {
+		return action + "… preparing · esc"
+	}
+	parts := []string{action}
+	if t.name != "" {
+		parts = append(parts, truncate(t.name, 18))
+	}
+	if t.total > 0 {
+		parts = append(parts, fmt.Sprintf("%d/%d", t.done, t.total))
+	}
+	if t.bytes > 0 {
+		parts = append(parts, formatByteCount(t.bytes))
+	}
+	parts = append(parts, "esc")
+	return strings.Join(parts, " · ")
+}
+
+func formatByteCount(n int64) string {
+	if n < 1024 {
+		return fmt.Sprintf("%d B", n)
+	}
+	if n < 1024*1024 {
+		return fmt.Sprintf("%.1f KB", float64(n)/1024)
+	}
+	if n < 1024*1024*1024 {
+		return fmt.Sprintf("%.1f MB", float64(n)/(1024*1024))
+	}
+	return fmt.Sprintf("%.1f GB", float64(n)/(1024*1024*1024))
 }
 
 var filesJumpLabels = []string{

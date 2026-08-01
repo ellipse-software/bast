@@ -367,17 +367,20 @@ func TestFooterHidesConnectWhenGroupSelected(t *testing.T) {
 	m.cursor = 0
 
 	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "?") {
-		t.Fatalf("browse footer should stay minimal: %q", footer)
+	if !strings.Contains(footer, "␣") || !strings.Contains(footer, "?") {
+		t.Fatalf("group footer should show collapse: %q", footer)
 	}
-	if strings.Contains(footer, "connect") || strings.Contains(footer, "Connect") {
-		t.Fatalf("browse footer should not list key chords: %q", footer)
+	if strings.Contains(footer, "enter") || strings.Contains(footer, "Connect") {
+		t.Fatalf("group footer should not advertise connect: %q", footer)
 	}
 
 	m.cursor = 1
 	footer = m.renderFooter(m.styles())
-	if !strings.Contains(footer, "?") || strings.Contains(footer, "connect") {
-		t.Fatalf("host footer should stay minimal: %q", footer)
+	if !strings.Contains(footer, "enter") || !strings.Contains(footer, "e edit") || !strings.Contains(footer, "F files") {
+		t.Fatalf("host footer = %q", footer)
+	}
+	if strings.Contains(footer, "␣") {
+		t.Fatalf("host footer should not show collapse: %q", footer)
 	}
 }
 
@@ -1928,8 +1931,11 @@ func TestMobileLayoutStacksPanelsVertically(t *testing.T) {
 		t.Fatalf("mobile host details are missing the connect button:\n%s", body)
 	}
 	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "?") || strings.Contains(footer, "enter/click Connect") {
-		t.Fatalf("mobile footer should stay minimal: %q", footer)
+	if !strings.Contains(footer, "enter connect") || !strings.Contains(footer, "?") {
+		t.Fatalf("mobile footer = %q", footer)
+	}
+	if strings.Contains(footer, "enter/click Connect") || strings.Contains(footer, "F files") {
+		t.Fatalf("mobile footer should stay compact: %q", footer)
 	}
 }
 
@@ -2129,6 +2135,7 @@ func TestHelpScreenIsSpacedAndScrollable(t *testing.T) {
 	for _, text := range []string{
 		"Keyboard shortcuts",
 		"Navigation",
+		"Hosts",
 		"Move selection",
 		"↑/↓ scroll",
 		"? / Esc / ⌫ close",
@@ -2137,8 +2144,8 @@ func TestHelpScreenIsSpacedAndScrollable(t *testing.T) {
 			t.Fatalf("help screen does not contain %q:\n%s", text, rendered)
 		}
 	}
-	if strings.Contains(rendered, "During SSH") {
-		t.Fatalf("short terminal should not show the bottom of help without scrolling:\n%s", rendered)
+	if strings.Contains(rendered, "Files") && strings.Contains(rendered, "Fuzzy jump") {
+		t.Fatalf("hosts help should not include Files section:\n%s", rendered)
 	}
 	if !m.helpCanScroll() {
 		t.Fatal("expected help content to require scrolling")
@@ -2374,12 +2381,12 @@ func TestEnterTogglesSelectedGroup(t *testing.T) {
 	}
 
 	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "?") || strings.Contains(footer, "␣ collapse") {
+	if !strings.Contains(footer, "␣ collapse") || !strings.Contains(footer, "?") {
 		t.Fatalf("footer = %q", footer)
 	}
 	m.updateKeys(enter)
 	footer = m.renderFooter(m.styles())
-	if !strings.Contains(footer, "?") || strings.Contains(footer, "␣ expand") {
+	if !strings.Contains(footer, "␣ expand") {
 		t.Fatalf("collapsed footer = %q", footer)
 	}
 }

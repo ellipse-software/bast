@@ -76,7 +76,7 @@ func (c *connectionProcess) SetStderr(output io.Writer) {
 
 func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
-	if mouse.Button != tea.MouseLeft || m.help || m.credits || m.vaultBusy != "" || (m.statusError && m.status != "") {
+	if mouse.Button != tea.MouseLeft || m.help || m.credits || (m.statusError && m.status != "") {
 		return m, nil
 	}
 	m.scrollbarDragging = false
@@ -215,7 +215,7 @@ func (m *App) updateMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
-	if m.credits || m.form != nil || m.vaultBusy != "" {
+	if m.credits || m.form != nil {
 		return m, nil
 	}
 	if m.help {
