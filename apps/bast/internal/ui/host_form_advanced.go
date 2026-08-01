@@ -110,64 +110,64 @@ func (m *App) advancedSubsectionSummary(section string) string {
 	f := m.form
 	switch section {
 	case formSectionAdvancedJump:
-		if jump := fieldDisplay(f, "Proxy jump"); jump != "" && jump != "—" && jump != "None" {
+		if jump := fieldDisplay(f, "Proxy jump"); jump != "" && jump != "-" && jump != "None" {
 			return jump
 		}
 		return "Direct connection"
 	case formSectionAdvancedSession:
 		parts := []string{}
-		if cmd := fieldDisplay(f, "Startup command"); cmd != "" && cmd != "—" {
+		if cmd := fieldDisplay(f, "Startup command"); cmd != "" && cmd != "-" {
 			parts = append(parts, "command")
 		}
-		if tty := fieldDisplay(f, "Request TTY"); tty != "" && tty != "—" && tty != "Default" {
+		if tty := fieldDisplay(f, "Request TTY"); tty != "" && tty != "-" && tty != "Default" {
 			parts = append(parts, strings.ToLower(tty))
 		}
 		if len(parts) == 0 {
-			return "—"
+			return "-"
 		}
 		return strings.Join(parts, " · ")
 	case formSectionAdvancedForwarding:
 		parts := []string{}
-		if agent := fieldDisplay(f, "Agent forwarding"); agent != "" && agent != "—" && agent != "Default" {
+		if agent := fieldDisplay(f, "Agent forwarding"); agent != "" && agent != "-" && agent != "Default" {
 			parts = append(parts, "agent "+strings.ToLower(agent))
 		}
-		if local := fieldDisplay(f, "Local forwards"); local != "" && local != "—" {
+		if local := fieldDisplay(f, "Local forwards"); local != "" && local != "-" {
 			parts = append(parts, "local")
 		}
-		if remote := fieldDisplay(f, "Remote forwards"); remote != "" && remote != "—" {
+		if remote := fieldDisplay(f, "Remote forwards"); remote != "" && remote != "-" {
 			parts = append(parts, "remote")
 		}
-		if dynamic := fieldDisplay(f, "Dynamic forward"); dynamic != "" && dynamic != "—" {
+		if dynamic := fieldDisplay(f, "Dynamic forward"); dynamic != "" && dynamic != "-" {
 			parts = append(parts, "socks")
 		}
 		if len(parts) == 0 {
-			return "—"
+			return "-"
 		}
 		return strings.Join(parts, " · ")
 	case formSectionAdvancedEnv:
-		if env := fieldDisplay(f, "Environment variables"); env != "" && env != "—" {
+		if env := fieldDisplay(f, "Environment variables"); env != "" && env != "-" {
 			return env
 		}
-		return "—"
+		return "-"
 	case formSectionAdvancedCustom:
-		if custom := fieldDisplay(f, "Custom SSH flags"); custom != "" && custom != "—" {
+		if custom := fieldDisplay(f, "Custom SSH flags"); custom != "" && custom != "-" {
 			return custom
 		}
-		return "—"
+		return "-"
 	default:
-		return "—"
+		return "-"
 	}
 }
 
 func (m *App) hostAdvancedSummary() string {
 	parts := []string{}
 	for _, item := range advancedHubList {
-		if summary := m.advancedSubsectionSummary(item.section); summary != "" && summary != "—" && summary != "Direct connection" {
+		if summary := m.advancedSubsectionSummary(item.section); summary != "" && summary != "-" && summary != "Direct connection" {
 			parts = append(parts, item.title)
 		}
 	}
 	if len(parts) == 0 {
-		return "—"
+		return "-"
 	}
 	return strings.Join(parts, ", ") + " configured"
 }

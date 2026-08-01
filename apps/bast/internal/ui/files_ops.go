@@ -402,7 +402,7 @@ func (m *App) openFilesRenameForm() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, m.setNotice("Nothing selected")
 	}
-	m.openForm("Rename — "+entry.Name, "files_rename", []field{
+	m.openForm("Rename: "+entry.Name, "files_rename", []field{
 		{label: "Pane", value: fmt.Sprintf("%d", m.files.focus), hidden: true},
 		{label: "Path", value: entry.Path, hidden: true},
 		{label: "Name", value: entry.Name, placeholder: entry.Name},
@@ -425,7 +425,7 @@ func (m *App) openFilesDeleteForm() (tea.Model, tea.Cmd) {
 	if len(paths) == 1 {
 		confirm = files.BaseName(paths[0])
 		placeholder = confirm
-		title = "Delete — " + confirm
+		title = "Delete: " + confirm
 	}
 	m.files.deletePaths = append([]string(nil), paths...)
 	m.openForm(title, "files_delete", []field{

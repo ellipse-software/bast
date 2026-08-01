@@ -1,10 +1,10 @@
 import {
   Cloud,
-  FileText,
   FolderOpen,
   Key,
+  Lock,
+  Server,
   Smartphone,
-  Terminal,
   type LucideIcon,
 } from "lucide-react";
 import { TuiDemo } from "@/components/tui-demo";
@@ -13,42 +13,45 @@ const features: {
   title: string;
   description: string;
   icon: LucideIcon;
+  className?: string;
 }[] = [
   {
-    title: "Native OpenSSH",
+    title: "Hosts",
     description:
-      "Launches the ssh binary already on your machine. No proprietary runtime, no hidden host database.",
-    icon: Terminal,
+      "Browse, group, and favorite every host OpenSSH already knows. Search fast, edit metadata, and connect without leaving the terminal.",
+    icon: Server,
+    className: "sm:col-span-2 lg:col-span-2",
   },
   {
-    title: "Your SSH config",
+    title: "Keys",
     description:
-      "Reads ~/.ssh/config and Include files. Adds one managed Include. Your config stays authoritative.",
-    icon: FileText,
+      "Generate, import, export, and install native OpenSSH keys. Passphrases stay local. No proprietary key store.",
+    icon: Key,
   },
   {
     title: "Cloud sync",
     description:
-      "Import VMs from GCP, AWS, and Azure. Uses each provider's native CLI. Details stay owned by the cloud.",
+      "Pull live VMs from GCP, AWS, and Azure through each provider CLI. Synced hosts stay read-only and owned by the cloud.",
     icon: Cloud,
   },
   {
-    title: "Files over SFTP",
+    title: "Bast vault",
     description:
-      "Dual-pane local and remote browser. Copy and move with the same OpenSSH config as Connect.",
-    icon: FolderOpen,
+      "Encrypt Bast-managed hosts, keys, and metadata on your machine, then sync ciphertext between Macs and Linux boxes.",
+    icon: Lock,
   },
   {
-    title: "Mobile UI",
+    title: "Mobile view",
     description:
-      "Works in phone SSH apps and narrow terminals. List and detail stack. Tap or use the keyboard.",
+      "On phone SSH apps and narrow panes, the list and detail stack so everything stays readable. Tap Connect or keep using the keyboard.",
     icon: Smartphone,
   },
   {
-    title: "Key management",
+    title: "SFTP",
     description:
-      "Generate, import, and export native SSH keys locally. Verify pairs and change passphrases.",
-    icon: Key,
+      "Dual-pane local and remote browser in the TUI. Copy and move with the same OpenSSH config Connect already uses.",
+    icon: FolderOpen,
+    className: "sm:col-span-2 lg:col-span-3",
   },
 ];
 
@@ -65,7 +68,10 @@ export function Showcase() {
             {features.map((feature) => {
               const Icon = feature.icon;
               return (
-                <article key={feature.title} className="bg-background p-5 sm:p-6">
+                <article
+                  key={feature.title}
+                  className={`bg-background p-5 sm:p-6 ${feature.className ?? ""}`}
+                >
                   <Icon
                     className="mb-4 size-4 text-accent"
                     strokeWidth={1.5}
@@ -74,7 +80,7 @@ export function Showcase() {
                   <h3 className="mb-2 text-sm font-medium tracking-tight">
                     {feature.title}
                   </h3>
-                  <p className="text-sm leading-relaxed text-muted">
+                  <p className="max-w-2xl text-sm leading-relaxed text-muted">
                     {feature.description}
                   </p>
                 </article>

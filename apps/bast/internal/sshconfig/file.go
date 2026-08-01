@@ -84,7 +84,7 @@ func RenderSyncBlock(input SyncHostInput) []byte {
 
 func WriteSyncConfig(path string, blocks []SyncHostInput) error {
 	var body bytes.Buffer
-	body.WriteString("# Managed by Bast cloud sync — do not edit by hand\n")
+	body.WriteString("# Managed by Bast cloud sync: do not edit by hand\n")
 	for _, block := range blocks {
 		body.Write(RenderSyncBlock(block))
 	}
@@ -355,7 +355,7 @@ func (m Manager) EnsureSyncInclude(path string) error {
 		return fmt.Errorf("create sync directory: %w", err)
 	}
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		if err := atomicWrite(path, []byte("# Managed by Bast cloud sync — do not edit by hand\n"), 0600); err != nil {
+		if err := atomicWrite(path, []byte("# Managed by Bast cloud sync: do not edit by hand\n"), 0600); err != nil {
 			return err
 		}
 	} else if err != nil {

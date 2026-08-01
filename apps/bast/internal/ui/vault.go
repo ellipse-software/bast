@@ -60,15 +60,33 @@ type vaultPushMsg struct {
 func (m *App) beginVaultBusy(label string) {
 	m.cancelVaultOp()
 	m.vaultBusy = label
+	m.vaultBusyHoldLoad = false
 }
 
 func (m *App) clearVaultBusy() {
 	m.vaultBusy = ""
+	m.vaultBusyHoldLoad = false
 }
 
 func (m *App) cancelVaultOp() {
 	m.vaultBusy = ""
+	m.vaultBusyHoldLoad = false
 	m.vaultOpGen++
+}
+
+// vaultBusyBlocksSync replaces the Sync/Vault menu while a vault network step runs
+// (send code, verify, link, unlock, sync from this screen). Other sections keep their
+// normal body and only show the footer busy hint.
+func (m *App) vaultBusyBlocksSync() bool {
+	return m.vaultBusy != "" && m.section == syncSection
+}
+
+func (m *App) renderVaultBusy(s styleSet) string {
+	title := "Vault"
+	if m.syncProvider != "" && m.syncProvider != "vault" {
+		title = strings.ToUpper(m.syncProvider)
+	}
+	return "\n  " + s.active.Render(title) + "\n\n  " + s.muted.Render(m.vaultBusy)
 }
 
 func (m *App) openVaultConflictForm(msg vaultConflictMsg) {
@@ -84,7 +102,7 @@ func (m *App) openVaultConflictForm(msg vaultConflictMsg) {
 		state.session = *msg.session
 	}
 	m.vaultConflict = state
-	m.openForm(fmt.Sprintf("Vault — %d conflicts", msg.count), "vault_resolve", []field{
+	m.openForm(fmt.Sprintf("Vault: %d conflicts", msg.count), "vault_resolve", []field{
 		{
 			label:       "Resolution",
 			description: "Same alias or key name on both sides",
@@ -319,13 +337,13 @@ func (m *App) renderVaultStatus(s styleSet) string {
 }
 
 func (m *App) openVaultLoginForm() {
-	m.openForm("Vault — link account", "vault_login", []field{
+	m.openForm("Vault: link account", "vault_login", []field{
 		{label: "Email", description: "We'll email a one-time code", placeholder: "you@example.com"},
 	})
 }
 
 func (m *App) openVaultCodeForm(email string) {
-	m.openForm("Vault — enter code", "vault_code", []field{
+	m.openForm("Vault: enter code", "vault_code", []field{
 		{label: "Email", value: email, hidden: true},
 		{label: "Code", description: "6-digit code from email", placeholder: "123456"},
 	})
@@ -339,24 +357,24 @@ func (m *App) openVaultPassphraseForm(email, token, userID, deviceID, apiBase st
 		{label: "DeviceID", value: deviceID, hidden: true},
 		{label: "APIBase", value: apiBase, hidden: true},
 		{label: "FirstLink", value: fmt.Sprintf("%t", firstLink), hidden: true},
-		{label: "Passphrase", description: "Encrypts the vault on this machine; saved unlocked locally (0600)", placeholder: "vault passphrase", secret: true},
+		{label: "Passphrase", description: "Encrypts the vault locally. Never sent to Bast", placeholder: "vault passphrase", secret: true},
 		{label: "Confirm", description: "Re-enter passphrase", placeholder: "confirm passphrase", secret: true},
 	}
-	m.openForm("Vault — encryption passphrase", "vault_passphrase", fields)
+	m.openForm("Vault: encryption passphrase", "vault_passphrase", fields)
 }
 
 func (m *App) openVaultUnlockForm(next string) {
-	m.openForm("Vault — unlock", "vault_unlock", []field{
+	m.openForm("Vault: unlock", "vault_unlock", []field{
 		{label: "Next", value: next, hidden: true},
-		{label: "Passphrase", description: "Local encryption key — never sent to Bast", placeholder: "vault passphrase", secret: true},
+		{label: "Passphrase", description: "Local encryption key. Never sent to Bast", placeholder: "vault passphrase", secret: true},
 	})
 }
 
 func (m *App) openVaultResetPassphraseForm() {
-	m.openForm("Vault — reset passphrase", "vault_reset_passphrase", []field{
+	m.openForm("Vault: reset passphrase", "vault_reset_passphrase", []field{
 		{label: "Confirmation", value: "RESET", hidden: true},
 		{label: "Type RESET to confirm", description: "Overwrites the remote vault with this machine", placeholder: "RESET"},
-		{label: "Passphrase", description: "New local encryption key — never sent to Bast", placeholder: "new passphrase", secret: true},
+		{label: "Passphrase", description: "New local encryption key. Never sent to Bast", placeholder: "new passphrase", secret: true},
 		{label: "Confirm", description: "Re-enter new passphrase", placeholder: "confirm passphrase", secret: true},
 	})
 }
@@ -364,14 +382,14 @@ func (m *App) openVaultResetPassphraseForm() {
 func (m *App) openVaultRotatePassphraseForm() {
 	fields := []field{
 		{label: "Current", description: "Current vault passphrase", placeholder: "current passphrase", secret: true},
-		{label: "New", description: "New local encryption key — never sent to Bast", placeholder: "new passphrase", secret: true},
+		{label: "New", description: "New local encryption key. Never sent to Bast", placeholder: "new passphrase", secret: true},
 		{label: "Confirm", description: "Re-enter new passphrase", placeholder: "confirm passphrase", secret: true},
 	}
 	if m.vaultPassphrase != "" {
 		fields[0].value = m.vaultPassphrase
 		fields[0].hidden = true
 	}
-	m.openForm("Vault — rotate passphrase", "vault_rotate_passphrase", fields)
+	m.openForm("Vault: rotate passphrase", "vault_rotate_passphrase", fields)
 }
 
 func (m *App) submitVaultLogin() tea.Cmd {

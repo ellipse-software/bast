@@ -591,7 +591,7 @@ func (m *App) openEditGroupForm() {
 		m.status, m.statusError = "Cloud sync groups cannot be renamed", true
 		return
 	}
-	m.openForm("Rename group — "+groupShortName(group), "group_edit", []field{
+	m.openForm("Rename group: "+groupShortName(group), "group_edit", []field{
 		{label: "Original path", value: group, hidden: true},
 		{label: "Name", description: "Renames this group for every host inside it", value: groupShortName(group)},
 	})
@@ -609,7 +609,7 @@ func (m *App) openEditHostForm() {
 	meta := m.metadata.Host(host.Alias)
 	labelPath := metadata.JoinLabelPath(meta.Group, m.hostLabel(host))
 	if !host.Managed {
-		m.openHostForm("Edit metadata — "+m.hostLabel(host), "metadata_edit", hostFormFields(m, metadataHostValues{
+		m.openHostForm("Edit metadata: "+m.hostLabel(host), "metadata_edit", hostFormFields(m, metadataHostValues{
 			label: labelPath, tags: strings.Join(meta.Tags, ", "),
 			environment: meta.Environment, color: meta.Color, notes: meta.Notes,
 			labelDesc: "Optional - Display name; use / for groups; SSH alias stays " + host.Alias,
@@ -623,7 +623,7 @@ func (m *App) openEditHostForm() {
 	}
 	extras, _ := m.config.ManagedExtras(host.ManagedID)
 	adv := sshconfig.ParseAdvanced(extras, emptyIfNone(host.Resolved.ProxyJump))
-	m.openHostForm("Edit host — "+m.hostLabel(host), "host_edit", hostFormFields(m, metadataHostValues{
+	m.openHostForm("Edit host: "+m.hostLabel(host), "host_edit", hostFormFields(m, metadataHostValues{
 		label: labelPath, tags: strings.Join(meta.Tags, ", "),
 		environment: meta.Environment, color: meta.Color, notes: meta.Notes,
 	}, hostConnectionValues{
@@ -647,7 +647,7 @@ func (m *App) openGroupAssignmentForm() {
 		return
 	}
 	meta := m.metadata.Host(host.Alias)
-	m.openForm("Move host — "+m.hostLabel(host), "group_assign", []field{
+	m.openForm("Move host: "+m.hostLabel(host), "group_assign", []field{
 		{label: "Alias", value: host.Alias, hidden: true},
 		{label: "Current group", value: meta.Group, hidden: true},
 		m.groupAssignmentField(meta.Group),
@@ -716,7 +716,7 @@ func (m *App) openDeleteHostForm() {
 		return
 	}
 	label := m.hostLabel(host)
-	m.openForm("Delete host — "+label, "host_delete", []field{{label: "Alias", value: host.Alias, hidden: true}, {label: "Confirmation", value: label, hidden: true}, {label: "Type the name to confirm", placeholder: label}})
+	m.openForm("Delete host: "+label, "host_delete", []field{{label: "Alias", value: host.Alias, hidden: true}, {label: "Confirmation", value: label, hidden: true}, {label: "Type the name to confirm", placeholder: label}})
 }
 
 func (m *App) openGenerateForm() {
@@ -742,14 +742,14 @@ func (m *App) openEditKeyForm() {
 		m.status, m.statusError = "External keys cannot be edited by Bast", true
 		return
 	}
-	m.openForm("Edit key comment — "+key.Name, "key_comment", []field{
+	m.openForm("Edit key comment: "+key.Name, "key_comment", []field{
 		{label: "Key", value: key.Name, hidden: true},
 		{label: "Comment", description: descKeyCommentEdit, value: key.Comment, placeholder: "blank removes the comment", optional: true},
 	})
 }
 func (m *App) openExportForm() {
 	if key, ok := m.selectedKey(); ok {
-		m.openForm("Export key — "+key.Name, "key_export", []field{
+		m.openForm("Export key: "+key.Name, "key_export", []field{
 			{label: "Key", value: key.Name, hidden: true},
 			{label: "Directory", description: descKeyExportDir, placeholder: "~/Desktop"},
 			{label: "Type EXPORT", description: descKeyExportConfirm},
@@ -783,13 +783,13 @@ func (m *App) openInstallKeyForm() {
 }
 func (m *App) openDeleteKeyForm() {
 	if key, ok := m.selectedKey(); ok {
-		m.openForm("Delete key — "+key.Name, "key_delete", []field{{label: "Key", value: key.Name, hidden: true}, {label: "Type the name to confirm", placeholder: key.Name}})
+		m.openForm("Delete key: "+key.Name, "key_delete", []field{{label: "Key", value: key.Name, hidden: true}, {label: "Type the name to confirm", placeholder: key.Name}})
 	}
 }
 func (m *App) openKnownHostForm() {
 	if host, ok := m.selectedHost(); ok {
 		label := m.hostLabel(host)
-		m.openForm("Remove known host — "+label, "known_delete", []field{{label: "Alias", value: host.Alias, hidden: true}, {label: "Confirmation", value: label, hidden: true}, {label: "Type the name to confirm", placeholder: label}})
+		m.openForm("Remove known host: "+label, "known_delete", []field{{label: "Alias", value: host.Alias, hidden: true}, {label: "Confirmation", value: label, hidden: true}, {label: "Type the name to confirm", placeholder: label}})
 	}
 }
 

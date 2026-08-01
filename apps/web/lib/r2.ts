@@ -12,7 +12,7 @@ function getFiles(): Files {
   if (!accountId || !bucket || !accessKeyId || !secretAccessKey) {
     throw new Error("R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET_NAME are required");
   }
-  // Lightweight SigV4 fetch client — no @aws-sdk/* needed for vault-sized blobs.
+  // Lightweight SigV4 fetch client. No @aws-sdk/* needed for vault-sized blobs.
   files = new Files({
     adapter: r2({
       bucket,

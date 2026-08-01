@@ -358,7 +358,7 @@ const localFiles: FileEntry[] = [
     isDir: true,
     mode: "0755",
     symbolic: "rwxr-xr-x",
-    size: "—",
+    size: "-",
     modified: "2026-07-20 09:12",
   },
   {
@@ -366,7 +366,7 @@ const localFiles: FileEntry[] = [
     isDir: true,
     mode: "0755",
     symbolic: "rwxr-xr-x",
-    size: "—",
+    size: "-",
     modified: "2026-07-26 14:02",
   },
   {
@@ -405,7 +405,7 @@ const remoteFiles: FileEntry[] = [
     isDir: true,
     mode: "0755",
     symbolic: "rwxr-xr-x",
-    size: "—",
+    size: "-",
     modified: "2026-07-26 12:01",
   },
   {
@@ -413,7 +413,7 @@ const remoteFiles: FileEntry[] = [
     isDir: true,
     mode: "0755",
     symbolic: "rwxr-xr-x",
-    size: "—",
+    size: "-",
     modified: "2026-07-10 16:22",
   },
   {
@@ -421,7 +421,7 @@ const remoteFiles: FileEntry[] = [
     isDir: true,
     mode: "0755",
     symbolic: "rwxr-xr-x",
-    size: "—",
+    size: "-",
     modified: "2026-07-01 08:00",
   },
   {
@@ -429,7 +429,7 @@ const remoteFiles: FileEntry[] = [
     isDir: true,
     mode: "0755",
     symbolic: "rwxr-xr-x",
-    size: "—",
+    size: "-",
     modified: "2026-07-18 19:44",
   },
   {
@@ -437,7 +437,7 @@ const remoteFiles: FileEntry[] = [
     isDir: true,
     mode: "0755",
     symbolic: "rwxr-xr-x",
-    size: "—",
+    size: "-",
     modified: "2026-07-22 03:11",
   },
   {
@@ -1023,7 +1023,7 @@ function FilesPanel({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className={`h-px shrink-0 bg-border ${bleedMargin}`} />
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 pt-1.5 md:hidden">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 pt-2 md:hidden">
         <FilesPane
           label="local"
           path="~/deploy"
@@ -1055,7 +1055,7 @@ function FilesPanel({
         />
       </div>
 
-      <div className="relative hidden min-h-0 flex-1 md:block">
+      <div className="relative hidden min-h-0 flex-1 pt-2 md:block">
         <div className="grid h-full min-h-0 grid-cols-2">
           <FilesPane
             label="local"

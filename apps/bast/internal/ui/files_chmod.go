@@ -11,7 +11,7 @@ import (
 )
 
 // filesChmod is an inline permissions editor for the focused Files pane.
-// Cursor indexes a 3×3 rwx grid (0–8), optional recursive row (9), then octal (10).
+// Cursor indexes a 3x3 rwx grid (0-8), optional recursive row (9), then octal (10).
 type filesChmod struct {
 	active    bool
 	pane      int
@@ -75,9 +75,9 @@ func (m *App) openFilesChmodMenu() (tea.Model, tea.Cmd) {
 	title := "Permissions"
 	switch len(paths) {
 	case 1:
-		title = "Permissions — " + files.BaseName(paths[0])
+		title = "Permissions: " + files.BaseName(paths[0])
 	default:
-		title = fmt.Sprintf("Permissions — %d items", len(paths))
+		title = fmt.Sprintf("Permissions: %d items", len(paths))
 	}
 
 	m.files.info = false
@@ -355,8 +355,8 @@ func (m *App) renderFilesChmod(s styleSet, width int) string {
 	c := m.files.chmod
 	var b strings.Builder
 	title := c.title
-	if strings.HasPrefix(title, "Permissions — ") {
-		title = strings.TrimPrefix(title, "Permissions — ")
+	if strings.HasPrefix(title, "Permissions: ") {
+		title = strings.TrimPrefix(title, "Permissions: ")
 	} else if title == "Permissions" {
 		title = "permissions"
 	}

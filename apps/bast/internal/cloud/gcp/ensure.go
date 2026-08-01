@@ -116,7 +116,7 @@ func (c *Client) EnsureAccess(ctx context.Context, syncID string, cfg EnsureConf
 	mapped := mapInstance(inst, proj, cfg.DefaultSSHUser)
 	ResolveAuth(&mapped, home, cfg.ManagedKeys, osLoginUser)
 
-	// Confident local key match already present in metadata — nothing to publish.
+	// Confident local key match already present in metadata. Nothing to publish.
 	if mapped.IdentitiesOnly && mapped.IdentityFile != "" && mapped.User != "" {
 		reportStatus(cfg.Status, "Using local SSH key…")
 		return EnsureResult{
@@ -187,7 +187,7 @@ func (c *Client) ensureOSLoginAccess(
 		return result, nil
 	}
 
-	reportStatus(cfg.Status, "Registering SSH key with Google OS Login — this can take a few seconds…")
+	reportStatus(cfg.Status, "Registering SSH key with Google OS Login. This can take a few seconds…")
 	if err := c.addOSLoginSSHKey(ctx, cred, projectID, pubPath); err != nil {
 		return EnsureResult{}, fmt.Errorf("publish OS Login SSH key: %w", err)
 	}
@@ -243,7 +243,7 @@ func (c *Client) ensureMetadataAccess(
 		return result, nil
 	}
 
-	reportStatus(cfg.Status, "Publishing Google SSH key to the VM — this can take a few seconds…")
+	reportStatus(cfg.Status, "Publishing Google SSH key to the VM. This can take a few seconds…")
 	// Prefer instance metadata (typical VM creator IAM). Fall back to project-wide
 	// keys like classic gcloud when instance updates are denied.
 	if err := c.addInstanceSSHKey(ctx, cred, projectID, zone, name, instanceKeysRaw, userName, pubLine); err != nil {
@@ -442,7 +442,7 @@ func ensureGCloudIdentity(ctx context.Context, home, sshKeygen string, status fu
 		if _, err := os.Stat(pub); err == nil {
 			return nil
 		}
-		// Private key exists without pub — derive it.
+		// Private key exists without pub. Derive it.
 		return runSSHKeygen(ctx, sshKeygen, "-y", "-f", priv, "-P", "")
 	}
 	reportStatus(status, "Generating Google SSH key (~/.ssh/google_compute_engine)…")

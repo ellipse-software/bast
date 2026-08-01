@@ -34,7 +34,7 @@ Browse SSH hosts, manage keys, and connect from the terminal.
 curl -fsSL https://bast.sh/install | sh
 ```
 
-This installs `bast` to `~/.local/bin` by default. See [Installation](https://bast.sh/docs/reference/install) for custom locations, updates, and other options.
+This installs `bast` to `~/.local/bin` by default. See [Installation](https://bast.sh/docs/install) for custom locations, updates, and other options.
 
 **Homebrew:**
 
@@ -52,7 +52,7 @@ curl -fsSL https://bast.sh/install-nightly | sh
 brew install ellipse-software/tap/bast-nightly
 ```
 
-See [Installation](https://bast.sh/docs/reference/install#nightly-channel) for nightly channel behavior.
+See [Installation](https://bast.sh/docs/install#nightly-channel) for nightly channel behavior.
 
 ### From Source
 

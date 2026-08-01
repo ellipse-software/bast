@@ -135,7 +135,7 @@ func EntryKind(entry Entry) string {
 // FormatSize returns a compact human-readable byte size.
 func FormatSize(n int64) string {
 	if n < 0 {
-		return "—"
+		return "-"
 	}
 	if n < 1000 {
 		return fmt.Sprintf("%d B", n)

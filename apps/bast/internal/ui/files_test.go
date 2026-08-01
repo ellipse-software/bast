@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/files"
+	"bast/internal/vault"
 )
 
 func applyFilesList(m *App, pane int, cwd string, entries []files.Entry) {
@@ -692,5 +693,80 @@ func TestVaultConflictFormOpens(t *testing.T) {
 	footer := m.renderFooter(m.styles())
 	if strings.Contains(footer, "please wait") {
 		t.Fatalf("conflict form should not lock footer: %q", footer)
+	}
+}
+
+func TestVaultBusyBlocksSyncMenu(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vault"
+	m.beginVaultBusy("Sending code…")
+
+	if !m.vaultBusyBlocksSync() {
+		t.Fatal("expected vault busy to block the sync body")
+	}
+	busy := m.renderVaultBusy(m.styles())
+	if !strings.Contains(busy, "Sending code…") {
+		t.Fatalf("expected busy label:\n%s", busy)
+	}
+	if strings.Contains(busy, "Link account") {
+		t.Fatalf("busy body should not include vault menu:\n%s", busy)
+	}
+
+	m.section = hostsSection
+	if m.vaultBusyBlocksSync() {
+		t.Fatal("hosts section should not swap to the vault busy body")
+	}
+	footer := m.renderFooter(m.styles())
+	if !strings.Contains(footer, "Sending code…") {
+		t.Fatalf("hosts section should still show footer busy: %q", footer)
+	}
+}
+
+func TestVaultLinkKeepsBusyThroughReload(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vault"
+	m.beginVaultBusy("Linking vault…")
+
+	next, cmd := m.Update(vaultPullMsg{
+		changed:     true,
+		interactive: true,
+		notice:      "Vault linked",
+		revision:    "rev1",
+		session:     &vault.Session{Email: "you@example.com", Token: "t", Revision: "rev1"},
+		passphrase:  "secret",
+	})
+	app := next.(*App)
+	if app.vaultBusy != "Linking vault…" {
+		t.Fatalf("expected linking busy to survive pull success, got %q", app.vaultBusy)
+	}
+	if !app.vaultBusyHoldLoad || !app.loading {
+		t.Fatalf("expected hold+loading after link, hold=%v loading=%v", app.vaultBusyHoldLoad, app.loading)
+	}
+	if !app.vaultBusyBlocksSync() {
+		t.Fatal("vault menu should stay blocked while hosts reload")
+	}
+	if cmd == nil {
+		t.Fatal("expected loadCmd after link")
+	}
+
+	next, _ = app.Update(loadedMsg{hosts: app.hosts, keys: app.keys})
+	app = next.(*App)
+	if app.vaultBusy != "" || app.vaultBusyHoldLoad {
+		t.Fatalf("busy should clear after load, busy=%q hold=%v", app.vaultBusy, app.vaultBusyHoldLoad)
+	}
+}
+
+func TestVaultPassphraseCopyOmitsModeHint(t *testing.T) {
+	m := testApp(t)
+	m.openVaultPassphraseForm("you@example.com", "tok", "uid", "dev", "https://example", true)
+	if m.form == nil {
+		t.Fatal("expected passphrase form")
+	}
+	for _, f := range m.form.fields {
+		if strings.Contains(f.description, "0600") || strings.Contains(strings.ToLower(f.description), "saved unlocked") {
+			t.Fatalf("passphrase field should not mention local save mode: %q", f.description)
+		}
 	}
 }

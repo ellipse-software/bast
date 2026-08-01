@@ -26,7 +26,7 @@ import (
 	"bast/internal/telemetry"
 )
 
-const help = `Bast — native SSH picker, key manager, and CLI
+const help = `Bast: native SSH picker, key manager, and CLI
 
 Usage:
   bast                         Open the TUI

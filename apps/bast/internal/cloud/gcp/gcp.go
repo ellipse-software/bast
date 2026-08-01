@@ -331,9 +331,9 @@ func shortenDiscoveryWarning(err error) string {
 	msg := err.Error()
 	if isCredentialError(err) {
 		if account := accountFromDiscoveryError(msg); account != "" {
-			return account + ": credentials expired — run gcloud auth login"
+			return account + ": credentials expired. Run gcloud auth login"
 		}
-		return "GCP credentials expired — run gcloud auth login"
+		return "GCP credentials expired. Run gcloud auth login"
 	}
 	if project := projectFromDiscoveryError(msg); project != "" {
 		if isSkippableProjectError(err) {
@@ -773,7 +773,7 @@ func diskImageHint(disk gceDisk) string {
 	if disk.InitializeParams != nil && disk.InitializeParams.SourceImage != "" {
 		return disk.InitializeParams.SourceImage
 	}
-	// Prefer licenses over the persistent-disk URL — source is often
+	// Prefer licenses over the persistent-disk URL. Source is often
 	// .../disks/<name> with no distro hint, while licenses carry debian/ubuntu/etc.
 	if len(disk.Licenses) > 0 {
 		return strings.Join(disk.Licenses, " ")

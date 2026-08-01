@@ -127,10 +127,10 @@ func (m *App) hostFormSummary(section string) string {
 		port := fieldDisplay(f, "Port")
 		identity := authSummary(f)
 		parts := []string{}
-		if user != "" && user != "—" {
+		if user != "" && user != "-" {
 			parts = append(parts, user)
 		}
-		if port != "" && port != "—" && port != "22" {
+		if port != "" && port != "-" && port != "22" {
 			parts = append(parts, "port "+port)
 		}
 		if identity != "" {
@@ -144,14 +144,14 @@ func (m *App) hostFormSummary(section string) string {
 		return m.hostAdvancedSummary()
 	case formSectionMetadata:
 		parts := []string{}
-		if env := fieldDisplay(f, "Environment"); env != "" && env != "—" {
+		if env := fieldDisplay(f, "Environment"); env != "" && env != "-" {
 			parts = append(parts, env)
 		}
-		if tags := fieldDisplay(f, "Tags"); tags != "" && tags != "—" {
+		if tags := fieldDisplay(f, "Tags"); tags != "" && tags != "-" {
 			parts = append(parts, tags)
 		}
 		if len(parts) == 0 {
-			return "—"
+			return "-"
 		}
 		return strings.Join(parts, " · ")
 	default:
@@ -172,7 +172,7 @@ func fieldDisplay(f *form, label string) string {
 	}
 	value := strings.TrimSpace(item.value)
 	if value == "" {
-		return "—"
+		return "-"
 	}
 	return value
 }
@@ -598,7 +598,7 @@ func (m *App) renderHostHubBasicsRow(b *strings.Builder, s styleSet, hub hostHub
 		value = metadata.LabelLeaf(value)
 	}
 	if value == "" {
-		value = "—"
+		value = "-"
 	}
 	b.WriteString("  " + s.muted.Render("  "+item.label+"  "+value) + "\n")
 }
@@ -657,7 +657,7 @@ func (m *App) renderHostHubMenuRow(b *strings.Builder, s styleSet, hub hostHubIt
 	active := f.hubIndex >= 0 && hostHubItems(f)[f.hubIndex].id == hub.id
 	summary := m.hostFormSummary(hub.section)
 	if summary == "" {
-		summary = "—"
+		summary = "-"
 	}
 	line := hub.title + "  " + summary
 	if active {
@@ -738,7 +738,7 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 			value = item.options[item.selected].label
 		}
 		if value == "" {
-			value = "—"
+			value = "-"
 		}
 		b.WriteString("  " + s.muted.Render("  "+item.label+"  "+value) + "\n")
 	}

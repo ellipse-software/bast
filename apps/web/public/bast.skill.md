@@ -8,7 +8,7 @@ description: >-
 
 # Bast
 
-Bast is a terminal UI and CLI for browsing SSH hosts, managing keys, and connecting fast. It reads your existing OpenSSH config — it does not replace `ssh` or use a custom protocol.
+Bast is a terminal UI and CLI for browsing SSH hosts, managing keys, and connecting fast. It reads your existing OpenSSH config. It does not replace `ssh` or use a custom protocol.
 
 Docs: https://bast.sh/llms.txt
 
@@ -18,7 +18,7 @@ Docs: https://bast.sh/llms.txt
 - User needs to generate, import, export, or install SSH keys
 - User wants quick connect: `bast <label>` or `bast "Production web"`
 - User wants to import cloud VMs (`bast sync gcp|aws|azure`) and connect with local keys
-- User SSHs from a phone or narrow terminal — TUI switches to a stacked mobile layout below 60 columns (tap Connect)
+- User SSHs from a phone or narrow terminal: the TUI switches to a stacked mobile layout below 60 columns (tap Connect)
 - Automation/scripts need host or key management with stable JSON output
 
 ## When not to use Bast
@@ -46,7 +46,7 @@ brew install ellipse-software/tap/bast
 
 ## Automation rules
 
-Always use `--json` for scripts. It disables prompts — pair with explicit flags and `--yes` for destructive actions.
+Always use `--json` for scripts. It disables prompts. Pair with explicit flags and `--yes` for destructive actions.
 
 ```sh
 bast hosts list --json

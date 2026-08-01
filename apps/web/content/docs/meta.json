@@ -2,6 +2,7 @@
   "title": "Documentation",
   "pages": [
     "index",
+    "install",
     "---Features---",
     "...features",
     "---Reference---",

@@ -182,6 +182,7 @@ type App struct {
 	vaultLastSync     string
 	vaultDirty        bool
 	vaultBusy         string
+	vaultBusyHoldLoad bool
 	vaultPushID       uint64
 	vaultOpGen        uint64
 	vaultConflict     *vaultConflictState
@@ -348,6 +349,10 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case loadedMsg:
 		m.loading = false
 		m.enriching = false
+		if m.vaultBusyHoldLoad {
+			m.vaultBusyHoldLoad = false
+			m.clearVaultBusy()
+		}
 		if msg.hosts != nil {
 			m.hosts = msg.hosts
 			m.sortHosts()
@@ -491,7 +496,6 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.opGen != 0 && msg.opGen != m.vaultOpGen {
 			return m, nil
 		}
-		m.clearVaultBusy()
 		if msg.session != nil {
 			m.vaultSession = msg.session
 		}
@@ -499,6 +503,8 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.rememberVaultPassphrase(msg.passphrase)
 		}
 		if msg.err != nil {
+			m.vaultBusyHoldLoad = false
+			m.clearVaultBusy()
 			if msg.badPassphrase {
 				m.forgetVaultPassphrase()
 			}
@@ -517,6 +523,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.vaultStatus = ""
 		if msg.thenPush {
+			m.vaultBusyHoldLoad = false
 			m.beginVaultBusy("Syncing vault…")
 			m.vaultStatus = "syncing…"
 			var cmds []tea.Cmd
@@ -527,12 +534,21 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 		if msg.changed {
+			// Keep the Sync/Vault body blocked through host reload so linking
+			// does not flash the vault menu between network work and apply.
+			if m.vaultBusy == "" {
+				m.vaultBusy = "Updating…"
+			}
+			m.vaultBusyHoldLoad = true
+			m.loading = true
 			notice := msg.notice
 			if notice == "" {
 				notice = "Vault pulled"
 			}
 			return m, tea.Batch(m.loadCmd(), m.setNotice(notice))
 		}
+		m.vaultBusyHoldLoad = false
+		m.clearVaultBusy()
 		if msg.notice != "" {
 			return m, m.setNotice(msg.notice)
 		}
@@ -693,7 +709,7 @@ func (m *App) View() tea.View {
 	if m.form != nil && !isHostForm(m.form) {
 		view.MouseMode = tea.MouseModeNone
 	}
-	view.WindowTitle = "Bast — SSH picker"
+	view.WindowTitle = "Bast: SSH picker"
 	return view
 }
 

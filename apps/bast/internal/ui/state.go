@@ -836,12 +836,12 @@ func usage(h metadata.Host) string {
 }
 func noneValue(s string) string {
 	if s == "" || s == "none" {
-		return "—"
+		return "-"
 	}
 	return s
 }
 func emptyIfNone(s string) string {
-	if s == "none" || s == "—" {
+	if s == "none" || s == "-" {
 		return ""
 	}
 	return s
@@ -864,7 +864,7 @@ func splitCSV(s string) []string {
 }
 func shortPath(path, home string) string {
 	if path == "" {
-		return "—"
+		return "-"
 	}
 	if rel, err := filepath.Rel(home, path); err == nil && !strings.HasPrefix(rel, "..") {
 		return "~/" + rel

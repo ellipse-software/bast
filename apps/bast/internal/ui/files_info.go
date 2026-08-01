@@ -67,9 +67,9 @@ func (m *App) renderFilesInfo(s styleSet, pane *filesPane, width int) string {
 	mode := files.FormatModeOctal(entry.Mode) + "  " + files.FormatModeSymbolic(entry.Mode)
 	size := files.FormatSize(entry.Size)
 	if entry.IsDir {
-		size = "—"
+		size = "-"
 	}
-	modified := "—"
+	modified := "-"
 	if !entry.ModTime.IsZero() {
 		modified = entry.ModTime.Local().Format("2006-01-02 15:04")
 	}

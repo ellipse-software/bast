@@ -1,4 +1,4 @@
 {
   "title": "Reference",
-  "pages": ["install", "agents", "files", "updates", "telemetry"]
+  "pages": ["agents", "files", "updates", "telemetry"]
 }

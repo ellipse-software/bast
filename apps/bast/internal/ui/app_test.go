@@ -646,7 +646,7 @@ func TestAddHostFormPrefillsGroupFromSelection(t *testing.T) {
 		t.Fatalf("label path prefill = %q", got)
 	}
 	summary := m.hostFormSummary(formSectionMetadata)
-	if summary != "—" {
+	if summary != "-" {
 		t.Fatalf("metadata summary should not include group path, got %q", summary)
 	}
 	if got := metadata.LabelGroup(formFieldByLabel(m, "Label").value); got != "Work/Production" {
@@ -1611,7 +1611,7 @@ func TestSSHProcessPreservesTerminalOutput(t *testing.T) {
 		if got := output.String(); got != connectbanner.Banner {
 			t.Fatalf("connection banner was not shown before preparation: %q", got)
 		}
-		status("Publishing Google SSH key to the VM — this can take a few seconds…")
+		status("Publishing Google SSH key to the VM. This can take a few seconds…")
 		prepared = true
 		return nil
 	}}
@@ -1623,7 +1623,7 @@ func TestSSHProcessPreservesTerminalOutput(t *testing.T) {
 	}
 	var want bytes.Buffer
 	connectbanner.Write(&want)
-	connectbanner.Status(&want)("Publishing Google SSH key to the VM — this can take a few seconds…")
+	connectbanner.Status(&want)("Publishing Google SSH key to the VM. This can take a few seconds…")
 	want.WriteString("\r\nsession-output")
 	if got := output.String(); got != want.String() {
 		t.Fatalf("output = %q\nwant %q", got, want.String())
@@ -1764,7 +1764,7 @@ func TestDeletionConfirmationMismatchStaysInline(t *testing.T) {
 	}
 
 	rendered := m.render()
-	for _, expected := range []string{"Delete host — alpha", "Name to type", "alpha", "Name does not match the host label", "Type the name to confirm"} {
+	for _, expected := range []string{"Delete host: alpha", "Name to type", "alpha", "Name does not match the host label", "Type the name to confirm"} {
 		if !strings.Contains(rendered, expected) {
 			t.Fatalf("inline confirmation error is missing %q:\n%s", expected, rendered)
 		}

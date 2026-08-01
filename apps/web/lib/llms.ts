@@ -65,7 +65,7 @@ export function getLlmsIndex(): string {
 
 export async function getLlmsFull(): Promise<string> {
   const pages = await Promise.all(source.getPages().map(getLLMText));
-  const header = `# Bast.sh — full documentation
+  const header = `# Bast.sh: full documentation
 
 > ${defaultDescription}
 

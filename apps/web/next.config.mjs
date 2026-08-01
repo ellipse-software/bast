@@ -14,6 +14,15 @@ const config = {
       },
     ],
   },
+  async redirects() {
+    return [
+      {
+        source: "/docs/reference/install",
+        destination: "/docs/install",
+        permanent: true,
+      },
+    ];
+  },
 };
 
 const withMDX = createMDX();

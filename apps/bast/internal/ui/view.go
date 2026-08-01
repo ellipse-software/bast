@@ -55,6 +55,8 @@ func (m *App) render() string {
 		body = m.renderHelp(styles)
 	} else if m.form != nil {
 		body = m.renderForm(styles)
+	} else if m.vaultBusyBlocksSync() {
+		body = m.renderVaultBusy(styles)
 	} else if m.section == hostsSection {
 		body = m.renderHosts(styles)
 	} else if m.section == keysSection {
@@ -652,7 +654,7 @@ func (m *App) renderForm(s styleSet) string {
 			value = strings.Repeat("*", len([]rune(value)))
 		}
 		if value == "" {
-			value = "—"
+			value = "-"
 		}
 		label := item.label
 		b.WriteString("  " + s.muted.Render("  "+label+"  "+value) + "\n")
@@ -1020,6 +1022,8 @@ func (m *App) renderFooter(s styleSet) string {
 	hint := "?"
 	if m.form != nil {
 		hint = m.formHint()
+	} else if m.vaultBusy != "" {
+		hint = "esc"
 	} else {
 		budget := max(8, m.terminalWidth()-lipgloss.Width(left)-1)
 		hint = m.browseFooterHint(budget)
@@ -1030,7 +1034,7 @@ func (m *App) renderFooter(s styleSet) string {
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.section == syncSection || m.section == filesSection || m.itemCount() == 0 {
+	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.vaultBusyBlocksSync() || m.section == syncSection || m.section == filesSection || m.itemCount() == 0 {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	if m.isMobileLayout() {
