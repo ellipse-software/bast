@@ -478,7 +478,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.rememberVaultPassphrase(msg.passphrase)
-		if msg.next == "vault_pull" || msg.next == "vault_push" {
+		if msg.next == "vault_sync" {
 			return m.runVaultAction(msg.next)
 		}
 		return m, m.setNotice("Vault unlocked")
@@ -508,6 +508,18 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.vaultStatus = ""
+		if msg.thenPush {
+			m.vaultBusy = "Syncing vault…"
+			m.vaultStatus = "syncing…"
+			var cmds []tea.Cmd
+			if msg.changed {
+				m.loading = true
+				m.enriching = false
+				cmds = append(cmds, m.loadCmd())
+			}
+			cmds = append(cmds, m.vaultPushCmdOpts(true))
+			return m, tea.Batch(cmds...)
+		}
 		if msg.changed {
 			m.loading = true
 			m.enriching = false
@@ -531,6 +543,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.forgetVaultPassphrase()
 			}
 			m.vaultStatus = msg.err.Error()
+			if msg.synced {
+				return m, m.setNotice("Vault sync failed")
+			}
 			return m, m.setNotice("Vault push failed")
 		}
 		if msg.passphrase != "" && (msg.resetPassphrase || msg.rotatePassphrase) {
@@ -544,6 +559,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.rotatePassphrase {
 			return m, m.setNotice("Vault passphrase rotated")
+		}
+		if msg.synced {
+			return m, m.setNotice("Vault synced")
 		}
 		return m, m.setNotice("Vault pushed")
 	case vaultPushDebounceMsg:

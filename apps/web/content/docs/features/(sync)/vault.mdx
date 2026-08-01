@@ -41,6 +41,10 @@ bast vault pull --mode replace_remote  # keep this machine
 
 ## Everyday use
 
+In the TUI (Sync → Vault), **Sync now** pulls remote changes and then pushes local ones. Linked machines also pull in the background after hosts load when a passphrase is available, and local edits debounce a push after a few seconds. Opening Bast never waits on the network to show your hosts.
+
+CLI still exposes pull and push separately:
+
 ```bash
 bast vault status
 bast vault pull
@@ -69,8 +73,6 @@ bast vault passphrase --force
 In the TUI: Sync → Vault → **Reset passphrase**, type `RESET`, then enter the new passphrase twice.
 
 Other linked machines must unlock (or reset) with the new passphrase afterward.
-
-In the TUI, linked machines pull in the background after local hosts load when a local passphrase is available. Local edits debounce a push after a few seconds. Opening Bast never waits on the network to show your hosts.
 
 Override the API base for development with `BAST_VAULT_API`.
 

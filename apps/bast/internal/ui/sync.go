@@ -13,11 +13,12 @@ import (
 )
 
 type syncMenuItem struct {
-	label    string
-	detail   string
-	action   string
-	provider string
-	disabled bool
+	label       string
+	detail      string
+	description string
+	action      string
+	provider    string
+	disabled    bool
 }
 
 type providerDetail struct {
@@ -38,11 +39,21 @@ type providerRow struct {
 
 func (m *App) syncProviders() []syncMenuItem {
 	vaultDetail := m.vaultStatusDetail()
-	providers := []struct{ label, name string }{{"Vault", "vault"}, {"GCP", "gcp"}, {"AWS", "aws"}, {"Azure", "azure"}}
+	providers := []struct {
+		label, name, description string
+	}{
+		{"Vault", "vault", "Bast-managed hosts and keys, encrypted between machines"},
+		{"GCP", "gcp", "Import Compute Engine VMs into Bast"},
+		{"AWS", "aws", "Import EC2 instances into Bast"},
+		{"Azure", "azure", "Import Azure VMs into Bast"},
+	}
 	items := make([]syncMenuItem, 0, len(providers))
 	for _, provider := range providers {
 		if provider.name == "vault" {
-			items = append(items, syncMenuItem{label: provider.label, detail: vaultDetail, provider: provider.name})
+			items = append(items, syncMenuItem{
+				label: provider.label, detail: vaultDetail,
+				description: provider.description, provider: provider.name,
+			})
 			continue
 		}
 		detail := m.providerDetail(provider.name)
@@ -53,7 +64,10 @@ func (m *App) syncProviders() []syncMenuItem {
 				text = fmt.Sprintf("%d · %s", detail.lastInstanceCount, detail.lastSyncAt.Local().Format("2006-01-02 15:04"))
 			}
 		}
-		items = append(items, syncMenuItem{label: provider.label, detail: text, provider: provider.name})
+		items = append(items, syncMenuItem{
+			label: provider.label, detail: text,
+			description: provider.description, provider: provider.name,
+		})
 	}
 	return items
 }
@@ -297,8 +311,7 @@ func (m *App) renderSync(s styleSet) string {
 
 	var b strings.Builder
 	if m.syncProvider == "" {
-		b.WriteString("\n  " + s.active.Render("Sync") + "\n")
-		b.WriteString("  " + s.muted.Render("Vault syncs Bast-managed hosts and keys. Cloud providers import VMs.") + "\n\n")
+		b.WriteString("\n  " + s.active.Render("Sync") + "\n\n")
 		for i, item := range items {
 			b.WriteString(m.renderSyncMenuLine(s, i, item) + "\n")
 		}
@@ -338,14 +351,20 @@ func (m *App) renderSyncMenuLine(s styleSet, index int, item syncMenuItem) strin
 		label = label + strings.Repeat(" ", gap) + item.detail
 	}
 	line := "  " + label
+	var rendered string
 	switch {
 	case index == m.syncCursor && !item.disabled:
-		return s.selected.Width(width + 2).Render(line)
+		rendered = s.selected.Width(width + 2).Render(line)
 	case item.disabled:
-		return s.muted.Width(width + 2).Render(line)
+		rendered = s.muted.Width(width + 2).Render(line)
 	default:
-		return s.value.Width(width + 2).Render(line)
+		rendered = s.value.Width(width + 2).Render(line)
 	}
+	if index == m.syncCursor && item.description != "" {
+		desc := truncate(item.description, max(20, m.terminalWidth()-8))
+		rendered += "\n    " + s.muted.Render(desc)
+	}
+	return rendered
 }
 
 func (m *App) renderProviderStatus(s styleSet, provider string) string {

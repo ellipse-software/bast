@@ -2510,6 +2510,12 @@ func TestSyncTabRenders(t *testing.T) {
 	if strings.Contains(body, "Sync now") {
 		t.Fatalf("sync list should not show submenu actions:\n%s", body)
 	}
+	if strings.Contains(body, "Vault syncs Bast-managed hosts") {
+		t.Fatalf("sync list should not show a general description:\n%s", body)
+	}
+	if !strings.Contains(body, "Bast-managed hosts and keys") {
+		t.Fatalf("selected vault item should show description:\n%s", body)
+	}
 	if !strings.Contains(body, "AWS") || !strings.Contains(body, "Azure") || !strings.Contains(body, "disabled") {
 		t.Fatalf("expected cloud providers:\n%s", body)
 	}
@@ -2520,6 +2526,12 @@ func TestSyncTabRenders(t *testing.T) {
 	body = m.renderSync(m.styles())
 	if !strings.Contains(body, "Link account") && !strings.Contains(body, "not linked") {
 		t.Fatalf("vault submenu body:\n%s", body)
+	}
+	if strings.Contains(body, "Pull now") || strings.Contains(body, "Push now") {
+		t.Fatalf("vault should use a single Sync now action:\n%s", body)
+	}
+	if strings.Contains(body, "needs current") || strings.Contains(body, "overwrite remote") {
+		t.Fatalf("vault should not show side labels:\n%s", body)
 	}
 	m.updateSyncKeys("esc")
 	if m.syncProvider != "" {
