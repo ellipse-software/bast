@@ -311,7 +311,6 @@ func (m *App) renderSync(s styleSet) string {
 
 	var b strings.Builder
 	if m.syncProvider == "" {
-		b.WriteString("\n  " + s.active.Render("Sync") + "\n\n")
 		for i, item := range items {
 			b.WriteString(m.renderSyncMenuLine(s, i, item) + "\n")
 		}

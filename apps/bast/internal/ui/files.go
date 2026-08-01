@@ -62,6 +62,8 @@ type filesState struct {
 	focus       int
 	transfer    filesTransfer
 	jump        filesJump
+	chmod       filesChmod
+	info        bool
 	deletePaths []string
 	ready       bool
 }
@@ -309,7 +311,17 @@ func (m *App) renderFilesBrowser(s styleSet, pane *filesPane, focused bool, list
 	}
 	if pane.err != "" {
 		b.WriteString("  " + s.error.Render(pane.err) + "\n")
-	} else if len(pane.entries) == 0 && (pane.loading || pane.connecting) {
+		return b.String()
+	}
+	if focused && m.files.chmod.active {
+		b.WriteString(m.renderFilesChmod(s, width))
+		return b.String()
+	}
+	if focused && m.files.info {
+		b.WriteString(m.renderFilesInfo(s, pane, width))
+		return b.String()
+	}
+	if len(pane.entries) == 0 && (pane.loading || pane.connecting) {
 		b.WriteString("  " + s.muted.Render("Loading…") + "\n")
 	} else if len(pane.entries) == 0 {
 		b.WriteString("  " + s.muted.Render("Empty") + "\n")
@@ -425,6 +437,12 @@ func (m *App) filesHostList(pane *filesPane) []sshconfig.Host {
 
 func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 	m.initFilesState()
+	if m.files.chmod.active {
+		return m.updateFilesChmod(key)
+	}
+	if m.files.info {
+		return m.updateFilesInfo(key)
+	}
 	if m.files.transfer.active {
 		switch key {
 		case "esc", "x":
@@ -520,6 +538,10 @@ func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 		return m.openFilesRenameForm()
 	case "d":
 		return m.openFilesDeleteForm()
+	case "p":
+		return m.openFilesChmodMenu()
+	case "i":
+		return m.openFilesInfo()
 	case "c":
 		return m.startFilesTransfer(false)
 	case "m":
@@ -537,6 +559,12 @@ func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 func (m *App) filesTyping() bool {
 	if m.section != filesSection || !m.files.ready {
 		return false
+	}
+	if m.files.chmod.active {
+		return true
+	}
+	if m.files.info {
+		return true
 	}
 	if m.files.jump.active {
 		return true
@@ -786,6 +814,18 @@ func (m *App) toggleFilesRange() (tea.Model, tea.Cmd) {
 }
 
 func (m *App) updateFilesMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	if m.files.chmod.active {
+		return m, nil
+	}
+	if m.files.info {
+		switch msg.Mouse().Button {
+		case tea.MouseWheelUp:
+			return m.moveFilesCursor(-1)
+		case tea.MouseWheelDown:
+			return m.moveFilesCursor(1)
+		}
+		return m, nil
+	}
 	switch msg.Mouse().Button {
 	case tea.MouseWheelUp:
 		return m.moveFilesCursor(-1)
@@ -796,6 +836,12 @@ func (m *App) updateFilesMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m *App) filesFooterHint() string {
+	if m.files.chmod.active {
+		return m.filesChmodHint()
+	}
+	if m.files.info {
+		return "j/k next · p chmod · i/esc close"
+	}
 	if m.files.transfer.active {
 		if m.files.transfer.move {
 			return "moving… esc"
