@@ -214,14 +214,21 @@ func TestUpdateUsesNightlyInstallerReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	var gotURL string
-	script := "#!/bin/sh\nprintf '%s' \"$BAST_INSTALL_DIR\" > \"$BAST_INSTALL_DIR/update-result\"\n"
+	var gotPinned string
+	script := "#!/bin/sh\nprintf '%s' \"$BAST_NIGHTLY_VERSION\" > \"$BAST_INSTALL_DIR/pinned\"\nprintf '%s' \"$BAST_INSTALL_DIR\" > \"$BAST_INSTALL_DIR/update-result\"\n"
+	releases := `[{"tag_name":"nightly.20260801.30f41d9","name":"Bast nightly (nightly.20260801.30f41d9)","prerelease":true,"published_at":"2026-08-01T15:35:04Z"},{"tag_name":"nightly.20260801.f248f48","name":"Bast nightly (nightly.20260801.f248f48)","prerelease":true,"published_at":"2026-08-01T10:51:40Z"}]`
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		gotURL = req.URL.String()
+		body := script
+		if strings.Contains(req.URL.String(), "/releases") {
+			body = releases
+		} else {
+			gotURL = req.URL.String()
+		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
 			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(script)),
+			Body:       io.NopCloser(strings.NewReader(body)),
 		}, nil
 	})}
 	if err := Update(context.Background(), client, executable, io.Discard, io.Discard); err != nil {
@@ -229,5 +236,13 @@ func TestUpdateUsesNightlyInstallerReceipt(t *testing.T) {
 	}
 	if gotURL != NightlyInstallerURL {
 		t.Fatalf("installer URL=%q", gotURL)
+	}
+	pinned, err := os.ReadFile(filepath.Join(dir, "pinned"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotPinned = string(pinned)
+	if gotPinned != "nightly.20260801.30f41d9" {
+		t.Fatalf("pinned nightly=%q", gotPinned)
 	}
 }

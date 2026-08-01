@@ -90,9 +90,15 @@ func Suggestion(executable string) string {
 func Update(ctx context.Context, client *http.Client, executable string, stdout, stderr io.Writer) error {
 	switch ChannelFor(executable) {
 	case ChannelScriptStable:
-		return updateFrom(ctx, client, InstallerURL, executable, stdout, stderr)
+		return updateFrom(ctx, client, InstallerURL, executable, stdout, stderr, "")
 	case ChannelScriptNightly:
-		return updateFrom(ctx, client, NightlyInstallerURL, executable, stdout, stderr)
+		// Resolve with the same published_at selection as CheckNightly, then pin
+		// the installer so bast update cannot drift from the in-app check.
+		version, err := latestFrom(ctx, client, NightlyReleaseURL, true)
+		if err != nil {
+			return err
+		}
+		return updateFrom(ctx, client, NightlyInstallerURL, executable, stdout, stderr, version)
 	case ChannelHomebrewStable:
 		return errors.New("this Bast installation is managed by Homebrew; run \"brew upgrade bast\"")
 	case ChannelHomebrewNightly:
@@ -175,8 +181,8 @@ func latestFrom(ctx context.Context, client *http.Client, url string, nightly bo
 	return release.TagName, nil
 }
 
-// newestNightlyRelease picks the newest nightly by version date/sha, not GitHub
-// list order. Stable releases and drafts are ignored.
+// newestNightlyRelease picks the newest nightly by calendar date, then
+// published_at, then SHA. GitHub list order is ignored.
 func newestNightlyRelease(releases []githubRelease) (string, bool) {
 	best := ""
 	var bestVer nightlyVersion
@@ -205,7 +211,7 @@ func newestNightlyRelease(releases []githubRelease) (string, bool) {
 }
 
 // nightlyNewer reports whether candidate is newer than current.
-// Date wins, then published_at, then SHA (lexicographic).
+// Date wins, then published_at, then SHA (lexicographic fallback only).
 func nightlyNewer(candidate nightlyVersion, candidatePublished string, current nightlyVersion, currentPublished string) bool {
 	switch {
 	case candidate.date > current.date:
@@ -234,7 +240,7 @@ func nightlyVersionFromReleaseName(name string) string {
 	return ""
 }
 
-func updateFrom(ctx context.Context, client *http.Client, installerURL, executable string, stdout, stderr io.Writer) error {
+func updateFrom(ctx context.Context, client *http.Client, installerURL, executable string, stdout, stderr io.Writer, pinnedNightly string) error {
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -274,7 +280,11 @@ func updateFrom(ctx context.Context, client *http.Client, installerURL, executab
 		return fmt.Errorf("prepare installer: %w", err)
 	}
 	cmd := exec.CommandContext(ctx, "/bin/sh", tmpPath)
-	cmd.Env = append(os.Environ(), "BAST_INSTALL_DIR="+filepath.Dir(executable))
+	env := append(os.Environ(), "BAST_INSTALL_DIR="+filepath.Dir(executable))
+	if pinnedNightly != "" {
+		env = append(env, "BAST_NIGHTLY_VERSION="+pinnedNightly)
+	}
+	cmd.Env = env
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("run installer: %w", err)

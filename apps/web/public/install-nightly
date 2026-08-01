@@ -179,56 +179,68 @@ blank
 prepare_channel_switch
 
 step "Checking for the latest nightly build..."
-release_json="$(curl -fsSL \
-  -H "Accept: application/vnd.github+json" \
-  -H "X-GitHub-Api-Version: 2022-11-28" \
-  "https://api.github.com/repos/$repo/releases?per_page=50")"
-# Prefer published_at over GitHub list order and over lexicographic SHA sort.
-# Same-day nightlies can appear out of order, and SHA strings do not track time.
-version="$(
-  tag=""
-  printf '%s\n' "$release_json" | while IFS= read -r line; do
-    case "$line" in
-    *'"tag_name":'*)
-      tag="$(printf '%s' "$line" | sed -n 's/.*"tag_name": "\(nightly\.[^"]*\)".*/\1/p')"
-      ;;
-    *'"published_at":'*)
-      if [ -n "$tag" ]; then
-        published="$(printf '%s' "$line" | sed -n 's/.*"published_at": "\([^"]*\)".*/\1/p')"
-        printf '%s\t%s\n' "${published:-0000}" "$tag"
-        tag=""
-      fi
-      ;;
-    esac
-  done | sort | tail -n1 | cut -f2
-)"
-release_tag="$version"
-
-# Keep the previous rolling release installable until the first versioned
-# immutable nightly has been published.
-if [ -z "$version" ]; then
+if [ -n "${BAST_NIGHTLY_VERSION:-}" ]; then
+  case "$BAST_NIGHTLY_VERSION" in
+  nightly.*)
+    version="$BAST_NIGHTLY_VERSION"
+    release_tag="$version"
+    ;;
+  *)
+    fail "invalid BAST_NIGHTLY_VERSION: ${BAST_NIGHTLY_VERSION}"
+    ;;
+  esac
+else
+  release_json="$(curl -fsSL \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "https://api.github.com/repos/$repo/releases?per_page=50")"
+  # Prefer published_at over GitHub list order and over lexicographic SHA sort.
+  # Same-day nightlies can appear out of order, and SHA strings do not track time.
   version="$(
-    name_version=""
+    tag=""
     printf '%s\n' "$release_json" | while IFS= read -r line; do
       case "$line" in
-      *'"name":'*)
-        name_version="$(printf '%s' "$line" | sed -n 's/.*"name": "Bast nightly (\([^"]*\))".*/\1/p')"
-        case "$name_version" in
-        nightly.*) ;;
-        *) name_version="" ;;
-        esac
+      *'"tag_name":'*)
+        tag="$(printf '%s' "$line" | sed -n 's/.*"tag_name": "\(nightly\.[^"]*\)".*/\1/p')"
         ;;
       *'"published_at":'*)
-        if [ -n "$name_version" ]; then
+        if [ -n "$tag" ]; then
           published="$(printf '%s' "$line" | sed -n 's/.*"published_at": "\([^"]*\)".*/\1/p')"
-          printf '%s\t%s\n' "${published:-0000}" "$name_version"
-          name_version=""
+          printf '%s\t%s\n' "${published:-0000}" "$tag"
+          tag=""
         fi
         ;;
       esac
     done | sort | tail -n1 | cut -f2
   )"
-  release_tag="nightly"
+  release_tag="$version"
+
+  # Keep the previous rolling release installable until the first versioned
+  # immutable nightly has been published.
+  if [ -z "$version" ]; then
+    version="$(
+      name_version=""
+      printf '%s\n' "$release_json" | while IFS= read -r line; do
+        case "$line" in
+        *'"name":'*)
+          name_version="$(printf '%s' "$line" | sed -n 's/.*"name": "Bast nightly (\([^"]*\))".*/\1/p')"
+          case "$name_version" in
+          nightly.*) ;;
+          *) name_version="" ;;
+          esac
+          ;;
+        *'"published_at":'*)
+          if [ -n "$name_version" ]; then
+            published="$(printf '%s' "$line" | sed -n 's/.*"published_at": "\([^"]*\)".*/\1/p')"
+            printf '%s\t%s\n' "${published:-0000}" "$name_version"
+            name_version=""
+          fi
+          ;;
+        esac
+      done | sort | tail -n1 | cut -f2
+    )"
+    release_tag="nightly"
+  fi
 fi
 
 case "$version" in
