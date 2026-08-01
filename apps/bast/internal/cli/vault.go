@@ -232,15 +232,33 @@ func (r *Runner) vaultPush(args []string) error {
 		return err
 	}
 	prev := vault.Document{}
-	if len(remoteGet.Ciphertext) > 0 {
-		if doc, decErr := vault.Decrypt(remoteGet.Ciphertext, passphrase); decErr == nil {
-			prev = doc
+	var remoteDoc vault.Document
+	haveRemote := len(remoteGet.Ciphertext) > 0
+	if haveRemote {
+		doc, decErr := vault.Decrypt(remoteGet.Ciphertext, passphrase)
+		if decErr != nil {
+			_ = vault.ClearPassphrase(vault.PassphrasePath(r.Paths.StateFile))
+			return decErr
 		}
+		remoteDoc = doc
+		prev = doc
 	}
 	packer := vault.Packer{Paths: r.Paths, Config: r.config, Keyring: r.keyring, Store: r.store, Previous: prev}
-	doc, err := packer.Pack()
+	localDoc, err := packer.Pack()
 	if err != nil {
 		return err
+	}
+	doc := localDoc
+	if haveRemote {
+		result := vault.Merge(localDoc, remoteDoc, vault.MergeModeMerge)
+		if len(result.Conflicts) > 0 {
+			return fail("vault_conflict", fmt.Sprintf("vault has %d conflicts; resolve with bast vault pull --mode replace_local or replace_remote, then push", len(result.Conflicts)))
+		}
+		doc = result.Document
+		applier := vault.Applier{Paths: r.Paths, Config: r.config, Store: r.store}
+		if err := applier.Apply(doc); err != nil {
+			return err
+		}
 	}
 	doc.Revision = remoteGet.Meta.Revision
 	if doc.Revision == "" {

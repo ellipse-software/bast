@@ -32,7 +32,7 @@ bast vault login --email you@example.com
 
 Lost passphrase means the remote vault cannot be decrypted. Bast cannot recover it.
 
-On first link, local and remote state are merged by stable IDs (`ManagedID` for hosts, key fingerprint for keys). True conflicts (same alias, different managed IDs) open a chooser in the TUI: keep this machine, keep remote, or cancel. From the CLI:
+On first link, local and remote state are merged by stable IDs (`ManagedID` for hosts, key fingerprint for keys). True conflicts (same alias, different managed IDs) open a chooser in the TUI: keep this machine, keep remote, or cancel. Cancelling leaves the machine unlinked so you can link again. From the CLI:
 
 ```bash
 bast vault pull --mode replace_local   # keep remote
@@ -41,7 +41,7 @@ bast vault pull --mode replace_remote  # keep this machine
 
 ## Everyday use
 
-In the TUI (Sync → Vault), **Sync now** pulls remote changes and then pushes local ones. Linked machines also pull in the background after hosts load when a passphrase is available, and local edits debounce a push after a few seconds. Opening Bast never waits on the network to show your hosts.
+In the TUI (Sync → Vault), **Sync now** pulls remote changes and then pushes local ones. If the same alias or key name exists on both sides with different identities, Bast opens that same keep-local / keep-remote chooser instead of failing with a dead-end status. Linked machines also pull in the background after hosts load when a passphrase is available, and local edits debounce a push after a few seconds (push merges with the remote vault first). Opening Bast never waits on the network to show your hosts.
 
 CLI still exposes pull and push separately:
 

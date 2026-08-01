@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -558,6 +559,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.clearVaultBusy()
+		m.vaultStatus = fmt.Sprintf("%d sync conflicts · choose keep local or keep remote", msg.count)
 		m.openVaultConflictForm(msg)
 		return m, nil
 	case vaultPushMsg:
@@ -568,6 +570,14 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			if msg.badPassphrase {
 				m.forgetVaultPassphrase()
+			}
+			if errors.Is(msg.err, vault.ErrRemoteUpdated) {
+				m.vaultStatus = "Remote vault changed"
+				m.beginVaultBusy("Syncing vault…")
+				return m, tea.Batch(
+					m.setNotice("Remote vault changed · syncing"),
+					m.vaultPullCmdOpts(true, true),
+				)
 			}
 			m.vaultStatus = msg.err.Error()
 			if msg.synced {
@@ -581,16 +591,19 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.vaultDirty = false
 		m.vaultLastSync = time.Now().Local().Format("15:04:05")
 		m.vaultStatus = ""
+		notice := "Vault pushed"
 		if msg.resetPassphrase {
-			return m, m.setNotice("Vault passphrase reset · remote replaced")
+			notice = "Vault passphrase reset · remote replaced"
+		} else if msg.rotatePassphrase {
+			notice = "Vault passphrase rotated"
+		} else if msg.synced {
+			notice = "Vault synced"
 		}
-		if msg.rotatePassphrase {
-			return m, m.setNotice("Vault passphrase rotated")
+		if msg.applied {
+			m.loading = true
+			return m, tea.Batch(m.loadCmd(), m.setNotice(notice))
 		}
-		if msg.synced {
-			return m, m.setNotice("Vault synced")
-		}
-		return m, m.setNotice("Vault pushed")
+		return m, m.setNotice(notice)
 	case vaultPushDebounceMsg:
 		if msg.id != m.vaultPushID || !m.vaultDirty {
 			return m, nil

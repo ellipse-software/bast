@@ -758,6 +758,45 @@ func TestVaultLinkKeepsBusyThroughReload(t *testing.T) {
 	}
 }
 
+func TestVaultLinkErrorsAreInteractive(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vault"
+	m.beginVaultBusy("Linking vault…")
+
+	next, _ := m.Update(vaultPullMsg{
+		err:         fmt.Errorf("link boom"),
+		interactive: true,
+	})
+	app := next.(*App)
+	if app.vaultBusy != "" {
+		t.Fatalf("busy should clear on link error, got %q", app.vaultBusy)
+	}
+	if !app.statusError || !strings.Contains(app.status, "link boom") {
+		t.Fatalf("expected visible link error, status=%q error=%v", app.status, app.statusError)
+	}
+}
+
+func TestVaultRemoteUpdatedTriggersPull(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vault"
+	m.vaultSession = &vault.Session{Email: "you@example.com", Token: "t", Revision: "old"}
+	m.vaultPassphrase = "secret"
+
+	next, cmd := m.Update(vaultPushMsg{err: vault.ErrRemoteUpdated, synced: true})
+	app := next.(*App)
+	if app.vaultStatus != "Remote vault changed" {
+		t.Fatalf("vaultStatus = %q", app.vaultStatus)
+	}
+	if app.vaultBusy == "" {
+		t.Fatal("expected sync busy after remote-updated push")
+	}
+	if cmd == nil {
+		t.Fatal("expected pull+push recovery cmd")
+	}
+}
+
 func TestVaultPassphraseCopyOmitsModeHint(t *testing.T) {
 	m := testApp(t)
 	m.openVaultPassphraseForm("you@example.com", "tok", "uid", "dev", "https://example", true)

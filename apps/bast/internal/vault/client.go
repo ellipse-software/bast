@@ -17,6 +17,9 @@ const (
 	MaxVaultBytes  = 1 << 20 // 1 MiB
 )
 
+// ErrRemoteUpdated means the vault changed since the caller's If-Match revision.
+var ErrRemoteUpdated = errors.New("vault was updated elsewhere; pull and merge before pushing")
+
 type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
@@ -186,7 +189,7 @@ func (c *Client) PutVault(ctx context.Context, ciphertext []byte, ifMatch string
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusPreconditionFailed {
-		return VaultMeta{}, errors.New("vault was updated elsewhere; pull and merge before pushing")
+		return VaultMeta{}, ErrRemoteUpdated
 	}
 	if resp.StatusCode >= 300 {
 		return VaultMeta{}, apiError(resp)

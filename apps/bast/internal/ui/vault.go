@@ -53,6 +53,7 @@ type vaultPushMsg struct {
 	resetPassphrase  bool
 	rotatePassphrase bool
 	synced           bool
+	applied          bool // local state changed during merge-before-push
 	passphrase       string
 	session          *vault.Session
 }
@@ -105,7 +106,7 @@ func (m *App) openVaultConflictForm(msg vaultConflictMsg) {
 	m.openForm(fmt.Sprintf("Vault: %d conflicts", msg.count), "vault_resolve", []field{
 		{
 			label:       "Resolution",
-			description: "Same alias or key name on both sides",
+			description: "Same host alias or key name on both sides with different identities",
 			options: []fieldOption{
 				{label: "Keep this machine (overwrite remote)", value: "replace_remote"},
 				{label: "Keep remote (overwrite this machine)", value: "replace_local"},
@@ -125,6 +126,9 @@ func (m *App) submitVaultResolve() tea.Cmd {
 	m.form = nil
 	if value == "" || value == "cancel" {
 		m.vaultConflict = nil
+		if pending.forLink {
+			return m.setNotice("Link cancelled · choose keep local or keep remote to finish linking")
+		}
 		return m.setNotice("Vault sync cancelled")
 	}
 	mode := vault.MergeMode(value)
@@ -294,18 +298,25 @@ func (m *App) vaultMenuItems() []syncMenuItem {
 	if m.vaultPassphrase == "" {
 		return []syncMenuItem{
 			{label: "Unlock", action: "vault_unlock", description: "Enter passphrase to decrypt the vault"},
-			{label: "Sync now", action: "vault_sync", description: "Keep this machine and the vault in sync"},
+			{label: "Sync now", action: "vault_sync", description: syncNowDescription(m.vaultStatus)},
 			{label: "Rotate passphrase", action: "vault_rotate_passphrase", description: "Requires the current passphrase"},
 			{label: "Reset passphrase", action: "vault_reset_passphrase", description: "Overwrites the remote vault with this machine"},
 			{label: "Log out", action: "vault_logout"},
 		}
 	}
 	return []syncMenuItem{
-		{label: "Sync now", action: "vault_sync", description: "Keep this machine and the vault in sync"},
+		{label: "Sync now", action: "vault_sync", description: syncNowDescription(m.vaultStatus)},
 		{label: "Rotate passphrase", action: "vault_rotate_passphrase", description: "Requires the current passphrase"},
 		{label: "Reset passphrase", action: "vault_reset_passphrase", description: "Overwrites the remote vault with this machine"},
 		{label: "Log out", action: "vault_logout"},
 	}
+}
+
+func syncNowDescription(status string) string {
+	if status != "" && (strings.Contains(status, "updated elsewhere") || strings.Contains(status, "conflict")) {
+		return "Remote vault changed · sync to pull and resolve"
+	}
+	return "Keep this machine and the vault in sync"
 }
 
 func (m *App) renderVaultStatus(s styleSet) string {
@@ -316,6 +327,9 @@ func (m *App) renderVaultStatus(s styleSet) string {
 		b.WriteString("  " + s.muted.Render("Syncs Bast-managed hosts, keys, and metadata.") + "\n")
 		b.WriteString("  " + s.muted.Render("Does not sync external SSH config or cloud VMs.") + "\n")
 		b.WriteString("  " + s.muted.Render("Encrypted locally. Bast never sees your passphrase.") + "\n")
+		if m.vaultStatus != "" {
+			b.WriteString(compactRow(s, "Note", m.vaultStatus, width))
+		}
 		return b.String()
 	}
 	session := m.vaultSession
@@ -665,19 +679,19 @@ func (m *App) vaultCompleteLink(session vault.Session, passphrase string) tea.Ms
 	defer cancel()
 	remoteGet, err := client.GetVault(ctx, "")
 	if err != nil {
-		return vaultPullMsg{err: err}
+		return vaultPullMsg{err: err, interactive: true}
 	}
 	packer := vault.Packer{Paths: m.paths, Config: m.config, Keyring: m.keyring, Store: m.metadata}
 	localDoc, err := packer.Pack()
 	if err != nil {
-		return vaultPullMsg{err: err}
+		return vaultPullMsg{err: err, interactive: true}
 	}
 	merged := localDoc
 	notice := "Vault linked"
 	if len(remoteGet.Ciphertext) > 0 {
 		remoteDoc, decErr := vault.Decrypt(remoteGet.Ciphertext, passphrase)
 		if decErr != nil {
-			return vaultPullMsg{err: decErr}
+			return vaultPullMsg{err: decErr, interactive: true}
 		}
 		result := vault.Merge(localDoc, remoteDoc, vault.MergeModeMerge)
 		if len(result.Conflicts) > 0 {
@@ -690,24 +704,24 @@ func (m *App) vaultCompleteLink(session vault.Session, passphrase string) tea.Ms
 		merged = result.Document
 		applier := vault.Applier{Paths: m.paths, Config: m.config, Store: m.metadata}
 		if err := applier.Apply(merged); err != nil {
-			return vaultPullMsg{err: err}
+			return vaultPullMsg{err: err, interactive: true}
 		}
 		notice = fmt.Sprintf("Vault linked · merged %d local / %d remote hosts", result.Summary.LocalHosts, result.Summary.RemoteHosts)
 	}
 	blob, err := vault.Encrypt(merged, passphrase)
 	if err != nil {
-		return vaultPullMsg{err: err}
+		return vaultPullMsg{err: err, interactive: true}
 	}
 	meta, err := client.PutVault(ctx, blob, remoteGet.Meta.Revision)
 	if err != nil {
-		return vaultPullMsg{err: err}
+		return vaultPullMsg{err: err, interactive: true}
 	}
 	session.Revision = meta.Revision
 	if err := vault.SaveSession(m.vaultSessionPath(), session); err != nil {
-		return vaultPullMsg{err: err}
+		return vaultPullMsg{err: err, interactive: true}
 	}
 	if err := vault.SavePassphrase(m.vaultPassphrasePath(), passphrase); err != nil {
-		return vaultPullMsg{err: err}
+		return vaultPullMsg{err: err, interactive: true}
 	}
 	sessionCopy := session
 	return vaultPullMsg{changed: true, revision: meta.Revision, notice: notice, passphrase: passphrase, session: &sessionCopy, interactive: true}
@@ -827,6 +841,7 @@ func (m *App) vaultPushCmdOpts(synced bool) tea.Cmd {
 		}
 	}
 	passSnapshot := passphrase
+	opGen := m.vaultOpGen
 	return func() tea.Msg {
 		session, err := vault.LoadSession(m.vaultSessionPath())
 		if err != nil {
@@ -849,15 +864,39 @@ func (m *App) vaultPushCmdOpts(synced bool) tea.Cmd {
 			return vaultPushMsg{err: err, badPassphrase: true, synced: synced}
 		}
 		prev := vault.Document{}
-		if len(remoteGet.Ciphertext) > 0 {
-			if doc, decErr := vault.Decrypt(remoteGet.Ciphertext, passSnapshot); decErr == nil {
-				prev = doc
+		var remoteDoc vault.Document
+		haveRemote := len(remoteGet.Ciphertext) > 0
+		if haveRemote {
+			doc, decErr := vault.Decrypt(remoteGet.Ciphertext, passSnapshot)
+			if decErr != nil {
+				return vaultPushMsg{err: decErr, badPassphrase: true, synced: synced}
 			}
+			remoteDoc = doc
+			prev = doc
 		}
 		packer := vault.Packer{Paths: m.paths, Config: m.config, Keyring: m.keyring, Store: m.metadata, Previous: prev}
-		doc, err := packer.Pack()
+		localDoc, err := packer.Pack()
 		if err != nil {
 			return vaultPushMsg{err: err, synced: synced}
+		}
+		doc := localDoc
+		applied := false
+		if haveRemote {
+			result := vault.Merge(localDoc, remoteDoc, vault.MergeModeMerge)
+			if len(result.Conflicts) > 0 {
+				return vaultConflictMsg{
+					count:       len(result.Conflicts),
+					interactive: true,
+					thenPush:    true,
+					opGen:       opGen,
+				}
+			}
+			doc = result.Document
+			applier := vault.Applier{Paths: m.paths, Config: m.config, Store: m.metadata}
+			if err := applier.Apply(doc); err != nil {
+				return vaultPushMsg{err: err, synced: synced}
+			}
+			applied = true
 		}
 		blob, err := vault.Encrypt(doc, passSnapshot)
 		if err != nil {
@@ -874,7 +913,7 @@ func (m *App) vaultPushCmdOpts(synced bool) tea.Cmd {
 		session.Revision = meta.Revision
 		_ = vault.SaveSession(m.vaultSessionPath(), session)
 		sessionCopy := session
-		return vaultPushMsg{revision: meta.Revision, session: &sessionCopy, synced: synced}
+		return vaultPushMsg{revision: meta.Revision, session: &sessionCopy, synced: synced, applied: applied}
 	}
 }
 
