@@ -56,14 +56,14 @@ func (m *App) openFilesChmodMenu() (tea.Model, tea.Cmd) {
 	hasDir := false
 	if entry, ok := pane.selectedEntry(); ok {
 		if len(pane.marked) == 0 {
-			mode = entry.Mode.Perm()
+			mode = files.NormalizeMode(entry.Mode)
 		} else if _, marked := pane.marked[entry.Path]; marked {
-			mode = entry.Mode.Perm()
+			mode = files.NormalizeMode(entry.Mode)
 		} else if first, ok := byPath[paths[0]]; ok {
-			mode = first.Mode.Perm()
+			mode = files.NormalizeMode(first.Mode)
 		}
 	} else if first, ok := byPath[paths[0]]; ok {
-		mode = first.Mode.Perm()
+		mode = files.NormalizeMode(first.Mode)
 	}
 	for _, path := range paths {
 		if entry, ok := byPath[path]; ok && entry.IsDir {
@@ -86,7 +86,7 @@ func (m *App) openFilesChmodMenu() (tea.Model, tea.Cmd) {
 		pane:      m.files.focus,
 		paths:     append([]string(nil), paths...),
 		title:     title,
-		mode:      mode.Perm(),
+		mode:      mode,
 		cursor:    0,
 		recursive: false,
 		hasDir:    hasDir,
@@ -104,7 +104,7 @@ func (c filesChmod) maxCursor() int {
 }
 
 func (c *filesChmod) setMode(mode os.FileMode) {
-	c.mode = mode.Perm()
+	c.mode = files.NormalizeMode(mode)
 	if !c.octalEdit {
 		c.octal = files.FormatModeOctal(c.mode)
 	}
@@ -271,7 +271,7 @@ func (m *App) updateFilesChmodOctal(key string) (tea.Model, tea.Cmd) {
 			c.octal = c.octal[:len(c.octal)-1]
 		}
 		if mode, err := files.ParseModeOctal(c.octal); err == nil {
-			c.mode = mode.Perm()
+			c.mode = files.NormalizeMode(mode)
 		}
 		return m, nil
 	default:
@@ -281,7 +281,7 @@ func (m *App) updateFilesChmodOctal(key string) (tea.Model, tea.Cmd) {
 			}
 			c.octal += key
 			if mode, err := files.ParseModeOctal(c.octal); err == nil {
-				c.mode = mode.Perm()
+				c.mode = files.NormalizeMode(mode)
 			}
 		}
 		return m, nil
@@ -298,7 +298,7 @@ func (m *App) applyFilesChmod() (tea.Model, tea.Cmd) {
 		if err != nil {
 			return m, m.setNotice(err.Error())
 		}
-		c.mode = mode.Perm()
+		c.mode = files.NormalizeMode(mode)
 	}
 	index := c.pane
 	if index < 0 || index > 1 {
@@ -307,7 +307,7 @@ func (m *App) applyFilesChmod() (tea.Model, tea.Cmd) {
 	}
 	pane := &m.files.panes[index]
 	paths := append([]string(nil), c.paths...)
-	mode := c.mode.Perm()
+	mode := files.NormalizeMode(c.mode)
 	recursive := c.recursive && c.hasDir
 	m.closeFilesChmod()
 

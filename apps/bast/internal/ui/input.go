@@ -102,10 +102,13 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		filesEnd := filesStart + lipgloss.Width(headerTabLabels[3])
 		switch {
 		case mouse.X >= tabsStart && mouse.X < hostsEnd:
+			m.clearFilesOverlays()
 			m.section, m.cursor, m.search = hostsSection, 0, ""
 		case mouse.X >= keysStart && mouse.X < keysEnd:
+			m.clearFilesOverlays()
 			m.section, m.cursor, m.search = keysSection, 0, ""
 		case mouse.X >= syncStart && mouse.X < syncEnd:
+			m.clearFilesOverlays()
 			m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
 			return m, m.syncStatusCmd()
 		case mouse.X >= filesStart && mouse.X < filesEnd:
@@ -119,6 +122,9 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.section == syncSection {
 		return m, nil
+	}
+	if m.section == filesSection {
+		return m.updateFilesMouse(msg)
 	}
 
 	if m.section == hostsSection {
@@ -300,12 +306,15 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		switch key {
 		case "1":
+			m.clearFilesOverlays()
 			m.section, m.cursor, m.search = hostsSection, 0, ""
 			return m, nil
 		case "2":
+			m.clearFilesOverlays()
 			m.section, m.cursor, m.search = keysSection, 0, ""
 			return m, nil
 		case "3":
+			m.clearFilesOverlays()
 			m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
 			return m, m.syncStatusCmd()
 		case "4":

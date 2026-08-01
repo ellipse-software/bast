@@ -24,6 +24,13 @@ func (m *App) closeFilesInfo() {
 	m.files.info = false
 }
 
+// clearFilesOverlays dismisses chmod/info when leaving the Files section
+// so they do not stick over Hosts, Keys, or Sync.
+func (m *App) clearFilesOverlays() {
+	m.closeFilesChmod()
+	m.closeFilesInfo()
+}
+
 func (m *App) updateFilesInfo(key string) (tea.Model, tea.Cmd) {
 	if !m.files.info {
 		return m, nil

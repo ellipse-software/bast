@@ -428,6 +428,171 @@ func TestFilesChmodRecursiveOptionForDirectory(t *testing.T) {
 	}
 }
 
+func TestFilesChmodPreservesSpecialBitsOnToggle(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "suid.bin")
+	if err := os.WriteFile(path, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	for i, entry := range m.files.panes[0].entries {
+		if entry.Name == "suid.bin" {
+			m.files.panes[0].entries[i].Mode = 0o755 | os.ModeSetuid
+			m.files.panes[0].cursor = i
+			break
+		}
+	}
+
+	m.updateFilesKeys("p")
+	if m.files.chmod.mode&os.ModeSetuid == 0 {
+		t.Fatal("seed should keep setuid")
+	}
+	if got := files.FormatModeOctal(m.files.chmod.mode); got != "4755" {
+		t.Fatalf("octal = %q", got)
+	}
+	// Toggle other execute off; setuid must remain.
+	m.updateFilesKeys("o")
+	m.updateFilesKeys("right")
+	m.updateFilesKeys("right")
+	m.updateFilesKeys("space")
+	if m.files.chmod.mode&os.ModeSetuid == 0 {
+		t.Fatal("toggling rwx should preserve setuid")
+	}
+	if m.files.chmod.mode.Perm() != 0o754 {
+		t.Fatalf("perm = %04o want 0754", m.files.chmod.mode.Perm())
+	}
+}
+
+func TestClearFilesOverlaysOnLeave(t *testing.T) {
+	m := testApp(t)
+	_ = m.enterFilesSection()
+	m.files.info = true
+	m.files.chmod = filesChmod{active: true, mode: 0o644}
+	m.clearFilesOverlays()
+	if m.files.info || m.files.chmod.active {
+		t.Fatal("overlays should clear when leaving Files")
+	}
+}
+
+func TestFilesMouseFocusSelectAndEnter(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "nested")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	m.files.focus = 0
+
+	layout := m.panelLayout()
+	// Click right pane header: focus remote picker.
+	m.Update(tea.MouseClickMsg(tea.Mouse{
+		X: layout.listWidth + 1, Y: layout.detailTop, Button: tea.MouseLeft,
+	}))
+	if m.files.focus != 1 {
+		t.Fatalf("focus = %d, want right pane", m.files.focus)
+	}
+
+	// Click left pane first row to select nested/.
+	nestedIdx := -1
+	for i, entry := range m.files.panes[0].entries {
+		if entry.Name == "nested" {
+			nestedIdx = i
+			break
+		}
+	}
+	if nestedIdx < 0 {
+		t.Fatal("nested dir missing")
+	}
+	// Ensure nested is visible at a known row: put cursor there first so offset is correct.
+	m.files.panes[0].cursor = nestedIdx
+	m.files.panes[0].ensureVisible(max(1, layout.listHeight-2))
+	row := 1 + (nestedIdx - m.files.panes[0].offset)
+	m.files.focus = 1
+	m.Update(tea.MouseClickMsg(tea.Mouse{
+		X: 2, Y: layout.listTop + row, Button: tea.MouseLeft,
+	}))
+	if m.files.focus != 0 {
+		t.Fatalf("focus = %d, want left", m.files.focus)
+	}
+	if m.files.panes[0].cursor != nestedIdx {
+		t.Fatalf("cursor = %d, want %d", m.files.panes[0].cursor, nestedIdx)
+	}
+
+	// Second click on same row enters the directory.
+	m.Update(tea.MouseClickMsg(tea.Mouse{
+		X: 2, Y: layout.listTop + row, Button: tea.MouseLeft,
+	}))
+	if m.files.panes[0].cwd != sub {
+		t.Fatalf("cwd = %q, want %q", m.files.panes[0].cwd, sub)
+	}
+}
+
+func TestFilesMouseHostPickerSelect(t *testing.T) {
+	m := testApp(t)
+	_ = m.enterFilesSection()
+	m.files.focus = 0
+	layout := m.panelLayout()
+	// Click first host from the other pane: focus + select (do not connect).
+	m.Update(tea.MouseClickMsg(tea.Mouse{
+		X: layout.listWidth + 1, Y: layout.detailTop + 1, Button: tea.MouseLeft,
+	}))
+	if m.files.focus != 1 {
+		t.Fatal("expected right pane focused")
+	}
+	if m.files.panes[1].hostCursor != 0 {
+		t.Fatalf("hostCursor = %d", m.files.panes[1].hostCursor)
+	}
+	if m.files.panes[1].connecting {
+		t.Fatal("first click from other pane should not connect")
+	}
+	// Click second host.
+	m.Update(tea.MouseClickMsg(tea.Mouse{
+		X: layout.listWidth + 1, Y: layout.detailTop + 2, Button: tea.MouseLeft,
+	}))
+	if m.files.panes[1].hostCursor != 1 {
+		t.Fatalf("hostCursor = %d, want 1", m.files.panes[1].hostCursor)
+	}
+}
+
+func TestFilesMouseWheelFocusesPaneUnderCursor(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	m.files.focus = 0
+	layout := m.panelLayout()
+	m.Update(tea.MouseWheelMsg(tea.Mouse{
+		X: layout.listWidth + 1, Y: layout.detailTop + 1, Button: tea.MouseWheelDown,
+	}))
+	if m.files.focus != 1 {
+		t.Fatalf("wheel should focus pane under cursor, focus=%d", m.files.focus)
+	}
+}
+
 func TestFilesInfoInline(t *testing.T) {
 	m := testApp(t)
 	dir := t.TempDir()

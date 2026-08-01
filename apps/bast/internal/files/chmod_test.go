@@ -32,6 +32,39 @@ func TestParseAndFormatMode(t *testing.T) {
 	}
 }
 
+func TestSpecialBitsRoundTrip(t *testing.T) {
+	cases := []struct {
+		raw      string
+		want     os.FileMode
+		symbolic string
+	}{
+		{"4755", 0o755 | os.ModeSetuid, "rwsr-xr-x"},
+		{"2755", 0o755 | os.ModeSetgid, "rwxr-sr-x"},
+		{"1755", 0o755 | os.ModeSticky, "rwxr-xr-t"},
+		{"4644", 0o644 | os.ModeSetuid, "rwSr--r--"},
+		{"1000", os.ModeSticky, "--------T"},
+		{"7777", 0o777 | os.ModeSetuid | os.ModeSetgid | os.ModeSticky, "rwsrwsrwt"},
+	}
+	for _, tc := range cases {
+		mode, err := ParseModeOctal(tc.raw)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.raw, err)
+		}
+		if mode != tc.want {
+			t.Fatalf("%s: mode = %v want %v", tc.raw, mode, tc.want)
+		}
+		if got := FormatModeOctal(mode); got != tc.raw {
+			t.Fatalf("%s: FormatModeOctal = %q", tc.raw, got)
+		}
+		if got := FormatModeSymbolic(mode); got != tc.symbolic {
+			t.Fatalf("%s: FormatModeSymbolic = %q want %q", tc.raw, got, tc.symbolic)
+		}
+		if got := NormalizeMode(mode | os.ModeDir | os.ModeSymlink); got != tc.want {
+			t.Fatalf("%s: NormalizeMode kept type bits: %v", tc.raw, got)
+		}
+	}
+}
+
 func TestFormatSizeAndEntryKind(t *testing.T) {
 	if got := FormatSize(128); got != "128 B" {
 		t.Fatalf("FormatSize(128) = %q", got)
