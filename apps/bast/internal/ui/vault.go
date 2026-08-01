@@ -164,10 +164,7 @@ func (m *App) vaultResolvePullCmd(pending *vaultConflictState, mode vault.MergeM
 		if err != nil {
 			return vaultPullMsg{err: err, interactive: interactive, thenPush: thenPush, opGen: opGen}
 		}
-		client := &vault.Client{BaseURL: session.APIBase, Token: session.Token}
-		if env := strings.TrimSpace(os.Getenv("BAST_VAULT_API")); env != "" {
-			client.BaseURL = env
-		}
+		client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 		remoteGet, err := client.GetVault(ctx, "")
@@ -235,7 +232,7 @@ func (m *App) vaultResolveLinkCmd(pending *vaultConflictState, mode vault.MergeM
 			return msg
 		}
 
-		client := &vault.Client{BaseURL: session.APIBase, Token: session.Token}
+		client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		remoteGet, err := client.GetVault(ctx, "")
@@ -286,9 +283,24 @@ func (m *App) vaultSessionPath() string {
 	return vault.SessionPath(m.paths.StateFile)
 }
 
+func (m *App) setVaultSession(session *vault.Session) {
+	m.vaultSession = session
+	if session != nil {
+		if base := vault.NormalizeAPIBase(session.APIBase); base != "" {
+			m.vaultAPIBase = base
+		}
+	}
+}
+
 func (m *App) refreshVaultSessionCache() {
 	session, err := vault.LoadSession(m.vaultSessionPath())
-	if err != nil || session.Token == "" {
+	if err != nil {
+		m.vaultSession = nil
+		m.vaultAPIBase = ""
+		return
+	}
+	m.vaultAPIBase = vault.NormalizeAPIBase(session.APIBase)
+	if session.Token == "" {
 		m.vaultSession = nil
 		return
 	}
@@ -322,9 +334,15 @@ func shortRevision(rev string) string {
 }
 
 func (m *App) vaultMenuItems() []syncMenuItem {
+	apiBaseItem := syncMenuItem{
+		label:       "API base URL",
+		action:      "vault_api_base",
+		description: "Vault server for this machine (self-hosted or bast.sh)",
+	}
 	if !m.vaultLinked() {
 		return []syncMenuItem{
 			{label: "Link account", action: "vault_login", description: "Email a one-time code to link this machine"},
+			apiBaseItem,
 		}
 	}
 	if m.vaultPassphrase == "" {
@@ -333,6 +351,7 @@ func (m *App) vaultMenuItems() []syncMenuItem {
 			{label: "Sync now", action: "vault_sync", description: syncNowDescription(m.vaultStatus)},
 			{label: "Rotate passphrase", action: "vault_rotate_passphrase", description: "Requires the current passphrase"},
 			{label: "Reset passphrase", action: "vault_reset_passphrase", description: "Overwrites the remote vault with this machine"},
+			apiBaseItem,
 			{label: "Log out", action: "vault_logout"},
 		}
 	}
@@ -340,6 +359,7 @@ func (m *App) vaultMenuItems() []syncMenuItem {
 		{label: "Sync now", action: "vault_sync", description: syncNowDescription(m.vaultStatus)},
 		{label: "Rotate passphrase", action: "vault_rotate_passphrase", description: "Requires the current passphrase"},
 		{label: "Reset passphrase", action: "vault_reset_passphrase", description: "Overwrites the remote vault with this machine"},
+		apiBaseItem,
 		{label: "Log out", action: "vault_logout"},
 	}
 }
@@ -356,6 +376,7 @@ func (m *App) renderVaultStatus(s styleSet) string {
 	var b strings.Builder
 	if !m.vaultLinked() || m.vaultSession == nil {
 		b.WriteString(compactRow(s, "Status", "not linked", width))
+		b.WriteString(compactRow(s, "API base", m.preferredVaultAPIBase(), width))
 		b.WriteString("  " + s.muted.Render("Syncs Bast-managed hosts, keys, and metadata.") + "\n")
 		b.WriteString("  " + s.muted.Render("Does not sync external SSH config or cloud VMs.") + "\n")
 		b.WriteString("  " + s.muted.Render("Encrypted locally. Bast never sees your passphrase.") + "\n")
@@ -367,6 +388,7 @@ func (m *App) renderVaultStatus(s styleSet) string {
 	session := m.vaultSession
 	b.WriteString(compactRow(s, "Status", "linked", width))
 	b.WriteString(compactRow(s, "Email", session.Email, width))
+	b.WriteString(compactRow(s, "API base", vault.EffectiveAPIBase(session.APIBase), width))
 	if m.vaultPassphrase == "" {
 		b.WriteString(compactRow(s, "Session", "locked", width))
 	} else {
@@ -382,15 +404,30 @@ func (m *App) renderVaultStatus(s styleSet) string {
 	return b.String()
 }
 
+func (m *App) preferredVaultAPIBase() string {
+	if m.vaultSession != nil {
+		return vault.EffectiveAPIBase(m.vaultSession.APIBase)
+	}
+	return vault.EffectiveAPIBase(m.vaultAPIBase)
+}
+
 func (m *App) openVaultLoginForm() {
 	m.openForm("Vault: link account", "vault_login", []field{
 		{label: "Email", description: "We'll email a one-time code", placeholder: "you@example.com"},
+		{
+			label:       "API base",
+			description: "Vault server URL. Leave as bast.sh unless you self-host",
+			value:       m.preferredVaultAPIBase(),
+			placeholder: vault.DefaultAPIBase,
+			optional:    true,
+		},
 	})
 }
 
-func (m *App) openVaultCodeForm(email string) {
+func (m *App) openVaultCodeForm(email, apiBase string) {
 	m.openForm("Vault: enter code", "vault_code", []field{
 		{label: "Email", value: email, hidden: true},
+		{label: "APIBase", value: apiBase, hidden: true},
 		{label: "Code", description: "6-digit code from email", placeholder: "123456"},
 	})
 }
@@ -438,15 +475,31 @@ func (m *App) openVaultRotatePassphraseForm() {
 	m.openForm("Vault: rotate passphrase", "vault_rotate_passphrase", fields)
 }
 
+func (m *App) openVaultAPIBaseForm() {
+	desc := "Self-hosted vault origin, or https://bast.sh"
+	if m.vaultLinked() {
+		desc = "Must match the server for this session. Log out to switch servers"
+	}
+	m.openForm("Vault: API base URL", "vault_api_base", []field{
+		{
+			label:       "API base",
+			description: desc,
+			value:       m.preferredVaultAPIBase(),
+			placeholder: vault.DefaultAPIBase,
+		},
+	})
+}
+
 func (m *App) submitVaultLogin() tea.Cmd {
 	email := strings.ToLower(strings.TrimSpace(m.formValue("Email")))
 	if email == "" || !strings.Contains(email, "@") {
 		m.form.validationError = "Enter a valid email"
 		return nil
 	}
-	apiBase := strings.TrimSpace(os.Getenv("BAST_VAULT_API"))
-	if apiBase == "" {
-		apiBase = vault.DefaultAPIBase
+	apiBase, err := validateVaultAPIBase(m.formValue("API base"))
+	if err != nil {
+		m.form.validationError = err.Error()
+		return nil
 	}
 	client := &vault.Client{BaseURL: apiBase}
 	return func() tea.Msg {
@@ -479,9 +532,10 @@ func (m *App) submitVaultCode() tea.Cmd {
 		m.form.validationError = "Enter the code from your email"
 		return nil
 	}
-	apiBase := strings.TrimSpace(os.Getenv("BAST_VAULT_API"))
-	if apiBase == "" {
-		apiBase = vault.DefaultAPIBase
+	apiBase, err := validateVaultAPIBase(m.formValue("APIBase"))
+	if err != nil {
+		m.form.validationError = err.Error()
+		return nil
 	}
 	client := &vault.Client{BaseURL: apiBase}
 	return func() tea.Msg {
@@ -494,6 +548,52 @@ func (m *App) submitVaultCode() tea.Cmd {
 			err: err,
 		}
 	}
+}
+
+func validateVaultAPIBase(raw string) (string, error) {
+	base := vault.NormalizeAPIBase(raw)
+	if base == "" {
+		base = vault.EffectiveAPIBase("")
+	}
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		return "", fmt.Errorf("URL must start with http:// or https://")
+	}
+	return base, nil
+}
+
+func (m *App) submitVaultAPIBase() tea.Cmd {
+	base, err := validateVaultAPIBase(m.formValue("API base"))
+	if err != nil {
+		m.form.validationError = err.Error()
+		return nil
+	}
+	previous := m.preferredVaultAPIBase()
+	linked := m.vaultLinked()
+	session, loadErr := vault.LoadSession(m.vaultSessionPath())
+	if loadErr != nil && !os.IsNotExist(loadErr) {
+		m.form.validationError = loadErr.Error()
+		return nil
+	}
+	if os.IsNotExist(loadErr) {
+		session = vault.Session{}
+	}
+	session.APIBase = base
+	if err := vault.SaveSession(m.vaultSessionPath(), session); err != nil {
+		m.form.validationError = err.Error()
+		return nil
+	}
+	m.vaultAPIBase = base
+	if session.Token != "" {
+		cp := session
+		m.setVaultSession(&cp)
+	} else {
+		m.vaultSession = nil
+	}
+	notice := "API base set to " + base
+	if linked && previous != base {
+		notice = "API base updated · log out and link again if this is a different server"
+	}
+	return m.setNotice(notice)
 }
 
 func (m *App) submitVaultPassphrase() tea.Cmd {
@@ -591,10 +691,7 @@ func (m *App) vaultForceResetPassphrase(passphrase string) vaultPushMsg {
 	if err != nil || session.Token == "" {
 		return vaultPushMsg{err: fmt.Errorf("vault is not linked")}
 	}
-	client := &vault.Client{BaseURL: session.APIBase, Token: session.Token}
-	if env := strings.TrimSpace(os.Getenv("BAST_VAULT_API")); env != "" {
-		client.BaseURL = env
-	}
+	client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	remoteGet, err := client.GetVault(ctx, "")
@@ -630,10 +727,7 @@ func (m *App) vaultRotatePassphrase(oldPass, newPass string) vaultPushMsg {
 	if err != nil || session.Token == "" {
 		return vaultPushMsg{err: fmt.Errorf("vault is not linked")}
 	}
-	client := &vault.Client{BaseURL: session.APIBase, Token: session.Token}
-	if env := strings.TrimSpace(os.Getenv("BAST_VAULT_API")); env != "" {
-		client.BaseURL = env
-	}
+	client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	remoteGet, err := client.GetVault(ctx, "")
@@ -683,10 +777,7 @@ func (m *App) vaultVerifyUnlock(passphrase, next string) tea.Msg {
 	if err != nil || session.Token == "" {
 		return vaultUnlockedMsg{err: fmt.Errorf("vault is not linked")}
 	}
-	client := &vault.Client{BaseURL: session.APIBase, Token: session.Token}
-	if env := strings.TrimSpace(os.Getenv("BAST_VAULT_API")); env != "" {
-		client.BaseURL = env
-	}
+	client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	remoteGet, err := client.GetVault(ctx, "")
@@ -737,7 +828,7 @@ func (m *App) vaultCompleteLink(session vault.Session, passphrase string) tea.Ms
 		return msg
 	}
 
-	client := &vault.Client{BaseURL: session.APIBase, Token: session.Token}
+	client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	remoteGet, err := client.GetVault(ctx, "")
@@ -829,10 +920,7 @@ func (m *App) vaultPullCmdOpts(interactive, thenPush bool) tea.Cmd {
 		if err != nil {
 			return vaultPullMsg{err: err, interactive: interactive, thenPush: thenPush, opGen: opGen}
 		}
-		client := &vault.Client{BaseURL: session.APIBase, Token: session.Token}
-		if env := strings.TrimSpace(os.Getenv("BAST_VAULT_API")); env != "" {
-			client.BaseURL = env
-		}
+		client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 		ifNoneMatch := session.Revision
@@ -906,10 +994,7 @@ func (m *App) vaultPushCmdOpts(synced bool) tea.Cmd {
 		if err != nil {
 			return vaultPushMsg{err: err, synced: synced, opGen: opGen}
 		}
-		client := &vault.Client{BaseURL: session.APIBase, Token: session.Token}
-		if env := strings.TrimSpace(os.Getenv("BAST_VAULT_API")); env != "" {
-			client.BaseURL = env
-		}
+		client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 		remoteGet, err := client.GetVault(ctx, "")
@@ -1030,22 +1115,31 @@ func (m *App) runVaultAction(action string) (tea.Model, tea.Cmd) {
 		return m, m.vaultPullCmdOpts(true, true)
 	case "vault_logout":
 		session, err := vault.LoadSession(m.vaultSessionPath())
-		if err == nil && session.Token != "" {
-			client := &vault.Client{BaseURL: session.APIBase, Token: session.Token}
-			if env := strings.TrimSpace(os.Getenv("BAST_VAULT_API")); env != "" {
-				client.BaseURL = env
+		apiBase := ""
+		if err == nil {
+			apiBase = vault.NormalizeAPIBase(session.APIBase)
+			if session.Token != "" {
+				client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				_ = client.Logout(ctx)
+				cancel()
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			_ = client.Logout(ctx)
-			cancel()
 		}
 		_ = vault.ClearSession(m.vaultSessionPath())
+		if apiBase != "" && apiBase != vault.DefaultAPIBase {
+			_ = vault.SaveSession(m.vaultSessionPath(), vault.Session{APIBase: apiBase})
+			m.vaultAPIBase = apiBase
+		} else {
+			m.vaultAPIBase = ""
+		}
 		m.forgetVaultPassphrase()
 		m.vaultSession = nil
 		m.vaultStatus = ""
 		m.vaultLastSync = ""
 		telemetry.Track("vault_logout", m.version)
 		return m, m.setNotice("Vault logged out")
+	case "vault_api_base":
+		m.openVaultAPIBaseForm()
 	}
 	return m, nil
 }

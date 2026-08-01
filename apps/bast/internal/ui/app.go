@@ -179,6 +179,7 @@ type App struct {
 	syncCursor        int
 	vaultPassphrase   string
 	vaultSession      *vault.Session
+	vaultAPIBase      string // remembered server URL (including unlinked preference)
 	vaultStatus       string
 	vaultLastSync     string
 	vaultDirty        bool
@@ -474,7 +475,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.setError(msg.err)
 			return m, nil
 		}
-		m.openVaultCodeForm(msg.email)
+		m.openVaultCodeForm(msg.email, msg.apiBase)
 		return m, m.setNotice("Code sent to " + msg.email)
 	case vaultOTPVerifiedMsg:
 		m.clearVaultBusy()
@@ -502,7 +503,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.session != nil {
-			m.vaultSession = msg.session
+			m.setVaultSession(msg.session)
 		}
 		if msg.passphrase != "" {
 			m.rememberVaultPassphrase(msg.passphrase)
@@ -572,7 +573,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.clearVaultBusy()
 		if msg.session != nil {
-			m.vaultSession = msg.session
+			m.setVaultSession(msg.session)
 		}
 		if msg.forLink && msg.passphrase != "" {
 			m.rememberVaultPassphrase(msg.passphrase)
@@ -586,7 +587,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.clearVaultBusy()
 		if msg.session != nil {
-			m.vaultSession = msg.session
+			m.setVaultSession(msg.session)
 		}
 		if msg.err != nil {
 			if msg.badPassphrase {

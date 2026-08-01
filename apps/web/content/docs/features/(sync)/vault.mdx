@@ -74,7 +74,9 @@ In the TUI: Sync → Vault → **Reset passphrase**, type `RESET`, then enter th
 
 Other linked machines must unlock (or reset) with the new passphrase afterward.
 
-Override the API base for development with `BAST_VAULT_API`.
+## Self-hosting
+
+By default Bast talks to `https://bast.sh`. To keep vault storage on your own infrastructure, [self-host the web app](/docs/reference/self-hosting) and set the API base in Sync → Vault → **API base URL**, with `bast vault login --api https://your.origin`, or with `BAST_VAULT_API`.
 
 ## Promote
 

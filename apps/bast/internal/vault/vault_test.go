@@ -192,3 +192,20 @@ func TestHostEntryEqualIgnoresUpdatedAt(t *testing.T) {
 		t.Fatal("different alias should not match")
 	}
 }
+
+func TestNormalizeAndEffectiveAPIBase(t *testing.T) {
+	if got := NormalizeAPIBase(" https://example.com/ "); got != "https://example.com" {
+		t.Fatalf("NormalizeAPIBase = %q", got)
+	}
+	t.Setenv("BAST_VAULT_API", "")
+	if got := EffectiveAPIBase(""); got != DefaultAPIBase {
+		t.Fatalf("default = %q", got)
+	}
+	if got := EffectiveAPIBase("https://vault.example/"); got != "https://vault.example" {
+		t.Fatalf("session = %q", got)
+	}
+	t.Setenv("BAST_VAULT_API", "https://env.example/")
+	if got := EffectiveAPIBase("https://vault.example"); got != "https://env.example" {
+		t.Fatalf("env override = %q", got)
+	}
+}

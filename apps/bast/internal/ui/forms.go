@@ -515,6 +515,13 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		m.form = nil
 		m.beginVaultBusy("Rotating vault passphrase…")
 		return m, cmd
+	case "vault_api_base":
+		cmd := m.submitVaultAPIBase()
+		if m.form != nil && m.form.validationError != "" {
+			return m, nil
+		}
+		m.form = nil
+		return m, cmd
 	case "vault_resolve":
 		return m, m.submitVaultResolve()
 	case "files_mkdir", "files_rename", "files_delete":

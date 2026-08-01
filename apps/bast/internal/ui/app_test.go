@@ -2534,6 +2534,9 @@ func TestSyncTabRenders(t *testing.T) {
 	if !strings.Contains(body, "Link account") && !strings.Contains(body, "not linked") {
 		t.Fatalf("vault submenu body:\n%s", body)
 	}
+	if !strings.Contains(body, "API base") {
+		t.Fatalf("vault submenu should show API base:\n%s", body)
+	}
 	if strings.Contains(body, "Pull now") || strings.Contains(body, "Push now") {
 		t.Fatalf("vault should use a single Sync now action:\n%s", body)
 	}

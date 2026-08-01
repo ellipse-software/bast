@@ -1,0 +1,79 @@
+---
+title: Self-hosting
+description: Run your own Bast web app so Vault storage stays on infrastructure you control.
+---
+
+Self-host the Bast web app when you want Vault ciphertext, OTP sessions, and related API routes on your own infrastructure. The CLI and TUI keep encrypting locally; your server only stores opaque blobs and email codes.
+
+Hosted [bast.sh](https://bast.sh) remains the default. Point Bast at your origin when you self-host.
+
+## What you are hosting
+
+The app in `apps/web` serves:
+
+- The marketing site and docs
+- Installer scripts under `/install` and `/install-nightly`
+- Vault APIs: `/api/auth/otp/*`, `/api/auth/logout`, `/api/vault`
+- Optional telemetry and error ingest (`/api/telemetry`, `/api/errors`)
+
+Vault needs three backends:
+
+| Role | Service | Env vars |
+| --- | --- | --- |
+| Sessions, OTP, vault metadata | [Upstash Redis](https://upstash.com/) (Redis REST) | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
+| Ciphertext blobs | [Cloudflare R2](https://developers.cloudflare.com/r2/) | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` |
+| Login emails | [Cloudflare Email Sending](https://developers.cloudflare.com/email-routing/email-sending/) | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (or reuse `R2_ACCOUNT_ID`), optional `CLOUDFLARE_EMAIL_FROM` |
+
+Copy `apps/web/.env.example` and fill in values. Telemetry (`POSTHOG_*`) and error reporting (`SENTRY_DSN`) are optional; leave them empty to disable forwarding.
+
+In local development without email credentials, OTP codes are printed to the server log instead of being emailed. Production requires email configuration.
+
+## Run it
+
+Requires Bun 1.3+ (see the repository root `packageManager`).
+
+```bash
+git clone https://github.com/ellipse-software/bast.git
+cd bast
+bun install
+cp apps/web/.env.example apps/web/.env.local
+# edit apps/web/.env.local
+bun run build:web
+bun run --cwd apps/web start
+```
+
+`next start` listens on port 3000 by default. Put TLS termination and a stable hostname in front of it (Caddy, nginx, a reverse proxy, or your platform).
+
+You can also deploy `apps/web` on [Vercel](https://vercel.com/) or any Node host that can run Next.js. Set the project root to `apps/web` (lockfile stays at the monorepo root). Configure the same environment variables in the host.
+
+Enable Cloudflare Email Sending for the domain you put in `CLOUDFLARE_EMAIL_FROM` before expecting production OTP delivery.
+
+## Point Bast at your server
+
+Each machine stores the vault API base in `~/.config/bast/vault-session.json` (`apiBase`).
+
+**TUI:** Sync → Vault → **API base URL**, or set it on the link form. Then **Link account**.
+
+**CLI:**
+
+```bash
+bast vault login --email you@example.com --api https://vault.example.com
+bast vault status
+```
+
+**Environment override** (wins over the saved session for requests):
+
+```bash
+export BAST_VAULT_API=https://vault.example.com
+```
+
+Use the same origin on every machine that should share a vault. Switching servers for an already-linked machine: log out, set the new API base, then link again. Ciphertext does not move automatically between servers.
+
+## Security notes
+
+- The passphrase never leaves the Bast client. The server sees ciphertext only.
+- Protect Redis and R2 credentials; they can read or delete vault blobs for accounts on that deployment.
+- Serve the app over HTTPS in production.
+- OTP email is the account recovery surface: lock down who can send as your From address.
+
+See [Vault](/docs/features/vault) for what syncs and how encryption works.

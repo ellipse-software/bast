@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -20,6 +21,23 @@ const (
 // ErrRemoteUpdated means the vault changed since the caller's If-Match revision.
 var ErrRemoteUpdated = errors.New("vault was updated elsewhere; pull and merge before pushing")
 
+// NormalizeAPIBase trims whitespace and a trailing slash from a vault server URL.
+func NormalizeAPIBase(raw string) string {
+	return strings.TrimRight(strings.TrimSpace(raw), "/")
+}
+
+// EffectiveAPIBase resolves the vault server URL.
+// BAST_VAULT_API overrides sessionBase when set. Empty values fall back to DefaultAPIBase.
+func EffectiveAPIBase(sessionBase string) string {
+	if env := NormalizeAPIBase(os.Getenv("BAST_VAULT_API")); env != "" {
+		return env
+	}
+	if base := NormalizeAPIBase(sessionBase); base != "" {
+		return base
+	}
+	return DefaultAPIBase
+}
+
 type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
@@ -27,7 +45,7 @@ type Client struct {
 }
 
 func (c *Client) base() string {
-	base := strings.TrimRight(c.BaseURL, "/")
+	base := NormalizeAPIBase(c.BaseURL)
 	if base == "" {
 		base = DefaultAPIBase
 	}

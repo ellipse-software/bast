@@ -916,3 +916,36 @@ func TestVaultPassphraseCopyOmitsModeHint(t *testing.T) {
 		}
 	}
 }
+
+func TestVaultAPIBaseFormPersistsPreference(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vault"
+	m.openVaultAPIBaseForm()
+	if m.form == nil || m.form.action != "vault_api_base" {
+		t.Fatalf("form = %#v", m.form)
+	}
+	for i := range m.form.fields {
+		if m.form.fields[i].label == "API base" {
+			m.form.fields[i].value = "https://vault.example.com/"
+		}
+	}
+	next, _ := m.submitForm()
+	app := next.(*App)
+	if app.form != nil {
+		t.Fatalf("expected form closed, validation=%q", app.form.validationError)
+	}
+	session, err := vault.LoadSession(app.vaultSessionPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.APIBase != "https://vault.example.com" {
+		t.Fatalf("APIBase = %q", session.APIBase)
+	}
+	if app.vaultLinked() {
+		t.Fatal("API base preference alone should not mark vault linked")
+	}
+	if got := app.preferredVaultAPIBase(); got != "https://vault.example.com" {
+		t.Fatalf("preferred = %q", got)
+	}
+}

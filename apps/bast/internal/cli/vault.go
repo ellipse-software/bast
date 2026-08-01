@@ -65,11 +65,7 @@ func (r *Runner) vaultSessionPath() string {
 }
 
 func (r *Runner) vaultClient(session vault.Session) *vault.Client {
-	base := session.APIBase
-	if env := strings.TrimSpace(os.Getenv("BAST_VAULT_API")); env != "" {
-		base = env
-	}
-	return &vault.Client{BaseURL: base, Token: session.Token}
+	return &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
 }
 
 func (r *Runner) vaultLogin(args []string) error {
@@ -92,12 +88,9 @@ func (r *Runner) vaultLogin(args []string) error {
 		}
 	}
 	email = strings.ToLower(strings.TrimSpace(email))
-	base := strings.TrimSpace(*apiBase)
+	base := vault.NormalizeAPIBase(*apiBase)
 	if base == "" {
-		base = strings.TrimSpace(os.Getenv("BAST_VAULT_API"))
-	}
-	if base == "" {
-		base = vault.DefaultAPIBase
+		base = vault.EffectiveAPIBase("")
 	}
 	client := &vault.Client{BaseURL: base}
 	{
@@ -233,8 +226,8 @@ func (r *Runner) vaultStatus(args []string) error {
 		"linked":   true,
 		"email":    session.Email,
 		"revision": session.Revision,
-		"apiBase":  session.APIBase,
-	}, fmt.Sprintf("Vault linked · %s · revision %s", session.Email, emptyDefault(session.Revision)))
+		"apiBase":  vault.EffectiveAPIBase(session.APIBase),
+	}, fmt.Sprintf("Vault linked · %s · %s · revision %s", session.Email, vault.EffectiveAPIBase(session.APIBase), emptyDefault(session.Revision)))
 }
 
 func (r *Runner) vaultPush(args []string) error {
