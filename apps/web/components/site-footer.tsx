@@ -3,15 +3,13 @@ import type { ReactNode } from "react";
 
 import { AgentResources } from "@/components/ask-ai-menu";
 import { WordmarkLogo } from "@/components/wordmark-logo";
-import { bastRepoUrl, bastReleasesUrl } from "@/lib/github";
+import { bastRepoUrl, bastReleasesUrl, bastSponsorUrl } from "@/lib/github";
 import {
   comparisonNavItems,
   guideNavItems,
 } from "@/lib/marketing";
 import { llmsFullUrl, llmsTxtUrl, skillUrl } from "@/lib/site";
 import { pageMaxWidthClass } from "@/lib/layout";
-
-const sponsorUrl = "https://github.com/sponsors/tedbrine";
 
 const linkClass =
   "text-sm text-muted transition-colors hover:text-foreground";
@@ -119,7 +117,7 @@ export function SiteFooter() {
             <FooterLink href={bastReleasesUrl} external>
               Releases
             </FooterLink>
-            <FooterLink href={sponsorUrl} external>
+            <FooterLink href={bastSponsorUrl} external>
               Sponsor
             </FooterLink>
             <FooterLink href={llmsTxtUrl}>llms.txt</FooterLink>

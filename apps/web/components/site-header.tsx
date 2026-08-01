@@ -8,11 +8,9 @@ import { useEffect, useId, useState } from "react";
 import { ComparisonsNav } from "@/components/comparisons-nav";
 import { FeaturesNav } from "@/components/features-nav";
 import { WordmarkLogo } from "@/components/wordmark-logo";
-import { bastRepoUrl } from "@/lib/github";
+import { bastRepoUrl, bastSponsorUrl } from "@/lib/github";
 import { pageMaxWidthClass } from "@/lib/layout";
 import { comparisonNavItems, guideNavItems } from "@/lib/marketing";
-
-const sponsorUrl = "https://github.com/sponsors/tedbrine";
 
 const linkClass =
   "text-foreground/80 transition-colors hover:text-foreground";
@@ -101,7 +99,7 @@ export function SiteHeader() {
             GitHub
           </a>
           <a
-            href={sponsorUrl}
+            href={bastSponsorUrl}
             target="_blank"
             rel="noopener noreferrer"
             className={linkClass}
@@ -204,7 +202,7 @@ export function SiteHeader() {
               GitHub
             </a>
             <a
-              href={sponsorUrl}
+              href={bastSponsorUrl}
               target="_blank"
               rel="noopener noreferrer"
               className={mobileLinkClass}

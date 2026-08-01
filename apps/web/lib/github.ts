@@ -4,6 +4,7 @@ export const bastRepoUrl = `https://github.com/${BAST_REPO}`;
 export const bastWebRepoUrl = bastRepoUrl;
 export const bastWebDocsPath = `${bastRepoUrl}/tree/master/apps/web/content/docs`;
 export const bastReleasesUrl = `${bastRepoUrl}/releases`;
+export const bastSponsorUrl = "https://github.com/sponsors/tedbrine";
 
 type GitHubRelease = {
   tag_name?: string;
