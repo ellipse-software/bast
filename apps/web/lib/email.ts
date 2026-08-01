@@ -36,6 +36,6 @@ export async function sendVaultOTP(to: string, otp: string): Promise<void> {
     from,
     to,
     subject: `${otp} is your Bast vault code`,
-    text: `Your Bast vault sign-in code is ${otp}. It expires in 10 minutes.\n\nIf you did not request this, ignore this email.`,
+    text: `Hi there,\n\nYour Bast vault sign-in code is ${otp}. It expires in 10 minutes.\n\nIf you did not request this, you can ignore this email.\n\nThanks,\nTed at Bast.sh`,
   });
 }
