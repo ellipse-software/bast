@@ -43,6 +43,8 @@ SFTP uses `BatchMode`, so passphrase and host-key prompts cannot interrupt the T
 | `v` | Start or finish a range mark |
 | `f` / `s` | Fuzzy jump |
 
+Click a pane to focus it, a row to select it, and the same row again to enter a directory or connect a host. Click the path header to edit the path (or search hosts on a picker). Scroll wheel moves the pane under the pointer.
+
 ### Fuzzy jump
 
 Press `f` or `s` on a file list. Entries go muted until you type. Matches light up and get a letter label (`a`, `s`, `d`, …). Keep typing to narrow, or type a label letter to jump there (flash-style). `Esc` cancels.
@@ -58,7 +60,31 @@ Copy and move always target the **other** pane’s current directory.
 | `d` | Delete (confirm by typing the name, or `DELETE` for a batch) |
 | `a` | Create directory |
 | `r` | Rename |
+| `i` | File info (name, type, size, mode) |
+| `p` | Change permissions (chmod) on local or remote items |
 | `esc` / `x` | Cancel an in-progress transfer |
+
+### File info
+
+Press `i` on the cursor row. The focused pane shows name, type, size, mode (octal and symbolic), and modified time. `j`/`k` move to the next or previous item while info stays open. `p` jumps into the permissions editor. `i` or `Esc` closes.
+
+### Permissions
+
+Press `p` on the cursor row or marked items. The focused pane opens an inline permissions grid for Owner / Group / Other with Read / Write / Exec. The current mode seeds the checkboxes.
+
+| Key | Action |
+| --- | --- |
+| `←` `→` `↑` `↓` or `h` `j` `k` `l` | Move across the grid |
+| `Space` or `x` | Toggle the focused bit (or recursive / octal focus) |
+| `0`–`7` | Set the current class (owner/group/other) to that octal digit |
+| `u` `g` `o` | Jump to Owner / Group / Other |
+| `/` | Edit the octal mode directly |
+| `Enter` | Apply |
+| `Esc` | Cancel |
+
+When any selected path is a directory, a **contents** option appears. Turn it on to apply the mode recursively (symlinks are skipped while walking).
+
+Works the same on local and remote panes. The other pane stays visible while you edit.
 
 ## Open a shell here
 
@@ -71,7 +97,7 @@ Deferred for later:
 - Fuzzy find across the whole tree (current `f` jump is per-pane listing)
 - Directory sync / mirror
 - Trash / undo
-- chmod / chown UI
+- chown UI
 - Inline previews
 - Shared ControlMaster connections
 

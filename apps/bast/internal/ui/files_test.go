@@ -309,3 +309,330 @@ func TestFilesStaleListMsgIgnored(t *testing.T) {
 		t.Fatal("stale list message should be ignored")
 	}
 }
+
+func TestFilesChmodMenuToggleAndApply(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secret.env")
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	for i, entry := range m.files.panes[0].entries {
+		if entry.Name == "secret.env" {
+			m.files.panes[0].cursor = i
+			break
+		}
+	}
+
+	m.updateFilesKeys("p")
+	if !m.files.chmod.active {
+		t.Fatal("p should open permissions menu")
+	}
+	if m.files.chmod.mode.Perm() != 0o600 {
+		t.Fatalf("seed mode = %04o", m.files.chmod.mode.Perm())
+	}
+	body := m.renderFiles(m.styles())
+	if !strings.Contains(body, "secret.env") {
+		t.Fatalf("chmod body:\n%s", body)
+	}
+	if !strings.Contains(body, "Owner") || !strings.Contains(body, "[x]") {
+		t.Fatalf("expected permission grid:\n%s", body)
+	}
+
+	// Owner already has read+write; move to group read and enable it.
+	m.updateFilesKeys("g")
+	m.updateFilesKeys("space")
+	if m.files.chmod.mode.Perm()&0040 == 0 {
+		t.Fatalf("group read should be on, mode=%04o", m.files.chmod.mode.Perm())
+	}
+	// Set other to 4 via digit.
+	m.updateFilesKeys("o")
+	m.updateFilesKeys("4")
+	if m.files.chmod.mode.Perm()&0007 != 0004 {
+		t.Fatalf("other should be r--, mode=%04o", m.files.chmod.mode.Perm())
+	}
+
+	m.updateFilesKeys("enter")
+	if m.files.chmod.active {
+		t.Fatal("enter should close chmod menu")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("applied mode = %04o, want 0644", info.Mode().Perm())
+	}
+}
+
+func TestFilesChmodMenuCancel(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(path, []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	m.updateFilesKeys("p")
+	m.updateFilesKeys("7")
+	m.updateFilesKeys("esc")
+	if m.files.chmod.active {
+		t.Fatal("esc should cancel")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("cancel should not change mode, got %04o", info.Mode().Perm())
+	}
+}
+
+func TestFilesChmodRecursiveOptionForDirectory(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "nested")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	for i, entry := range m.files.panes[0].entries {
+		if entry.Name == "nested" {
+			m.files.panes[0].cursor = i
+			break
+		}
+	}
+	m.updateFilesKeys("p")
+	if !m.files.chmod.hasDir {
+		t.Fatal("directory selection should offer recursive")
+	}
+	body := m.renderFiles(m.styles())
+	if !strings.Contains(body, "contents") {
+		t.Fatalf("expected recursive option:\n%s", body)
+	}
+}
+
+func TestFilesChmodPreservesSpecialBitsOnToggle(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "suid.bin")
+	if err := os.WriteFile(path, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	for i, entry := range m.files.panes[0].entries {
+		if entry.Name == "suid.bin" {
+			m.files.panes[0].entries[i].Mode = 0o755 | os.ModeSetuid
+			m.files.panes[0].cursor = i
+			break
+		}
+	}
+
+	m.updateFilesKeys("p")
+	if m.files.chmod.mode&os.ModeSetuid == 0 {
+		t.Fatal("seed should keep setuid")
+	}
+	if got := files.FormatModeOctal(m.files.chmod.mode); got != "4755" {
+		t.Fatalf("octal = %q", got)
+	}
+	// Toggle other execute off; setuid must remain.
+	m.updateFilesKeys("o")
+	m.updateFilesKeys("right")
+	m.updateFilesKeys("right")
+	m.updateFilesKeys("space")
+	if m.files.chmod.mode&os.ModeSetuid == 0 {
+		t.Fatal("toggling rwx should preserve setuid")
+	}
+	if m.files.chmod.mode.Perm() != 0o754 {
+		t.Fatalf("perm = %04o want 0754", m.files.chmod.mode.Perm())
+	}
+}
+
+func TestClearFilesOverlaysOnLeave(t *testing.T) {
+	m := testApp(t)
+	_ = m.enterFilesSection()
+	m.files.info = true
+	m.files.chmod = filesChmod{active: true, mode: 0o644}
+	m.clearFilesOverlays()
+	if m.files.info || m.files.chmod.active {
+		t.Fatal("overlays should clear when leaving Files")
+	}
+}
+
+func TestFilesMouseFocusSelectAndEnter(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "nested")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	m.files.focus = 0
+
+	layout := m.panelLayout()
+	// Click right pane header: focus remote picker.
+	m.Update(tea.MouseClickMsg(tea.Mouse{
+		X: layout.listWidth + 1, Y: layout.detailTop, Button: tea.MouseLeft,
+	}))
+	if m.files.focus != 1 {
+		t.Fatalf("focus = %d, want right pane", m.files.focus)
+	}
+
+	// Click left pane first row to select nested/.
+	nestedIdx := -1
+	for i, entry := range m.files.panes[0].entries {
+		if entry.Name == "nested" {
+			nestedIdx = i
+			break
+		}
+	}
+	if nestedIdx < 0 {
+		t.Fatal("nested dir missing")
+	}
+	// Ensure nested is visible at a known row: put cursor there first so offset is correct.
+	m.files.panes[0].cursor = nestedIdx
+	m.files.panes[0].ensureVisible(max(1, layout.listHeight-2))
+	row := 1 + (nestedIdx - m.files.panes[0].offset)
+	m.files.focus = 1
+	m.Update(tea.MouseClickMsg(tea.Mouse{
+		X: 2, Y: layout.listTop + row, Button: tea.MouseLeft,
+	}))
+	if m.files.focus != 0 {
+		t.Fatalf("focus = %d, want left", m.files.focus)
+	}
+	if m.files.panes[0].cursor != nestedIdx {
+		t.Fatalf("cursor = %d, want %d", m.files.panes[0].cursor, nestedIdx)
+	}
+
+	// Second click on same row enters the directory.
+	m.Update(tea.MouseClickMsg(tea.Mouse{
+		X: 2, Y: layout.listTop + row, Button: tea.MouseLeft,
+	}))
+	if m.files.panes[0].cwd != sub {
+		t.Fatalf("cwd = %q, want %q", m.files.panes[0].cwd, sub)
+	}
+}
+
+func TestFilesMouseHostPickerSelect(t *testing.T) {
+	m := testApp(t)
+	_ = m.enterFilesSection()
+	m.files.focus = 0
+	layout := m.panelLayout()
+	// Click first host from the other pane: focus + select (do not connect).
+	m.Update(tea.MouseClickMsg(tea.Mouse{
+		X: layout.listWidth + 1, Y: layout.detailTop + 1, Button: tea.MouseLeft,
+	}))
+	if m.files.focus != 1 {
+		t.Fatal("expected right pane focused")
+	}
+	if m.files.panes[1].hostCursor != 0 {
+		t.Fatalf("hostCursor = %d", m.files.panes[1].hostCursor)
+	}
+	if m.files.panes[1].connecting {
+		t.Fatal("first click from other pane should not connect")
+	}
+	// Click second host.
+	m.Update(tea.MouseClickMsg(tea.Mouse{
+		X: layout.listWidth + 1, Y: layout.detailTop + 2, Button: tea.MouseLeft,
+	}))
+	if m.files.panes[1].hostCursor != 1 {
+		t.Fatalf("hostCursor = %d, want 1", m.files.panes[1].hostCursor)
+	}
+}
+
+func TestFilesMouseWheelFocusesPaneUnderCursor(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	m.files.focus = 0
+	layout := m.panelLayout()
+	m.Update(tea.MouseWheelMsg(tea.Mouse{
+		X: layout.listWidth + 1, Y: layout.detailTop + 1, Button: tea.MouseWheelDown,
+	}))
+	if m.files.focus != 1 {
+		t.Fatalf("wheel should focus pane under cursor, focus=%d", m.files.focus)
+	}
+}
+
+func TestFilesInfoInline(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secret.env")
+	if err := os.WriteFile(path, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	for i, entry := range m.files.panes[0].entries {
+		if entry.Name == "secret.env" {
+			m.files.panes[0].cursor = i
+			break
+		}
+	}
+
+	m.updateFilesKeys("i")
+	if !m.files.info {
+		t.Fatal("i should open file info")
+	}
+	body := m.renderFiles(m.styles())
+	if !strings.Contains(body, "secret.env") {
+		t.Fatalf("expected name:\n%s", body)
+	}
+	if !strings.Contains(body, "file") {
+		t.Fatalf("expected type:\n%s", body)
+	}
+	if !strings.Contains(body, "0600") {
+		t.Fatalf("expected mode:\n%s", body)
+	}
+	if strings.Contains(body, "0755") && !strings.Contains(body, "Name") {
+		t.Fatalf("mode column should not appear in listing while info open:\n%s", body)
+	}
+
+	m.updateFilesKeys("i")
+	if m.files.info {
+		t.Fatal("i should toggle info closed")
+	}
+}

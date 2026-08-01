@@ -837,6 +837,8 @@ func helpSections() []helpSection {
 				{"d", "Delete"},
 				{"a", "New directory"},
 				{"r", "Rename"},
+				{"i", "File info"},
+				{"p", "Permissions (chmod)"},
 				{"t", "Shell in directory"},
 				{".", "Toggle hidden files"},
 				{"D", "Disconnect remote"},

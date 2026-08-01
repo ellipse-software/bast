@@ -56,7 +56,7 @@ export function Showcase() {
   return (
     <div className="w-full max-w-4xl bg-border p-px">
       <div className="bg-background">
-        <div className="relative h-[520px] overflow-hidden sm:h-[340px] md:h-[360px]">
+        <div className="relative h-[560px] overflow-hidden sm:h-[360px] md:h-[380px]">
           <TuiDemo />
         </div>
 

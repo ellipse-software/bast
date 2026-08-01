@@ -2,10 +2,19 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 
-type Section = "hosts" | "keys" | "sync";
+type Section = "hosts" | "keys" | "sync" | "files";
 type SyncProvider = "" | "vault" | "gcp" | "aws" | "azure";
 
 type DetailRow = { label: string; value: string };
+
+type FileEntry = {
+  name: string;
+  isDir?: boolean;
+  mode: string;
+  symbolic: string;
+  size: string;
+  modified: string;
+};
 
 type HostItem = {
   name: string;
@@ -343,6 +352,113 @@ const syncProviderStatus: Record<Exclude<SyncProvider, "">, DetailRow[]> = {
   ],
 };
 
+const localFiles: FileEntry[] = [
+  {
+    name: "Documents",
+    isDir: true,
+    mode: "0755",
+    symbolic: "rwxr-xr-x",
+    size: "—",
+    modified: "2026-07-20 09:12",
+  },
+  {
+    name: "deploy",
+    isDir: true,
+    mode: "0755",
+    symbolic: "rwxr-xr-x",
+    size: "—",
+    modified: "2026-07-26 14:02",
+  },
+  {
+    name: "notes.md",
+    mode: "0644",
+    symbolic: "rw-r--r--",
+    size: "2.1 KB",
+    modified: "2026-07-25 11:40",
+  },
+  {
+    name: "secret.env",
+    mode: "0600",
+    symbolic: "rw-------",
+    size: "128 B",
+    modified: "2026-07-26 13:55",
+  },
+  {
+    name: "id_ed25519",
+    mode: "0600",
+    symbolic: "rw-------",
+    size: "419 B",
+    modified: "2026-06-02 08:18",
+  },
+  {
+    name: "id_ed25519.pub",
+    mode: "0644",
+    symbolic: "rw-r--r--",
+    size: "104 B",
+    modified: "2026-06-02 08:18",
+  },
+];
+
+const remoteFiles: FileEntry[] = [
+  {
+    name: "app",
+    isDir: true,
+    mode: "0755",
+    symbolic: "rwxr-xr-x",
+    size: "—",
+    modified: "2026-07-26 12:01",
+  },
+  {
+    name: "bin",
+    isDir: true,
+    mode: "0755",
+    symbolic: "rwxr-xr-x",
+    size: "—",
+    modified: "2026-07-10 16:22",
+  },
+  {
+    name: "etc",
+    isDir: true,
+    mode: "0755",
+    symbolic: "rwxr-xr-x",
+    size: "—",
+    modified: "2026-07-01 08:00",
+  },
+  {
+    name: "home",
+    isDir: true,
+    mode: "0755",
+    symbolic: "rwxr-xr-x",
+    size: "—",
+    modified: "2026-07-18 19:44",
+  },
+  {
+    name: "var",
+    isDir: true,
+    mode: "0755",
+    symbolic: "rwxr-xr-x",
+    size: "—",
+    modified: "2026-07-22 03:11",
+  },
+  {
+    name: "README",
+    mode: "0644",
+    symbolic: "rw-r--r--",
+    size: "1.4 KB",
+    modified: "2026-07-26 12:02",
+  },
+  {
+    name: "docker-compose.yml",
+    mode: "0644",
+    symbolic: "rw-r--r--",
+    size: "980 B",
+    modified: "2026-07-26 12:05",
+  },
+];
+
+const localTone = "#94A3B8";
+const remoteTone = "#14B8A6";
+
 function providerForAction(
   action: SyncMenuItem["action"],
 ): Exclude<SyncProvider, ""> | null {
@@ -446,6 +562,13 @@ export function TuiDemo() {
   const [keyCursor, setKeyCursor] = useState(0);
   const [syncProvider, setSyncProvider] = useState<SyncProvider>("");
   const [syncCursor, setSyncCursor] = useState(0);
+  const [filesFocus, setFilesFocus] = useState<0 | 1>(0);
+  const [localCursor, setLocalCursor] = useState(2);
+  const [remoteCursor, setRemoteCursor] = useState(0);
+  const [localMarked, setLocalMarked] = useState<Record<string, boolean>>({
+    "secret.env": true,
+  });
+  const [filesInfo, setFilesInfo] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const hostRows = useMemo(() => buildHostRows(collapsed), [collapsed]);
@@ -457,6 +580,14 @@ export function TuiDemo() {
     ? syncProviderActions[syncProvider]
     : syncProviders;
   const safeSyncCursor = Math.min(syncCursor, Math.max(0, syncItems.length - 1));
+  const safeLocalCursor = Math.min(
+    localCursor,
+    Math.max(0, localFiles.length - 1),
+  );
+  const safeRemoteCursor = Math.min(
+    remoteCursor,
+    Math.max(0, remoteFiles.length - 1),
+  );
 
   const switchSection = useCallback((next: Section) => {
     setSection(next);
@@ -501,6 +632,36 @@ export function TuiDemo() {
     [syncItems],
   );
 
+  const moveFiles = useCallback(
+    (delta: number) => {
+      if (filesFocus === 0) {
+        setLocalCursor((current) =>
+          Math.max(0, Math.min(localFiles.length - 1, current + delta)),
+        );
+      } else {
+        setRemoteCursor((current) =>
+          Math.max(0, Math.min(remoteFiles.length - 1, current + delta)),
+        );
+      }
+    },
+    [filesFocus],
+  );
+
+  const toggleFilesMark = useCallback(() => {
+    if (filesFocus !== 0) return;
+    const entry = localFiles[safeLocalCursor];
+    if (!entry) return;
+    setLocalMarked((current) => {
+      const next = { ...current };
+      if (next[entry.name]) {
+        delete next[entry.name];
+      } else {
+        next[entry.name] = true;
+      }
+      return next;
+    });
+  }, [filesFocus, safeLocalCursor]);
+
   const activateSync = useCallback(() => {
     const item = syncItems[safeSyncCursor];
     if (!item || item.disabled) return;
@@ -528,6 +689,7 @@ export function TuiDemo() {
           event.preventDefault();
           if (section === "hosts") moveHosts(1);
           else if (section === "keys") moveKeys(1);
+          else if (section === "files") moveFiles(1);
           else moveSync(1);
           break;
         case "k":
@@ -535,6 +697,7 @@ export function TuiDemo() {
           event.preventDefault();
           if (section === "hosts") moveHosts(-1);
           else if (section === "keys") moveKeys(-1);
+          else if (section === "files") moveFiles(-1);
           else moveSync(-1);
           break;
         case "1":
@@ -549,6 +712,22 @@ export function TuiDemo() {
           event.preventDefault();
           switchSection("sync");
           break;
+        case "4":
+          event.preventDefault();
+          switchSection("files");
+          break;
+        case "Tab":
+          if (section === "files") {
+            event.preventDefault();
+            setFilesFocus((current) => (current === 0 ? 1 : 0));
+          }
+          break;
+        case "i":
+          if (section === "files") {
+            event.preventDefault();
+            setFilesInfo((current) => !current);
+          }
+          break;
         case "Enter":
         case " ":
           event.preventDefault();
@@ -556,6 +735,8 @@ export function TuiDemo() {
             toggleGroup(selectedHostRow.id);
           } else if (section === "sync") {
             activateSync();
+          } else if (section === "files" && event.key === " ") {
+            toggleFilesMark();
           }
           break;
         case "Escape":
@@ -563,12 +744,21 @@ export function TuiDemo() {
             event.preventDefault();
             setSyncProvider("");
             setSyncCursor(0);
+          } else if (section === "files" && filesInfo) {
+            event.preventDefault();
+            setFilesInfo(false);
+          } else if (section === "files" && Object.keys(localMarked).length > 0) {
+            event.preventDefault();
+            setLocalMarked({});
           }
           break;
       }
     },
     [
       activateSync,
+      filesInfo,
+      localMarked,
+      moveFiles,
       moveHosts,
       moveKeys,
       moveSync,
@@ -576,25 +766,34 @@ export function TuiDemo() {
       selectedHostRow,
       switchSection,
       syncProvider,
+      toggleFilesMark,
       toggleGroup,
     ],
   );
 
   const footerHintDesktop =
     section === "hosts"
-      ? "↵ connect • ␣ group • a add • e edit • 3 sync • ? help"
+      ? "↵ connect • ␣ group • a add • e edit • 4 files • ? help"
       : section === "keys"
         ? "a generate • i import • x export • u add to server • ? help"
-        : syncProvider
-          ? "↵ action • esc providers • r refresh • ? help"
-          : "↵ open provider • 1 hosts • 2 keys • ? help";
+        : section === "files"
+          ? filesInfo
+            ? "j/k next • i/esc close"
+            : "tab pane • ␣ mark • i info • p chmod • ? help"
+          : syncProvider
+            ? "↵ action • esc providers • r refresh • ? help"
+            : "↵ open provider • 1 hosts • 2 keys • 4 files • ? help";
 
   const footerHintMobile =
     section === "hosts"
-      ? "tap select • 1/2/3 tabs"
+      ? "tap select • 1/2/3/4 tabs"
       : section === "keys"
-        ? "tap select • 1/2/3 tabs"
-        : "tap provider • 1/2/3 tabs";
+        ? "tap select • 1/2/3/4 tabs"
+        : section === "files"
+          ? filesInfo
+            ? "i/esc close • 1/2/3/4 tabs"
+            : "tap pane • i info • 1/2/3/4 tabs"
+          : "tap provider • 1/2/3/4 tabs";
 
   return (
     <div
@@ -604,7 +803,7 @@ export function TuiDemo() {
       onMouseDown={() => containerRef.current?.focus()}
       className="absolute inset-0 flex flex-col overflow-hidden p-3 pt-2 font-mono text-xs leading-snug text-foreground outline-none focus-visible:ring-1 focus-visible:ring-border focus-visible:ring-inset sm:p-4 sm:pt-2 sm:text-sm md:px-5 md:pt-2 md:pb-0 md:text-[15px]"
       role="application"
-      aria-label="Interactive Bast TUI demo. Use j/k or arrow keys to navigate, 1/2/3 to switch tabs."
+      aria-label="Interactive Bast TUI demo. Use j/k or arrow keys to navigate, 1/2/3/4 to switch tabs."
     >
       <header className="mb-2 flex shrink-0 items-center gap-x-2 sm:gap-x-3">
         <span className="bg-accent px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-white sm:text-xs md:text-sm">
@@ -628,6 +827,12 @@ export function TuiDemo() {
             onClick={() => switchSection("sync")}
           >
             [3] Sync
+          </TabButton>
+          <TabButton
+            active={section === "files"}
+            onClick={() => switchSection("files")}
+          >
+            [4] Files
           </TabButton>
         </span>
         <span className="ml-auto text-[11px] font-bold text-muted sm:text-sm md:text-[15px]">
@@ -653,6 +858,31 @@ export function TuiDemo() {
             setSyncProvider("");
             setSyncCursor(0);
           }}
+          footerDesktop={footerHintDesktop}
+          footerMobile={footerHintMobile}
+        />
+      ) : section === "files" ? (
+        <FilesPanel
+          focus={filesFocus}
+          localCursor={safeLocalCursor}
+          remoteCursor={safeRemoteCursor}
+          localMarked={localMarked}
+          info={filesInfo}
+          onFocus={setFilesFocus}
+          onSelectLocal={setLocalCursor}
+          onSelectRemote={setRemoteCursor}
+          onToggleMark={(name) => {
+            setLocalMarked((current) => {
+              const next = { ...current };
+              if (next[name]) {
+                delete next[name];
+              } else {
+                next[name] = true;
+              }
+              return next;
+            });
+          }}
+          onToggleInfo={() => setFilesInfo((current) => !current)}
           footerDesktop={footerHintDesktop}
           footerMobile={footerHintMobile}
         />
@@ -759,6 +989,238 @@ function TabButton({
     >
       {children}
     </button>
+  );
+}
+
+function FilesPanel({
+  focus,
+  localCursor,
+  remoteCursor,
+  localMarked,
+  info,
+  onFocus,
+  onSelectLocal,
+  onSelectRemote,
+  onToggleMark,
+  onToggleInfo,
+  footerDesktop,
+  footerMobile,
+}: {
+  focus: 0 | 1;
+  localCursor: number;
+  remoteCursor: number;
+  localMarked: Record<string, boolean>;
+  info: boolean;
+  onFocus: (pane: 0 | 1) => void;
+  onSelectLocal: (index: number) => void;
+  onSelectRemote: (index: number) => void;
+  onToggleMark: (name: string) => void;
+  onToggleInfo: () => void;
+  footerDesktop: string;
+  footerMobile: string;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className={`h-px shrink-0 bg-border ${bleedMargin}`} />
+
+      <div className="flex min-h-0 flex-1 flex-col gap-2 pt-1.5 md:hidden">
+        <FilesPane
+          label="local"
+          path="~/deploy"
+          tone={localTone}
+          focused={focus === 0}
+          entries={localFiles}
+          cursor={localCursor}
+          marked={localMarked}
+          info={info && focus === 0}
+          onFocus={() => onFocus(0)}
+          onSelect={onSelectLocal}
+          onToggleMark={onToggleMark}
+          onToggleInfo={onToggleInfo}
+          compact
+        />
+        <div className={`h-px shrink-0 bg-border ${bleedMargin}`} />
+        <FilesPane
+          label="api"
+          path="/var/www"
+          tone={remoteTone}
+          focused={focus === 1}
+          entries={remoteFiles}
+          cursor={remoteCursor}
+          info={info && focus === 1}
+          onFocus={() => onFocus(1)}
+          onSelect={onSelectRemote}
+          onToggleInfo={onToggleInfo}
+          compact
+        />
+      </div>
+
+      <div className="relative hidden min-h-0 flex-1 md:block">
+        <div className="grid h-full min-h-0 grid-cols-2">
+          <FilesPane
+            label="local"
+            path="~/deploy"
+            tone={localTone}
+            focused={focus === 0}
+            entries={localFiles}
+            cursor={localCursor}
+            marked={localMarked}
+            info={info && focus === 0}
+            onFocus={() => onFocus(0)}
+            onSelect={onSelectLocal}
+            onToggleMark={onToggleMark}
+            onToggleInfo={onToggleInfo}
+            className="min-h-0 overflow-hidden pr-3"
+          />
+          <FilesPane
+            label="api"
+            path="/var/www"
+            tone={remoteTone}
+            focused={focus === 1}
+            entries={remoteFiles}
+            cursor={remoteCursor}
+            info={info && focus === 1}
+            onFocus={() => onFocus(1)}
+            onSelect={onSelectRemote}
+            onToggleInfo={onToggleInfo}
+            className="min-h-0 overflow-hidden pl-3 pb-10"
+          />
+        </div>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute top-0 bottom-0 left-1/2 z-10 w-px bg-border"
+        />
+        <footer className="pointer-events-none absolute inset-x-0 bottom-0 truncate pb-5 text-right text-[10px] text-muted sm:text-xs md:text-sm">
+          {footerDesktop}
+        </footer>
+      </div>
+
+      <footer className="mt-2 shrink-0 truncate text-right text-[10px] text-muted sm:text-xs md:hidden">
+        {footerMobile}
+      </footer>
+    </div>
+  );
+}
+
+function FilesPane({
+  label,
+  path,
+  tone,
+  focused,
+  entries,
+  cursor,
+  marked,
+  info,
+  onFocus,
+  onSelect,
+  onToggleMark,
+  onToggleInfo,
+  compact = false,
+  className,
+}: {
+  label: string;
+  path: string;
+  tone: string;
+  focused: boolean;
+  entries: FileEntry[];
+  cursor: number;
+  marked?: Record<string, boolean>;
+  info?: boolean;
+  onFocus: () => void;
+  onSelect: (index: number) => void;
+  onToggleMark?: (name: string) => void;
+  onToggleInfo?: () => void;
+  compact?: boolean;
+  className?: string;
+}) {
+  const marker = focused ? "›" : " ";
+  const entry = entries[cursor];
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        onClick={onFocus}
+        className={`mb-1 w-full cursor-pointer truncate border-0 bg-transparent p-0 text-left font-[inherit] ${
+          focused ? "font-bold" : ""
+        }`}
+        style={{ color: tone }}
+      >
+        {marker} {label}{" "}
+        <span className={focused ? "" : "font-normal"}>{path}</span>
+      </button>
+      {info && entry ? (
+        <FilesInfo entry={entry} onClose={onToggleInfo} />
+      ) : (
+        <ul
+          role="listbox"
+          aria-label={`${label} files`}
+          className={compact ? "max-h-[7.5rem] overflow-hidden" : undefined}
+        >
+          {entries.map((item, index) => {
+            const isSelected = focused && index === cursor;
+            const isMarked = Boolean(marked?.[item.name]);
+            const prefix = isMarked ? " •" : "  ";
+            const name = item.isDir ? `${item.name}/` : item.name;
+            return (
+              <li key={item.name} role="option" aria-selected={isSelected}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onFocus();
+                    onSelect(index);
+                  }}
+                  onDoubleClick={() => onToggleMark?.(item.name)}
+                  className={`w-full cursor-pointer truncate whitespace-pre border-0 py-0.5 text-left font-[inherit] transition-colors ${
+                    isSelected
+                      ? "bg-highlight font-bold text-foreground"
+                      : "bg-transparent text-foreground hover:bg-highlight/70"
+                  }`}
+                >
+                  {prefix} {name}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function FilesInfo({
+  entry,
+  onClose,
+}: {
+  entry: FileEntry;
+  onClose?: () => void;
+}) {
+  const rows = [
+    { label: "Name", value: entry.name },
+    { label: "Type", value: entry.isDir ? "directory" : "file" },
+    { label: "Size", value: entry.size },
+    { label: "Mode", value: `${entry.mode}  ${entry.symbolic}` },
+    { label: "Modified", value: entry.modified },
+  ];
+  return (
+    <div>
+      {rows.map((row) => (
+        <p key={row.label} className="flex min-w-0 gap-3 truncate">
+          <span className="inline-block w-[10ch] shrink-0 text-muted">
+            {row.label}
+          </span>
+          <span className="min-w-0 truncate">{row.value}</span>
+        </p>
+      ))}
+      {onClose ? (
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-2 cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-muted hover:text-foreground"
+        >
+          i close
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -969,10 +1431,8 @@ function SyncPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className={`h-px shrink-0 bg-border ${bleedMargin}`} />
-      <div className="min-h-0 flex-1 overflow-hidden pt-2">
-        {provider === "" ? (
-          <p className="mb-2 font-bold text-accent">Sync</p>
-        ) : (
+      <div className="min-h-0 flex-1 overflow-hidden pt-1.5">
+        {provider === "" ? null : (
           <>
             <div className="mb-1 flex items-center justify-between gap-2">
               <p className="font-bold text-accent">

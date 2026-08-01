@@ -62,6 +62,8 @@ type filesState struct {
 	focus       int
 	transfer    filesTransfer
 	jump        filesJump
+	chmod       filesChmod
+	info        bool
 	deletePaths []string
 	ready       bool
 }
@@ -309,7 +311,17 @@ func (m *App) renderFilesBrowser(s styleSet, pane *filesPane, focused bool, list
 	}
 	if pane.err != "" {
 		b.WriteString("  " + s.error.Render(pane.err) + "\n")
-	} else if len(pane.entries) == 0 && (pane.loading || pane.connecting) {
+		return b.String()
+	}
+	if focused && m.files.chmod.active {
+		b.WriteString(m.renderFilesChmod(s, width))
+		return b.String()
+	}
+	if focused && m.files.info {
+		b.WriteString(m.renderFilesInfo(s, pane, width))
+		return b.String()
+	}
+	if len(pane.entries) == 0 && (pane.loading || pane.connecting) {
 		b.WriteString("  " + s.muted.Render("Loading…") + "\n")
 	} else if len(pane.entries) == 0 {
 		b.WriteString("  " + s.muted.Render("Empty") + "\n")
@@ -425,6 +437,12 @@ func (m *App) filesHostList(pane *filesPane) []sshconfig.Host {
 
 func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 	m.initFilesState()
+	if m.files.chmod.active {
+		return m.updateFilesChmod(key)
+	}
+	if m.files.info {
+		return m.updateFilesInfo(key)
+	}
 	if m.files.transfer.active {
 		switch key {
 		case "esc", "x":
@@ -520,6 +538,10 @@ func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 		return m.openFilesRenameForm()
 	case "d":
 		return m.openFilesDeleteForm()
+	case "p":
+		return m.openFilesChmodMenu()
+	case "i":
+		return m.openFilesInfo()
 	case "c":
 		return m.startFilesTransfer(false)
 	case "m":
@@ -537,6 +559,12 @@ func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 func (m *App) filesTyping() bool {
 	if m.section != filesSection || !m.files.ready {
 		return false
+	}
+	if m.files.chmod.active {
+		return true
+	}
+	if m.files.info {
+		return true
 	}
 	if m.files.jump.active {
 		return true
@@ -785,8 +813,161 @@ func (m *App) toggleFilesRange() (tea.Model, tea.Cmd) {
 	return m, m.setNotice(fmt.Sprintf("Marked %d", end-start+1))
 }
 
+func (m *App) filesPaneAt(x, y int) (index, relY int, ok bool) {
+	layout := m.panelLayout()
+	if layout.mobile {
+		switch {
+		case y >= layout.listTop && y < layout.listTop+layout.listHeight:
+			return 0, y - layout.listTop, true
+		case y >= layout.detailTop && y < layout.detailTop+layout.detailHeight:
+			return 1, y - layout.detailTop, true
+		}
+		return 0, 0, false
+	}
+	if y < layout.listTop || y >= layout.listTop+layout.listHeight {
+		return 0, 0, false
+	}
+	relY = y - layout.listTop
+	switch {
+	case x >= 0 && x < layout.listWidth:
+		return 0, relY, true
+	case x >= layout.listWidth && x < layout.listWidth+layout.detailWidth:
+		return 1, relY, true
+	}
+	return 0, 0, false
+}
+
+func (m *App) filesSideHeight(paneIndex int) int {
+	layout := m.panelLayout()
+	if paneIndex == 1 {
+		return layout.detailHeight
+	}
+	return layout.listHeight
+}
+
+// filesRowAt maps a pane-relative row to a list index. header is true for the
+// path/title line. ok is false for empty padding, errors, or out-of-range rows.
+func (m *App) filesRowAt(paneIndex, relY int) (index int, header, ok bool) {
+	if paneIndex < 0 || paneIndex > 1 || relY < 0 {
+		return 0, false, false
+	}
+	sideHeight := m.filesSideHeight(paneIndex)
+	if relY >= sideHeight {
+		return 0, false, false
+	}
+	if relY == 0 {
+		return 0, true, true
+	}
+	pane := &m.files.panes[paneIndex]
+	if pane.err != "" || pane.loading || pane.connecting {
+		return 0, false, false
+	}
+	if pane.pickingHost() {
+		hosts := m.filesHostList(pane)
+		listHeight := max(1, sideHeight-1)
+		offset := 0
+		if pane.hostCursor >= listHeight {
+			offset = pane.hostCursor - listHeight + 1
+		}
+		idx := offset + relY - 1
+		if idx < 0 || idx >= len(hosts) || relY-1 >= listHeight {
+			return 0, false, false
+		}
+		return idx, false, true
+	}
+	// Match renderFilesBrowser: listHeight arg is sideHeight-1.
+	listHeight := sideHeight - 1
+	visible := max(1, listHeight-1)
+	pane.ensureVisible(visible)
+	idx := pane.offset + relY - 1
+	if idx < 0 || idx >= len(pane.entries) || relY-1 >= visible {
+		return 0, false, false
+	}
+	return idx, false, true
+}
+
+func (m *App) updateFilesMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	m.initFilesState()
+	if m.files.transfer.active {
+		return m, nil
+	}
+	mouse := msg.Mouse()
+	paneIndex, relY, hit := m.filesPaneAt(mouse.X, mouse.Y)
+	if !hit {
+		return m, nil
+	}
+	pane := &m.files.panes[paneIndex]
+	if pane.connecting || pane.pathEdit {
+		return m, nil
+	}
+	if m.files.chmod.active || m.files.info {
+		m.clearFilesOverlays()
+		if paneIndex == m.files.focus && relY > 0 {
+			// Dismiss overlay; do not also treat as a row activation.
+			return m, nil
+		}
+	}
+	if m.files.jump.active && paneIndex != m.files.focus {
+		m.files.jump = filesJump{}
+	}
+
+	wasFocused := m.files.focus == paneIndex
+	m.files.focus = paneIndex
+
+	row, header, ok := m.filesRowAt(paneIndex, relY)
+	if header {
+		if !wasFocused {
+			return m, nil
+		}
+		if pane.pickingHost() {
+			pane.hostSearch = "\x00"
+			pane.hostCursor = 0
+			return m, nil
+		}
+		return m.beginFilesPathEdit()
+	}
+	if !ok {
+		return m, nil
+	}
+
+	if m.files.jump.active {
+		m.files.jump = filesJump{}
+	}
+
+	if pane.pickingHost() {
+		if wasFocused && pane.hostCursor == row {
+			return m.activateFilesSelection()
+		}
+		pane.hostCursor = row
+		return m, nil
+	}
+
+	if wasFocused && pane.cursor == row {
+		return m.activateFilesSelection()
+	}
+	pane.cursor = row
+	pane.clamp()
+	return m, nil
+}
+
 func (m *App) updateFilesMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
-	switch msg.Mouse().Button {
+	if m.files.chmod.active {
+		return m, nil
+	}
+	mouse := msg.Mouse()
+	if index, _, ok := m.filesPaneAt(mouse.X, mouse.Y); ok {
+		m.files.focus = index
+	}
+	if m.files.info {
+		switch mouse.Button {
+		case tea.MouseWheelUp:
+			return m.moveFilesCursor(-1)
+		case tea.MouseWheelDown:
+			return m.moveFilesCursor(1)
+		}
+		return m, nil
+	}
+	switch mouse.Button {
 	case tea.MouseWheelUp:
 		return m.moveFilesCursor(-1)
 	case tea.MouseWheelDown:
@@ -796,6 +977,12 @@ func (m *App) updateFilesMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m *App) filesFooterHint() string {
+	if m.files.chmod.active {
+		return m.filesChmodHint()
+	}
+	if m.files.info {
+		return "j/k next · p chmod · i/esc close"
+	}
 	if m.files.transfer.active {
 		if m.files.transfer.move {
 			return "moving… esc"
