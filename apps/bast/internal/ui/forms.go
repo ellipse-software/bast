@@ -153,10 +153,16 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if key == "esc" {
+		if m.form != nil && m.form.action == "files_delete" {
+			m.files.deletePaths = nil
+		}
 		m.form = nil
 		return m, nil
 	}
 	if (key == "backspace" || key == "ctrl+h") && !m.formTextInputActive() {
+		if m.form != nil && m.form.action == "files_delete" {
+			m.files.deletePaths = nil
+		}
 		m.form = nil
 		return m, nil
 	}
@@ -503,6 +509,8 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		m.form = nil
 		m.vaultBusy = "Rotating vault passphrase…"
 		return m, cmd
+	case "files_mkdir", "files_rename", "files_delete":
+		return m.submitFilesForm(values)
 	}
 	return m.formError("unknown form action")
 }
@@ -546,7 +554,7 @@ func destructiveConfirmationTarget(f *form) string {
 	switch f.action {
 	case "key_delete":
 		label = "Key"
-	case "host_delete", "known_delete", "vault_reset_passphrase":
+	case "host_delete", "known_delete", "vault_reset_passphrase", "files_delete":
 		// keep Confirmation
 	default:
 		return ""

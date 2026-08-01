@@ -34,6 +34,24 @@ func TestResolveAndCommandValidation(t *testing.T) {
 	if _, err := c.SSHCommand("-oProxyCommand=evil"); err == nil {
 		t.Fatal("expected option-like alias rejection")
 	}
+	cmd, err := c.SFTPCommand("prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cmd.Args[1:], " "); got != "-o BatchMode=yes -s -- prod sftp" {
+		t.Fatalf("SFTPCommand args = %q", got)
+	}
+	inDir, err := c.SSHCommandInDir("prod", "/var/app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Join(inDir.Args[1:], " ")
+	if !strings.Contains(args, "-t") || !strings.Contains(args, "RemoteCommand=none") || !strings.Contains(args, "cd /var/app") {
+		t.Fatalf("SSHCommandInDir args = %q", args)
+	}
+	if _, err := c.SSHCommandInDir("prod", "bad\npath"); err == nil {
+		t.Fatal("expected newline path rejection")
+	}
 	if _, err := c.Resolve(context.Background(), "prod\nHost evil"); err == nil {
 		t.Fatal("expected newline alias rejection")
 	}

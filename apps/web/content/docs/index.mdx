@@ -3,7 +3,7 @@ title: Introduction
 description: What Bast is, how it fits into your SSH workflow, and what you can do with it.
 ---
 
-Bast is a terminal app for browsing SSH hosts, managing keys, and connecting fast. Run `bast` and you get a full-screen interface with hosts, keys, and optional cloud sync. Pick a server, press Enter, and Bast hands off to your system `ssh` binary.
+Bast is a terminal app for browsing SSH hosts, managing keys, transferring files, and connecting fast. Run `bast` and you get a full-screen interface with hosts, keys, Files, and optional cloud sync. Pick a server, press Enter, and Bast hands off to your system `ssh` binary.
 
 No custom protocol and no hidden database. Bast reads the SSH configuration you already have, adds presentation metadata on top (groups, tags, favorites, notes), can import cloud VMs as read-only hosts, and keeps OpenSSH as the source of truth.
 
@@ -20,6 +20,7 @@ No custom protocol and no hidden database. Bast reads the SSH configuration you 
 - Add, edit, favorite, and hide hosts with groups, tags, colors, and notes
 - Sync VMs from [GCP](/docs/features/gcp), [AWS](/docs/features/aws), and [Azure](/docs/features/azure). GCP and Azure sync require the nightly channel.
 - Sync Bast-managed hosts and keys between machines with [Vault](/docs/features/vault) (end-to-end encrypted)
+- Browse and transfer files over [SFTP](/docs/features/files) in a dual-pane Files tab
 - Generate, import, export, and install SSH keys from the same interface
 - Connect with one keypress, or jump straight in from the shell with `bast <label>`
 - Use Bast from a phone or narrow terminal — the TUI switches to a [mobile layout](/docs/features/mobile-view) below 60 columns

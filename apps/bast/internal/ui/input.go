@@ -98,6 +98,8 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		keysEnd := keysStart + lipgloss.Width(headerTabLabels[1])
 		syncStart := keysEnd + lipgloss.Width(headerTabSpacing)
 		syncEnd := syncStart + lipgloss.Width(headerTabLabels[2])
+		filesStart := syncEnd + lipgloss.Width(headerTabSpacing)
+		filesEnd := filesStart + lipgloss.Width(headerTabLabels[3])
 		switch {
 		case mouse.X >= tabsStart && mouse.X < hostsEnd:
 			m.section, m.cursor, m.search = hostsSection, 0, ""
@@ -106,6 +108,8 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		case mouse.X >= syncStart && mouse.X < syncEnd:
 			m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
 			return m, m.syncStatusCmd()
+		case mouse.X >= filesStart && mouse.X < filesEnd:
+			return m, m.enterFilesSection()
 		}
 		return m, nil
 	}
@@ -217,6 +221,9 @@ func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.section == filesSection {
+		return m.updateFilesMouseWheel(msg)
+	}
 	mouse := msg.Mouse()
 	layout := m.panelLayout()
 	if mouse.Y < layout.listTop || mouse.Y >= layout.listTop+layout.listHeight {
@@ -277,12 +284,48 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch key {
-	case "ctrl+c", "q":
+	case "ctrl+c":
+		return m, tea.Quit
+	case "q":
+		if m.filesTyping() {
+			break
+		}
 		return m, tea.Quit
 	case "?":
 		m.help, m.helpOffset = true, 0
+		return m, nil
+	case "1", "2", "3", "4":
+		if m.filesTyping() {
+			break
+		}
+		switch key {
+		case "1":
+			m.section, m.cursor, m.search = hostsSection, 0, ""
+			return m, nil
+		case "2":
+			m.section, m.cursor, m.search = keysSection, 0, ""
+			return m, nil
+		case "3":
+			m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
+			return m, m.syncStatusCmd()
+		case "4":
+			return m, m.enterFilesSection()
+		}
 	case "v":
-		m.credits = true
+		if m.section != filesSection {
+			m.credits = true
+			return m, nil
+		}
+	}
+	if m.section == filesSection {
+		m.initFilesState()
+		pane := m.filesFocusedPane()
+		if pane.pathEdit && !m.files.transfer.active && !pane.connecting && !m.files.jump.active {
+			return m.updateFilesPathInputMsg(pane, msg)
+		}
+		return m.updateFilesKeys(key)
+	}
+	switch key {
 	case ".":
 		if m.section == hostsSection {
 			m.showHidden = !m.showHidden
@@ -292,13 +335,6 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Hidden hosts concealed")
 		}
-	case "1":
-		m.section, m.cursor, m.search = hostsSection, 0, ""
-	case "2":
-		m.section, m.cursor, m.search = keysSection, 0, ""
-	case "3":
-		m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
-		return m, m.syncStatusCmd()
 	case "esc":
 		if m.section == syncSection && m.syncProvider != "" {
 			return m.updateSyncKeys(key)
@@ -458,6 +494,12 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 					m.sortHosts()
 					m.cursor = 0
 				}
+			}
+		}
+	case "F":
+		if m.section == hostsSection {
+			if host, ok := m.selectedHost(); ok {
+				return m, m.openFilesForHost(host)
 			}
 		}
 	case "h":

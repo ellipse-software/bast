@@ -112,6 +112,47 @@ func (c Client) SSHCommand(alias string) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
+// SFTPCommand starts an OpenSSH SFTP subsystem session for alias.
+// Stdin and stdout are left unset so the caller can attach pipes for the SFTP protocol.
+func (c Client) SFTPCommand(alias string) (*exec.Cmd, error) {
+	if err := validateAlias(alias); err != nil {
+		return nil, err
+	}
+	// -s treats the remote command as a subsystem name (sftp). BatchMode avoids
+	// passphrase/host-key prompts that cannot interrupt the Bast TUI.
+	cmd := exec.Command(c.SSH, "-o", "BatchMode=yes", "-s", "--", alias, "sftp")
+	return cmd, nil
+}
+
+// SSHCommandInDir opens an interactive shell on alias with cwd set to remoteDir.
+// RemoteCommand is cleared so host startup commands (e.g. tmux attach) do not
+// override the cd + shell invocation.
+func (c Client) SSHCommandInDir(alias, remoteDir string) (*exec.Cmd, error) {
+	if err := validateAlias(alias); err != nil {
+		return nil, err
+	}
+	remoteDir = strings.TrimSpace(remoteDir)
+	if remoteDir == "" || strings.ContainsAny(remoteDir, "\r\n\x00") {
+		return nil, errors.New("invalid remote directory")
+	}
+	remote := "cd " + shellQuote(remoteDir) + " && exec \"${SHELL:-/bin/sh}\" -l"
+	cmd := exec.Command(c.SSH, "-t", "-o", "RemoteCommand=none", "--", alias, remote)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd, nil
+}
+
+func shellQuote(value string) string {
+	if value != "" && strings.IndexFunc(value, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || strings.ContainsRune("-_=./:@%+", r))
+	}) < 0 {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
 func (c Client) Fingerprints(ctx context.Context, host string, port string) (string, error) {
 	if host == "" {
 		return "", nil

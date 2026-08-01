@@ -14,6 +14,7 @@ Press `?` inside Bast for the in-app reference. Press `v` for version info, cred
 | `1` | Switch to hosts tab |
 | `2` | Switch to keys tab |
 | `3` | Switch to sync tab |
+| `4` | Switch to files tab |
 | `/` | Search |
 | `r` | Reload config from disk (or refresh sync status on the Sync tab) |
 | `?` | Toggle help |
@@ -33,6 +34,7 @@ Press `?` inside Bast for the in-app reference. Press `v` for version info, cred
 | `d` | Delete selected host |
 | `p` | Promote an external host into Bast-managed config |
 | `f` | Toggle favorite |
+| `F` | Open Files for the selected host |
 | `h` | Hide or show selected host |
 | `.` | Toggle hidden hosts in the list |
 | `Space` | Collapse or expand group, including Suggested |
@@ -61,6 +63,33 @@ Press `?` inside Bast for the in-app reference. Press `v` for version info, cred
 | `r` | Refresh sync status |
 
 See [Vault](/docs/features/vault) for encrypted Bast config sync, and [GCP](/docs/features/gcp) for cloud VM import.
+
+## Files
+
+| Key | Action |
+| --- | --- |
+| `Tab` | Switch pane |
+| `w` | Swap panes |
+| `L` / `R` | Make focused pane local / remote |
+| `h` / `l` | Parent / enter directory |
+| `Enter` | Enter directory, or connect the selected host |
+| `j` / `k` | Move |
+| `g` / `G` | Top / bottom |
+| `f` / `s` | Fuzzy jump |
+| `/` | Path jump (or host search on a remote picker) |
+| `Space` | Toggle mark |
+| `v` | Start or finish range mark |
+| `c` / `m` | Copy / move to the other pane |
+| `d` | Delete (with confirmation) |
+| `a` | Create directory |
+| `r` | Rename |
+| `t` | Open a shell in the current directory |
+| `.` | Toggle hidden files |
+| `D` | Disconnect remote |
+| `Esc` | Clear marks, else disconnect, else quit |
+| `Esc` / `x` | Cancel transfer or connect |
+
+See [Files](/docs/features/files) for transfer and auth notes.
 
 ## During SSH
 

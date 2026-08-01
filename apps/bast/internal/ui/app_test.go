@@ -367,17 +367,17 @@ func TestFooterHidesConnectWhenGroupSelected(t *testing.T) {
 	m.cursor = 0
 
 	footer := m.renderFooter(m.styles())
-	if strings.Contains(footer, "connect") || strings.Contains(footer, "Connect") {
-		t.Fatalf("group footer should not mention connect: %q", footer)
+	if !strings.Contains(footer, "?") {
+		t.Fatalf("browse footer should stay minimal: %q", footer)
 	}
-	if !strings.Contains(footer, "rename") {
-		t.Fatalf("group footer should mention rename: %q", footer)
+	if strings.Contains(footer, "connect") || strings.Contains(footer, "Connect") {
+		t.Fatalf("browse footer should not list key chords: %q", footer)
 	}
 
 	m.cursor = 1
 	footer = m.renderFooter(m.styles())
-	if !strings.Contains(footer, "connect") && !strings.Contains(footer, "Connect") {
-		t.Fatalf("host footer should mention connect: %q", footer)
+	if !strings.Contains(footer, "?") || strings.Contains(footer, "connect") {
+		t.Fatalf("host footer should stay minimal: %q", footer)
 	}
 }
 
@@ -1928,8 +1928,8 @@ func TestMobileLayoutStacksPanelsVertically(t *testing.T) {
 		t.Fatalf("mobile host details are missing the connect button:\n%s", body)
 	}
 	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "enter/click Connect") {
-		t.Fatalf("mobile footer does not mention connect: %q", footer)
+	if !strings.Contains(footer, "?") || strings.Contains(footer, "enter/click Connect") {
+		t.Fatalf("mobile footer should stay minimal: %q", footer)
 	}
 }
 
@@ -2062,7 +2062,7 @@ func TestMainLayoutKeepsDetailsRightAndFooterAtBottom(t *testing.T) {
 		t.Fatalf("render height = %d, want %d", lipgloss.Height(rendered), m.height)
 	}
 	lines := strings.Split(rendered, "\n")
-	if !strings.Contains(lines[len(lines)-1], "? help") {
+	if !strings.Contains(lines[len(lines)-1], "?") {
 		t.Fatalf("footer was not on the bottom row: %q", lines[len(lines)-1])
 	}
 }
@@ -2374,12 +2374,12 @@ func TestEnterTogglesSelectedGroup(t *testing.T) {
 	}
 
 	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "␣ collapse") || strings.Contains(footer, "␣ group") {
+	if !strings.Contains(footer, "?") || strings.Contains(footer, "␣ collapse") {
 		t.Fatalf("footer = %q", footer)
 	}
 	m.updateKeys(enter)
 	footer = m.renderFooter(m.styles())
-	if !strings.Contains(footer, "␣ expand") {
+	if !strings.Contains(footer, "?") || strings.Contains(footer, "␣ expand") {
 		t.Fatalf("collapsed footer = %q", footer)
 	}
 }

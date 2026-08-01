@@ -1,0 +1,11 @@
+# CodeRabbit tool runners assume a root Go module and npm/yarn/pnpm installs.
+# This monorepo keeps go.mod under apps/bast and uses Bun for apps/web; CI already
+# runs gofmt / go test / go vet and bun run lint:web. Keep the AI review; skip the
+# tools that cannot execute correctly from the repository root.
+language: en-US
+reviews:
+  tools:
+    golangci-lint:
+      enabled: false
+    eslint:
+      enabled: false

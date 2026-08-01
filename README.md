@@ -105,7 +105,7 @@ The Sync tab (`3` in the TUI) and `bast sync` commands import read-only virtual 
 
 ## What Bast does
 
-Bast reads your existing OpenSSH configuration, adds organization and key management, discovers hosts from shell history, and launches the system `ssh` binary for connections. OpenSSH remains the source of truth. Start with the [documentation](https://bast.sh/docs), or read about [host management](https://bast.sh/docs/features/host-management), [history import](https://bast.sh/docs/features/history-import), and [SSH keys](https://bast.sh/docs/features/keys).
+Bast reads your existing OpenSSH configuration, adds organization and key management, discovers hosts from shell history, transfers files over SFTP, and launches the system `ssh` binary for connections. OpenSSH remains the source of truth. Start with the [documentation](https://bast.sh/docs), or read about [host management](https://bast.sh/docs/features/host-management), [Files](https://bast.sh/docs/features/files), [history import](https://bast.sh/docs/features/history-import), and [SSH keys](https://bast.sh/docs/features/keys).
 
 ## Requirements
 
@@ -124,7 +124,9 @@ Press `?` in Bast to see contextual keybindings, or use the [keyboard shortcut r
 
 ## Files
 
-See [Files and storage](https://bast.sh/docs/reference/files) for the OpenSSH includes, managed keys, cloud configuration, and metadata Bast writes. Back up `~/.ssh` before trying unreleased builds on a real config, and never paste private keys into issues.
+The Files tab (`4` in the TUI) is a dual-pane local/remote browser over OpenSSH SFTP. See [Files](https://bast.sh/docs/features/files).
+
+For paths Bast writes under `~/.ssh`, see [Files and storage](https://bast.sh/docs/reference/files). Back up `~/.ssh` before trying unreleased builds on a real config, and never paste private keys into issues.
 
 ## Telemetry
 
