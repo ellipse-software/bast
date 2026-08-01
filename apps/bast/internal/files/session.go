@@ -61,6 +61,13 @@ func OpenSession(ctx context.Context, openSSH openssh.Client, alias string) (*Se
 	case <-ctx.Done():
 		_ = stdin.Close()
 		_ = cmd.Process.Kill()
+		// Wait for the handshake goroutine before Wait so StdoutPipe is not
+		// closed under an in-flight NewClientPipe reader, and so a client that
+		// raced past cancellation is closed instead of leaked.
+		res := <-done
+		if res.client != nil {
+			_ = res.client.Close()
+		}
 		_ = cmd.Wait()
 		return nil, ctx.Err()
 	case res := <-done:

@@ -48,6 +48,11 @@ func LocalPathContained(parent, child string) bool {
 		return true
 	}
 	sep := string(filepath.Separator)
+	// Roots such as "/" or `C:\` already end with the separator; appending
+	// another would build "//" / `C:\\` and reject every real child.
+	if strings.HasSuffix(parent, sep) {
+		return strings.HasPrefix(child, parent)
+	}
 	return strings.HasPrefix(child, parent+sep)
 }
 

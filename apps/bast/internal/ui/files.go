@@ -210,6 +210,8 @@ func (p *filesPane) closeSession() {
 		p.connectCancel()
 		p.connectCancel = nil
 	}
+	// Invalidate in-flight connect results so a late success cannot reattach.
+	p.connectGen++
 	if p.session != nil {
 		_ = p.session.Close()
 		p.session = nil
@@ -437,10 +439,13 @@ func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 	if pane.connecting {
 		switch key {
 		case "esc", "x":
+			pane.connectGen++
 			if pane.connectCancel != nil {
 				pane.connectCancel()
+				pane.connectCancel = nil
 			}
-			return m, m.setNotice("Cancelling connect…")
+			pane.connecting = false
+			return m, m.setNotice("Connect cancelled")
 		}
 		return m, nil
 	}

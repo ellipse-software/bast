@@ -7,6 +7,51 @@ import (
 	"testing"
 )
 
+func TestLocalPathContainedRoot(t *testing.T) {
+	root := string(filepath.Separator)
+	child := filepath.Join(root, "tmp", "nested")
+	if !LocalPathContained(root, child) {
+		t.Fatalf("LocalPathContained(%q, %q) = false, want true", root, child)
+	}
+	if !LocalPathContained(root, root) {
+		t.Fatalf("LocalPathContained(%q, %q) = false, want true", root, root)
+	}
+	parent := filepath.Join(root, "tmp")
+	outside := filepath.Join(root, "var")
+	if LocalPathContained(parent, outside) {
+		t.Fatalf("LocalPathContained(%q, %q) = true, want false", parent, outside)
+	}
+}
+
+func TestTransferLocalLocalCopiesSymlinkFile(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	link := filepath.Join(root, "link.txt")
+	dstDir := filepath.Join(root, "dst")
+	if err := os.WriteFile(target, []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(dstDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := TransferAny(context.Background(), Endpoint{}, Endpoint{}, []string{link}, dstDir, false, func(Progress) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dstDir, "link.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "payload" {
+		t.Fatalf("copied = %q, want payload", got)
+	}
+}
+
 func TestCleanAndJoinRemote(t *testing.T) {
 	got, err := CleanRemote("/tmp/../var//log")
 	if err != nil || got != "/var/log" {

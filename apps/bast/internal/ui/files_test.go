@@ -263,6 +263,36 @@ func TestFilesPathEditAcceptsSpace(t *testing.T) {
 	}
 }
 
+func TestFilesConnectCancelInvalidatesGeneration(t *testing.T) {
+	m := testApp(t)
+	_ = m.enterFilesSection()
+	pane := &m.files.panes[0]
+	pane.kind = filesPaneRemote
+	pane.connecting = true
+	pane.connectGen = 3
+	cancelled := false
+	pane.connectCancel = func() { cancelled = true }
+
+	m.updateFilesKeys("esc")
+	if !cancelled {
+		t.Fatal("esc should cancel in-flight connect")
+	}
+	if pane.connecting {
+		t.Fatal("esc should clear connecting state")
+	}
+	if pane.connectGen != 4 {
+		t.Fatalf("connectGen = %d, want 4", pane.connectGen)
+	}
+
+	m.Update(filesConnectMsg{pane: 0, gen: 3, alias: "stale", session: &files.Session{}})
+	if pane.session != nil {
+		t.Fatal("stale successful connect should not attach")
+	}
+	if pane.connecting {
+		t.Fatal("stale connect should not restore connecting")
+	}
+}
+
 func TestFilesStaleListMsgIgnored(t *testing.T) {
 	m := testApp(t)
 	dir := t.TempDir()

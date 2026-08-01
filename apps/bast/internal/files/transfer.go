@@ -153,6 +153,9 @@ func transferLocalOne(ctx context.Context, src, dest string, state *Progress, pr
 	if err := progress(*state); err != nil {
 		return err
 	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return copyFileLocalLocal(ctx, src, dest, info.Mode(), state, progress)
+	}
 	if info.IsDir() {
 		if LocalPathContained(src, dest) {
 			return errSamePath
