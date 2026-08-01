@@ -1,9 +1,9 @@
 import {
   Cloud,
   FileText,
+  FolderOpen,
   Key,
   Smartphone,
-  Tags,
   Terminal,
   type LucideIcon,
 } from "lucide-react";
@@ -33,16 +33,16 @@ const features: {
     icon: Cloud,
   },
   {
+    title: "Files over SFTP",
+    description:
+      "Dual-pane local and remote browser. Copy and move with the same OpenSSH config as Connect.",
+    icon: FolderOpen,
+  },
+  {
     title: "Mobile UI",
     description:
       "Works in phone SSH apps and narrow terminals. List and detail stack. Tap or use the keyboard.",
     icon: Smartphone,
-  },
-  {
-    title: "Groups, tags & colors",
-    description:
-      "Nested groups, tags, environment, notes, and hex color labels. Search and sort across all of it.",
-    icon: Tags,
   },
   {
     title: "Key management",

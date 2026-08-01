@@ -477,6 +477,8 @@ func (m *App) itemCount() int {
 		return len(m.hostListRows())
 	case keysSection:
 		return len(m.filteredKeys())
+	case filesSection:
+		return 0
 	default:
 		return len(m.syncMenuItems())
 	}

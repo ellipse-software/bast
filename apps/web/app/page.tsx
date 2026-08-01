@@ -18,8 +18,9 @@ export default async function Home() {
             Bast<span className="text-accent">.sh</span>
           </h1>
           <p className="max-w-lg text-base leading-relaxed text-muted sm:text-base md:text-lg">
-            Browse SSH hosts, sync cloud VMs, manage keys, and connect from the
-            terminal. The fast way into the servers you use every day.
+            Browse SSH hosts, transfer files over SFTP, sync cloud VMs, manage
+            keys, and connect from the terminal. The fast way into the servers
+            you use every day.
           </p>
         </header>
 
