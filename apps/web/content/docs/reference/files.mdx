@@ -3,7 +3,7 @@ title: Files and storage
 description: Where Bast writes SSH config, keys, and metadata on your system.
 ---
 
-Bast keeps things in predictable places on your machine. Cloud sync only writes local SSH config from provider APIs — Bast does not host your servers or keys.
+Bast keeps things in predictable places on your machine. Cloud sync only writes local SSH config from provider APIs. Vault stores an encrypted backup of Bast-managed state remotely — never plaintext.
 
 ## Managed SSH config
 
@@ -11,7 +11,7 @@ Bast keeps things in predictable places on your machine. Cloud sync only writes 
 ~/.ssh/bast/config
 ```
 
-Host blocks you create through Bast are written here. Your main `~/.ssh/config` gets one `Include` line pointing at this file.
+Host blocks you create through Bast are written here. Your main `~/.ssh/config` gets one `Include` line pointing at this file. External hosts can be copied here with [promote](/docs/features/vault#promote).
 
 ## GCP sync config
 
@@ -43,7 +43,7 @@ Azure Linux VMs imported through Azure sync are written here. Bast includes this
 ~/.ssh/bast/keys/
 ```
 
-Generated and imported keys live here. Private keys are written at mode `0600`. Sync also checks keys under `~/.ssh`.
+Generated, imported, and promoted keys live here. Private keys are written at mode `0600`. Sync also checks keys under `~/.ssh`.
 
 GCP falls back to `~/.ssh/google_compute_engine` when no local key matches VM metadata or an OS Login profile. AWS checks for a private key matching the EC2 key-pair name, then falls back to `~/.ssh/bast/aws_compute` through EC2 Instance Connect.
 
@@ -56,10 +56,19 @@ Azure checks deployment public keys against local keys. Microsoft Entra key and 
 ## Metadata
 
 ```
-bast/state.json
+~/.config/bast/state.json
 ```
 
-Lives under your OS user config directory (for example `~/Library/Application Support/bast/state.json` on macOS, `~/.config/bast/state.json` on Linux). Stores presentation metadata, cloud sync settings, pending history suggestions, and per-file history scan checkpoints. Bast does not store the original shell history commands.
+Stores presentation metadata, cloud sync settings, pending history suggestions, and per-file history scan checkpoints. Bast does not store the original shell history commands.
+
+## Vault session
+
+```
+~/.config/bast/vault-session.json
+~/.config/bast/vault-passphrase
+```
+
+Device bearer token and vault revision live in `vault-session.json`. The local encryption passphrase is stored in `vault-passphrase` (mode `0600`) so Bast can unlock without prompting every launch. Treat that file like an unlocked private key on disk: anyone who can read it can decrypt your vault ciphertext. Log out clears both. The passphrase is never sent to Bast servers.
 
 ## What stays in OpenSSH
 

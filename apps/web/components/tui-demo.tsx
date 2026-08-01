@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
 type Section = "hosts" | "keys" | "sync";
-type SyncProvider = "" | "gcp" | "aws" | "azure";
+type SyncProvider = "" | "vault" | "gcp" | "aws" | "azure";
 
 type DetailRow = { label: string; value: string };
 
@@ -40,8 +40,9 @@ type HostListRow =
 type SyncMenuItem = {
   label: string;
   detail?: string;
+  description?: string;
   disabled?: boolean;
-  action?: "open-gcp" | "open-aws" | "open-azure";
+  action?: "open-vault" | "open-gcp" | "open-aws" | "open-azure";
 };
 
 type HostGroupNode = {
@@ -231,9 +232,54 @@ const keys: KeyItem[] = [
 ];
 
 const syncProviders: SyncMenuItem[] = [
-  { label: "GCP", detail: "2 · 2026-07-26 13:55", action: "open-gcp" },
-  { label: "AWS", detail: "4 · 2026-07-27 18:20", action: "open-aws" },
-  { label: "Azure", detail: "3 · 2026-07-28 10:12", action: "open-azure" },
+  {
+    label: "Vault",
+    detail: "you@example.com · a1b2c3d4",
+    description: "Bast-managed hosts and keys, encrypted between machines",
+    action: "open-vault",
+  },
+  {
+    label: "GCP",
+    detail: "2 · 2026-07-26 13:55",
+    description: "Import Compute Engine VMs into Bast",
+    action: "open-gcp",
+  },
+  {
+    label: "AWS",
+    detail: "4 · 2026-07-27 18:20",
+    description: "Import EC2 instances into Bast",
+    action: "open-aws",
+  },
+  {
+    label: "Azure",
+    detail: "3 · 2026-07-28 10:12",
+    description: "Import Azure VMs into Bast",
+    action: "open-azure",
+  },
+];
+
+const syncVaultActions: SyncMenuItem[] = [
+  {
+    label: "Sync now",
+    description: "Keep this machine and the vault in sync",
+  },
+  {
+    label: "Rotate passphrase",
+    description: "Requires the current passphrase",
+  },
+  {
+    label: "Reset passphrase",
+    description: "Overwrites the remote vault with this machine",
+  },
+  { label: "Log out" },
+];
+
+const vaultStatusRows: DetailRow[] = [
+  { label: "Status", value: "linked" },
+  { label: "Email", value: "you@example.com" },
+  { label: "Session", value: "unlocked" },
+  { label: "Revision", value: "a1b2c3d4e5f6" },
+  { label: "Last sync", value: "13:55:02" },
 ];
 
 const syncGcpActions: SyncMenuItem[] = [
@@ -256,6 +302,7 @@ const gcpStatusRows: DetailRow[] = [
 ];
 
 const syncProviderActions: Record<Exclude<SyncProvider, "">, SyncMenuItem[]> = {
+  vault: syncVaultActions,
   gcp: syncGcpActions,
   aws: [
     { label: "Sync now" },
@@ -278,6 +325,7 @@ const syncProviderActions: Record<Exclude<SyncProvider, "">, SyncMenuItem[]> = {
 };
 
 const syncProviderStatus: Record<Exclude<SyncProvider, "">, DetailRow[]> = {
+  vault: vaultStatusRows,
   gcp: gcpStatusRows,
   aws: [
     { label: "Status", value: "enabled" },
@@ -299,6 +347,8 @@ function providerForAction(
   action: SyncMenuItem["action"],
 ): Exclude<SyncProvider, ""> | null {
   switch (action) {
+    case "open-vault":
+      return "vault";
     case "open-gcp":
       return "gcp";
     case "open-aws":
@@ -307,6 +357,19 @@ function providerForAction(
       return "azure";
     default:
       return null;
+  }
+}
+
+function syncProviderTitle(provider: Exclude<SyncProvider, "">): string {
+  switch (provider) {
+    case "vault":
+      return "Vault";
+    case "gcp":
+      return "GCP";
+    case "aws":
+      return "AWS";
+    case "azure":
+      return "Azure";
   }
 }
 
@@ -908,17 +971,12 @@ function SyncPanel({
       <div className={`h-px shrink-0 bg-border ${bleedMargin}`} />
       <div className="min-h-0 flex-1 overflow-hidden pt-2">
         {provider === "" ? (
-          <>
-            <p className="font-bold text-accent">Providers</p>
-            <p className="mb-2 text-muted">
-              Browse and connect to VMs from your cloud accounts.
-            </p>
-          </>
+          <p className="mb-2 font-bold text-accent">Sync</p>
         ) : (
           <>
             <div className="mb-1 flex items-center justify-between gap-2">
               <p className="font-bold text-accent">
-                {provider === "gcp" ? "GCP" : provider === "aws" ? "AWS" : "Azure"}
+                {syncProviderTitle(provider)}
               </p>
               <button
                 type="button"
@@ -959,6 +1017,9 @@ function SyncPanel({
                     </span>
                   ) : null}
                 </button>
+                {isSelected && item.description ? (
+                  <p className="pl-4 text-muted">{item.description}</p>
+                ) : null}
               </li>
             );
           })}

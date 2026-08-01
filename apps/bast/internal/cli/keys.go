@@ -10,7 +10,7 @@ import (
 
 func (r *Runner) keys(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast keys <list|show|generate|import|comment|export|install|passphrase|public|copy|delete>")
+		fmt.Fprintln(r.Out, "Usage: bast keys <list|show|generate|import|promote|comment|export|install|passphrase|public|copy|delete>")
 		return nil
 	}
 	switch args[0] {
@@ -22,6 +22,8 @@ func (r *Runner) keys(args []string) error {
 		return r.keyGenerate(args[1:])
 	case "import":
 		return r.keyImport(args[1:])
+	case "promote":
+		return r.keyPromote(args[1:])
 	case "comment":
 		return r.keyComment(args[1:])
 	case "export":
@@ -179,6 +181,36 @@ func (r *Runner) keyImport(args []string) error {
 		return err
 	}
 	return r.success(map[string]string{"name": name}, "Key imported: "+name)
+}
+
+func (r *Runner) keyPromote(args []string) error {
+	fs := newFlagSet("keys promote")
+	name := fs.String("name", "", "managed key name (defaults to current name)")
+	if err := fs.Parse(positionalFirst(args)); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 1 {
+		return usagef("usage: bast keys promote <key> [--name managed-name]")
+	}
+	_, records, err := r.snapshot()
+	if err != nil {
+		return err
+	}
+	key, err := findKey(fs.Arg(0), records)
+	if err != nil {
+		return err
+	}
+	if key.Managed {
+		return fail("already_managed", "key is already Bast managed")
+	}
+	managedName := *name
+	if managedName == "" {
+		managedName = key.Name
+	}
+	if err := r.keyring.Promote(key.raw, managedName); err != nil {
+		return err
+	}
+	return r.success(map[string]string{"name": managedName, "source": key.Name}, "Key promoted: "+managedName)
 }
 
 func (r *Runner) keyComment(args []string) error {

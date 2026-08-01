@@ -13,11 +13,12 @@ import (
 )
 
 type syncMenuItem struct {
-	label    string
-	detail   string
-	action   string
-	provider string
-	disabled bool
+	label       string
+	detail      string
+	description string
+	action      string
+	provider    string
+	disabled    bool
 }
 
 type providerDetail struct {
@@ -37,9 +38,24 @@ type providerRow struct {
 }
 
 func (m *App) syncProviders() []syncMenuItem {
-	providers := []struct{ label, name string }{{"GCP", "gcp"}, {"AWS", "aws"}, {"Azure", "azure"}}
+	vaultDetail := m.vaultStatusDetail()
+	providers := []struct {
+		label, name, description string
+	}{
+		{"Vault", "vault", "Bast-managed hosts and keys, encrypted between machines"},
+		{"GCP", "gcp", "Import Compute Engine VMs into Bast"},
+		{"AWS", "aws", "Import EC2 instances into Bast"},
+		{"Azure", "azure", "Import Azure VMs into Bast"},
+	}
 	items := make([]syncMenuItem, 0, len(providers))
 	for _, provider := range providers {
+		if provider.name == "vault" {
+			items = append(items, syncMenuItem{
+				label: provider.label, detail: vaultDetail,
+				description: provider.description, provider: provider.name,
+			})
+			continue
+		}
 		detail := m.providerDetail(provider.name)
 		text := "disabled"
 		if detail.enabled {
@@ -48,7 +64,10 @@ func (m *App) syncProviders() []syncMenuItem {
 				text = fmt.Sprintf("%d · %s", detail.lastInstanceCount, detail.lastSyncAt.Local().Format("2006-01-02 15:04"))
 			}
 		}
-		items = append(items, syncMenuItem{label: provider.label, detail: text, provider: provider.name})
+		items = append(items, syncMenuItem{
+			label: provider.label, detail: text,
+			description: provider.description, provider: provider.name,
+		})
 	}
 	return items
 }
@@ -126,6 +145,8 @@ func (m *App) providerDetail(provider string) providerDetail {
 
 func (m *App) syncProviderActions(provider string) []syncMenuItem {
 	switch provider {
+	case "vault":
+		return m.vaultMenuItems()
 	case "gcp":
 		return m.gcpSyncActions()
 	case "aws":
@@ -290,8 +311,7 @@ func (m *App) renderSync(s styleSet) string {
 
 	var b strings.Builder
 	if m.syncProvider == "" {
-		b.WriteString("\n  " + s.active.Render("Providers") + "\n")
-		b.WriteString("  " + s.muted.Render("Browse and connect to VMs from your cloud accounts.") + "\n\n")
+		b.WriteString("\n  " + s.active.Render("Sync") + "\n\n")
 		for i, item := range items {
 			b.WriteString(m.renderSyncMenuLine(s, i, item) + "\n")
 		}
@@ -300,13 +320,19 @@ func (m *App) renderSync(s styleSet) string {
 
 	title := strings.ToUpper(m.syncProvider)
 	switch m.syncProvider {
+	case "vault":
+		title = "Vault"
 	case "gcp":
 		title = "GCP"
 	case "azure":
 		title = "Azure"
 	}
 	b.WriteString("\n  " + s.active.Render(title) + "\n")
-	b.WriteString(m.renderProviderStatus(s, m.syncProvider))
+	if m.syncProvider == "vault" {
+		b.WriteString(m.renderVaultStatus(s))
+	} else {
+		b.WriteString(m.renderProviderStatus(s, m.syncProvider))
+	}
 	b.WriteString("\n")
 	for i, item := range items {
 		b.WriteString(m.renderSyncMenuLine(s, i, item) + "\n")
@@ -325,14 +351,20 @@ func (m *App) renderSyncMenuLine(s styleSet, index int, item syncMenuItem) strin
 		label = label + strings.Repeat(" ", gap) + item.detail
 	}
 	line := "  " + label
+	var rendered string
 	switch {
 	case index == m.syncCursor && !item.disabled:
-		return s.selected.Width(width + 2).Render(line)
+		rendered = s.selected.Width(width + 2).Render(line)
 	case item.disabled:
-		return s.muted.Width(width + 2).Render(line)
+		rendered = s.muted.Width(width + 2).Render(line)
 	default:
-		return s.value.Width(width + 2).Render(line)
+		rendered = s.value.Width(width + 2).Render(line)
 	}
+	if index == m.syncCursor && item.description != "" {
+		desc := truncate(item.description, max(20, m.terminalWidth()-8))
+		rendered += "\n    " + s.muted.Render(desc)
+	}
+	return rendered
 }
 
 func (m *App) renderProviderStatus(s styleSet, provider string) string {
@@ -399,7 +431,13 @@ func (m *App) updateSyncKeys(key string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "" {
 			m.syncProvider = item.provider
 			m.syncCursor = 0
+			if item.provider == "vault" {
+				return m, nil
+			}
 			return m, m.syncStatusCmd()
+		}
+		if m.syncProvider == "vault" {
+			return m.runVaultAction(item.action)
 		}
 		if m.anySyncing() {
 			return m, nil

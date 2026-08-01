@@ -274,6 +274,62 @@ func (m Manager) Add(input HostInput) (Host, error) {
 			return Host{}, fmt.Errorf("host label %q already exists in %s", input.Alias, host.Source)
 		}
 	}
+	return m.appendManaged(input)
+}
+
+// Promote copies an external (non-managed, non-synced) host into Bast-managed
+// config. The original SSH config block is left untouched; Bast's Include
+// typically shadows it once the managed block exists.
+func (m Manager) Promote(host Host) (Host, error) {
+	if host.Managed {
+		return Host{}, errors.New("host is already Bast managed")
+	}
+	if host.Synced {
+		return Host{}, errors.New("synced cloud hosts cannot be promoted; they stay provider-managed")
+	}
+	if strings.TrimSpace(host.Resolved.HostName) == "" {
+		return Host{}, errors.New("host has no HostName yet; wait for details to load or set HostName in SSH config")
+	}
+	identity := ""
+	passwordOnly := isPasswordOnly(host.Resolved)
+	if !passwordOnly && len(host.Resolved.IdentityFiles) > 0 {
+		identity = m.HomeRelative(host.Resolved.IdentityFiles[0])
+	}
+	proxy := host.Resolved.ProxyJump
+	if strings.EqualFold(proxy, "none") {
+		proxy = ""
+	}
+	input := HostInput{
+		Alias:        host.Alias,
+		HostName:     host.Resolved.HostName,
+		User:         host.Resolved.User,
+		Port:         host.Resolved.Port,
+		IdentityFile: identity,
+		PasswordOnly: passwordOnly,
+		ProxyJump:    proxy,
+	}
+	if err := Validate(input); err != nil {
+		return Host{}, err
+	}
+	hosts, err := m.Discover()
+	if err != nil {
+		return Host{}, err
+	}
+	for _, existing := range hosts {
+		if existing.Alias != host.Alias {
+			continue
+		}
+		if existing.Managed {
+			return Host{}, fmt.Errorf("host %q is already Bast managed", host.Alias)
+		}
+		if existing.Synced {
+			return Host{}, errors.New("synced cloud hosts cannot be promoted; they stay provider-managed")
+		}
+	}
+	return m.appendManaged(input)
+}
+
+func (m Manager) appendManaged(input HostInput) (Host, error) {
 	if err := m.EnsureManaged(); err != nil {
 		return Host{}, err
 	}
@@ -297,6 +353,23 @@ func (m Manager) Add(input HostInput) (Host, error) {
 		return Host{}, err
 	}
 	return Host{Alias: input.Alias, Source: m.ManagedConfig, Managed: true, ManagedID: id}, nil
+}
+
+// HomeRelative rewrites absolute paths under the user home as ~/… for portable SSH config.
+func (m Manager) HomeRelative(path string) string {
+	if path == "" || strings.HasPrefix(path, "~/") {
+		return path
+	}
+	if rel, err := filepath.Rel(m.Home, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "~/" + filepath.ToSlash(rel)
+	}
+	return path
+}
+
+func isPasswordOnly(resolved Resolved) bool {
+	return strings.EqualFold(resolved.PubkeyAuthentication, "no") &&
+		(strings.EqualFold(resolved.PasswordAuthentication, "yes") ||
+			strings.Contains(strings.ToLower(resolved.PreferredAuthentications), "password"))
 }
 
 func (m Manager) Update(id string, input HostInput) error {

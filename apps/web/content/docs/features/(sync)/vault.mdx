@@ -1,0 +1,97 @@
+---
+title: Vault
+description: Sync Bast-managed hosts and keys between machines with end-to-end encryption.
+---
+
+Vault syncs **Bast-managed** hosts, keys, and metadata between your machines. It is separate from cloud provider sync (GCP / AWS / Azure), which imports VMs into local SSH config.
+
+Ciphertext is stored by Bast. The encryption passphrase never leaves your machine. Bast keeps a local copy in `~/.config/bast/vault-passphrase` (mode `0600`) so linked machines stay unlocked across launches. That file is a local secret equivalent to an unlocked key: protect the account that can read `~/.config/bast`. Log out deletes it.
+
+## What syncs
+
+| Included | Not included |
+| --- | --- |
+| Managed hosts in `~/.ssh/bast/config` | External hosts in `~/.ssh/config` |
+| Bast-managed keys in `~/.ssh/bast/keys/` | External keys under `~/.ssh` |
+| Host labels, groups, tags, notes, preferences | Cloud VM inventory files |
+| Cloud integration *settings* (filters, auto-sync flags) | Cloud credentials, SA JSON paths, last-sync errors |
+
+External hosts and keys stay local until you [promote](#promote) them into Bast-managed ownership.
+
+## Link a machine
+
+From the Sync tab, open **Vault**, or use the CLI:
+
+```bash
+bast vault login --email you@example.com
+```
+
+1. Enter your email. Bast sends a one-time code.
+2. Paste the code in the terminal.
+3. Choose a vault passphrase (and confirm it).
+
+Lost passphrase means the remote vault cannot be decrypted. Bast cannot recover it.
+
+On first link, local and remote state are merged by stable IDs (`ManagedID` for hosts, key fingerprint for keys). True conflicts (same alias, different managed IDs) must be resolved with:
+
+```bash
+bast vault pull --mode replace_local   # keep remote
+bast vault pull --mode replace_remote  # keep this machine
+```
+
+## Everyday use
+
+In the TUI (Sync → Vault), **Sync now** pulls remote changes and then pushes local ones. Linked machines also pull in the background after hosts load when a passphrase is available, and local edits debounce a push after a few seconds. Opening Bast never waits on the network to show your hosts.
+
+CLI still exposes pull and push separately:
+
+```bash
+bast vault status
+bast vault pull
+bast vault push
+bast vault logout
+bast vault passphrase          # rotate (needs current passphrase)
+bast vault passphrase --force  # reset: encrypt this machine and overwrite remote
+```
+
+### Change or reset the passphrase
+
+**Rotate** when you still know the current passphrase. Bast decrypts the remote vault, re-encrypts it with the new passphrase, and uploads it:
+
+```bash
+bast vault passphrase
+```
+
+In the TUI: Sync → Vault → **Rotate passphrase**. If the session is already unlocked, only the new passphrase is requested.
+
+**Force reset** when the old passphrase is lost, or you want this machine’s managed hosts/keys to become the remote vault under a new passphrase. This does not need the old passphrase. Remote-only data that is not on this machine is discarded:
+
+```bash
+bast vault passphrase --force
+```
+
+In the TUI: Sync → Vault → **Reset passphrase**, type `RESET`, then enter the new passphrase twice.
+
+Other linked machines must unlock (or reset) with the new passphrase afterward.
+
+Override the API base for development with `BAST_VAULT_API`.
+
+## Promote
+
+External hosts and keys cannot enter the vault until Bast owns them.
+
+| Surface | Action |
+| --- | --- |
+| Hosts tab | `p` on an external host, or the detail affordance |
+| Keys tab | `p` on an external key (managed keys still use `p` for passphrase) |
+| CLI | `bast hosts promote <host>` · `bast keys promote <key> [--name name]` |
+
+Promote copies into Bast-managed config/keys. The original external SSH config block or key file is left in place.
+
+## Encryption
+
+- Passphrase → Argon2id → 256-bit key
+- Vault document sealed with XChaCha20-Poly1305
+- Server stores only the opaque envelope (plus revision metadata in Redis and the blob in object storage)
+
+Session tokens live in `~/.config/bast/vault-session.json` (mode `0600`) and authorize upload/download of ciphertext only.

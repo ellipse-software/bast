@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -16,6 +17,7 @@ import (
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
+	"bast/internal/vault"
 )
 
 type section int
@@ -34,6 +36,7 @@ type field struct {
 	placeholder string
 	optional    bool
 	hidden      bool
+	secret      bool
 	section     string
 	options     []fieldOption
 	selected    int
@@ -173,6 +176,13 @@ type App struct {
 	syncStatus        sync.Status
 	syncProvider      string
 	syncCursor        int
+	vaultPassphrase   string
+	vaultSession      *vault.Session
+	vaultStatus       string
+	vaultLastSync     string
+	vaultDirty        bool
+	vaultBusy         string
+	vaultPushID       uint64
 
 	files filesState
 
@@ -206,6 +216,10 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 	}
 	app.hostMeta, app.hostMetaRevision = store.HostsSnapshot()
 	app.historySuggestions = store.HistoryImport().Pending
+	if pass, err := vault.LoadPassphrase(vault.PassphrasePath(p.StateFile)); err == nil && pass != "" {
+		app.vaultPassphrase = pass
+	}
+	app.refreshVaultSessionCache()
 	return app, nil
 }
 
@@ -277,6 +291,9 @@ func (m *App) autoSyncCmds() tea.Cmd {
 	if m.metadata.Azure().Enabled && m.metadata.Azure().AutoSync && !m.syncingProviders["azure"] {
 		m.syncingProviders["azure"] = true
 		autoSyncCmds = append(autoSyncCmds, m.syncAzureCmd())
+	}
+	if pull := m.vaultPullCmd(false); pull != nil {
+		autoSyncCmds = append(autoSyncCmds, pull)
 	}
 	if len(autoSyncCmds) == 0 {
 		return nil
@@ -441,6 +458,120 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.syncStatus = msg.status
 		}
 		return m, nil
+	case vaultOTPStartedMsg:
+		m.vaultBusy = ""
+		if msg.err != nil {
+			m.setError(msg.err)
+			return m, nil
+		}
+		m.openVaultCodeForm(msg.email)
+		return m, m.setNotice("Code sent to " + msg.email)
+	case vaultOTPVerifiedMsg:
+		m.vaultBusy = ""
+		if msg.err != nil {
+			m.setError(msg.err)
+			return m, nil
+		}
+		m.openVaultPassphraseForm(msg.email, msg.token, msg.userID, msg.deviceID, msg.apiBase, true)
+		return m, nil
+	case vaultUnlockedMsg:
+		m.vaultBusy = ""
+		if msg.err != nil {
+			m.setError(msg.err)
+			return m, nil
+		}
+		m.rememberVaultPassphrase(msg.passphrase)
+		if msg.next == "vault_sync" {
+			return m.runVaultAction(msg.next)
+		}
+		return m, m.setNotice("Vault unlocked")
+	case vaultPullMsg:
+		m.vaultBusy = ""
+		if msg.session != nil {
+			m.vaultSession = msg.session
+		}
+		if msg.passphrase != "" {
+			m.rememberVaultPassphrase(msg.passphrase)
+		}
+		if msg.err != nil {
+			if msg.badPassphrase {
+				m.forgetVaultPassphrase()
+			}
+			m.vaultStatus = msg.err.Error()
+			if !msg.interactive {
+				return m, nil
+			}
+			m.setError(msg.err)
+			return m, nil
+		}
+		if msg.revision != "" {
+			m.vaultLastSync = time.Now().Local().Format("15:04:05")
+			if m.vaultSession != nil {
+				m.vaultSession.Revision = msg.revision
+			}
+		}
+		m.vaultStatus = ""
+		if msg.thenPush {
+			m.vaultBusy = "Syncing vault…"
+			m.vaultStatus = "syncing…"
+			var cmds []tea.Cmd
+			if msg.changed {
+				m.loading = true
+				m.enriching = false
+				cmds = append(cmds, m.loadCmd())
+			}
+			cmds = append(cmds, m.vaultPushCmdOpts(true))
+			return m, tea.Batch(cmds...)
+		}
+		if msg.changed {
+			m.loading = true
+			m.enriching = false
+			notice := msg.notice
+			if notice == "" {
+				notice = "Vault pulled"
+			}
+			return m, tea.Batch(m.loadCmd(), m.setNotice(notice))
+		}
+		if msg.notice != "" {
+			return m, m.setNotice(msg.notice)
+		}
+		return m, nil
+	case vaultPushMsg:
+		m.vaultBusy = ""
+		if msg.session != nil {
+			m.vaultSession = msg.session
+		}
+		if msg.err != nil {
+			if msg.badPassphrase {
+				m.forgetVaultPassphrase()
+			}
+			m.vaultStatus = msg.err.Error()
+			if msg.synced {
+				return m, m.setNotice("Vault sync failed")
+			}
+			return m, m.setNotice("Vault push failed")
+		}
+		if msg.passphrase != "" && (msg.resetPassphrase || msg.rotatePassphrase) {
+			m.rememberVaultPassphrase(msg.passphrase)
+		}
+		m.vaultDirty = false
+		m.vaultLastSync = time.Now().Local().Format("15:04:05")
+		m.vaultStatus = ""
+		if msg.resetPassphrase {
+			return m, m.setNotice("Vault passphrase reset · remote replaced")
+		}
+		if msg.rotatePassphrase {
+			return m, m.setNotice("Vault passphrase rotated")
+		}
+		if msg.synced {
+			return m, m.setNotice("Vault synced")
+		}
+		return m, m.setNotice("Vault pushed")
+	case vaultPushDebounceMsg:
+		if msg.id != m.vaultPushID || !m.vaultDirty {
+			return m, nil
+		}
+		return m, m.vaultPushCmd()
 	case processDoneMsg:
 		m.loading = true
 		m.enriching = false
@@ -487,6 +618,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		return m.updateMouseWheel(msg)
 	case tea.PasteMsg:
+		if m.vaultBusy != "" {
+			return m, nil
+		}
 		if m.form != nil {
 			return m.updateFormPaste(msg)
 		}
@@ -528,6 +662,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.vaultBusy != "" {
+			return m, nil
+		}
 		if m.form != nil {
 			return m.updateForm(msg)
 		}
@@ -546,6 +683,9 @@ func (m *App) View() tea.View {
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
 	if m.form != nil && !isHostForm(m.form) {
+		view.MouseMode = tea.MouseModeNone
+	}
+	if m.vaultBusy != "" {
 		view.MouseMode = tea.MouseModeNone
 	}
 	view.WindowTitle = "Bast — SSH picker"
