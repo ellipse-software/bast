@@ -18,7 +18,7 @@ const (
 	InstallerURL        = "https://bast.sh/install"
 	NightlyInstallerURL = "https://bast.sh/install-nightly"
 	LatestReleaseURL    = "https://api.github.com/repos/ellipse-software/bast/releases/latest"
-	NightlyReleaseURL   = "https://api.github.com/repos/ellipse-software/bast/releases?per_page=20"
+	NightlyReleaseURL   = "https://api.github.com/repos/ellipse-software/bast/releases?per_page=50"
 	receiptSuffix       = ".install-receipt"
 )
 
@@ -131,10 +131,11 @@ func checkFrom[T any](
 }
 
 type githubRelease struct {
-	TagName    string `json:"tag_name"`
-	Name       string `json:"name"`
-	Draft      bool   `json:"draft"`
-	Prerelease bool   `json:"prerelease"`
+	TagName     string `json:"tag_name"`
+	Name        string `json:"name"`
+	Draft       bool   `json:"draft"`
+	Prerelease  bool   `json:"prerelease"`
+	PublishedAt string `json:"published_at"`
 }
 
 func latestFrom(ctx context.Context, client *http.Client, url string, nightly bool) (string, error) {
@@ -161,24 +162,63 @@ func latestFrom(ctx context.Context, client *http.Client, url string, nightly bo
 		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&releases); err != nil {
 			return "", fmt.Errorf("decode GitHub releases: %w", err)
 		}
-		for _, release := range releases {
-			if release.Draft || !release.Prerelease {
-				continue
-			}
-			if IsNightly(release.TagName) {
-				return release.TagName, nil
-			}
-			if version := nightlyVersionFromReleaseName(release.Name); version != "" {
-				return version, nil
-			}
+		best, ok := newestNightlyRelease(releases)
+		if !ok {
+			return "", errors.New("no published nightly release found")
 		}
-		return "", errors.New("no published nightly release found")
+		return best, nil
 	}
 	var release githubRelease
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&release); err != nil {
 		return "", fmt.Errorf("decode GitHub release: %w", err)
 	}
 	return release.TagName, nil
+}
+
+// newestNightlyRelease picks the newest nightly by version date/sha, not GitHub
+// list order. Stable releases and drafts are ignored.
+func newestNightlyRelease(releases []githubRelease) (string, bool) {
+	best := ""
+	var bestVer nightlyVersion
+	bestPublished := ""
+	for _, release := range releases {
+		if release.Draft || !release.Prerelease {
+			continue
+		}
+		version := ""
+		if IsNightly(release.TagName) {
+			version = release.TagName
+		} else if parsed := nightlyVersionFromReleaseName(release.Name); parsed != "" {
+			version = parsed
+		}
+		ver, ok := parseNightlyVersion(version)
+		if !ok {
+			continue
+		}
+		if best == "" || nightlyNewer(ver, release.PublishedAt, bestVer, bestPublished) {
+			best = version
+			bestVer = ver
+			bestPublished = release.PublishedAt
+		}
+	}
+	return best, best != ""
+}
+
+// nightlyNewer reports whether candidate is newer than current.
+// Date wins, then published_at, then SHA (lexicographic).
+func nightlyNewer(candidate nightlyVersion, candidatePublished string, current nightlyVersion, currentPublished string) bool {
+	switch {
+	case candidate.date > current.date:
+		return true
+	case candidate.date < current.date:
+		return false
+	case candidatePublished != "" && currentPublished != "" && candidatePublished != currentPublished:
+		return candidatePublished > currentPublished
+	case candidate.sha > current.sha:
+		return true
+	default:
+		return false
+	}
 }
 
 func nightlyVersionFromReleaseName(name string) string {
