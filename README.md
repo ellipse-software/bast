@@ -107,6 +107,16 @@ The Sync tab (`3` in the TUI) and `bast sync` commands import read-only virtual 
 
 Bast reads your existing OpenSSH configuration, adds organization and key management, discovers hosts from shell history, transfers files over SFTP, and launches the system `ssh` binary for connections. OpenSSH remains the source of truth. Start with the [documentation](https://bast.sh/docs), or read about [host management](https://bast.sh/docs/features/host-management), [Files](https://bast.sh/docs/features/files), [history import](https://bast.sh/docs/features/history-import), and [SSH keys](https://bast.sh/docs/features/keys).
 
+## Agent skill
+
+Teach Cursor, Claude Code, Codex, and other agents how to use Bast:
+
+```sh
+npx skills add ellipse-software/bast -g -y
+```
+
+See [AI agents](https://bast.sh/docs/reference/agents) for project-local install and curl fallbacks. The skill source is [`skills/bast/SKILL.md`](./skills/bast/SKILL.md).
+
 ## Requirements
 
 - macOS or Linux

@@ -13,6 +13,7 @@
     "lint": "bun run lint:web",
     "lint:web": "bun run --cwd apps/web lint",
     "test": "go -C apps/bast test ./...",
-    "check": "go -C apps/bast mod verify && go -C apps/bast test ./... && go -C apps/bast vet ./... && bun run lint:web && bun run build:web"
+    "sync:skill": "bash scripts/sync-skill.sh",
+    "check": "bun run sync:skill && go -C apps/bast mod verify && go -C apps/bast test ./... && go -C apps/bast vet ./... && bun run lint:web && bun run build:web"
   }
 }

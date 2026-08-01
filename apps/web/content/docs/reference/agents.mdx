@@ -1,6 +1,6 @@
 ---
 title: AI agents
-description: Install the Bast skill for Cursor, Claude Code, and Codex, and use llms.txt for agent-friendly docs.
+description: Install the Bast skill with npx skills (or curl) for Cursor, Claude Code, and Codex, and use llms.txt for agent-friendly docs.
 ---
 
 Bast ships resources for AI coding agents: an installable skill, machine-readable docs, and per-page shortcuts to open ChatGPT, Claude, or Cursor with context.
@@ -9,9 +9,33 @@ Bast ships resources for AI coding agents: an installable skill, machine-readabl
 
 The Bast skill teaches agents how to use the CLI correctly — `--json` automation, patch semantics for host edits, file paths, and safety rules (never paste private keys).
 
-It uses the standard `SKILL.md` format and works in **Cursor**, **Claude Code**, and **Codex**.
+It uses the standard `SKILL.md` format and works in **Cursor**, **Claude Code**, **Codex**, and other agents supported by the [Skills CLI](https://skills.sh/).
 
-### Install all agents
+The canonical skill lives in this repo at [`skills/bast/SKILL.md`](https://github.com/ellipse-software/bast/tree/master/skills/bast).
+
+### Install with npx skills (recommended)
+
+Global (user-level) install for every project:
+
+```bash
+npx skills add ellipse-software/bast -g -y
+```
+
+Project-local (commit agent skill dirs with your repo):
+
+```bash
+npx skills add ellipse-software/bast -y
+```
+
+List what the repo exposes without installing:
+
+```bash
+npx skills add ellipse-software/bast --list
+```
+
+Requires Node.js. The Skills CLI discovers `skills/bast/SKILL.md` and installs it into the agent directories you choose.
+
+### Curl fallback (no Node)
 
 ```bash
 curl -fsSL https://bast.sh/install-skill | sh
@@ -25,19 +49,15 @@ This writes the skill to:
 | Claude Code | `~/.claude/skills/bast/SKILL.md` |
 | Codex | `~/.codex/skills/bast/SKILL.md` |
 
-Restart or start a new agent session after installing.
-
-### Project-local skill
-
-Commit the skill with your repo so teammates and CI agents pick it up:
+Project-local via curl:
 
 ```bash
 curl -fsSL https://bast.sh/install-skill | BAST_SKILL_SCOPE=project sh
 ```
 
-That installs to `.cursor/skills/bast/`, `.claude/skills/bast/`, and `.codex/skills/bast/` in the current directory.
+Restart or start a new agent session after installing.
 
-### One agent
+### One agent (manual)
 
 ```bash
 # Cursor

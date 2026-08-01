@@ -5,6 +5,8 @@ import { useMemo, useState } from "react";
 
 import {
   installSkillCommand,
+  installSkillCurlCommand,
+  installSkillProjectCommand,
   llmsFullUrl,
   llmsTxtUrl,
   skillUrl,
@@ -110,21 +112,29 @@ type SkillTarget = {
 
 const skillTargets: SkillTarget[] = [
   {
-    title: "All agents (Cursor, Claude, Codex)",
+    title: "npx skills (global)",
     command: installSkillCommand,
   },
   {
-    title: "Cursor",
+    title: "npx skills (project)",
+    command: installSkillProjectCommand,
+  },
+  {
+    title: "curl (all agents)",
+    command: installSkillCurlCommand,
+  },
+  {
+    title: "Cursor only",
     command:
       "mkdir -p ~/.cursor/skills/bast && curl -fsSL https://bast.sh/bast.skill.md -o ~/.cursor/skills/bast/SKILL.md",
   },
   {
-    title: "Claude Code",
+    title: "Claude Code only",
     command:
       "mkdir -p ~/.claude/skills/bast && curl -fsSL https://bast.sh/bast.skill.md -o ~/.claude/skills/bast/SKILL.md",
   },
   {
-    title: "Codex",
+    title: "Codex only",
     command:
       "mkdir -p ~/.codex/skills/bast && curl -fsSL https://bast.sh/bast.skill.md -o ~/.codex/skills/bast/SKILL.md",
   },

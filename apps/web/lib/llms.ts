@@ -51,7 +51,8 @@ export function getLlmsIndex(): string {
 ## Agent resources
 
 - [Agent skill & docs for AI](${siteUrl}/docs/reference/agents): Install for Cursor, Claude Code, and Codex
-- [Skill file](${siteUrl}/bast.skill.md): \`curl -fsSL ${siteUrl}/install-skill | sh\`
+- [Skill (npx)](https://github.com/ellipse-software/bast/tree/master/skills/bast): \`npx skills add ellipse-software/bast -g -y\`
+- [Skill file](${siteUrl}/bast.skill.md): curl fallback \`curl -fsSL ${siteUrl}/install-skill | sh\`
 - [Full docs dump](${siteUrl}/llms-full.txt): All documentation in one file
 - [GitHub (bast CLI)](https://github.com/ellipse-software/bast): Source code and releases
 
@@ -68,7 +69,7 @@ export async function getLlmsFull(): Promise<string> {
 
 > ${defaultDescription}
 
-Agent skill: ${siteUrl}/bast.skill.md (install: curl -fsSL ${siteUrl}/install-skill | sh)
+Agent skill: npx skills add ellipse-software/bast -g -y (file: ${siteUrl}/bast.skill.md)
 Docs index: ${siteUrl}/llms.txt
 
 ---

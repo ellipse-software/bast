@@ -26,6 +26,9 @@ CI still enforces `test -z "$(gofmt -l .)"` within `apps/bast`. Include tests fo
 - `apps/bast`: Go CLI and terminal interface
 - `apps/bast/internal`: CLI, TUI, OpenSSH, metadata, cloud, telemetry, and updater packages
 - `apps/web`: Next.js site, documentation, installer scripts, telemetry, and error-reporting routes
+- `skills/bast`: Canonical agent skill (`SKILL.md`) for `npx skills add ellipse-software/bast`
+
+After editing `skills/bast/SKILL.md`, run `bun run sync:skill` so `apps/web/public/bast.skill.md` and its checksum stay in sync (also run by `bun run check`).
 
 Never include real hostnames, private keys, fingerprints, or production SSH configuration in issues, fixtures, screenshots, or pull requests.
 
