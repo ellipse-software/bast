@@ -777,6 +777,59 @@ func TestVaultLinkErrorsAreInteractive(t *testing.T) {
 	}
 }
 
+func TestVaultLinkErrorKeepsSessionWhenPresent(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vault"
+	m.beginVaultBusy("Linking vault…")
+
+	next, _ := m.Update(vaultPullMsg{
+		err:         fmt.Errorf("put failed"),
+		interactive: true,
+		linked:      true,
+		passphrase:  "secret",
+		session:     &vault.Session{Email: "you@example.com", Token: "tok", Revision: ""},
+	})
+	app := next.(*App)
+	if !app.vaultLinked() {
+		t.Fatal("expected linked after auth session is present even when link push failed")
+	}
+	if app.vaultSession == nil || app.vaultSession.Email != "you@example.com" {
+		t.Fatalf("session = %#v", app.vaultSession)
+	}
+	if app.vaultPassphrase != "secret" {
+		t.Fatalf("passphrase = %q", app.vaultPassphrase)
+	}
+	if app.vaultBusy != "" {
+		t.Fatalf("busy should clear on error, got %q", app.vaultBusy)
+	}
+}
+
+func TestVaultConflictDuringLinkKeepsSession(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vault"
+	m.beginVaultBusy("Linking vault…")
+
+	next, _ := m.Update(vaultConflictMsg{
+		count:       2,
+		interactive: true,
+		forLink:     true,
+		passphrase:  "secret",
+		session:     &vault.Session{Email: "you@example.com", Token: "tok"},
+	})
+	app := next.(*App)
+	if !app.vaultLinked() {
+		t.Fatal("expected linked while resolving first-link conflicts")
+	}
+	if app.vaultPassphrase != "secret" {
+		t.Fatalf("passphrase = %q", app.vaultPassphrase)
+	}
+	if app.form == nil || app.form.action != "vault_resolve" {
+		t.Fatalf("expected conflict form, got %#v", app.form)
+	}
+}
+
 func TestVaultRemoteUpdatedTriggersPull(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
@@ -792,8 +845,62 @@ func TestVaultRemoteUpdatedTriggersPull(t *testing.T) {
 	if app.vaultBusy == "" {
 		t.Fatal("expected sync busy after remote-updated push")
 	}
+	if !app.vaultRemoteRetry {
+		t.Fatal("expected remote-retry armed after first ErrRemoteUpdated")
+	}
 	if cmd == nil {
 		t.Fatal("expected pull+push recovery cmd")
+	}
+}
+
+func TestVaultRemoteUpdatedDoesNotLoop(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vault"
+	m.vaultSession = &vault.Session{Email: "you@example.com", Token: "t", Revision: "old"}
+	m.vaultPassphrase = "secret"
+	m.beginVaultBusy("Syncing vault…")
+	m.vaultRemoteRetry = true
+	opGen := m.vaultOpGen
+
+	next, cmd := m.Update(vaultPushMsg{err: vault.ErrRemoteUpdated, synced: true, opGen: opGen})
+	app := next.(*App)
+	if app.vaultBusy != "" {
+		t.Fatalf("second remote-updated should not restart busy, got %q", app.vaultBusy)
+	}
+	if app.vaultRemoteRetry {
+		t.Fatal("remote-retry should clear after giving up")
+	}
+	if app.vaultStatus != "Remote vault changed" {
+		t.Fatalf("vaultStatus = %q", app.vaultStatus)
+	}
+	if cmd == nil {
+		t.Fatal("expected notice cmd")
+	}
+}
+
+func TestVaultPushIgnoresStaleOpGen(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vault"
+	m.beginVaultBusy("Syncing vault…")
+	stale := m.vaultOpGen
+	m.cancelVaultOp()
+
+	next, cmd := m.Update(vaultPushMsg{
+		err:    vault.ErrRemoteUpdated,
+		synced: true,
+		opGen:  stale,
+	})
+	app := next.(*App)
+	if app.vaultBusy != "" {
+		t.Fatalf("stale push should not restore busy after cancel, got %q", app.vaultBusy)
+	}
+	if app.vaultRemoteRetry {
+		t.Fatal("stale push should not arm remote-retry")
+	}
+	if cmd != nil {
+		t.Fatal("stale push should be ignored")
 	}
 }
 

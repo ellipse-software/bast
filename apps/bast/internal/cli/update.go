@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"bast/internal/telemetry"
 	"bast/internal/updater"
 )
 
@@ -26,5 +27,6 @@ func (r *Runner) update(args []string) error {
 	if err := updater.Update(context.Background(), client, executable, stdout, stderr); err != nil {
 		return err
 	}
+	telemetry.Track("update", r.Version)
 	return r.success(map[string]string{"status": "updated"}, "")
 }

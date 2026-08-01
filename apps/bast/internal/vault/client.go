@@ -159,7 +159,7 @@ func (c *Client) GetVault(ctx context.Context, ifNoneMatch string) (VaultGetResu
 	if len(data) > MaxVaultBytes {
 		return VaultGetResult{}, errors.New("vault payload exceeds 1 MiB limit")
 	}
-	revision := strings.Trim(resp.Header.Get("ETag"), `"`)
+	revision := stripETag(resp.Header.Get("ETag"))
 	return VaultGetResult{
 		Meta: VaultMeta{
 			Revision:  revision,
@@ -197,7 +197,7 @@ func (c *Client) PutVault(ctx context.Context, ciphertext []byte, ifMatch string
 	var meta VaultMeta
 	_ = json.NewDecoder(resp.Body).Decode(&meta)
 	if meta.Revision == "" {
-		meta.Revision = strings.Trim(resp.Header.Get("ETag"), `"`)
+		meta.Revision = stripETag(resp.Header.Get("ETag"))
 	}
 	return meta, nil
 }
@@ -234,6 +234,14 @@ func quoteETag(rev string) string {
 		return rev
 	}
 	return `"` + rev + `"`
+}
+
+func stripETag(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(strings.ToUpper(value), "W/") {
+		value = strings.TrimSpace(value[2:])
+	}
+	return strings.ReplaceAll(value, `"`, "")
 }
 
 func apiError(resp *http.Response) error {

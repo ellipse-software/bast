@@ -3,6 +3,8 @@ import Link from "next/link";
 import { WordmarkLogo } from "@/components/wordmark-logo";
 import { bastRepoUrl } from "@/lib/github";
 
+const sponsorUrl = "https://github.com/sponsors/tedbrine";
+
 export function SiteHeader() {
   return (
     <header className="relative z-10 w-full">
@@ -24,6 +26,14 @@ export function SiteHeader() {
             className="text-foreground/80 transition-colors hover:text-foreground"
           >
             GitHub
+          </a>
+          <a
+            href={sponsorUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-foreground/80 transition-colors hover:text-foreground"
+          >
+            Sponsor
           </a>
         </nav>
       </div>

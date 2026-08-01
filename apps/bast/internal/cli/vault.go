@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -10,8 +11,27 @@ import (
 
 	"golang.org/x/term"
 
+	"bast/internal/telemetry"
 	"bast/internal/vault"
 )
+
+func (r *Runner) trackVaultResult(okEvent, failEvent string, err error) {
+	if err == nil {
+		telemetry.Track(okEvent, r.Version)
+		return
+	}
+	var ce *commandError
+	if errors.As(err, &ce) && ce.code == "usage" {
+		return
+	}
+	telemetry.Track(failEvent, r.Version)
+}
+
+func (r *Runner) trackVaultCall(okEvent, failEvent string, fn func() error) error {
+	err := fn()
+	r.trackVaultResult(okEvent, failEvent, err)
+	return err
+}
 
 func (r *Runner) vault(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
@@ -20,15 +40,19 @@ func (r *Runner) vault(args []string) error {
 	}
 	switch args[0] {
 	case "login":
-		return r.vaultLogin(args[1:])
+		return r.trackVaultCall("vault_link", "vault_link_fail", func() error { return r.vaultLogin(args[1:]) })
 	case "status":
 		return r.vaultStatus(args[1:])
 	case "push":
-		return r.vaultPush(args[1:])
+		return r.trackVaultCall("vault_push", "vault_push_fail", func() error { return r.vaultPush(args[1:]) })
 	case "pull":
-		return r.vaultPull(args[1:])
+		return r.trackVaultCall("vault_pull", "vault_pull_fail", func() error { return r.vaultPull(args[1:]) })
 	case "logout":
-		return r.vaultLogout(args[1:])
+		err := r.vaultLogout(args[1:])
+		if err == nil {
+			telemetry.Track("vault_logout", r.Version)
+		}
+		return err
 	case "passphrase":
 		return r.vaultPassphrase(args[1:])
 	default:
@@ -130,6 +154,15 @@ func (r *Runner) vaultLogin(args []string) error {
 		return usagef("mode must be merge, replace_local, or replace_remote")
 	}
 
+	// Persist auth before merge/apply/push so a later failure cannot leave
+	// hosts/keys applied while status still says not linked.
+	if err := vault.SaveSession(r.vaultSessionPath(), session); err != nil {
+		return err
+	}
+	if err := vault.SavePassphrase(vault.PassphrasePath(r.Paths.StateFile), passphrase); err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	remoteGet, err := client.GetVault(ctx, "")
@@ -173,9 +206,6 @@ func (r *Runner) vaultLogin(args []string) error {
 	}
 	session.Revision = meta.Revision
 	if err := vault.SaveSession(r.vaultSessionPath(), session); err != nil {
-		return err
-	}
-	if err := vault.SavePassphrase(vault.PassphrasePath(r.Paths.StateFile), passphrase); err != nil {
 		return err
 	}
 	return r.success(map[string]any{
@@ -378,7 +408,11 @@ func (r *Runner) vaultPassphrase(args []string) error {
 		return usagef("usage: bast vault passphrase [--force]")
 	}
 	if *force {
-		return r.vaultPassphraseForce()
+		if err := r.vaultPassphraseForce(); err != nil {
+			return err
+		}
+		telemetry.Track("vault_passphrase_reset", r.Version)
+		return nil
 	}
 	session, oldPass, client, err := r.vaultReady()
 	if err != nil {
@@ -429,6 +463,7 @@ func (r *Runner) vaultPassphrase(args []string) error {
 	if err := vault.SavePassphrase(vault.PassphrasePath(r.Paths.StateFile), newPass); err != nil {
 		return err
 	}
+	telemetry.Track("vault_passphrase_rotate", r.Version)
 	return r.success(map[string]any{"revision": meta.Revision, "force": false}, "Vault passphrase updated")
 }
 

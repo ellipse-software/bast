@@ -186,6 +186,7 @@ type App struct {
 	vaultBusyHoldLoad bool
 	vaultPushID       uint64
 	vaultOpGen        uint64
+	vaultRemoteRetry  bool // one-shot auto-recovery after ErrRemoteUpdated
 	vaultConflict     *vaultConflictState
 
 	files filesState
@@ -469,6 +470,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case vaultOTPStartedMsg:
 		m.clearVaultBusy()
 		if msg.err != nil {
+			telemetry.Track("vault_link_fail", m.version)
 			m.setError(msg.err)
 			return m, nil
 		}
@@ -477,6 +479,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case vaultOTPVerifiedMsg:
 		m.clearVaultBusy()
 		if msg.err != nil {
+			telemetry.Track("vault_link_fail", m.version)
 			m.setError(msg.err)
 			return m, nil
 		}
@@ -489,6 +492,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.rememberVaultPassphrase(msg.passphrase)
+		telemetry.Track("vault_unlock", m.version)
 		if msg.next == "vault_sync" {
 			return m.runVaultAction(msg.next)
 		}
@@ -510,6 +514,11 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.forgetVaultPassphrase()
 			}
 			m.vaultStatus = msg.err.Error()
+			if msg.linked {
+				telemetry.Track("vault_link_fail", m.version)
+			} else if msg.thenPush {
+				telemetry.Track("vault_sync_fail", m.version)
+			}
 			if !msg.interactive {
 				return m, nil
 			}
@@ -523,9 +532,12 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.vaultStatus = ""
+		if msg.linked {
+			telemetry.Track("vault_link", m.version)
+		}
 		if msg.thenPush {
 			m.vaultBusyHoldLoad = false
-			m.beginVaultBusy("Syncing vault…")
+			m.keepVaultBusy("Syncing vault…")
 			m.vaultStatus = "syncing…"
 			var cmds []tea.Cmd
 			if msg.changed {
@@ -559,10 +571,19 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.clearVaultBusy()
+		if msg.session != nil {
+			m.vaultSession = msg.session
+		}
+		if msg.forLink && msg.passphrase != "" {
+			m.rememberVaultPassphrase(msg.passphrase)
+		}
 		m.vaultStatus = fmt.Sprintf("%d sync conflicts · choose keep local or keep remote", msg.count)
 		m.openVaultConflictForm(msg)
 		return m, nil
 	case vaultPushMsg:
+		if msg.opGen != 0 && msg.opGen != m.vaultOpGen {
+			return m, nil
+		}
 		m.clearVaultBusy()
 		if msg.session != nil {
 			m.vaultSession = msg.session
@@ -573,18 +594,30 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if errors.Is(msg.err, vault.ErrRemoteUpdated) {
 				m.vaultStatus = "Remote vault changed"
+				if m.vaultRemoteRetry {
+					// Already attempted pull+push once; stop so Sync cannot hang forever.
+					m.vaultRemoteRetry = false
+					if msg.synced {
+						telemetry.Track("vault_sync_fail", m.version)
+					}
+					return m, m.setNotice("Remote vault changed · Sync now again")
+				}
 				m.beginVaultBusy("Syncing vault…")
+				m.vaultRemoteRetry = true
 				return m, tea.Batch(
 					m.setNotice("Remote vault changed · syncing"),
 					m.vaultPullCmdOpts(true, true),
 				)
 			}
+			m.vaultRemoteRetry = false
 			m.vaultStatus = msg.err.Error()
 			if msg.synced {
+				telemetry.Track("vault_sync_fail", m.version)
 				return m, m.setNotice("Vault sync failed")
 			}
 			return m, m.setNotice("Vault push failed")
 		}
+		m.vaultRemoteRetry = false
 		if msg.passphrase != "" && (msg.resetPassphrase || msg.rotatePassphrase) {
 			m.rememberVaultPassphrase(msg.passphrase)
 		}
@@ -594,10 +627,13 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		notice := "Vault pushed"
 		if msg.resetPassphrase {
 			notice = "Vault passphrase reset · remote replaced"
+			telemetry.Track("vault_passphrase_reset", m.version)
 		} else if msg.rotatePassphrase {
 			notice = "Vault passphrase rotated"
+			telemetry.Track("vault_passphrase_rotate", m.version)
 		} else if msg.synced {
 			notice = "Vault synced"
+			telemetry.Track("vault_sync", m.version)
 		}
 		if msg.applied {
 			m.loading = true
