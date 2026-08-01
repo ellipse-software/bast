@@ -18,6 +18,9 @@ type vaultPullMsg struct {
 	err           error
 	notice        string
 	badPassphrase bool
+	interactive   bool
+	passphrase    string // set on successful link; applied in Update
+	session       *vault.Session
 }
 
 type vaultPushMsg struct {
@@ -27,26 +30,39 @@ type vaultPushMsg struct {
 	resetPassphrase  bool
 	rotatePassphrase bool
 	passphrase       string
+	session          *vault.Session
 }
 
 func (m *App) vaultSessionPath() string {
 	return vault.SessionPath(m.paths.StateFile)
 }
 
-func (m *App) vaultLinked() bool {
+func (m *App) refreshVaultSessionCache() {
 	session, err := vault.LoadSession(m.vaultSessionPath())
-	return err == nil && session.Token != ""
+	if err != nil || session.Token == "" {
+		m.vaultSession = nil
+		return
+	}
+	cp := session
+	m.vaultSession = &cp
+}
+
+func (m *App) vaultLinked() bool {
+	if m.vaultSession != nil && m.vaultSession.Token != "" {
+		return true
+	}
+	m.refreshVaultSessionCache()
+	return m.vaultSession != nil && m.vaultSession.Token != ""
 }
 
 func (m *App) vaultStatusDetail() string {
-	session, err := vault.LoadSession(m.vaultSessionPath())
-	if err != nil || session.Token == "" {
+	if !m.vaultLinked() || m.vaultSession == nil {
 		return "not linked"
 	}
-	if session.Revision == "" {
-		return session.Email
+	if m.vaultSession.Revision == "" {
+		return m.vaultSession.Email
 	}
-	return session.Email + " · " + shortRevision(session.Revision)
+	return m.vaultSession.Email + " · " + shortRevision(m.vaultSession.Revision)
 }
 
 func shortRevision(rev string) string {
@@ -84,13 +100,13 @@ func (m *App) vaultMenuItems() []syncMenuItem {
 func (m *App) renderVaultStatus(s styleSet) string {
 	width := m.terminalWidth()
 	var b strings.Builder
-	session, err := vault.LoadSession(m.vaultSessionPath())
-	if err != nil || session.Token == "" {
+	if !m.vaultLinked() || m.vaultSession == nil {
 		b.WriteString(compactRow(s, "Status", "not linked", width))
 		b.WriteString("  " + s.muted.Render("Sync Bast-managed hosts and keys between machines.") + "\n")
 		b.WriteString("  " + s.muted.Render("Encrypted locally. Bast never sees your passphrase.") + "\n")
 		return b.String()
 	}
+	session := m.vaultSession
 	b.WriteString(compactRow(s, "Status", "linked", width))
 	b.WriteString(compactRow(s, "Email", session.Email, width))
 	if m.vaultPassphrase == "" {
@@ -341,7 +357,8 @@ func (m *App) vaultForceResetPassphrase(passphrase string) tea.Msg {
 	if err := vault.SavePassphrase(m.vaultPassphrasePath(), passphrase); err != nil {
 		return vaultPushMsg{err: err}
 	}
-	return vaultPushMsg{revision: meta.Revision, resetPassphrase: true, passphrase: passphrase}
+	sessionCopy := session
+	return vaultPushMsg{revision: meta.Revision, resetPassphrase: true, passphrase: passphrase, session: &sessionCopy}
 }
 
 func (m *App) vaultRotatePassphrase(oldPass, newPass string) tea.Msg {
@@ -387,7 +404,8 @@ func (m *App) vaultRotatePassphrase(oldPass, newPass string) tea.Msg {
 	if err := vault.SavePassphrase(m.vaultPassphrasePath(), newPass); err != nil {
 		return vaultPushMsg{err: err}
 	}
-	return vaultPushMsg{revision: meta.Revision, rotatePassphrase: true, passphrase: newPass}
+	sessionCopy := session
+	return vaultPushMsg{revision: meta.Revision, rotatePassphrase: true, passphrase: newPass, session: &sessionCopy}
 }
 
 type vaultUnlockedMsg struct {
@@ -475,8 +493,8 @@ func (m *App) vaultCompleteLink(session vault.Session, passphrase string) tea.Ms
 	if err := vault.SavePassphrase(m.vaultPassphrasePath(), passphrase); err != nil {
 		return vaultPullMsg{err: err}
 	}
-	m.vaultPassphrase = passphrase
-	return vaultPullMsg{changed: true, revision: meta.Revision, notice: notice}
+	sessionCopy := session
+	return vaultPullMsg{changed: true, revision: meta.Revision, notice: notice, passphrase: passphrase, session: &sessionCopy, interactive: true}
 }
 
 func (m *App) vaultPassphrasePath() string {
@@ -497,22 +515,25 @@ func (m *App) vaultPullCmd(interactive bool) tea.Cmd {
 	if !m.vaultLinked() {
 		return nil
 	}
+	passphrase := m.vaultPassphrase
+	if passphrase == "" {
+		if stored, loadErr := vault.LoadPassphrase(m.vaultPassphrasePath()); loadErr == nil {
+			passphrase = stored
+		}
+	}
+	if passphrase == "" {
+		if !interactive {
+			return nil
+		}
+		return func() tea.Msg {
+			return vaultPullMsg{err: fmt.Errorf("vault passphrase required"), interactive: true}
+		}
+	}
+	passSnapshot := passphrase
 	return func() tea.Msg {
 		session, err := vault.LoadSession(m.vaultSessionPath())
 		if err != nil {
-			return vaultPullMsg{err: err}
-		}
-		passphrase := m.vaultPassphrase
-		if passphrase == "" {
-			if stored, loadErr := vault.LoadPassphrase(m.vaultPassphrasePath()); loadErr == nil {
-				passphrase = stored
-			}
-		}
-		if passphrase == "" {
-			if !interactive {
-				return vaultPullMsg{} // skip background unlock without passphrase
-			}
-			return vaultPullMsg{err: fmt.Errorf("vault passphrase required")}
+			return vaultPullMsg{err: err, interactive: interactive}
 		}
 		client := &vault.Client{BaseURL: session.APIBase, Token: session.Token}
 		if env := strings.TrimSpace(os.Getenv("BAST_VAULT_API")); env != "" {
@@ -520,47 +541,48 @@ func (m *App) vaultPullCmd(interactive bool) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
-		// Interactive pulls always fetch the blob so the passphrase is verified.
 		ifNoneMatch := session.Revision
 		if interactive {
 			ifNoneMatch = ""
 		}
 		remoteGet, err := client.GetVault(ctx, ifNoneMatch)
 		if err != nil {
-			return vaultPullMsg{err: err}
+			return vaultPullMsg{err: err, interactive: interactive}
 		}
 		if remoteGet.NotModified {
-			return vaultPullMsg{changed: false, revision: session.Revision, notice: "Vault already up to date"}
+			return vaultPullMsg{changed: false, revision: session.Revision, notice: "Vault already up to date", interactive: interactive}
 		}
 		if len(remoteGet.Ciphertext) == 0 {
+			notice := ""
 			if interactive {
-				return vaultPullMsg{changed: false, revision: session.Revision, notice: "No remote vault yet"}
+				notice = "No remote vault yet"
 			}
-			return vaultPullMsg{changed: false, revision: session.Revision}
+			return vaultPullMsg{changed: false, revision: session.Revision, notice: notice, interactive: interactive}
 		}
-		remoteDoc, err := vault.Decrypt(remoteGet.Ciphertext, passphrase)
+		remoteDoc, err := vault.Decrypt(remoteGet.Ciphertext, passSnapshot)
 		if err != nil {
-			return vaultPullMsg{err: err, badPassphrase: true}
+			return vaultPullMsg{err: err, badPassphrase: true, interactive: interactive}
 		}
 		if remoteGet.Meta.Revision != "" && remoteGet.Meta.Revision == session.Revision {
-			return vaultPullMsg{changed: false, revision: session.Revision, notice: "Vault already up to date"}
+			return vaultPullMsg{changed: false, revision: session.Revision, notice: "Vault already up to date", interactive: interactive}
 		}
-		packer := vault.Packer{Paths: m.paths, Config: m.config, Keyring: m.keyring, Store: m.metadata}
+		packer := vault.Packer{Paths: m.paths, Config: m.config, Keyring: m.keyring, Store: m.metadata, Previous: remoteDoc}
 		localDoc, err := packer.Pack()
 		if err != nil {
-			return vaultPullMsg{err: err}
+			return vaultPullMsg{err: err, interactive: interactive}
 		}
 		result := vault.Merge(localDoc, remoteDoc, vault.MergeModeMerge)
 		if len(result.Conflicts) > 0 {
-			return vaultPullMsg{err: fmt.Errorf("%d vault conflicts", len(result.Conflicts))}
+			return vaultPullMsg{err: fmt.Errorf("%d vault conflicts", len(result.Conflicts)), interactive: interactive}
 		}
 		applier := vault.Applier{Paths: m.paths, Config: m.config, Store: m.metadata}
 		if err := applier.Apply(result.Document); err != nil {
-			return vaultPullMsg{err: err}
+			return vaultPullMsg{err: err, interactive: interactive}
 		}
 		session.Revision = remoteGet.Meta.Revision
 		_ = vault.SaveSession(m.vaultSessionPath(), session)
-		return vaultPullMsg{changed: true, revision: session.Revision, notice: "Vault pulled"}
+		sessionCopy := session
+		return vaultPullMsg{changed: true, revision: session.Revision, notice: "Vault pulled", interactive: interactive, session: &sessionCopy}
 	}
 }
 
@@ -568,16 +590,19 @@ func (m *App) vaultPushCmd() tea.Cmd {
 	if !m.vaultLinked() {
 		return nil
 	}
-	return func() tea.Msg {
-		passphrase := m.vaultPassphrase
-		if passphrase == "" {
-			if stored, err := vault.LoadPassphrase(m.vaultPassphrasePath()); err == nil {
-				passphrase = stored
-			}
+	passphrase := m.vaultPassphrase
+	if passphrase == "" {
+		if stored, err := vault.LoadPassphrase(m.vaultPassphrasePath()); err == nil {
+			passphrase = stored
 		}
-		if passphrase == "" {
+	}
+	if passphrase == "" {
+		return func() tea.Msg {
 			return vaultPushMsg{err: fmt.Errorf("vault passphrase required")}
 		}
+	}
+	passSnapshot := passphrase
+	return func() tea.Msg {
 		session, err := vault.LoadSession(m.vaultSessionPath())
 		if err != nil {
 			return vaultPushMsg{err: err}
@@ -592,15 +617,24 @@ func (m *App) vaultPushCmd() tea.Cmd {
 		if err != nil {
 			return vaultPushMsg{err: err}
 		}
-		if err := vault.VerifyPassphrase(remoteGet.Ciphertext, passphrase); err != nil {
+		if len(remoteGet.Ciphertext) == 0 && session.Revision != "" {
+			return vaultPushMsg{err: fmt.Errorf("remote vault missing; use Reset passphrase to replace it")}
+		}
+		if err := vault.VerifyPassphrase(remoteGet.Ciphertext, passSnapshot); err != nil {
 			return vaultPushMsg{err: err, badPassphrase: true}
 		}
-		packer := vault.Packer{Paths: m.paths, Config: m.config, Keyring: m.keyring, Store: m.metadata}
+		prev := vault.Document{}
+		if len(remoteGet.Ciphertext) > 0 {
+			if doc, decErr := vault.Decrypt(remoteGet.Ciphertext, passSnapshot); decErr == nil {
+				prev = doc
+			}
+		}
+		packer := vault.Packer{Paths: m.paths, Config: m.config, Keyring: m.keyring, Store: m.metadata, Previous: prev}
 		doc, err := packer.Pack()
 		if err != nil {
 			return vaultPushMsg{err: err}
 		}
-		blob, err := vault.Encrypt(doc, passphrase)
+		blob, err := vault.Encrypt(doc, passSnapshot)
 		if err != nil {
 			return vaultPushMsg{err: err}
 		}
@@ -614,7 +648,8 @@ func (m *App) vaultPushCmd() tea.Cmd {
 		}
 		session.Revision = meta.Revision
 		_ = vault.SaveSession(m.vaultSessionPath(), session)
-		return vaultPushMsg{revision: meta.Revision}
+		sessionCopy := session
+		return vaultPushMsg{revision: meta.Revision, session: &sessionCopy}
 	}
 }
 
@@ -689,6 +724,7 @@ func (m *App) runVaultAction(action string) (tea.Model, tea.Cmd) {
 		}
 		_ = vault.ClearSession(m.vaultSessionPath())
 		m.forgetVaultPassphrase()
+		m.vaultSession = nil
 		m.vaultStatus = ""
 		m.vaultLastSync = ""
 		return m, m.setNotice("Vault logged out")

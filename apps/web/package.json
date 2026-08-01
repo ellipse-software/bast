@@ -13,7 +13,6 @@
     "@sentry/node": "^10.68.0",
     "@types/mdx": "^2.0.14",
     "@upstash/redis": "^1.38.1",
-    "better-auth": "^1.6.25",
     "files-sdk": "^2.2.2",
     "fumadocs-core": "^16.12.1",
     "fumadocs-mdx": "^15.2.0",

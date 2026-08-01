@@ -583,11 +583,6 @@ func (r *Runner) hostPromote(args []string) error {
 			return fail("resolve_failed", "could not resolve host details: "+resolveErr.Error())
 		}
 		host.raw.Resolved = resolved
-		host.Hostname = resolved.HostName
-		host.User = resolved.User
-		host.Port = resolved.Port
-		host.IdentityFiles = resolved.IdentityFiles
-		host.ProxyJump = resolved.ProxyJump
 	}
 	promoted, err := r.config.Promote(host.raw)
 	if err != nil {

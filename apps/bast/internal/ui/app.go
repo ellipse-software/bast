@@ -176,6 +176,7 @@ type App struct {
 	syncProvider      string
 	syncCursor        int
 	vaultPassphrase   string
+	vaultSession      *vault.Session
 	vaultStatus       string
 	vaultLastSync     string
 	vaultDirty        bool
@@ -215,6 +216,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 	if pass, err := vault.LoadPassphrase(vault.PassphrasePath(p.StateFile)); err == nil && pass != "" {
 		app.vaultPassphrase = pass
 	}
+	app.refreshVaultSessionCache()
 	return app, nil
 }
 
@@ -482,16 +484,28 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.setNotice("Vault unlocked")
 	case vaultPullMsg:
 		m.vaultBusy = ""
+		if msg.session != nil {
+			m.vaultSession = msg.session
+		}
+		if msg.passphrase != "" {
+			m.rememberVaultPassphrase(msg.passphrase)
+		}
 		if msg.err != nil {
 			if msg.badPassphrase {
 				m.forgetVaultPassphrase()
 			}
 			m.vaultStatus = msg.err.Error()
+			if !msg.interactive {
+				return m, nil
+			}
 			m.setError(msg.err)
 			return m, nil
 		}
 		if msg.revision != "" {
 			m.vaultLastSync = time.Now().Local().Format("15:04:05")
+			if m.vaultSession != nil {
+				m.vaultSession.Revision = msg.revision
+			}
 		}
 		m.vaultStatus = ""
 		if msg.changed {
@@ -509,6 +523,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case vaultPushMsg:
 		m.vaultBusy = ""
+		if msg.session != nil {
+			m.vaultSession = msg.session
+		}
 		if msg.err != nil {
 			if msg.badPassphrase {
 				m.forgetVaultPassphrase()
@@ -516,11 +533,8 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.vaultStatus = msg.err.Error()
 			return m, m.setNotice("Vault push failed")
 		}
-		if msg.resetPassphrase && msg.passphrase != "" {
-			m.vaultPassphrase = msg.passphrase
-		}
-		if msg.rotatePassphrase && msg.passphrase != "" {
-			m.vaultPassphrase = msg.passphrase
+		if msg.passphrase != "" && (msg.resetPassphrase || msg.rotatePassphrase) {
+			m.rememberVaultPassphrase(msg.passphrase)
 		}
 		m.vaultDirty = false
 		m.vaultLastSync = time.Now().Local().Format("15:04:05")

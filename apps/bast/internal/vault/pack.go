@@ -3,6 +3,7 @@ package vault
 import (
 	"context"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -13,10 +14,11 @@ import (
 )
 
 type Packer struct {
-	Paths   paths.Paths
-	Config  sshconfig.Manager
-	Keyring keys.Manager
-	Store   *metadata.Store
+	Paths    paths.Paths
+	Config   sshconfig.Manager
+	Keyring  keys.Manager
+	Store    *metadata.Store
+	Previous Document // optional prior document for stable UpdatedAt
 }
 
 func (p Packer) Pack() (Document, error) {
@@ -25,6 +27,15 @@ func (p Packer) Pack() (Document, error) {
 	if err != nil {
 		return Document{}, err
 	}
+	prevHosts := map[string]HostEntry{}
+	for _, h := range p.Previous.Hosts {
+		prevHosts[h.ManagedID] = h
+	}
+	prevKeys := map[string]KeyEntry{}
+	for _, k := range p.Previous.Keys {
+		prevKeys[keyID(k)] = k
+	}
+
 	entries := make([]HostEntry, 0)
 	metaOut := map[string]metadata.Host{}
 	allMeta := map[string]metadata.Host{}
@@ -45,7 +56,7 @@ func (p Packer) Pack() (Document, error) {
 			proxy = ""
 		}
 		extras, _ := p.Config.ManagedExtras(host.ManagedID)
-		entries = append(entries, HostEntry{
+		entry := HostEntry{
 			ManagedID:    host.ManagedID,
 			Alias:        host.Alias,
 			HostName:     host.Resolved.HostName,
@@ -56,7 +67,11 @@ func (p Packer) Pack() (Document, error) {
 			PasswordOnly: passwordOnly,
 			ProxyJump:    proxy,
 			UpdatedAt:    now,
-		})
+		}
+		if prev, ok := prevHosts[host.ManagedID]; ok && hostEntryEqual(prev, entry) {
+			entry.UpdatedAt = prev.UpdatedAt
+		}
+		entries = append(entries, entry)
 		if meta, ok := allMeta[host.Alias]; ok {
 			metaOut[host.Alias] = meta
 		}
@@ -83,7 +98,7 @@ func (p Packer) Pack() (Document, error) {
 			}
 			public = string(b)
 		}
-		keyEntries = append(keyEntries, KeyEntry{
+		entry := KeyEntry{
 			Name:          key.Name,
 			Fingerprint:   key.Fingerprint,
 			PrivatePEM:    string(private),
@@ -91,7 +106,11 @@ func (p Packer) Pack() (Document, error) {
 			Comment:       key.Comment,
 			Algorithm:     key.Algorithm,
 			UpdatedAt:     now,
-		})
+		}
+		if prev, ok := prevKeys[keyID(entry)]; ok && keyEntryEqual(prev, entry) {
+			entry.UpdatedAt = prev.UpdatedAt
+		}
+		keyEntries = append(keyEntries, entry)
 	}
 
 	doc := Document{
@@ -106,6 +125,18 @@ func (p Packer) Pack() (Document, error) {
 		doc.Integrations = packIntegrations(p.Store.Integrations())
 	}
 	return doc, nil
+}
+
+func hostEntryEqual(a, b HostEntry) bool {
+	a.UpdatedAt, b.UpdatedAt = 0, 0
+	a.DeletedAt, b.DeletedAt = 0, 0
+	return reflect.DeepEqual(a, b)
+}
+
+func keyEntryEqual(a, b KeyEntry) bool {
+	a.UpdatedAt, b.UpdatedAt = 0, 0
+	a.DeletedAt, b.DeletedAt = 0, 0
+	return reflect.DeepEqual(a, b)
 }
 
 func isPasswordOnlyResolved(resolved sshconfig.Resolved) bool {

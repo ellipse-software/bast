@@ -155,3 +155,40 @@ func TestVerifyPassphrase(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNormalizeOTP(t *testing.T) {
+	if got := NormalizeOTP("12-34-56"); got != "123456" {
+		t.Fatalf("got %q", got)
+	}
+	if got := NormalizeOTP("12345"); got != "" {
+		t.Fatalf("short code should be empty, got %q", got)
+	}
+	if got := NormalizeOTP("0123456"); got != "" {
+		t.Fatalf("long code should be empty, got %q", got)
+	}
+}
+
+func TestMarkKeyDeleted(t *testing.T) {
+	doc := Document{
+		Keys: []KeyEntry{{Name: "work", Fingerprint: "fp1", UpdatedAt: 10}},
+	}
+	doc.MarkKeyDeleted("fp1", "work", 99)
+	if doc.Keys[0].DeletedAt != 99 {
+		t.Fatalf("DeletedAt = %d", doc.Keys[0].DeletedAt)
+	}
+	if doc.Tombstones.Keys["fp1"] != 99 {
+		t.Fatalf("tombstone = %v", doc.Tombstones.Keys)
+	}
+}
+
+func TestHostEntryEqualIgnoresUpdatedAt(t *testing.T) {
+	a := HostEntry{ManagedID: "a", Alias: "x", HostName: "h", UpdatedAt: 1}
+	b := HostEntry{ManagedID: "a", Alias: "x", HostName: "h", UpdatedAt: 99}
+	if !hostEntryEqual(a, b) {
+		t.Fatal("equal content should match regardless of UpdatedAt")
+	}
+	b.Alias = "y"
+	if hostEntryEqual(a, b) {
+		t.Fatal("different alias should not match")
+	}
+}

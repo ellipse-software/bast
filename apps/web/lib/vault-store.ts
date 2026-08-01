@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { getVaultObject, putVaultObject } from "@/lib/r2";
+import { deleteVaultObject, getVaultObject, putVaultObject } from "@/lib/r2";
 import { getRedis } from "@/lib/redis";
 
-const MAX_VAULT_BYTES = 1 << 20;
+export const MAX_VAULT_BYTES = 1 << 20;
 
 export type VaultMeta = {
   revision: string;
@@ -21,10 +21,29 @@ function objectKey(userId: string, revision: string): string {
   return `vaults/${userId}/${revision}.json`;
 }
 
+const META_CAS_SCRIPT = `
+local cur = redis.call('GET', KEYS[1])
+local expected = ARGV[1]
+local newmeta = ARGV[2]
+if expected == '' then
+  if cur ~= false then return 0 end
+else
+  if cur == false then return 0 end
+  local obj = cjson.decode(cur)
+  if obj['revision'] ~= expected then return 0 end
+end
+redis.call('SET', KEYS[1], newmeta)
+return 1
+`;
+
 export async function getVaultMeta(userId: string): Promise<VaultMeta | null> {
   const raw = await getRedis().get<string>(metaKey(userId));
   if (!raw) return null;
-  return typeof raw === "string" ? (JSON.parse(raw) as VaultMeta) : (raw as VaultMeta);
+  try {
+    return typeof raw === "string" ? (JSON.parse(raw) as VaultMeta) : (raw as VaultMeta);
+  } catch {
+    return null;
+  }
 }
 
 export async function readVault(userId: string): Promise<{ meta: VaultMeta; body: Uint8Array } | null> {
@@ -41,16 +60,25 @@ export async function writeVault(
   ifMatch: string | null,
 ): Promise<VaultMeta> {
   if (body.byteLength > MAX_VAULT_BYTES) {
-    throw new Error("vault payload exceeds 1 MiB limit");
+    const err = new Error("vault payload exceeds 1 MiB limit");
+    (err as Error & { status: number }).status = 400;
+    throw err;
   }
   const current = await getVaultMeta(userId);
+  const expected = ifMatch ?? "";
   if (ifMatch) {
     if (!current || current.revision !== ifMatch) {
       const err = new Error("precondition failed");
       (err as Error & { status: number }).status = 412;
       throw err;
     }
+  } else if (current) {
+    // Creating without If-Match while a vault exists is a conflict.
+    const err = new Error("precondition failed");
+    (err as Error & { status: number }).status = 412;
+    throw err;
   }
+
   const revision = randomBytes(16).toString("hex");
   const r2Key = objectKey(userId, revision);
   const contentHash = createHash("sha256").update(body).digest("hex");
@@ -62,6 +90,21 @@ export async function writeVault(
     updatedAt: Math.floor(Date.now() / 1000),
     contentHash,
   };
-  await getRedis().set(metaKey(userId), JSON.stringify(meta));
+
+  const redis = getRedis();
+  const cas = await redis.eval<[string, string], number>(
+    META_CAS_SCRIPT,
+    [metaKey(userId)],
+    [expected, JSON.stringify(meta)],
+  );
+  if (cas !== 1) {
+    await deleteVaultObject(r2Key).catch(() => undefined);
+    const err = new Error("precondition failed");
+    (err as Error & { status: number }).status = 412;
+    throw err;
+  }
+  if (current?.r2Key && current.r2Key !== r2Key) {
+    await deleteVaultObject(current.r2Key).catch(() => undefined);
+  }
   return meta;
 }

@@ -12,12 +12,15 @@ import (
 )
 
 const (
-	kdfAlgorithm   = "argon2id"
-	kdfMemoryKiB   = 64 * 1024
-	kdfIterations  = 3
-	kdfParallelism = 4
-	kdfSaltLen     = 16
-	keyLen         = 32
+	kdfAlgorithm      = "argon2id"
+	kdfMemoryKiB      = 64 * 1024
+	kdfIterations     = 3
+	kdfParallelism    = 4
+	kdfSaltLen        = 16
+	keyLen            = 32
+	maxKDFMemoryKiB   = 128 * 1024
+	maxKDFIterations  = 8
+	maxKDFParallelism = 8
 )
 
 // Envelope is the encrypted blob stored remotely.
@@ -91,13 +94,22 @@ func Decrypt(blob []byte, passphrase string) (Document, error) {
 	if memory == 0 {
 		memory = kdfMemoryKiB
 	}
+	if memory > maxKDFMemoryKiB {
+		return Document{}, errors.New("vault envelope memory parameter exceeds limit")
+	}
 	iterations := env.Iterations
 	if iterations == 0 {
 		iterations = kdfIterations
 	}
+	if iterations > maxKDFIterations {
+		return Document{}, errors.New("vault envelope iterations parameter exceeds limit")
+	}
 	parallelism := env.Parallelism
 	if parallelism == 0 {
 		parallelism = kdfParallelism
+	}
+	if parallelism > maxKDFParallelism {
+		return Document{}, errors.New("vault envelope parallelism parameter exceeds limit")
 	}
 	key := argon2.IDKey([]byte(passphrase), salt, iterations, memory, parallelism, keyLen)
 	aead, err := chacha20poly1305.NewX(key)

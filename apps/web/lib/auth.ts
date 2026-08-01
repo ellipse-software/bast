@@ -1,60 +1,13 @@
-import { betterAuth } from "better-auth";
-import { memoryAdapter } from "better-auth/adapters/memory";
-import { emailOTP } from "better-auth/plugins";
 import { createHash, randomBytes, randomInt } from "node:crypto";
 
 import { sendVaultOTP } from "@/lib/email";
-import { getRedis, redisConfigured } from "@/lib/redis";
+import { getRedis } from "@/lib/redis";
 
 const OTP_TTL_SECONDS = 60 * 10;
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 90;
-
-async function sendOTPEmail(email: string, otp: string): Promise<void> {
-  await sendVaultOTP(email, otp);
-}
-
-function secondaryStorage() {
-  return {
-    get: async (key: string) => {
-      const value = await getRedis().get<string>(`ba:${key}`);
-      return value ?? null;
-    },
-    set: async (key: string, value: string, ttl?: number) => {
-      if (ttl) {
-        await getRedis().set(`ba:${key}`, value, { ex: ttl });
-      } else {
-        await getRedis().set(`ba:${key}`, value);
-      }
-    },
-    delete: async (key: string) => {
-      await getRedis().del(`ba:${key}`);
-    },
-  };
-}
-
-/**
- * Better Auth with email OTP. Primary tables use the memory adapter; OTP and
- * rate-limit state go through Redis secondary storage when configured.
- * CLI bearer tokens are issued from Redis after OTP verification.
- */
-export const auth = betterAuth({
-  secret: process.env.BETTER_AUTH_SECRET || "dev-only-change-me-bast-vault-secret",
-  baseURL: process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://bast.sh",
-  database: memoryAdapter({}),
-  emailAndPassword: { enabled: false },
-  ...(typeof process !== "undefined" && redisConfigured()
-    ? { secondaryStorage: secondaryStorage() }
-    : {}),
-  plugins: [
-    emailOTP({
-      async sendVerificationOTP({ email, otp }) {
-        await sendOTPEmail(email, otp);
-      },
-      otpLength: 6,
-      expiresIn: OTP_TTL_SECONDS,
-    }),
-  ],
-});
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_SEND_COOLDOWN_SECONDS = 30;
+const OTP_SEND_MAX_PER_HOUR = 10;
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -64,27 +17,59 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-/** Digits only, left-padded to 6. Upstash JSON-parses bare numeric strings into numbers. */
-function normalizeOTP(value: unknown): string {
+/** Digits only. Exact 6 digits required after normalization (no left-pad). */
+export function normalizeOTP(value: unknown): string {
   if (value == null) return "";
   const digits = String(value).replace(/\D/g, "");
-  if (!digits) return "";
-  return digits.padStart(6, "0");
+  return digits.length === 6 ? digits : "";
 }
 
 type StoredOTP = { code: string };
 
-export async function startEmailOTP(emailRaw: string): Promise<void> {
+export async function startEmailOTP(emailRaw: string, clientIP = ""): Promise<void> {
   const email = normalizeEmail(emailRaw);
   if (!email.includes("@")) {
-    throw new Error("invalid email");
+    throw Object.assign(new Error("invalid email"), { status: 400 });
   }
-  const otp = String(randomInt(0, 1_000_000)).padStart(6, "0");
   const redis = getRedis();
-  // Store as an object so Upstash does not coerce "123456" into a number on GET.
+  const cooldownKey = `vault:otp:send:${email}`;
+  const hourKey = `vault:otp:sendhour:${email}`;
+  const ipKey = clientIP ? `vault:otp:sendip:${clientIP}` : "";
+
+  const cooled = await redis.get(cooldownKey);
+  if (cooled) {
+    throw Object.assign(new Error("wait before requesting another code"), { status: 429 });
+  }
+  const hourCount = Number((await redis.get<number | string>(hourKey)) ?? 0);
+  if (hourCount >= OTP_SEND_MAX_PER_HOUR) {
+    throw Object.assign(new Error("too many codes requested"), { status: 429 });
+  }
+  if (ipKey) {
+    const ipCount = Number((await redis.get<number | string>(ipKey)) ?? 0);
+    if (ipCount >= OTP_SEND_MAX_PER_HOUR) {
+      throw Object.assign(new Error("too many codes requested"), { status: 429 });
+    }
+  }
+
+  const otp = String(randomInt(0, 1_000_000)).padStart(6, "0");
   const payload: StoredOTP = { code: otp };
   await redis.set(`vault:otp:${email}`, payload, { ex: OTP_TTL_SECONDS });
-  await sendOTPEmail(email, otp);
+  await redis.del(`vault:otp:attempts:${email}`);
+  await redis.set(cooldownKey, "1", { ex: OTP_SEND_COOLDOWN_SECONDS });
+  if (hourCount <= 0) {
+    await redis.set(hourKey, 1, { ex: 60 * 60 });
+  } else {
+    await redis.incr(hourKey);
+  }
+  if (ipKey) {
+    const ipCount = Number((await redis.get<number | string>(ipKey)) ?? 0);
+    if (ipCount <= 0) {
+      await redis.set(ipKey, 1, { ex: 60 * 60 });
+    } else {
+      await redis.incr(ipKey);
+    }
+  }
+  await sendVaultOTP(email, otp);
 }
 
 export type VerifiedDevice = {
@@ -97,16 +82,32 @@ export type VerifiedDevice = {
 export async function verifyEmailOTP(emailRaw: string, codeRaw: string): Promise<VerifiedDevice> {
   const email = normalizeEmail(emailRaw);
   const code = normalizeOTP(codeRaw);
+  if (code.length !== 6) {
+    throw Object.assign(new Error("invalid or expired code"), { status: 401 });
+  }
   const redis = getRedis();
+  const attemptsKey = `vault:otp:attempts:${email}`;
+  const attempts = Number((await redis.get<number | string>(attemptsKey)) ?? 0);
+  if (attempts >= OTP_MAX_ATTEMPTS) {
+    await redis.del(`vault:otp:${email}`);
+    throw Object.assign(new Error("invalid or expired code"), { status: 401 });
+  }
+
   const raw = await redis.get<StoredOTP | string | number>(`vault:otp:${email}`);
   const expected =
     raw && typeof raw === "object" && "code" in raw
       ? normalizeOTP((raw as StoredOTP).code)
       : normalizeOTP(raw);
-  if (!expected || !code || expected !== code) {
-    throw new Error("invalid or expired code");
+  if (!expected || expected.length !== 6 || expected !== code) {
+    if (attempts <= 0) {
+      await redis.set(attemptsKey, 1, { ex: OTP_TTL_SECONDS });
+    } else {
+      await redis.incr(attemptsKey);
+    }
+    throw Object.assign(new Error("invalid or expired code"), { status: 401 });
   }
   await redis.del(`vault:otp:${email}`);
+  await redis.del(attemptsKey);
 
   let userId = await redis.get<string>(`vault:user:email:${email}`);
   if (!userId) {
@@ -139,9 +140,13 @@ export async function resolveBearer(authorization: string | null): Promise<Devic
   const redis = getRedis();
   const raw = await redis.get<string>(`vault:token:${hashToken(token)}`);
   if (!raw) return null;
-  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-  if (!parsed?.userId || !parsed?.email) return null;
-  return { userId: parsed.userId, email: parsed.email, deviceId: parsed.deviceId || "" };
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!parsed?.userId || !parsed?.email) return null;
+    return { userId: parsed.userId, email: parsed.email, deviceId: parsed.deviceId || "" };
+  } catch {
+    return null;
+  }
 }
 
 export async function revokeBearer(authorization: string | null): Promise<void> {

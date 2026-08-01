@@ -3,6 +3,7 @@ package vault
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"bast/internal/metadata"
@@ -46,11 +47,9 @@ func Merge(local, remote Document, mode MergeMode) MergeResult {
 	} else if local.Preferences.Sort == "" {
 		prefs = remote.Preferences
 	}
-	integrations := local.Integrations
+	integrations := mergeIntegrations(remote.Integrations, local.Integrations)
 	if remote.UpdatedAt >= local.UpdatedAt {
 		integrations = mergeIntegrations(local.Integrations, remote.Integrations)
-	} else {
-		integrations = mergeIntegrations(remote.Integrations, local.Integrations)
 	}
 
 	doc := Document{
@@ -110,9 +109,15 @@ func mergeTombstones(a, b map[string]int64) map[string]int64 {
 func mergeHosts(local, remote []HostEntry, tombs map[string]int64) ([]HostEntry, []Conflict) {
 	byID := map[string]HostEntry{}
 	for _, h := range local {
+		if strings.TrimSpace(h.ManagedID) == "" {
+			continue
+		}
 		byID[h.ManagedID] = h
 	}
 	for _, h := range remote {
+		if strings.TrimSpace(h.ManagedID) == "" {
+			continue
+		}
 		cur, ok := byID[h.ManagedID]
 		if !ok || h.UpdatedAt >= cur.UpdatedAt {
 			byID[h.ManagedID] = h
@@ -152,12 +157,6 @@ func mergeHosts(local, remote []HostEntry, tombs map[string]int64) ([]HostEntry,
 
 func mergeKeys(local, remote []KeyEntry, tombs map[string]int64) ([]KeyEntry, []Conflict) {
 	byFP := map[string]KeyEntry{}
-	keyID := func(k KeyEntry) string {
-		if k.Fingerprint != "" {
-			return k.Fingerprint
-		}
-		return "name:" + k.Name
-	}
 	for _, k := range local {
 		byFP[keyID(k)] = k
 	}
@@ -240,6 +239,13 @@ func mergeIntegrations(base, overlay VaultIntegrations) VaultIntegrations {
 	return out
 }
 
+func keyID(k KeyEntry) string {
+	if k.Fingerprint != "" {
+		return k.Fingerprint
+	}
+	return "name:" + k.Name
+}
+
 // MarkHostDeleted records a tombstone for a managed host id.
 func (d *Document) MarkHostDeleted(managedID string, at int64) {
 	if d.Tombstones.Hosts == nil {
@@ -263,4 +269,10 @@ func (d *Document) MarkKeyDeleted(fingerprint, name string, at int64) {
 		id = "name:" + name
 	}
 	d.Tombstones.Keys[id] = at
+	for i := range d.Keys {
+		if (fingerprint != "" && d.Keys[i].Fingerprint == fingerprint) ||
+			(fingerprint == "" && d.Keys[i].Name == name) {
+			d.Keys[i].DeletedAt = at
+		}
+	}
 }

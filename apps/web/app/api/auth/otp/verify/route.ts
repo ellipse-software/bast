@@ -26,7 +26,8 @@ export async function POST(request: Request) {
       deviceId: verified.deviceId,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "verification failed";
-    return Response.json({ error: message }, { status: 401 });
+    const status =
+      error && typeof error === "object" && "status" in error ? Number(error.status) : 401;
+    return Response.json({ error: "invalid or expired code" }, { status: status || 401 });
   }
 }

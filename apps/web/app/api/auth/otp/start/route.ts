@@ -15,11 +15,17 @@ export async function POST(request: Request) {
   if (!email) {
     return Response.json({ error: "email is required" }, { status: 400 });
   }
+  const clientIP =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip")?.trim() ||
+    "";
   try {
-    await startEmailOTP(email);
+    await startEmailOTP(email, clientIP);
     return Response.json({ ok: true });
   } catch (error) {
+    const status =
+      error && typeof error === "object" && "status" in error ? Number(error.status) : 400;
     const message = error instanceof Error ? error.message : "failed to send code";
-    return Response.json({ error: message }, { status: 400 });
+    return Response.json({ error: message }, { status: status || 400 });
   }
 }

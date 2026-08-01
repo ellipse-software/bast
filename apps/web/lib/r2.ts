@@ -38,6 +38,17 @@ export async function putVaultObject(key: string, body: Uint8Array | Buffer | st
   await getFiles().upload(key, body, { contentType: "application/json" });
 }
 
+export async function deleteVaultObject(key: string): Promise<void> {
+  try {
+    await getFiles().delete(key);
+  } catch (error) {
+    if (error instanceof FilesError && error.code === "NotFound") {
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function getVaultObject(key: string): Promise<Uint8Array | null> {
   try {
     const file = await getFiles().download(key);

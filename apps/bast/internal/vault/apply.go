@@ -92,8 +92,16 @@ func (a Applier) Apply(doc Document) error {
 		return nil
 	}
 	if err := a.Store.UpdateHosts(func(hosts map[string]metadata.Host) {
-		for alias := range hosts {
-			delete(hosts, alias)
+		managedAliases := map[string]bool{}
+		for _, host := range doc.Hosts {
+			managedAliases[host.Alias] = true
+		}
+		for alias := range managedAliases {
+			if meta, ok := doc.Metadata[alias]; ok {
+				hosts[alias] = meta
+			} else {
+				delete(hosts, alias)
+			}
 		}
 		for alias, meta := range doc.Metadata {
 			hosts[alias] = meta

@@ -84,6 +84,9 @@ func (c *Client) StartOTP(ctx context.Context, email string) error {
 func (c *Client) VerifyOTP(ctx context.Context, email, code string) (OTPVerifyResponse, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	code = NormalizeOTP(code)
+	if code == "" {
+		return OTPVerifyResponse{}, errors.New("code must be 6 digits")
+	}
 	body, _ := json.Marshal(map[string]string{"email": email, "code": code})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base()+"/api/auth/otp/verify", bytes.NewReader(body))
 	if err != nil {
@@ -108,7 +111,7 @@ func (c *Client) VerifyOTP(ctx context.Context, email, code string) (OTPVerifyRe
 	return out, nil
 }
 
-// NormalizeOTP keeps digits only and left-pads to 6 characters.
+// NormalizeOTP keeps digits only. Returns empty unless exactly 6 digits.
 func NormalizeOTP(code string) string {
 	var b strings.Builder
 	for _, r := range strings.TrimSpace(code) {
@@ -117,11 +120,8 @@ func NormalizeOTP(code string) string {
 		}
 	}
 	digits := b.String()
-	if digits == "" {
+	if len(digits) != 6 {
 		return ""
-	}
-	for len(digits) < 6 {
-		digits = "0" + digits
 	}
 	return digits
 }

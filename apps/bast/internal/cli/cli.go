@@ -203,7 +203,7 @@ func commandUsage(resource, command string) string {
 		"hosts --help": `Usage: bast hosts <command>
 
 Commands: list, show, add, edit, delete, promote, favorite, unfavorite, hide,
-          show-hidden, sort, known-host remove`,
+          show-hidden, sort, known-host`,
 		"hosts list": "Usage: bast hosts list [--search text] [--sort smart|label|recent|group] [--all]",
 		"hosts show": "Usage: bast hosts show <host>",
 		"hosts add": `Usage: bast hosts add [label] --hostname host [options]
@@ -250,10 +250,10 @@ Commands: list, show, generate, import, promote, comment, export, install,
 		"sync disable":     "Usage: bast sync disable <gcp|aws|azure>",
 		"sync --help":      "Usage: bast sync <gcp|aws|azure|status|disable>",
 		"vault --help":     "Usage: bast vault <login|status|push|pull|logout|passphrase>",
-		"vault login":      "Usage: bast vault login [--email address]",
+		"vault login":      "Usage: bast vault login [--email address] [--api url] [--mode merge|replace_local|replace_remote]",
 		"vault status":     "Usage: bast vault status",
 		"vault push":       "Usage: bast vault push",
-		"vault pull":       "Usage: bast vault pull",
+		"vault pull":       "Usage: bast vault pull [--mode merge|replace_local|replace_remote]",
 		"vault logout":     "Usage: bast vault logout",
 		"vault passphrase": "Usage: bast vault passphrase [--force]",
 	}

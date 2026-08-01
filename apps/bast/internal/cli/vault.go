@@ -76,18 +76,26 @@ func (r *Runner) vaultLogin(args []string) error {
 		base = vault.DefaultAPIBase
 	}
 	client := &vault.Client{BaseURL: base}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	if err := client.StartOTP(ctx, email); err != nil {
-		return err
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		err := client.StartOTP(ctx, email)
+		cancel()
+		if err != nil {
+			return err
+		}
 	}
 	code, err := r.prompt("Code from email", "", true)
 	if err != nil {
 		return err
 	}
-	verified, err := client.VerifyOTP(ctx, email, strings.TrimSpace(code))
-	if err != nil {
-		return err
+	var verified vault.OTPVerifyResponse
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		verified, err = client.VerifyOTP(ctx, email, strings.TrimSpace(code))
+		cancel()
+		if err != nil {
+			return err
+		}
 	}
 	passphrase, err := r.readPassphrase("Vault passphrase (never sent to Bast servers)")
 	if err != nil {
@@ -122,6 +130,8 @@ func (r *Runner) vaultLogin(args []string) error {
 		return usagef("mode must be merge, replace_local, or replace_remote")
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	remoteGet, err := client.GetVault(ctx, "")
 	if err != nil {
 		return err
@@ -215,10 +225,19 @@ func (r *Runner) vaultPush(args []string) error {
 	if err != nil {
 		return err
 	}
+	if len(remoteGet.Ciphertext) == 0 && session.Revision != "" {
+		return fail("vault_missing", "remote vault missing; run bast vault passphrase --force to replace it")
+	}
 	if err := vault.VerifyPassphrase(remoteGet.Ciphertext, passphrase); err != nil {
 		return err
 	}
-	packer := vault.Packer{Paths: r.Paths, Config: r.config, Keyring: r.keyring, Store: r.store}
+	prev := vault.Document{}
+	if len(remoteGet.Ciphertext) > 0 {
+		if doc, decErr := vault.Decrypt(remoteGet.Ciphertext, passphrase); decErr == nil {
+			prev = doc
+		}
+	}
+	packer := vault.Packer{Paths: r.Paths, Config: r.config, Keyring: r.keyring, Store: r.store, Previous: prev}
 	doc, err := packer.Pack()
 	if err != nil {
 		return err
@@ -476,6 +495,9 @@ func (r *Runner) vaultReady() (vault.Session, string, *vault.Client, error) {
 	remoteGet, err := client.GetVault(ctx, "")
 	if err != nil {
 		return vault.Session{}, "", nil, err
+	}
+	if len(remoteGet.Ciphertext) == 0 && session.Revision != "" {
+		return vault.Session{}, "", nil, fail("vault_missing", "remote vault missing; run bast vault passphrase --force to replace it")
 	}
 	if err := vault.VerifyPassphrase(remoteGet.Ciphertext, passphrase); err != nil {
 		_ = vault.ClearPassphrase(passPath)
