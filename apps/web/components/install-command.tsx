@@ -64,9 +64,13 @@ function CommandDisplay({ method }: { method: InstallMethod }) {
 
 type InstallCommandProps = {
   version?: string | null;
+  className?: string;
 };
 
-export function InstallCommand({ version }: InstallCommandProps) {
+export function InstallCommand({
+  version,
+  className = "w-full max-w-xl",
+}: InstallCommandProps) {
   const [method, setMethod] = useState<InstallMethod>("script");
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
@@ -109,7 +113,7 @@ export function InstallCommand({ version }: InstallCommandProps) {
   }
 
   return (
-    <div className="w-full max-w-xl">
+    <div className={className}>
       <div ref={rootRef} className="relative">
         <div className="absolute left-3 top-0 z-10 -translate-y-[calc(50%+6px)]">
           <div className="relative">

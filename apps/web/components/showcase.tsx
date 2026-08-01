@@ -57,7 +57,7 @@ const features: {
 
 export function Showcase() {
   return (
-    <div className="w-full max-w-4xl bg-border p-px">
+    <div className="w-full bg-border p-px">
       <div className="bg-background">
         <div className="relative h-[560px] overflow-hidden sm:h-[360px] md:h-[380px]">
           <TuiDemo />

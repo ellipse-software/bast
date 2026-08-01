@@ -8,6 +8,12 @@ Telemetry events from the installer and Bast CLI are sent to `/api/telemetry` an
 
 Vault (encrypted Bast config sync) needs Upstash Redis (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`), Cloudflare R2 (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`), and Cloudflare Email Sending via `@opencoredev/email-sdk` (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` or reuse `R2_ACCOUNT_ID`, optional `CLOUDFLARE_EMAIL_FROM`). Enable Email Sending for your From domain in Cloudflare before production sends. See `.env.example`. For running your own instance, see the [self-hosting docs](https://bast.sh/docs/reference/self-hosting).
 
+Health checks:
+
+- `GET /api/health` — marketing app liveness
+- `GET /api/health/docs` — docs content source loads
+- `GET /api/health/vault` — Redis ping and R2 reachability (503 when misconfigured or a dependency fails)
+
 ## Development
 
 From the repository root:

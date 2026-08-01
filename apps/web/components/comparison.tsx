@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 type Row = {
   question: string;
   bast: string;
@@ -52,7 +54,7 @@ const rows: Row[] = [
 
 export function Comparison() {
   return (
-    <section className="w-full max-w-4xl">
+    <section className="w-full">
       <div className="mb-6 max-w-xl">
         <h2 className="mb-2 text-lg font-medium tracking-tight">
           Bast, Termius, or PuTTY?
@@ -60,7 +62,14 @@ export function Comparison() {
         <p className="text-sm leading-relaxed text-muted">
           All three get you onto servers. Bast is for people who already live in
           the terminal and want a faster way around OpenSSH, not another app
-          that owns your hosts.
+          that owns your hosts. See all{" "}
+          <Link
+            href="/alternatives"
+            className="text-foreground underline-offset-2 hover:underline"
+          >
+            comparisons
+          </Link>
+          : Termius, PuTTY, MobaXterm, SecureCRT.
         </p>
       </div>
 

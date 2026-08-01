@@ -1,5 +1,7 @@
 import type { MetadataRoute } from "next";
 
+import { comparisonSlugs } from "@/lib/comparisons";
+import { guideNavItems } from "@/lib/marketing";
 import { source } from "@/lib/source";
 import { llmsFullUrl, llmsTxtUrl, skillUrl, siteUrl } from "@/lib/site";
 
@@ -10,12 +12,41 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: page.url === "/docs" ? 0.8 : 0.7,
   }));
 
+  const comparisonPages = comparisonSlugs.map((slug) => ({
+    url: `${siteUrl}/${slug}`,
+    changeFrequency: "monthly" as const,
+    priority: 0.85,
+  }));
+
+  const guidePages = guideNavItems.map((item) => ({
+    url: `${siteUrl}${item.href}`,
+    changeFrequency: "monthly" as const,
+    priority: 0.8,
+  }));
+
   return [
     {
       url: siteUrl,
       changeFrequency: "monthly",
       priority: 1,
     },
+    {
+      url: `${siteUrl}/alternatives`,
+      changeFrequency: "monthly",
+      priority: 0.9,
+    },
+    {
+      url: `${siteUrl}/features`,
+      changeFrequency: "monthly",
+      priority: 0.88,
+    },
+    {
+      url: `${siteUrl}/changelog`,
+      changeFrequency: "weekly",
+      priority: 0.75,
+    },
+    ...comparisonPages,
+    ...guidePages,
     {
       url: llmsTxtUrl,
       changeFrequency: "monthly",

@@ -10,7 +10,7 @@
   --surface: #f5f5f5;
   --accent: #8b5cf6;
   --highlight: color-mix(in srgb, var(--accent) 12%, var(--background));
-  --fd-layout-width: 1400px;
+  --fd-layout-width: 64rem;
   --color-fd-primary: #8b5cf6;
   --color-fd-primary-foreground: #ffffff;
   --color-fd-accent: color-mix(in srgb, #8b5cf6 12%, #fafafa);

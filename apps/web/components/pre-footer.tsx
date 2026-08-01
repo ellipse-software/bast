@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 import { InstallCommand } from "@/components/install-command";
+import { pageMaxWidthClass } from "@/lib/layout";
 
 type PreFooterProps = {
   version?: string | null;
@@ -38,7 +39,9 @@ export function PreFooter({ version }: PreFooterProps) {
         }}
       />
 
-      <div className="relative mx-auto flex w-full max-w-5xl flex-col items-center px-4 py-16 sm:px-6 sm:py-20">
+      <div
+        className={`relative mx-auto flex w-full ${pageMaxWidthClass} flex-col items-center px-4 py-16 sm:px-6 sm:py-20`}
+      >
         <h2 className="mb-3 text-center text-2xl font-medium tracking-tight text-white sm:text-3xl">
           Install Bast
         </h2>

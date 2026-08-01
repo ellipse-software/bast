@@ -75,7 +75,15 @@ const faqs: { question: string; answer: ReactNode }[] = [
         Termius is a GUI client with its own host database and account sync.
         Bast stays in the terminal, speaks native OpenSSH, and keeps hosts in{" "}
         <code className="text-foreground">~/.ssh/config</code>. Pick Bast when
-        you want a faster picker without leaving your SSH setup behind.
+        you want a faster picker without leaving your SSH setup behind. Full
+        write-up:{" "}
+        <Link
+          href="/termius"
+          className="text-foreground underline-offset-2 hover:underline"
+        >
+          Bast vs Termius
+        </Link>
+        .
       </>
     ),
   },
@@ -165,7 +173,7 @@ const faqJsonLd = {
 
 export function Faq() {
   return (
-    <section className="w-full max-w-4xl">
+    <section className="w-full">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
