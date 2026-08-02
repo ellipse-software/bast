@@ -52,21 +52,11 @@ export function FooterWordmark() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none mt-4 w-full select-none overflow-hidden"
+      className="pointer-events-none mt-4 w-full overflow-hidden select-none"
     >
-      {/*
-        Clip shows the top of the glyphs, then continues through the iOS
-        home-indicator inset and the collapsible Safari chrome delta
-        (lvh − svh) so the mark meets the toolbar instead of leaving a
-        blank pad under the type. Needs viewport-fit=cover.
-      */}
       <div
         ref={ref}
-        className="h-[0.78em] w-full overflow-hidden"
-        style={{
-          height:
-            "calc(0.78em + env(safe-area-inset-bottom, 0px) + (100lvh - 100svh))",
-        }}
+        className="h-[0.78em] w-full overflow-hidden border-border max-md:border-b"
       >
         <p
           data-wordmark-probe

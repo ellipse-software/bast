@@ -65,7 +65,7 @@ export function SiteHeader() {
 
   return (
     <header
-      className={`sticky top-0 z-30 w-full pt-[env(safe-area-inset-top,0px)] transition-[background-color,border-color,backdrop-filter] duration-200 ease-out motion-reduce:transition-none ${
+      className={`sticky top-0 z-30 w-full transition-[background-color,border-color,backdrop-filter] duration-200 ease-out motion-reduce:transition-none ${
         frosted
           ? "border-b border-border/70 bg-background/65 backdrop-blur-xl backdrop-saturate-150"
           : "border-b border-transparent bg-transparent"
