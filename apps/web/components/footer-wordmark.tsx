@@ -24,9 +24,9 @@ function dotFill(tile: number, dot: number): string {
 
 // backgroundSize must match the SVG tile exactly — any scale makes dots uneven.
 const DOT_TILE = 20;
-const DOT_TILE_MOBILE = 14;
+const DOT_TILE_MOBILE = 10;
 const DOT_FILL = dotFill(DOT_TILE, 2);
-const DOT_FILL_MOBILE = dotFill(DOT_TILE_MOBILE, 2);
+const DOT_FILL_MOBILE = dotFill(DOT_TILE_MOBILE, 1);
 
 const OUTLINE = "#5b21b6";
 
