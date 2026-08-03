@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { bastReleaseUrl, bastRepoUrl } from "@/lib/github";
@@ -13,12 +13,16 @@ const METHODS: { id: InstallMethod; label: string }[] = [
   { id: "source", label: "Source" },
 ];
 
-function installCommand(method: InstallMethod): string {
+function installCommand(method: InstallMethod, nightly: boolean): string {
   switch (method) {
     case "script":
-      return "curl -fsSL https://bast.sh/install | sh";
+      return nightly
+        ? "curl -fsSL https://bast.sh/install-nightly | sh"
+        : "curl -fsSL https://bast.sh/install | sh";
     case "homebrew":
-      return "brew install ellipse-software/tap/bast";
+      return nightly
+        ? "brew install ellipse-software/tap/bast-nightly"
+        : "brew install ellipse-software/tap/bast";
     case "source":
       return `git clone ${bastRepoUrl}.git && cd bast/apps/bast && go build -trimpath -o bast .`;
   }
@@ -28,14 +32,24 @@ function methodLabel(method: InstallMethod): string {
   return METHODS.find((entry) => entry.id === method)?.label ?? method;
 }
 
-function CommandDisplay({ method }: { method: InstallMethod }) {
+function CommandDisplay({
+  method,
+  nightly,
+}: {
+  method: InstallMethod;
+  nightly: boolean;
+}) {
   switch (method) {
     case "script":
       return (
         <code className="whitespace-nowrap">
           <span className="text-accent">curl</span>
           <span className="text-muted"> -fsSL </span>
-          <span className="text-accent">https://bast.sh/install</span>
+          <span className="text-accent">
+            {nightly
+              ? "https://bast.sh/install-nightly"
+              : "https://bast.sh/install"}
+          </span>
           <span className="text-muted"> | </span>
           <span className="text-accent">sh</span>
         </code>
@@ -45,7 +59,11 @@ function CommandDisplay({ method }: { method: InstallMethod }) {
         <code className="whitespace-nowrap">
           <span className="text-accent">brew</span>
           <span className="text-muted"> install </span>
-          <span className="text-accent">ellipse-software/tap/bast</span>
+          <span className="text-accent">
+            {nightly
+              ? "ellipse-software/tap/bast-nightly"
+              : "ellipse-software/tap/bast"}
+          </span>
         </code>
       );
     case "source":
@@ -72,10 +90,12 @@ export function InstallCommand({
   className = "w-full max-w-xl",
 }: InstallCommandProps) {
   const [method, setMethod] = useState<InstallMethod>("script");
+  const [nightly, setNightly] = useState(false);
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
+  const showNightly = method === "script" || method === "homebrew";
 
   useEffect(() => {
     if (!open) return;
@@ -101,7 +121,7 @@ export function InstallCommand({
   }, [open]);
 
   async function copy() {
-    await navigator.clipboard.writeText(installCommand(method));
+    await navigator.clipboard.writeText(installCommand(method, nightly));
     setCopied(true);
     window.setTimeout(() => setCopied(false), 5000);
   }
@@ -116,44 +136,71 @@ export function InstallCommand({
     <div className={className}>
       <div ref={rootRef} className="relative">
         <div className="absolute left-3 top-0 z-10 -translate-y-[calc(50%+6px)]">
-          <div className="relative">
-            <button
-              type="button"
-              aria-haspopup="listbox"
-              aria-expanded={open}
-              aria-controls={listboxId}
-              onClick={() => setOpen((current) => !current)}
-              className="inline-flex items-center gap-1 border border-border bg-background px-2 py-0.5 text-[11px] text-muted transition-colors hover:text-foreground"
-            >
-              {methodLabel(method)}
-              <ChevronDown
-                className={`size-3 transition-transform ${open ? "rotate-180" : ""}`}
-                aria-hidden
-              />
-            </button>
-            {open ? (
-              <ul
-                id={listboxId}
-                role="listbox"
-                aria-label="Install method"
-                className="absolute left-0 top-full mt-1 min-w-full border border-border bg-background py-1 shadow-lg"
+          <div className="inline-flex items-stretch border border-border bg-background">
+            <div className="relative flex">
+              <button
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={open}
+                aria-controls={listboxId}
+                onClick={() => setOpen((current) => !current)}
+                className="flex items-center gap-1 px-2 py-0.5 text-[11px] leading-none text-muted transition-colors hover:text-foreground"
               >
-                {METHODS.map(({ id, label }) => (
-                  <li key={id} role="option" aria-selected={method === id}>
-                    <button
-                      type="button"
-                      onClick={() => selectMethod(id)}
-                      className={`block w-full px-2.5 py-1 text-left text-[11px] transition-colors ${
-                        method === id
-                          ? "text-foreground"
-                          : "text-muted hover:text-foreground"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                {methodLabel(method)}
+                <ChevronDown
+                  className={`size-3 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+                  aria-hidden
+                />
+              </button>
+              {open ? (
+                <ul
+                  id={listboxId}
+                  role="listbox"
+                  aria-label="Install method"
+                  className="absolute left-0 top-full mt-1 min-w-full border border-border bg-background py-1 shadow-lg"
+                >
+                  {METHODS.map(({ id, label }) => (
+                    <li key={id} role="option" aria-selected={method === id}>
+                      <button
+                        type="button"
+                        onClick={() => selectMethod(id)}
+                        className={`block w-full px-2.5 py-1 text-left text-[11px] transition-colors ${
+                          method === id
+                            ? "text-foreground"
+                            : "text-muted hover:text-foreground"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+            {showNightly ? (
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={nightly}
+                aria-label="Nightly"
+                onClick={() => {
+                  setNightly((current) => !current);
+                  setCopied(false);
+                }}
+                className="flex items-center gap-1.5 border-l border-border px-2 py-0.5 text-[11px] leading-none text-muted transition-colors hover:text-foreground"
+              >
+                <span
+                  aria-hidden
+                  className={`flex size-2.5 shrink-0 items-center justify-center border ${
+                    nightly
+                      ? "border-foreground text-foreground"
+                      : "border-muted text-transparent"
+                  }`}
+                >
+                  <Check className="size-1.5" strokeWidth={3} />
+                </span>
+                Nightly
+              </button>
             ) : null}
           </div>
         </div>
@@ -175,7 +222,7 @@ export function InstallCommand({
               ) : (
                 <>
                   <span className="mr-3 shrink-0 text-muted select-none">$</span>
-                  <CommandDisplay method={method} />
+                  <CommandDisplay method={method} nightly={nightly} />
                 </>
               )}
             </div>
