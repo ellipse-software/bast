@@ -8,19 +8,25 @@ const washStyle: CSSProperties = {
 };
 
 /** Diagonal terminal dots on page ink — clipped into the glyph fill only. */
-function dotFill(tile: number): string {
-  const a = Math.round(tile * 0.17);
-  const b = Math.round(tile * 0.67);
+function dotFill(tile: number, dot: number): string {
+  // Even tile + half-step offset keeps a regular lattice when the pattern repeats.
+  const half = tile / 2;
+  const a = Math.round((half - dot) / 2);
+  const b = a + half;
   return `url("data:image/svg+xml,${encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${tile}" height="${tile}" shape-rendering="crispEdges">
       <rect width="${tile}" height="${tile}" fill="#0a0a0a"/>
-      <rect x="${a}" y="${a}" width="1" height="1" fill="#7c3aed" fill-opacity="0.55"/>
-      <rect x="${b}" y="${b}" width="1" height="1" fill="#7c3aed" fill-opacity="0.55"/>
+      <rect x="${a}" y="${a}" width="${dot}" height="${dot}" fill="#7c3aed" fill-opacity="0.92"/>
+      <rect x="${b}" y="${b}" width="${dot}" height="${dot}" fill="#7c3aed" fill-opacity="0.92"/>
     </svg>`,
   )}")`;
 }
 
-const DOT_FILL = dotFill(12);
+// backgroundSize must match the SVG tile exactly — any scale makes dots uneven.
+const DOT_TILE = 20;
+const DOT_TILE_MOBILE = 14;
+const DOT_FILL = dotFill(DOT_TILE, 2);
+const DOT_FILL_MOBILE = dotFill(DOT_TILE_MOBILE, 2);
 
 const OUTLINE = "#5b21b6";
 
@@ -38,7 +44,7 @@ const fillStyle: CSSProperties = {
   backgroundColor: "#0a0a0a",
   backgroundImage: DOT_FILL,
   backgroundRepeat: "repeat",
-  backgroundSize: "14px 14px",
+  backgroundSize: `${DOT_TILE}px ${DOT_TILE}px`,
   WebkitBackgroundClip: "text",
   backgroundClip: "text",
   WebkitTextFillColor: "transparent",
@@ -47,8 +53,8 @@ const fillStyle: CSSProperties = {
 
 const fillStyleMobile: CSSProperties = {
   ...fillStyle,
-  // Same tile scaled down: dots shrink and spacing tightens together.
-  backgroundSize: "9px 9px",
+  backgroundImage: DOT_FILL_MOBILE,
+  backgroundSize: `${DOT_TILE_MOBILE}px ${DOT_TILE_MOBILE}px`,
 };
 
 const wordmarkTextClass =
@@ -122,6 +128,52 @@ function spawnTrack(
   };
 }
 
+const HEX = "0123456789abcdef";
+
+type CipherGlyph = {
+  ch: string;
+  x: number;
+  y: number;
+  alpha: number;
+  nextFlip: number;
+  /** 0 idle → 1 peak; fades back after a purple flash. */
+  spark: number;
+  nextSpark: number;
+};
+
+/** Sparse hex field — barely readable cipher dust in the wash. */
+function buildCipherField(width: number, height: number): CipherGlyph[] {
+  const cell = 18;
+  const glyphs: CipherGlyph[] = [];
+  const cols = Math.ceil(width / cell);
+  // Snap the last row to the footer floor so cipher runs to the bottom edge.
+  const top = cell * 0.72;
+  const bottom = Math.max(top, height - 1);
+  const rows = Math.max(1, Math.round((bottom - top) / cell) + 1);
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      // Leave most cells empty so the field reads as dust, not a grid.
+      if (Math.random() > 0.34) continue;
+      const t = rows === 1 ? 1 : row / (rows - 1);
+      const y = top + t * (bottom - top);
+      const depth = Math.min(1, Math.max(0, y / height));
+      // Stronger near the floor; dissolve toward the top of the wash.
+      const alpha = 0.055 + depth * depth * 0.12;
+      glyphs.push({
+        ch: HEX[(Math.random() * 16) | 0]!,
+        x: col * cell + cell * 0.18,
+        y,
+        alpha,
+        nextFlip: rand(500, 3400),
+        spark: 0,
+        nextSpark: rand(2000, 14000),
+      });
+    }
+  }
+  return glyphs;
+}
+
 /** Cloud-chamber ionization streaks rising through the purple wash. */
 function ChamberField() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -132,7 +184,7 @@ function ChamberField() {
     if (!canvasNode || !parentNode) return;
 
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (reduced.matches) return;
+    const prefersReduced = reduced.matches;
 
     const ctxNode = canvasNode.getContext("2d", { alpha: true });
     if (!ctxNode) return;
@@ -143,6 +195,7 @@ function ChamberField() {
     const ctx: CanvasRenderingContext2D = ctxNode;
 
     let tracks: ChamberTrack[] = [];
+    let glyphs: CipherGlyph[] = [];
     let raf = 0;
     let last = performance.now();
     let spawnAcc = 0;
@@ -151,6 +204,45 @@ function ChamberField() {
     let w = 0;
     let h = 0;
     let dpr = 1;
+
+    function paintCipher(animate: boolean, dt: number) {
+      if (glyphs.length === 0) return;
+      ctx.globalCompositeOperation = "source-over";
+      ctx.font =
+        "13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+      ctx.textBaseline = "alphabetic";
+      ctx.textAlign = "left";
+
+      for (const g of glyphs) {
+        if (animate) {
+          g.nextFlip -= dt;
+          if (g.nextFlip <= 0) {
+            g.ch = HEX[(Math.random() * 16) | 0]!;
+            g.nextFlip = rand(700, 3600);
+          }
+
+          if (g.spark > 0) {
+            g.spark = Math.max(0, g.spark - dt / 900);
+          } else {
+            g.nextSpark -= dt;
+            if (g.nextSpark <= 0) {
+              // Sparse: most ticks no-op, occasionally one letter flashes purple.
+              if (Math.random() < 0.1) g.spark = 1;
+              g.nextSpark = rand(3200, 12000);
+            }
+          }
+        }
+
+        if (g.spark > 0) {
+          const s = g.spark * g.spark;
+          // Brand violet flash — same purple as the wordmark dots.
+          ctx.fillStyle = `rgba(124, 58, 237, ${Math.min(0.95, g.alpha + 0.55 * s)})`;
+        } else {
+          ctx.fillStyle = `rgba(196, 181, 253, ${g.alpha})`;
+        }
+        ctx.fillText(g.ch, g.x, g.y);
+      }
+    }
 
     function resize() {
       dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -162,6 +254,11 @@ function ChamberField() {
       canvas.style.width = `${w}px`;
       canvas.style.height = `${h}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      glyphs = buildCipherField(w, h);
+      if (prefersReduced) {
+        ctx.clearRect(0, 0, w, h);
+        paintCipher(false, 0);
+      }
     }
 
     function strokeTrail(
@@ -209,6 +306,8 @@ function ChamberField() {
       }
 
       ctx.clearRect(0, 0, w, h);
+      paintCipher(true, dt);
+
       ctx.globalCompositeOperation = "lighter";
 
       const next: ChamberTrack[] = [];
@@ -234,17 +333,24 @@ function ChamberField() {
     }
 
     resize();
+
+    const ro = new ResizeObserver(() => {
+      resize();
+    });
+    ro.observe(parent);
+
+    if (prefersReduced) {
+      return () => {
+        ro.disconnect();
+      };
+    }
+
     for (let i = 0; i < 7; i += 1) {
       const t = spawnTrack(w, h, tracks);
       if (!t) break;
       t.drawn = rand(0.15, 0.7);
       tracks.push(t);
     }
-
-    const ro = new ResizeObserver(() => {
-      resize();
-    });
-    ro.observe(parent);
 
     const onVisibility = () => {
       if (document.hidden) {
@@ -272,7 +378,7 @@ function ChamberField() {
     <canvas
       ref={canvasRef}
       aria-hidden
-      className="pointer-events-none absolute inset-0 motion-reduce:hidden [mask-image:linear-gradient(to_top,black_0%,black_62%,rgba(0,0,0,0.5)_86%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_top,black_0%,black_62%,rgba(0,0,0,0.5)_86%,transparent_100%)]"
+      className="pointer-events-none absolute inset-0 [mask-image:linear-gradient(to_top,black_0%,black_62%,rgba(0,0,0,0.5)_86%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_top,black_0%,black_62%,rgba(0,0,0,0.5)_86%,transparent_100%)]"
     />
   );
 }
@@ -338,7 +444,7 @@ export function FooterWordmark() {
       <ChamberField />
       <div
         ref={maskRef}
-        className="relative flex h-[0.78em] w-full justify-center overflow-hidden border-b border-b-[1px] border-[#5b21b6] sm:border-b-[0.5px]"
+        className="relative flex h-[0.78em] w-full justify-center overflow-hidden border-b border-b-[1px] border-[#5b21b6] sm:border-b-0"
       >
         <div className="relative w-max max-w-none max-sm:-translate-x-[3px]">
           <p
