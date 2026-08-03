@@ -127,16 +127,20 @@ function ChamberField() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useLayoutEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const parent = canvas.parentElement;
-    if (!parent) return;
+    const canvasNode = canvasRef.current;
+    const parentNode = canvasNode?.parentElement ?? null;
+    if (!canvasNode || !parentNode) return;
 
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (reduced.matches) return;
 
-    const ctx = canvas.getContext("2d", { alpha: true });
-    if (!ctx) return;
+    const ctxNode = canvasNode.getContext("2d", { alpha: true });
+    if (!ctxNode) return;
+
+    // Typed aliases so nested closures see non-null DOM handles.
+    const canvas: HTMLCanvasElement = canvasNode;
+    const parent: HTMLElement = parentNode;
+    const ctx: CanvasRenderingContext2D = ctxNode;
 
     let tracks: ChamberTrack[] = [];
     let raf = 0;
