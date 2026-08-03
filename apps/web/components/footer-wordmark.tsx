@@ -7,27 +7,6 @@ const washStyle: CSSProperties = {
     "linear-gradient(to top, rgb(76 29 149 / 0.4) 0%, rgb(76 29 149 / 0.14) 34%, rgb(76 29 149 / 0.04) 58%, transparent 82%)",
 };
 
-/** Diagonal terminal dots on page ink — clipped into the glyph fill only. */
-function dotFill(tile: number, dot: number): string {
-  // Even tile + half-step offset keeps a regular lattice when the pattern repeats.
-  const half = tile / 2;
-  const a = Math.round((half - dot) / 2);
-  const b = a + half;
-  return `url("data:image/svg+xml,${encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${tile}" height="${tile}" shape-rendering="crispEdges">
-      <rect width="${tile}" height="${tile}" fill="#0a0a0a"/>
-      <rect x="${a}" y="${a}" width="${dot}" height="${dot}" fill="#7c3aed" fill-opacity="0.92"/>
-      <rect x="${b}" y="${b}" width="${dot}" height="${dot}" fill="#7c3aed" fill-opacity="0.92"/>
-    </svg>`,
-  )}")`;
-}
-
-// backgroundSize must match the SVG tile exactly — any scale makes dots uneven.
-const DOT_TILE = 20;
-const DOT_TILE_MOBILE = 10;
-const DOT_FILL = dotFill(DOT_TILE, 2);
-const DOT_FILL_MOBILE = dotFill(DOT_TILE_MOBILE, 1);
-
 const OUTLINE = "#5b21b6";
 
 /**
@@ -41,20 +20,7 @@ const outlineStyle: CSSProperties = {
 };
 
 const fillStyle: CSSProperties = {
-  backgroundColor: "#0a0a0a",
-  backgroundImage: DOT_FILL,
-  backgroundRepeat: "repeat",
-  backgroundSize: `${DOT_TILE}px ${DOT_TILE}px`,
-  WebkitBackgroundClip: "text",
-  backgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-  color: "transparent",
-};
-
-const fillStyleMobile: CSSProperties = {
-  ...fillStyle,
-  backgroundImage: DOT_FILL_MOBILE,
-  backgroundSize: `${DOT_TILE_MOBILE}px ${DOT_TILE_MOBILE}px`,
+  color: "#0a0a0a",
 };
 
 const wordmarkTextClass =
@@ -235,7 +201,7 @@ function ChamberField() {
 
         if (g.spark > 0) {
           const s = g.spark * g.spark;
-          // Brand violet flash — same purple as the wordmark dots.
+          // Brand violet flash.
           ctx.fillStyle = `rgba(124, 58, 237, ${Math.min(0.95, g.alpha + 0.55 * s)})`;
         } else {
           ctx.fillStyle = `rgba(196, 181, 253, ${g.alpha})`;
@@ -454,16 +420,7 @@ export function FooterWordmark() {
           >
             bast.sh
           </p>
-          <p
-            className={`relative hidden sm:block ${wordmarkTextClass}`}
-            style={fillStyle}
-          >
-            bast.sh
-          </p>
-          <p
-            className={`relative sm:hidden ${wordmarkTextClass}`}
-            style={fillStyleMobile}
-          >
+          <p className={`relative ${wordmarkTextClass}`} style={fillStyle}>
             bast.sh
           </p>
         </div>
