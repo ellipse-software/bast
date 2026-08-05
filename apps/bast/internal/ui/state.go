@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	boxcloud "bast/internal/cloud/box"
 	cloudsync "bast/internal/cloud/sync"
 	"bast/internal/keys"
 	"bast/internal/metadata"
@@ -503,6 +504,18 @@ func (m *App) selectAfterLoad() {
 	m.search = ""
 	index := -1
 	if section == hostsSection {
+		revealGroup := name
+		if !selectGroup {
+			revealGroup = m.metadata.Host(name).Group
+		}
+		if revealGroup != "" {
+			next, _, changed := m.collapsedGroupsRevealing(revealGroup)
+			if changed {
+				m.collapsedGroups = next
+				m.collapseRevision++
+				_ = m.persistCollapsedGroups()
+			}
+		}
 		for i, row := range m.hostRows() {
 			if (selectGroup && row.header && row.group == name) || (!selectGroup && !row.header && row.host.Alias == name) {
 				index = i
@@ -764,6 +777,17 @@ func destination(h sshconfig.Host) string {
 	}
 	return user + h.Resolved.HostName + port
 }
+
+func (m *App) hostLooksStopped(host sshconfig.Host) bool {
+	return hostLooksStopped(host, m.metadata.Host(host.Alias))
+}
+
+func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
+	if !host.Synced || host.SyncSource != boxcloud.ProviderName {
+		return false
+	}
+	return boxcloud.HostLooksStopped(host.Resolved.HostName, meta.Tags)
+}
 func hostIdentity(h sshconfig.Host) string {
 	if passwordOnly(h.Resolved) {
 		return "password only"
@@ -796,6 +820,12 @@ func hostStatusLine(h sshconfig.Host, meta metadata.Host) string {
 		parts = append(parts, "AWS synced")
 	case h.Synced && h.SyncSource == "azure":
 		parts = append(parts, "Azure synced")
+	case h.Synced && h.SyncSource == "box":
+		if hostLooksStopped(h, meta) {
+			parts = append(parts, "Box stopped")
+		} else {
+			parts = append(parts, "Box synced")
+		}
 	case h.Synced:
 		parts = append(parts, h.SyncSource+" synced")
 	case h.Managed:

@@ -179,6 +179,8 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 		ensure = m.syncer.EnsureAWSAccess
 	case "azure":
 		ensure = m.syncer.EnsureAzureAccess
+	case "box":
+		ensure = m.syncer.EnsureBoxAccess
 	}
 	if ensure == nil {
 		return func(func(string)) error {

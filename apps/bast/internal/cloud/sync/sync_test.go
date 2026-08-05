@@ -594,7 +594,8 @@ func TestIsSyncedGroup(t *testing.T) {
 	if !IsSyncedGroup("Google Cloud") || !IsSyncedGroup("Google Cloud/demo") ||
 		!IsSyncedGroup("GCP") || !IsSyncedGroup("GCP/demo") ||
 		!IsSyncedGroup("Amazon EC2") || !IsSyncedGroup("Amazon EC2/default") ||
-		!IsSyncedGroup("AWS/default") || IsSyncedGroup("Work") {
+		!IsSyncedGroup("AWS/default") || !IsSyncedGroup("Box") || !IsSyncedGroup("Box/Running") ||
+		IsSyncedGroup("Work") {
 		t.Fatal("IsSyncedGroup mismatch")
 	}
 }

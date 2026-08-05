@@ -200,11 +200,16 @@ func LoadSyncHosts(path string) ([]SyncHostInput, error) {
 }
 
 func UpdateSyncHostAuth(path, alias, user, identityFile, certificateFile string, identitiesOnly bool) error {
+	return UpdateSyncHostAuthAndHost(path, alias, "", user, identityFile, certificateFile, identitiesOnly)
+}
+
+// UpdateSyncHostAuthAndHost updates auth fields and optionally HostName when hostname is non-empty.
+func UpdateSyncHostAuthAndHost(path, alias, hostname, user, identityFile, certificateFile string, identitiesOnly bool) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	updated, ok := patchSyncHostAuth(data, alias, user, identityFile, certificateFile, identitiesOnly)
+	updated, ok := patchSyncHostAuth(data, alias, hostname, user, identityFile, certificateFile, identitiesOnly)
 	if !ok {
 		return fmt.Errorf("synced host %q not found in %s", alias, path)
 	}
@@ -214,7 +219,7 @@ func UpdateSyncHostAuth(path, alias, user, identityFile, certificateFile string,
 	return atomicWriteChecked(path, data, updated, 0600)
 }
 
-func patchSyncHostAuth(data []byte, alias, user, identityFile, certificateFile string, identitiesOnly bool) ([]byte, bool) {
+func patchSyncHostAuth(data []byte, alias, hostnameOverride, user, identityFile, certificateFile string, identitiesOnly bool) ([]byte, bool) {
 	alias = strings.TrimSpace(alias)
 	if alias == "" {
 		return data, false
@@ -297,6 +302,9 @@ func patchSyncHostAuth(data []byte, alias, user, identityFile, certificateFile s
 		}
 	}
 
+	if strings.TrimSpace(hostnameOverride) != "" {
+		hostname = strings.TrimSpace(hostnameOverride)
+	}
 	input := SyncHostInput{
 		Alias:           alias,
 		User:            user,

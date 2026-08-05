@@ -19,6 +19,7 @@ const (
 	headerTitle          = " BAST "
 	headerTabSpacing     = "   "
 	connectAction        = " Connect "
+	resumeAction         = " Resume "
 	addAction            = " Add "
 	connectActionRow     = 0
 	mobileScrollbarWidth = 3
@@ -30,7 +31,18 @@ const (
 var headerTabLabels = [...]string{"[1] Hosts", "[2] Keys", "[3] Sync", "[4] Files"}
 
 func (m *App) connectButtonBounds(layout panelLayout) (x, y, width int) {
-	return m.hostActionButtonBounds(layout, connectAction)
+	action := connectAction
+	if host, ok := m.selectedHost(); ok {
+		action = m.hostPrimaryAction(host)
+	}
+	return m.hostActionButtonBounds(layout, action)
+}
+
+func (m *App) hostPrimaryAction(host sshconfig.Host) string {
+	if m.hostLooksStopped(host) {
+		return resumeAction
+	}
+	return connectAction
 }
 
 func (m *App) hostActionButtonBounds(layout panelLayout, action string) (x, y, width int) {
@@ -261,6 +273,8 @@ func (m *App) renderHosts(s styleSet) string {
 		line := indent + prefix + truncate(m.hostLabel(host), max(2, rowWidth-lipgloss.Width(indent+prefix)-2))
 		if i == m.cursor {
 			line = s.selected.Width(rowWidth).Render(line)
+		} else if m.hostLooksStopped(host) {
+			line = s.muted.Width(rowWidth).Render(line)
 		} else {
 			line = lipgloss.NewStyle().Width(rowWidth).Render(line)
 		}
@@ -389,6 +403,11 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool
 		provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0078D4")).Render(providerName)
 		return provider + restStyle.Render(strings.TrimPrefix(name, "Microsoft Azure"))
 	}
+	if name == "Box" || strings.HasPrefix(name, "Box/") {
+		providerName := managedGroupIcon(name, nerdFont) + "Box"
+		provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(providerName)
+		return provider + restStyle.Render(strings.TrimPrefix(name, "Box"))
+	}
 	return name
 }
 
@@ -403,6 +422,8 @@ func managedGroupIcon(name string, nerdFont bool) string {
 		return "\ue7f1 "
 	case name == "Microsoft Azure" || strings.HasPrefix(name, "Microsoft Azure/"):
 		return "\ue754 "
+	case name == "Box" || strings.HasPrefix(name, "Box/"):
+		return "\uf1b2 " // nf-fa-cube
 	default:
 		return ""
 	}
@@ -412,7 +433,8 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	meta := m.metadata.Host(host.Alias)
 	var b strings.Builder
 	label := m.hostLabel(host)
-	connectBtn := s.title.Render(connectAction)
+	primaryAction := m.hostPrimaryAction(host)
+	connectBtn := s.title.Render(primaryAction)
 	connectBtnWidth := lipgloss.Width(connectBtn)
 	titleStyle := s.active
 	titleMax := max(4, width-connectBtnWidth-4)
@@ -429,10 +451,18 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	if dest == "" {
 		dest = host.Alias
 	}
+	destStyle := s.value
+	if m.hostLooksStopped(host) {
+		dest = "stopped"
+		destStyle = s.muted
+		if _, ok := contrastingTextColor(meta.Color); !ok {
+			titleStyle = s.muted
+		}
+	}
 	titlePart := titleStyle.Render(title)
 	gap := max(1, width-2-lipgloss.Width(titlePart)-connectBtnWidth)
 	b.WriteString("  " + titlePart + strings.Repeat(" ", gap) + connectBtn + "\n")
-	b.WriteString("  " + s.value.Render(truncate(dest, max(4, width-3))) + "\n")
+	b.WriteString("  " + destStyle.Render(truncate(dest, max(4, width-3))) + "\n")
 	b.WriteString("  " + s.muted.Render(truncate(hostStatusLine(host, meta), max(4, width-3))) + "\n")
 
 	b.WriteString("\n")
@@ -998,6 +1028,10 @@ func (m *App) renderFooter(s styleSet) string {
 	switch {
 	case m.vaultBusy != "":
 		left = s.muted.Render(m.vaultBusy + " · esc cancel")
+	case m.syncBusy != "":
+		left = s.muted.Render(m.syncBusy)
+	case m.syncActivity != "":
+		left = s.muted.Render(m.syncActivity)
 	case m.anySyncing():
 		left = s.muted.Render("syncing…")
 	case m.loading:
@@ -1007,7 +1041,7 @@ func (m *App) renderFooter(s styleSet) string {
 	case query != "":
 		left = "filter: " + query
 	}
-	if m.vaultBusy == "" && !m.anySyncing() && !m.loading && m.status != "" {
+	if m.vaultBusy == "" && m.syncBusy == "" && m.syncActivity == "" && !m.anySyncing() && !m.loading && m.status != "" {
 		if left != "" {
 			left += "  •  "
 		}
@@ -1024,6 +1058,8 @@ func (m *App) renderFooter(s styleSet) string {
 		hint = m.formHint()
 	} else if m.vaultBusy != "" {
 		hint = "esc"
+	} else if m.syncBusy != "" {
+		hint = ""
 	} else {
 		budget := max(8, m.terminalWidth()-lipgloss.Width(left)-1)
 		hint = m.browseFooterHint(budget)

@@ -86,19 +86,31 @@ func (m *App) cancelVaultOp() {
 	m.vaultOpGen++
 }
 
-// vaultBusyBlocksSync replaces the Sync/Vault menu while a vault network step runs
-// (send code, verify, link, unlock, sync from this screen). Other sections keep their
-// normal body and only show the footer busy hint.
+// vaultBusyBlocksSync replaces the Sync/Vault menu while a vault network step or
+// long Sync op (e.g. box create) runs. Other sections keep their normal body and
+// only show the footer busy hint.
 func (m *App) vaultBusyBlocksSync() bool {
-	return m.vaultBusy != "" && m.section == syncSection
+	return (m.vaultBusy != "" || m.syncBusy != "") && m.section == syncSection
 }
 
 func (m *App) renderVaultBusy(s styleSet) string {
 	title := "Vault"
-	if m.syncProvider != "" && m.syncProvider != "vault" {
-		title = strings.ToUpper(m.syncProvider)
+	if m.syncProvider != "" {
+		title = m.syncProviderTitle()
 	}
-	return "\n  " + s.active.Render(title) + "\n\n  " + s.muted.Render(m.vaultBusy)
+	label := m.vaultBusy
+	if label == "" {
+		label = m.syncBusy
+	}
+	return "\n  " + s.active.Render(title) + "\n\n  " + s.muted.Render(label)
+}
+
+func (m *App) beginSyncBusy(label string) {
+	m.syncBusy = label
+}
+
+func (m *App) clearSyncBusy() {
+	m.syncBusy = ""
 }
 
 func (m *App) openVaultConflictForm(msg vaultConflictMsg) {

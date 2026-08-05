@@ -28,7 +28,7 @@ const rows: Row[] = [
   },
   {
     question: "Cloud VMs?",
-    bast: "Imports from GCP, AWS, and Azure via their CLIs",
+    bast: "Imports from GCP, AWS, Azure, and box.ascii.dev via their CLIs",
     termius: "Mostly manual setup",
     putty: "Not built in",
   },

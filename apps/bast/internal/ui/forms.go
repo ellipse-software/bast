@@ -454,7 +454,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			return m.formValidationError("Name does not match the key name")
 		}
 		return m.finishMutation(m.keyring.Delete(key, values["Type the name to confirm"]), "Key permanently deleted")
-	case "sync_gcp_user", "sync_gcp_projects", "sync_gcp_sa_add", "sync_gcp_sa_remove", "sync_aws_user", "sync_aws_profiles", "sync_aws_regions", "sync_azure_user", "sync_azure_subscriptions", "sync_azure_resource_groups":
+	case "sync_gcp_user", "sync_gcp_projects", "sync_gcp_sa_add", "sync_gcp_sa_remove", "sync_aws_user", "sync_aws_profiles", "sync_aws_regions", "sync_azure_user", "sync_azure_subscriptions", "sync_azure_resource_groups", "box_new", "box_stop", "box_fork":
 		return m, m.submitSyncForm(f.action, values)
 	case "known_delete":
 		alias := values["Alias"]

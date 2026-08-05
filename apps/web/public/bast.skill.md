@@ -17,7 +17,8 @@ Docs: https://bast.sh/llms.txt
 - User wants to browse, search, or organize SSH hosts from the terminal
 - User needs to generate, import, export, or install SSH keys
 - User wants quick connect: `bast <label>` or `bast "Production web"`
-- User wants to import cloud VMs (`bast sync gcp|aws|azure`) and connect with local keys
+- User wants to import cloud VMs (`bast sync gcp|aws|azure|box`) and connect with local keys
+- User already has the ASCII Box CLI installed and logged in (Bast auto-connects Box)
 - User SSHs from a phone or narrow terminal: the TUI switches to a stacked mobile layout below 60 columns (tap Connect)
 - Automation/scripts need host or key management with stable JSON output
 
@@ -96,13 +97,28 @@ Import from stdin without shell history: `bast keys import work --private - < id
 bast sync gcp
 bast sync aws
 bast sync azure
+bast sync box
 bast sync status
 bast sync disable gcp
+bast sync disable box
 ```
 
-Requires the matching cloud CLI on `PATH` (`gcloud`, `aws`, or `az`) and an authenticated account. Synced hosts are read-only; disconnect via Sync to remove them.
+Requires the matching cloud CLI on `PATH` (`gcloud`, `aws`, `az`, or `box`) and an authenticated account. Synced hosts are read-only; disconnect via Sync to remove them.
+
+If the Box CLI is already installed and logged in, Bast auto-connects on TUI start and `bast sync status` (unless you previously ran `bast sync disable box`).
 
 On GCP connect, Bast prefers a local key already authorized on the VM. If none matches, it ensures `~/.ssh/google_compute_engine`, publishes it when needed, and may wait for the guest agent.
+
+## Box lifecycle
+
+```sh
+bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]
+bast box fork <host|id> [--type small|default|large] [--no-env]
+bast box stop <host|id>
+bast box resume <host|id> [--type small|default|large] [--no-env]
+```
+
+In the TUI, Box hosts support Enter to connect (resume first if stopped), `r` resume, `o` stop, and `n` fork. SSH user is always `user` with `~/.ssh/ascii_box_ed25519`.
 
 ## Files (SFTP)
 

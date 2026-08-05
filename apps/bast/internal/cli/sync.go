@@ -12,7 +12,7 @@ import (
 
 func (r *Runner) sync(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|status|disable>")
+		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|box|status|disable>")
 		return nil
 	}
 	engine := sync.New(r.Paths, r.store)
@@ -23,6 +23,8 @@ func (r *Runner) sync(args []string) error {
 		return r.syncAWS(engine, args[1:])
 	case "azure":
 		return r.syncAzure(engine, args[1:])
+	case "box":
+		return r.syncBox(engine, args[1:])
 	case "status":
 		return r.syncStatus(engine, args[1:])
 	case "disable":
@@ -30,6 +32,29 @@ func (r *Runner) sync(args []string) error {
 	default:
 		return usagef("unknown sync command %q", args[0])
 	}
+}
+
+func (r *Runner) syncBox(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync box")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync box")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	result, err := engine.SyncBox(ctx)
+	if err != nil {
+		telemetry.Track("sync_box_fail", r.Version)
+		return fail("sync_failed", err.Error())
+	}
+	telemetry.Track("sync_box", r.Version)
+	msg := fmt.Sprintf("Synced %d boxes", result.Count)
+	if result.Error != "" {
+		msg += "\nWarning: " + result.Error
+	}
+	return r.success(result, msg)
 }
 
 func (r *Runner) syncAzure(engine *sync.Engine, args []string) error {
@@ -109,8 +134,11 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if fs.NArg() != 0 {
 		return usagef("usage: bast sync status")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	if _, ran, err := engine.MaybeAutoConnectBox(ctx); err == nil && ran {
+		telemetry.Track("sync_box_auto", r.Version)
+	}
 	status, err := engine.Status(ctx)
 	if err != nil {
 		return fail("sync_status", err.Error())
@@ -208,6 +236,35 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if azure.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", azure.LastSyncError)
 	}
+	box := status.Box
+	fmt.Fprintln(r.Out, "Box")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", box.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", box.AutoSync)
+	if box.Disabled {
+		fmt.Fprintln(r.Out, "  Disabled: true (sticky; will not auto-connect)")
+	}
+	if box.BoxCLIError != "" {
+		fmt.Fprintf(r.Out, "  box: %s\n", box.BoxCLIError)
+	} else if box.Authenticated {
+		login := box.Login
+		if login == "" {
+			login = "authenticated"
+		}
+		fmt.Fprintf(r.Out, "  Account: %s\n", login)
+		if box.Plan != "" {
+			fmt.Fprintf(r.Out, "  Plan: %s\n", box.Plan)
+		}
+	} else {
+		fmt.Fprintln(r.Out, "  Account: not logged in")
+	}
+	if box.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d boxes)\n", box.LastSyncAt.Local().Format(time.RFC3339), box.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if box.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", box.LastSyncError)
+	}
 	return nil
 }
 
@@ -217,10 +274,10 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 1 {
-		return usagef("usage: bast sync disable <gcp|aws|azure>")
+		return usagef("usage: bast sync disable <gcp|aws|azure|box>")
 	}
 	provider := fs.Arg(0)
-	if provider != "gcp" && provider != "aws" && provider != "azure" {
+	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "box" {
 		return usagef("unknown sync provider %q", provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -233,6 +290,8 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		err = engine.DisableAWS(ctx)
 	case "azure":
 		err = engine.DisableAzure(ctx)
+	case "box":
+		err = engine.DisableBox(ctx)
 	}
 	if err != nil {
 		return fail("sync_disable", err.Error())

@@ -43,7 +43,7 @@ export const securecrtComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud VMs",
-      bast: "Import via GCP, AWS, and Azure CLIs",
+      bast: "Import via GCP, AWS, Azure, and box.ascii.dev CLIs",
       competitor: "Manual or scripted session maintenance",
     },
     {
