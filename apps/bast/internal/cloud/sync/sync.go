@@ -617,7 +617,6 @@ func (e *Engine) SyncBox(ctx context.Context) (Result, error) {
 				continue
 			}
 			metadataDeletes = append(metadataDeletes, host.Alias)
-			_ = previousBlocks[syncID]
 		}
 	} else {
 		for syncID, host := range previousBySyncID {
@@ -739,14 +738,21 @@ func (e *Engine) ResolveBoxSyncID(ctx context.Context, hostOrID string) (string,
 		}
 	}
 	// Also match metadata labels.
+	var matches []string
 	for _, host := range hosts {
 		if !host.Synced || host.SyncSource != boxcloud.ProviderName {
 			continue
 		}
 		meta := e.Store.Host(host.Alias)
-		if meta.Label == hostOrID || strings.EqualFold(meta.Label, hostOrID) {
-			return host.SyncID, nil
+		if meta.Label != "" && strings.EqualFold(meta.Label, hostOrID) {
+			matches = append(matches, host.SyncID)
 		}
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) > 1 {
+		return "", fmt.Errorf("box label %q matches %d hosts; pass an alias or a bx_ id", hostOrID, len(matches))
 	}
 	return "", fmt.Errorf("box host %q not found; sync with bast sync box or pass a bx_ id", hostOrID)
 }

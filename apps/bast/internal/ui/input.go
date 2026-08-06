@@ -507,6 +507,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "o":
 		if m.section == hostsSection {
 			if host, ok := m.selectedHost(); ok && host.Synced && host.SyncSource == "box" {
+				if m.syncingProviders["box"] {
+					return m, m.setNotice("Box operation already in progress")
+				}
 				if m.hostLooksStopped(host) {
 					return m, m.setNotice("Box is already stopped")
 				}
@@ -517,6 +520,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "n":
 		if m.section == hostsSection {
 			if host, ok := m.selectedHost(); ok && host.Synced && host.SyncSource == "box" {
+				if m.syncingProviders["box"] {
+					return m, m.setNotice("Box operation already in progress")
+				}
 				m.openBoxForkForm(host)
 				return m, nil
 			}

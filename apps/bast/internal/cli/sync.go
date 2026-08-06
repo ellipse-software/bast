@@ -136,12 +136,16 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if _, ran, err := engine.MaybeAutoConnectBox(ctx); err == nil && ran {
+	_, ran, autoSyncErr := engine.MaybeAutoConnectBox(ctx)
+	if autoSyncErr == nil && ran {
 		telemetry.Track("sync_box_auto", r.Version)
 	}
 	status, err := engine.Status(ctx)
 	if err != nil {
 		return fail("sync_status", err.Error())
+	}
+	if autoSyncErr != nil {
+		status.Box.LastSyncError = autoSyncErr.Error()
 	}
 	if r.JSON {
 		return r.success(status, "")

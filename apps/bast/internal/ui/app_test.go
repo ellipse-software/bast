@@ -2890,6 +2890,32 @@ func TestAutoSyncDoesNotRestartAfterSyncReload(t *testing.T) {
 	}
 }
 
+func TestBoxAutoConnectSkipsExplicitAutoSyncOff(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true, AutoSync: false}); err != nil {
+		t.Fatal(err)
+	}
+	if cmd := m.autoSyncCmds(); cmd != nil {
+		t.Fatal("enabled Box with auto-sync off should not auto-connect or sync")
+	}
+	if m.syncingProviders["box"] {
+		t.Fatal("Box should not be marked syncing")
+	}
+}
+
+func TestBoxAutoConnectRunsWhenNotEnabled(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetBox(metadata.BoxIntegration{}); err != nil {
+		t.Fatal(err)
+	}
+	if cmd := m.autoSyncCmds(); cmd == nil {
+		t.Fatal("unconfigured Box should schedule auto-connect")
+	}
+	if !m.syncingProviders["box"] {
+		t.Fatal("Box should be marked syncing for auto-connect")
+	}
+}
+
 func TestSyncCompletionNoticeIncludesEveryEnabledProvider(t *testing.T) {
 	m := testApp(t)
 	if err := m.metadata.SetGCP(metadata.GCPIntegration{Enabled: true, LastInstanceCount: 0}); err != nil {

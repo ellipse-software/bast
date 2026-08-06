@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	boxcloud "bast/internal/cloud/box"
 	"bast/internal/files"
 	"bast/internal/openssh"
 	"bast/internal/sshconfig"
@@ -180,7 +181,17 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 	case "azure":
 		ensure = m.syncer.EnsureAzureAccess
 	case "box":
-		ensure = m.syncer.EnsureBoxAccess
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Resuming box…")
+				}
+				if _, err := m.syncer.ResumeBox(ctx, host.SyncID, boxcloud.ResumeOpts{}); err != nil {
+					return err
+				}
+			}
+			return m.syncer.EnsureBoxAccess(ctx, host, status)
+		}
 	}
 	if ensure == nil {
 		return func(func(string)) error {

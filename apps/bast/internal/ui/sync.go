@@ -598,7 +598,9 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			box := m.metadata.Box()
 			box.Disabled = false
 			box.Enabled = true
-			box.AutoSync = true
+			if action == "enable" {
+				box.AutoSync = true
+			}
 			if err := m.metadata.SetBox(box); err != nil {
 				delete(m.syncingProviders, "box")
 				m.setError(err)
@@ -767,7 +769,9 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			boxType = "default"
 		}
 		if boxType != "small" && boxType != "default" && boxType != "large" {
-			m.setError(fmt.Errorf("type must be small, default, or large"))
+			if m.form != nil {
+				m.form.validationError = "type must be small, default, or large"
+			}
 			return nil
 		}
 		noAutoStop := truthyForm(values["No auto-stop"])
@@ -902,7 +906,9 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		return m.setNotice("Service account key removed")
 	case "box_stop":
 		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
-			m.setError(fmt.Errorf("type stop to confirm"))
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
 			return nil
 		}
 		syncID := strings.TrimSpace(values["SyncID"])
@@ -920,7 +926,9 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 	case "box_fork":
 		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
-			m.setError(fmt.Errorf("type fork to confirm"))
+			if m.form != nil {
+				m.form.validationError = "type fork to confirm"
+			}
 			return nil
 		}
 		syncID := strings.TrimSpace(values["SyncID"])
@@ -932,8 +940,11 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		return tea.Batch(m.setNotice("Forking box…"), func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			result, _, err := m.syncer.ForkBox(ctx, syncID, boxcloud.ForkOpts{})
-			return syncDoneMsg{provider: "box", result: result, err: err}
+			result, alias, err := m.syncer.ForkBox(ctx, syncID, boxcloud.ForkOpts{})
+			if err != nil {
+				return syncDoneMsg{provider: "box", result: result, err: err}
+			}
+			return syncDoneMsg{provider: "box", result: result, focusAlias: alias}
 		})
 	}
 	return nil

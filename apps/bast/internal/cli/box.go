@@ -42,14 +42,27 @@ func (r *Runner) boxNew(engine *sync.Engine, args []string) error {
 	if fs.NArg() != 0 {
 		return usagef("usage: bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]")
 	}
+	if *ttl < 0 {
+		return usagef("--ttl must be zero or a positive number of seconds")
+	}
+	if *ttl > 0 && *noAutoStop {
+		return usagef("--ttl and --no-auto-stop cannot be used together")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	result, alias, err := engine.NewBox(ctx, boxcloud.NewOpts{
 		Type: *boxType, TTLSeconds: *ttl, NoAutoStop: *noAutoStop, NoEnv: *noEnv,
 	})
 	if err != nil {
-		telemetry.Track("box_new_fail", r.Version)
-		return fail("box_new", err.Error())
+		if alias == "" {
+			telemetry.Track("box_new_fail", r.Version)
+			return fail("box_new", err.Error())
+		}
+		telemetry.Track("box_new", r.Version)
+		fmt.Fprintf(r.Err, "bast: warning: %v\n", err)
+		return r.success(map[string]any{
+			"provider": result.Provider, "count": result.Count, "alias": alias, "warning": err.Error(),
+		}, fmt.Sprintf("Created %s (sync incomplete)", alias))
 	}
 	telemetry.Track("box_new", r.Version)
 	msg := fmt.Sprintf("Created box (%d synced)", result.Count)
@@ -77,8 +90,15 @@ func (r *Runner) boxFork(engine *sync.Engine, args []string) error {
 	}
 	result, alias, err := engine.ForkBox(ctx, syncID, boxcloud.ForkOpts{Type: *boxType, NoEnv: *noEnv})
 	if err != nil {
-		telemetry.Track("box_fork_fail", r.Version)
-		return fail("box_fork", err.Error())
+		if alias == "" {
+			telemetry.Track("box_fork_fail", r.Version)
+			return fail("box_fork", err.Error())
+		}
+		telemetry.Track("box_fork", r.Version)
+		fmt.Fprintf(r.Err, "bast: warning: %v\n", err)
+		return r.success(map[string]any{
+			"provider": result.Provider, "count": result.Count, "alias": alias, "warning": err.Error(),
+		}, fmt.Sprintf("Forked to %s (sync incomplete)", alias))
 	}
 	telemetry.Track("box_fork", r.Version)
 	msg := "Forked box"

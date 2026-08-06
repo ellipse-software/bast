@@ -305,11 +305,11 @@ func (m *App) autoSyncCmds() tea.Cmd {
 		m.syncingProviders["azure"] = true
 		autoSyncCmds = append(autoSyncCmds, m.syncAzureCmd())
 	}
-	if !m.metadata.Box().Disabled && !m.syncingProviders["box"] {
-		if m.metadata.Box().Enabled && m.metadata.Box().AutoSync {
+	if box := m.metadata.Box(); !box.Disabled && !m.syncingProviders["box"] {
+		if box.Enabled && box.AutoSync {
 			m.syncingProviders["box"] = true
 			autoSyncCmds = append(autoSyncCmds, m.syncBoxCmd())
-		} else {
+		} else if !box.Enabled {
 			m.syncingProviders["box"] = true
 			autoSyncCmds = append(autoSyncCmds, m.autoConnectBoxCmd())
 		}
@@ -377,6 +377,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.sortHosts()
 		}
 		if msg.err != nil {
+			m.boxConnectAfter = ""
 			m.setError(msg.err)
 			return m, m.autoSyncCmds()
 		}

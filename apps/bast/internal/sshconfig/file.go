@@ -205,6 +205,9 @@ func UpdateSyncHostAuth(path, alias, user, identityFile, certificateFile string,
 
 // UpdateSyncHostAuthAndHost updates auth fields and optionally HostName when hostname is non-empty.
 func UpdateSyncHostAuthAndHost(path, alias, hostname, user, identityFile, certificateFile string, identitiesOnly bool) error {
+	if strings.ContainsAny(hostname, "\r\n") {
+		return fmt.Errorf("invalid hostname for synced host %q", alias)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err

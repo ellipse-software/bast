@@ -74,7 +74,7 @@ func (c *Client) EnsureAccess(ctx context.Context, syncID string, cfg EnsureConf
 				lastErr = err
 				continue
 			}
-			if info.HostName == "" {
+			if info.HostName == "" || info.HostName == stoppedHostName {
 				lastErr = fmt.Errorf("box %s has no IP yet", id)
 				continue
 			}
@@ -140,11 +140,10 @@ func (c *Client) authorizeKey(ctx context.Context, id, home string) error {
 	if key == "" {
 		return err
 	}
-	payload, _ := json.Marshal(map[string]string{"key": key})
-	// Fallback: POST via CLI is not available; retry ssh once more after key exists.
+	// Fallback: the CLI has no key-upload command; retry ssh once more now that the key exists.
 	_, retryErr := c.run(ctx, "ssh", id, "--", "true")
 	if retryErr != nil {
-		return fmt.Errorf("%v (pubkey ready at %s; payload %d bytes)", err, pubPath, len(payload))
+		return fmt.Errorf("%v (public key ready at %s)", err, pubPath)
 	}
 	return nil
 }

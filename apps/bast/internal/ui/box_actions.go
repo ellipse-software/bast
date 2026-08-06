@@ -69,7 +69,7 @@ func (m *App) connectAfterBoxResume() tea.Cmd {
 
 func (m *App) openBoxStopForm(host sshconfig.Host) {
 	if m.hostLooksStopped(host) {
-		m.status, m.statusError = "Box is already stopped", true
+		m.setError(errString("box is already stopped"))
 		return
 	}
 	m.openForm("Stop Box", "box_stop", []field{

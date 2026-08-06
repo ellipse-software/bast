@@ -46,30 +46,36 @@ func TestDiscoverParsesRunningAndStopped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(discovery.Instances) != 3 {
-		t.Fatalf("instances = %d, want 3", len(discovery.Instances))
+	if len(discovery.Instances) != 4 {
+		t.Fatalf("instances = %d, want 4", len(discovery.Instances))
 	}
 	if discovery.Instances[0].SyncID != "bx_running1" || discovery.Instances[0].HostName != ip || !discovery.Instances[0].Running {
 		t.Fatalf("running instance = %+v", discovery.Instances[0])
 	}
+	if discovery.Instances[1].SyncID != "bx_norunip" || !discovery.Instances[1].Running || discovery.Instances[1].HostName != stoppedHostName {
+		t.Fatalf("running-without-ip instance = %+v", discovery.Instances[1])
+	}
 	// Non-running sort by name: Old (stopped) then Snap (archiving).
-	if discovery.Instances[1].SyncID != "bx_stopped1" || discovery.Instances[1].Running || discovery.Instances[1].HostName != stoppedHostName {
-		t.Fatalf("stopped instance = %+v", discovery.Instances[1])
+	if discovery.Instances[2].SyncID != "bx_stopped1" || discovery.Instances[2].Running || discovery.Instances[2].HostName != stoppedHostName {
+		t.Fatalf("stopped instance = %+v", discovery.Instances[2])
 	}
-	if discovery.Instances[2].SyncID != "bx_archiving" || discovery.Instances[2].Running || discovery.Instances[2].State != "stopping" {
-		t.Fatalf("archiving instance = %+v", discovery.Instances[2])
+	if discovery.Instances[3].SyncID != "bx_archiving" || discovery.Instances[3].Running || discovery.Instances[3].State != "stopping" {
+		t.Fatalf("archiving instance = %+v", discovery.Instances[3])
 	}
-	if GroupPath(discovery.Instances[0]) != "Box" || GroupPath(discovery.Instances[2]) != "Box" {
+	if GroupPath(discovery.Instances[0]) != "Box" || GroupPath(discovery.Instances[3]) != "Box" {
 		t.Fatal("group paths mismatch")
 	}
-	if !HostLooksStopped(discovery.Instances[1].HostName, discovery.Instances[1].Tags) {
+	if !HostLooksStopped(discovery.Instances[2].HostName, discovery.Instances[2].Tags) {
 		t.Fatal("stopped instance should look stopped")
 	}
-	if !HostLooksStopped(discovery.Instances[2].HostName, discovery.Instances[2].Tags) {
+	if !HostLooksStopped(discovery.Instances[3].HostName, discovery.Instances[3].Tags) {
 		t.Fatal("archiving instance should look stopped")
 	}
 	if HostLooksStopped(discovery.Instances[0].HostName, discovery.Instances[0].Tags) {
 		t.Fatal("running instance should not look stopped")
+	}
+	if HostLooksStopped(discovery.Instances[1].HostName, discovery.Instances[1].Tags) {
+		t.Fatal("running-without-ip should not look stopped")
 	}
 	if IsTerminalStoppedState("archiving") || IsTerminalStoppedState("stopping") {
 		t.Fatal("archiving must not count as terminal stopped")
@@ -91,6 +97,57 @@ func TestParseNewJSONL(t *testing.T) {
 	id, err := parseNewJSONL(out)
 	if err != nil || id != "bx_newbox01" {
 		t.Fatalf("id=%q err=%v", id, err)
+	}
+}
+
+func TestParseNewJSONLReturnsIDWithError(t *testing.T) {
+	out := []byte(`{"event":"created","id":"bx_partial01"}
+{"ok":false,"error":"quota exceeded"}
+`)
+	id, err := parseNewJSONL(out)
+	if id != "bx_partial01" {
+		t.Fatalf("id=%q, want bx_partial01", id)
+	}
+	if err == nil || !strings.Contains(err.Error(), "quota exceeded") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestStopSurfacesRejectedResponse(t *testing.T) {
+	client := &Client{
+		PollInterval: time.Millisecond,
+		Run: func(_ context.Context, args []string, _ []string) ([]byte, error) {
+			cmd := strings.Join(args, " ")
+			switch {
+			case strings.Contains(cmd, "stop"):
+				return []byte(`{"ok":false,"error":"already stopping"}`), nil
+			default:
+				return nil, fmt.Errorf("unexpected %s", cmd)
+			}
+		},
+	}
+	err := client.Stop(context.Background(), "bx_stopme01")
+	if err == nil || !strings.Contains(err.Error(), "already stopping") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestResumeSurfacesRejectedResponse(t *testing.T) {
+	client := &Client{
+		PollInterval: time.Millisecond,
+		Run: func(_ context.Context, args []string, _ []string) ([]byte, error) {
+			cmd := strings.Join(args, " ")
+			switch {
+			case strings.Contains(cmd, "resume"):
+				return []byte(`{"ok":false,"error":"not stopped"}`), nil
+			default:
+				return nil, fmt.Errorf("unexpected %s", cmd)
+			}
+		},
+	}
+	err := client.Resume(context.Background(), "bx_resumeme", ResumeOpts{})
+	if err == nil || !strings.Contains(err.Error(), "not stopped") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

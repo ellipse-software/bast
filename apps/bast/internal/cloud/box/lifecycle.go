@@ -5,10 +5,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
+
+// errMissingActionID means the CLI response did not include an action/box id.
+// Stop/Resume may still have started, so callers can continue waiting.
+var errMissingActionID = errors.New("missing action id")
 
 type NewOpts struct {
 	Type       string // small|default|large
@@ -61,7 +66,7 @@ func (c *Client) New(ctx context.Context, opts NewOpts) (string, error) {
 	}
 	id, err := parseNewJSONL(out)
 	if err != nil {
-		return "", err
+		return id, err
 	}
 	if err := c.WaitReady(ctx, id, 3*time.Minute); err != nil {
 		return id, err
@@ -122,7 +127,7 @@ func parseNewJSONL(out []byte) (string, error) {
 		return id, nil
 	}
 	if lastErr != "" {
-		return "", fmt.Errorf("box new: %s", lastErr)
+		return id, fmt.Errorf("box new: %s", lastErr)
 	}
 	// Single JSON object fallback (non-JSONL).
 	var single struct {
@@ -184,7 +189,9 @@ func (c *Client) Stop(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	_, _ = parseActionID(out, "stop")
+	if _, err := parseActionID(out, "stop"); err != nil && !errors.Is(err, errMissingActionID) {
+		return err
+	}
 	return c.WaitStopped(ctx, id, 5*time.Minute)
 }
 
@@ -204,7 +211,9 @@ func (c *Client) Resume(ctx context.Context, id string, opts ResumeOpts) error {
 	if err != nil {
 		return err
 	}
-	_, _ = parseActionID(out, "resume")
+	if _, err := parseActionID(out, "resume"); err != nil && !errors.Is(err, errMissingActionID) {
+		return err
+	}
 	return c.WaitReady(ctx, id, 3*time.Minute)
 }
 
@@ -233,24 +242,32 @@ func parseActionID(out []byte, action string) (string, error) {
 	if raw.Box != nil && raw.Box.ID != "" {
 		return raw.Box.ID, nil
 	}
-	return "", fmt.Errorf("box %s: missing id in response", action)
+	return "", fmt.Errorf("box %s: %w", action, errMissingActionID)
 }
 
 func (c *Client) WaitReady(ctx context.Context, id string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	var lastState string
+	var lastErr error
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		if time.Now().After(deadline) {
+			if lastState == "" && lastErr != nil {
+				return fmt.Errorf("timed out waiting for box %s to become ready: %w", id, lastErr)
+			}
 			if lastState == "" {
 				return fmt.Errorf("timed out waiting for box %s to become ready", id)
+			}
+			if lastErr != nil {
+				return fmt.Errorf("timed out waiting for box %s to become ready (last state %s): %w", id, lastState, lastErr)
 			}
 			return fmt.Errorf("timed out waiting for box %s to become ready (last state %s)", id, lastState)
 		}
 		info, err := c.Info(ctx, id)
 		if err == nil {
+			lastErr = nil
 			lastState = info.State
 			if info.Running && info.HostName != "" && info.HostName != stoppedHostName {
 				return nil
@@ -258,6 +275,8 @@ func (c *Client) WaitReady(ctx context.Context, id string, timeout time.Duration
 			if info.State == "error" {
 				return fmt.Errorf("box %s entered error state", id)
 			}
+		} else {
+			lastErr = err
 		}
 		select {
 		case <-ctx.Done():
@@ -270,18 +289,26 @@ func (c *Client) WaitReady(ctx context.Context, id string, timeout time.Duration
 func (c *Client) WaitStopped(ctx context.Context, id string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	var lastState string
+	var lastErr error
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		if time.Now().After(deadline) {
+			if lastState == "" && lastErr != nil {
+				return fmt.Errorf("timed out waiting for box %s to stop: %w", id, lastErr)
+			}
 			if lastState == "" {
 				return fmt.Errorf("timed out waiting for box %s to stop", id)
+			}
+			if lastErr != nil {
+				return fmt.Errorf("timed out waiting for box %s to stop (last state %s): %w", id, lastState, lastErr)
 			}
 			return fmt.Errorf("timed out waiting for box %s to stop (last state %s)", id, lastState)
 		}
 		info, err := c.Info(ctx, id)
 		if err == nil {
+			lastErr = nil
 			lastState = info.State
 			if IsTerminalStoppedState(info.State) {
 				return nil
@@ -289,6 +316,8 @@ func (c *Client) WaitStopped(ctx context.Context, id string, timeout time.Durati
 			if info.State == "error" {
 				return fmt.Errorf("box %s entered error state while stopping", id)
 			}
+		} else {
+			lastErr = err
 		}
 		select {
 		case <-ctx.Done():

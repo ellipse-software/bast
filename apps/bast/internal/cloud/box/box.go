@@ -307,9 +307,9 @@ func instanceFromRecord(rec boxRecord) (Instance, bool) {
 	}
 	hostName := ip
 	if hostName == "" {
-		if running {
-			return Instance{}, false
-		}
+		// Keep running boxes with no IP yet so sync does not delete metadata
+		// during the brief post-start/clone window. EnsureAccess rejects the
+		// placeholder until a real IP appears.
 		hostName = stoppedHostName
 	}
 	name := strings.TrimSpace(rec.Name)
@@ -377,12 +377,14 @@ func IsTerminalStoppedState(state string) bool {
 }
 
 // HostLooksStopped reports whether a synced Box host should be treated as
-// stopped (placeholder hostname and/or state tags from the last sync).
+// stopped (state tags from the last sync, or the placeholder hostname when
+// state is unknown). A running box with no IP yet keeps the placeholder
+// hostname but must not look stopped.
 func HostLooksStopped(hostName string, tags []string) bool {
-	if strings.TrimSpace(hostName) == StoppedHostName {
-		return true
+	if state := StateFromTags(tags); state != "" {
+		return IsStoppedState(state)
 	}
-	return IsStoppedState(StateFromTags(tags))
+	return strings.TrimSpace(hostName) == StoppedHostName
 }
 
 func ParseSyncID(syncID string) (string, error) {
