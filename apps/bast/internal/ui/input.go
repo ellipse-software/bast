@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -92,6 +91,9 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if mouse.Y == 0 {
+		if m.syncBusy != "" {
+			return m, nil
+		}
 		tabsStart := lipgloss.Width(headerTitle) + 2
 		hostsEnd := tabsStart + lipgloss.Width(headerTabLabels[0])
 		keysStart := hostsEnd + lipgloss.Width(headerTabSpacing)
@@ -129,8 +131,8 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 
 	if m.section == hostsSection {
 		action := ""
-		if _, ok := m.selectedHost(); ok {
-			action = connectAction
+		if host, ok := m.selectedHost(); ok {
+			action = m.hostPrimaryAction(host)
 		} else if _, ok := m.selectedHistorySuggestion(); ok {
 			action = addAction
 		}
@@ -304,6 +306,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.filesTyping() {
 			break
 		}
+		if m.syncBusy != "" {
+			return m, nil
+		}
 		switch key {
 		case "1":
 			m.clearFilesOverlays()
@@ -389,6 +394,11 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		if m.section == syncSection {
 			return m.updateSyncKeys(key)
+		}
+		if m.section == hostsSection {
+			if host, ok := m.selectedHost(); ok && host.Synced && host.SyncSource == "box" && m.hostLooksStopped(host) {
+				return m, m.resumeSelectedBox(host, false)
+			}
 		}
 		m.loading = true
 		m.enriching = false
@@ -493,9 +503,35 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.section == hostsSection {
 			m.openKnownHostForm()
 		}
+	case "o":
+		if m.section == hostsSection {
+			if host, ok := m.selectedHost(); ok && host.Synced && host.SyncSource == "box" {
+				if m.syncingProviders["box"] {
+					return m, m.setNotice("Box operation already in progress")
+				}
+				if m.hostLooksStopped(host) {
+					return m, m.setNotice("Box is already stopped")
+				}
+				m.openBoxStopForm(host)
+				return m, nil
+			}
+		}
+	case "n":
+		if m.section == hostsSection {
+			if host, ok := m.selectedHost(); ok && host.Synced && host.SyncSource == "box" {
+				if m.syncingProviders["box"] {
+					return m, m.setNotice("Box operation already in progress")
+				}
+				m.openBoxForkForm(host)
+				return m, nil
+			}
+		}
 	case "f":
 		if m.section == hostsSection {
 			if host, ok := m.selectedHost(); ok {
+				if host.Synced && host.SyncSource == "box" {
+					return m, m.setNotice("Box hosts are read-only")
+				}
 				_, err := m.metadata.ToggleFavorite(host.Alias)
 				if err != nil {
 					m.setError(err)
@@ -514,6 +550,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "h":
 		if m.section == hostsSection {
 			if host, ok := m.selectedHost(); ok {
+				if host.Synced && host.SyncSource == "box" {
+					return m, m.setNotice("Box hosts are read-only")
+				}
 				hidden, err := m.metadata.ToggleHidden(host.Alias)
 				if err != nil {
 					m.setError(err)
@@ -574,6 +613,9 @@ func (m *App) connectSelected() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	if host.Synced && host.SyncSource == "box" && m.hostLooksStopped(host) {
+		return m, m.resumeSelectedBox(host, true)
+	}
 	if host.Synced && host.SyncID != "" {
 		var ensure func(context.Context, sshconfig.Host, func(string)) error
 		switch host.SyncSource {
@@ -583,10 +625,13 @@ func (m *App) connectSelected() (tea.Model, tea.Cmd) {
 			ensure = m.syncer.EnsureAWSAccess
 		case "azure":
 			ensure = m.syncer.EnsureAzureAccess
+		case "box":
+			ensure = m.syncer.EnsureBoxAccess
 		}
 		if ensure != nil {
+			timeout := prepareTimeoutForHost(host)
 			return m.startSSH(host, func(status func(string)) error {
-				ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), timeout)
 				defer cancel()
 				if err := ensure(ctx, host, status); err != nil {
 					return err

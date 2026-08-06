@@ -13,6 +13,7 @@ import (
 
 	awscloud "bast/internal/cloud/aws"
 	azurecloud "bast/internal/cloud/azure"
+	boxcloud "bast/internal/cloud/box"
 	"bast/internal/cloud/gcp"
 	"bast/internal/metadata"
 	"bast/internal/paths"
@@ -594,7 +595,8 @@ func TestIsSyncedGroup(t *testing.T) {
 	if !IsSyncedGroup("Google Cloud") || !IsSyncedGroup("Google Cloud/demo") ||
 		!IsSyncedGroup("GCP") || !IsSyncedGroup("GCP/demo") ||
 		!IsSyncedGroup("Amazon EC2") || !IsSyncedGroup("Amazon EC2/default") ||
-		!IsSyncedGroup("AWS/default") || IsSyncedGroup("Work") {
+		!IsSyncedGroup("AWS/default") || !IsSyncedGroup("Box") || !IsSyncedGroup("Box/Running") ||
+		IsSyncedGroup("Work") {
 		t.Fatal("IsSyncedGroup mismatch")
 	}
 }
@@ -741,5 +743,41 @@ func TestValidateServiceAccountPath(t *testing.T) {
 	}
 	if err := ValidateServiceAccountPath(good); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestResumeBoxReturnsSyncErrorAfterSuccessfulResume(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	engine.Box.PollInterval = time.Millisecond
+	engine.Box.Run = func(_ context.Context, args []string, _ []string) ([]byte, error) {
+		cmd := strings.Join(args, " ")
+		switch {
+		case len(args) >= 2 && args[1] == "resume":
+			return []byte(`{"ok":true,"id":"bx_ready001"}`), nil
+		case len(args) >= 2 && args[1] == "info":
+			return []byte(`{"box":{"id":"bx_ready001","name":"Ready","state":"idle","ip":"203.0.113.9"}}`), nil
+		case len(args) >= 2 && args[1] == "--version":
+			return []byte("box 1.0.0"), nil
+		case len(args) >= 2 && args[1] == "status":
+			return []byte(`{"ok":true,"user":{"login":"octocat"}}`), nil
+		case len(args) >= 2 && args[1] == "list":
+			return nil, errors.New("list failed after resume")
+		default:
+			return nil, errors.New("unexpected " + cmd)
+		}
+	}
+
+	result, err := engine.ResumeBox(context.Background(), "bx_ready001", boxcloud.ResumeOpts{})
+	if err == nil || !strings.Contains(err.Error(), "list failed") {
+		t.Fatalf("expected sync error after resume, got result=%+v err=%v", result, err)
+	}
+	if result.Provider != boxcloud.ProviderName {
+		t.Fatalf("provider = %q, want %q so callers can treat resume as succeeded", result.Provider, boxcloud.ProviderName)
 	}
 }

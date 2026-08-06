@@ -14,6 +14,7 @@ import (
 	"bast/internal/cloud"
 	awscloud "bast/internal/cloud/aws"
 	azurecloud "bast/internal/cloud/azure"
+	boxcloud "bast/internal/cloud/box"
 	"bast/internal/cloud/gcp"
 	"bast/internal/metadata"
 	"bast/internal/paths"
@@ -32,12 +33,14 @@ type Engine struct {
 	gcpMu          stdsync.Mutex
 	awsMu          stdsync.Mutex
 	azureMu        stdsync.Mutex
+	boxMu          stdsync.Mutex
 	Paths          paths.Paths
 	Config         sshconfig.Manager
 	Store          *metadata.Store
 	GCP            *gcp.Client
 	AWS            *awscloud.Client
 	Azure          *azurecloud.Client
+	Box            *boxcloud.Client
 	BastExecutable string
 	Discover       func(ctx context.Context) ([]sshconfig.Host, error)
 
@@ -59,6 +62,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
 		SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig,
+		SyncBoxConfig: p.SyncBoxConfig,
 	}
 	return &Engine{
 		Paths:          p,
@@ -67,6 +71,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		GCP:            gcp.New(),
 		AWS:            awscloud.New(),
 		Azure:          azurecloud.New(),
+		Box:            boxcloud.New(),
 		BastExecutable: stableExecutablePath(),
 		Discover: func(ctx context.Context) ([]sshconfig.Host, error) {
 			return cfg.Discover()
@@ -540,6 +545,231 @@ func (e *Engine) SyncAzure(ctx context.Context) (Result, error) {
 	return result, nil
 }
 
+func (e *Engine) SyncBox(ctx context.Context) (Result, error) {
+	if err := lockCtx(ctx, &e.boxMu); err != nil {
+		return Result{}, err
+	}
+	defer e.boxMu.Unlock()
+
+	discovery, err := e.Box.Discover(ctx, boxcloud.DiscoverConfig{})
+	now := time.Now().UTC()
+	if err != nil {
+		latest := e.Store.Box()
+		latest.Enabled = true
+		latest.Disabled = false
+		latest.LastSyncAt = &now
+		latest.LastSyncError = err.Error()
+		_ = e.Store.SetBox(latest)
+		return Result{Provider: boxcloud.ProviderName, SyncedAt: now, Error: err.Error()}, err
+	}
+
+	existing, err := e.Discover(ctx)
+	if err != nil {
+		return Result{Provider: boxcloud.ProviderName}, err
+	}
+	previousBlocks := map[string]sshconfig.SyncHostInput{}
+	if loaded, loadErr := sshconfig.LoadSyncHosts(e.Paths.SyncBoxConfig); loadErr == nil {
+		for _, block := range loaded {
+			if block.SyncID != "" {
+				previousBlocks[block.SyncID] = block
+			}
+		}
+	}
+	usedAliases := map[string]bool{}
+	previousBySyncID := map[string]sshconfig.Host{}
+	for _, host := range existing {
+		if host.Synced && host.SyncSource == boxcloud.ProviderName && host.SyncID != "" {
+			previousBySyncID[host.SyncID] = host
+			continue
+		}
+		usedAliases[host.Alias] = true
+	}
+
+	blocks := make([]sshconfig.SyncHostInput, 0, len(discovery.Instances))
+	aliases := make([]string, 0, len(discovery.Instances))
+	activeSyncIDs := map[string]bool{}
+	metadataUpdates := make([]hostMetadataUpdate, 0, len(discovery.Instances))
+	var metadataDeletes []string
+	for _, inst := range discovery.Instances {
+		activeSyncIDs[inst.SyncID] = true
+		alias := ""
+		if prev, ok := previousBySyncID[inst.SyncID]; ok && !usedAliases[prev.Alias] {
+			alias = prev.Alias
+			usedAliases[alias] = true
+		} else {
+			alias = boxcloud.UniqueAlias(boxcloud.AliasFor(inst), usedAliases)
+			usedAliases[alias] = true
+		}
+		blocks = append(blocks, boxcloud.ToSyncHost(inst, alias))
+		aliases = append(aliases, alias)
+		prevAlias := ""
+		if prev, ok := previousBySyncID[inst.SyncID]; ok {
+			prevAlias = prev.Alias
+		}
+		metadataUpdates = append(metadataUpdates, hostMetadataUpdate{
+			alias: alias, previousAlias: prevAlias, label: inst.Name,
+			group: boxcloud.GroupPath(inst), tags: append([]string(nil), inst.Tags...),
+		})
+	}
+	if discovery.Complete {
+		for syncID, host := range previousBySyncID {
+			if activeSyncIDs[syncID] {
+				continue
+			}
+			metadataDeletes = append(metadataDeletes, host.Alias)
+		}
+	} else {
+		for syncID, host := range previousBySyncID {
+			if activeSyncIDs[syncID] {
+				continue
+			}
+			block, ok := previousBlocks[syncID]
+			if !ok {
+				block = sshconfig.SyncHostInput{
+					Alias: host.Alias, SyncSource: host.SyncSource, SyncID: host.SyncID, HostName: host.Alias,
+				}
+			}
+			usedAliases[block.Alias] = true
+			blocks = append(blocks, block)
+			aliases = append(aliases, block.Alias)
+		}
+	}
+	if err := e.Config.EnsureSyncInclude(e.Paths.SyncBoxConfig); err != nil {
+		return Result{Provider: boxcloud.ProviderName}, err
+	}
+	if err := sshconfig.WriteSyncConfig(e.Paths.SyncBoxConfig, blocks); err != nil {
+		return Result{Provider: boxcloud.ProviderName}, err
+	}
+	if err := e.applyMetadataUpdates(metadataUpdates, metadataDeletes); err != nil {
+		return Result{Provider: boxcloud.ProviderName}, err
+	}
+	latest := e.Store.Box()
+	latest.Enabled = true
+	latest.Disabled = false
+	latest.LastSyncAt = &now
+	latest.LastSyncError = strings.Join(discovery.Warnings, "; ")
+	latest.LastInstanceCount = len(blocks)
+	if err := e.Store.SetBox(latest); err != nil {
+		return Result{Provider: boxcloud.ProviderName}, err
+	}
+	result := Result{Provider: boxcloud.ProviderName, Count: len(blocks), SyncedAt: now, Aliases: aliases}
+	if len(discovery.Warnings) > 0 {
+		result.Error = strings.Join(discovery.Warnings, "; ")
+	}
+	return result, nil
+}
+
+func (e *Engine) MaybeAutoConnectBox(ctx context.Context) (Result, bool, error) {
+	integration := e.Store.Box()
+	if integration.Disabled {
+		return Result{}, false, nil
+	}
+	account, err := e.Box.Account(ctx)
+	if err != nil || !account.Authenticated {
+		return Result{}, false, nil
+	}
+	if integration.Enabled && integration.AutoSync {
+		result, syncErr := e.SyncBox(ctx)
+		return result, true, syncErr
+	}
+	integration.Enabled = true
+	integration.AutoSync = true
+	integration.Disabled = false
+	if err := e.Store.SetBox(integration); err != nil {
+		return Result{}, false, err
+	}
+	result, syncErr := e.SyncBox(ctx)
+	return result, true, syncErr
+}
+
+func (e *Engine) NewBox(ctx context.Context, opts boxcloud.NewOpts) (Result, string, error) {
+	id, err := e.Box.New(ctx, opts)
+	if err != nil && id == "" {
+		return Result{}, "", err
+	}
+	result, syncErr := e.SyncBox(ctx)
+	alias := e.AliasForBoxSyncID(ctx, id)
+	if err != nil {
+		return result, alias, err
+	}
+	return result, alias, syncErr
+}
+
+func (e *Engine) ForkBox(ctx context.Context, syncID string, opts boxcloud.ForkOpts) (Result, string, error) {
+	id, err := e.Box.Fork(ctx, syncID, opts)
+	if err != nil && id == "" {
+		return Result{}, "", err
+	}
+	result, syncErr := e.SyncBox(ctx)
+	alias := e.AliasForBoxSyncID(ctx, id)
+	if err != nil {
+		return result, alias, err
+	}
+	return result, alias, syncErr
+}
+
+func (e *Engine) StopBox(ctx context.Context, syncID string) (Result, error) {
+	if err := e.Box.Stop(ctx, syncID); err != nil {
+		return Result{}, err
+	}
+	return e.SyncBox(ctx)
+}
+
+func (e *Engine) ResumeBox(ctx context.Context, syncID string, opts boxcloud.ResumeOpts) (Result, error) {
+	if err := e.Box.Resume(ctx, syncID, opts); err != nil {
+		return Result{}, err
+	}
+	return e.SyncBox(ctx)
+}
+
+func (e *Engine) ResolveBoxSyncID(ctx context.Context, hostOrID string) (string, error) {
+	hostOrID = strings.TrimSpace(hostOrID)
+	if id, err := boxcloud.ParseSyncID(hostOrID); err == nil {
+		return id, nil
+	}
+	hosts, err := e.Discover(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, host := range hosts {
+		if host.Synced && host.SyncSource == boxcloud.ProviderName &&
+			(host.Alias == hostOrID || strings.EqualFold(host.Alias, hostOrID)) {
+			return host.SyncID, nil
+		}
+	}
+	// Also match metadata labels.
+	var matches []string
+	for _, host := range hosts {
+		if !host.Synced || host.SyncSource != boxcloud.ProviderName {
+			continue
+		}
+		meta := e.Store.Host(host.Alias)
+		if meta.Label != "" && strings.EqualFold(meta.Label, hostOrID) {
+			matches = append(matches, host.SyncID)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) > 1 {
+		return "", fmt.Errorf("box label %q matches %d hosts; pass an alias or a bx_ id", hostOrID, len(matches))
+	}
+	return "", fmt.Errorf("box host %q not found; sync with bast sync box or pass a bx_ id", hostOrID)
+}
+
+func (e *Engine) AliasForBoxSyncID(ctx context.Context, syncID string) string {
+	hosts, err := e.Discover(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, host := range hosts {
+		if host.Synced && host.SyncSource == boxcloud.ProviderName && host.SyncID == syncID {
+			return host.Alias
+		}
+	}
+	return ""
+}
+
 func (e *Engine) EnsureGCPAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
 	if err := lockCtx(ctx, &e.gcpMu); err != nil {
 		return err
@@ -610,6 +840,25 @@ func (e *Engine) EnsureAzureAccess(ctx context.Context, host sshconfig.Host, sta
 		return err
 	}
 	return sshconfig.UpdateSyncHostAuth(e.Paths.SyncAzureConfig, host.Alias, result.User, result.IdentityFile, result.CertificateFile, result.IdentitiesOnly)
+}
+
+func (e *Engine) EnsureBoxAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
+	if err := lockCtx(ctx, &e.boxMu); err != nil {
+		return err
+	}
+	defer e.boxMu.Unlock()
+	if !host.Synced || host.SyncSource != boxcloud.ProviderName || host.SyncID == "" {
+		return nil
+	}
+	result, err := e.Box.EnsureAccess(ctx, host.SyncID, boxcloud.EnsureConfig{
+		Home: e.Paths.Home, Status: status,
+	})
+	if err != nil {
+		return err
+	}
+	return sshconfig.UpdateSyncHostAuthAndHost(
+		e.Paths.SyncBoxConfig, host.Alias, result.HostName, result.User, result.IdentityFile, "", result.IdentitiesOnly,
+	)
 }
 
 func (e *Engine) DisableGCP(ctx context.Context) error {
@@ -685,10 +934,37 @@ func (e *Engine) DisableAzure(ctx context.Context) error {
 	return e.Store.SetAzure(integration)
 }
 
+func (e *Engine) DisableBox(ctx context.Context) error {
+	if err := lockCtx(ctx, &e.boxMu); err != nil {
+		return err
+	}
+	defer e.boxMu.Unlock()
+	existing, err := e.Discover(ctx)
+	if err != nil {
+		return err
+	}
+	for _, host := range existing {
+		if host.Synced && host.SyncSource == boxcloud.ProviderName {
+			_ = e.Store.DeleteHost(host.Alias)
+		}
+	}
+	if err := e.Config.RemoveSyncInclude(e.Paths.SyncBoxConfig); err != nil {
+		return err
+	}
+	integration := e.Store.Box()
+	integration.Enabled = false
+	integration.AutoSync = false
+	integration.Disabled = true
+	integration.LastSyncError = ""
+	integration.LastInstanceCount = 0
+	return e.Store.SetBox(integration)
+}
+
 func (e *Engine) Status(ctx context.Context) (Status, error) {
 	integration := e.Store.GCP()
 	awsIntegration := e.Store.AWS()
 	azureIntegration := e.Store.Azure()
+	boxIntegration := e.Store.Box()
 	status := Status{
 		GCP: GCPStatus{
 			Enabled:           integration.Enabled,
@@ -714,10 +990,15 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			DefaultSSHUser:      azureIntegration.DefaultSSHUser, LastSyncAt: azureIntegration.LastSyncAt,
 			LastSyncError: azureIntegration.LastSyncError, LastInstanceCount: azureIntegration.LastInstanceCount,
 		},
+		Box: BoxStatus{
+			Enabled: boxIntegration.Enabled, AutoSync: boxIntegration.AutoSync, Disabled: boxIntegration.Disabled,
+			LastSyncAt: boxIntegration.LastSyncAt, LastSyncError: boxIntegration.LastSyncError,
+			LastInstanceCount: boxIntegration.LastInstanceCount,
+		},
 	}
 
 	var probes stdsync.WaitGroup
-	probes.Add(3)
+	probes.Add(4)
 	go func() {
 		defer probes.Done()
 		if err := e.GCP.CheckAvailable(ctx); err != nil {
@@ -767,6 +1048,23 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			}
 		}
 	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Box.Account(ctx)
+		if err != nil {
+			status.Box.BoxCLIError = err.Error()
+			return
+		}
+		if account.Error != "" && !account.Authenticated {
+			status.Box.BoxCLIError = account.Error
+		}
+		status.Box.Authenticated = account.Authenticated
+		status.Box.Login = account.Login
+		if status.Box.Login == "" {
+			status.Box.Login = account.Email
+		}
+		status.Box.Plan = account.Plan
+	}()
 	probes.Wait()
 	return status, nil
 }
@@ -775,6 +1073,7 @@ type Status struct {
 	GCP   GCPStatus   `json:"gcp"`
 	AWS   AWSStatus   `json:"aws"`
 	Azure AzureStatus `json:"azure"`
+	Box   BoxStatus   `json:"box"`
 }
 
 type GCPStatus struct {
@@ -818,13 +1117,27 @@ type AzureStatus struct {
 	BastionExtensionError string     `json:"bastionExtensionError,omitempty"`
 }
 
+type BoxStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	Login             string     `json:"login,omitempty"`
+	Plan              string     `json:"plan,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	BoxCLIError       string     `json:"boxCliError,omitempty"`
+}
+
 func IsSyncedGroup(group string) bool {
 	group = strings.TrimSpace(group)
 	return group == "Google Cloud" || strings.HasPrefix(group, "Google Cloud/") ||
 		group == "GCP" || strings.HasPrefix(group, "GCP/") ||
 		group == "Amazon EC2" || strings.HasPrefix(group, "Amazon EC2/") ||
 		group == "AWS" || strings.HasPrefix(group, "AWS/") ||
-		group == "Microsoft Azure" || strings.HasPrefix(group, "Microsoft Azure/")
+		group == "Microsoft Azure" || strings.HasPrefix(group, "Microsoft Azure/") ||
+		group == "Box" || strings.HasPrefix(group, "Box/")
 }
 
 func ValidateServiceAccountPath(path string) error {

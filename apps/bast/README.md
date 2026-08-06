@@ -2,7 +2,7 @@
 
 The native terminal application for [Bast](https://bast.sh), an SSH host picker and key manager built on OpenSSH.
 
-Bast reads existing SSH configuration, stores its managed hosts in included OpenSSH files, and launches the system `ssh` binary for connections. It also manages SSH keys, imports hosts from shell history, and can sync virtual machines from GCP, AWS, and Azure. See the [Bast documentation](https://bast.sh/docs) for installation, usage, and feature guides.
+Bast reads existing SSH configuration, stores its managed hosts in included OpenSSH files, and launches the system `ssh` binary for connections. It also manages SSH keys, imports hosts from shell history, and can sync hosts from GCP, AWS, Azure, and [box.ascii.dev](https://bast.sh/docs/features/box). See the [Bast documentation](https://bast.sh/docs) for installation, usage, and feature guides.
 
 ## Development
 

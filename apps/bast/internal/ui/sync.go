@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	boxcloud "bast/internal/cloud/box"
 	"bast/internal/cloud/sync"
 )
 
@@ -37,6 +38,26 @@ type providerRow struct {
 	value string
 }
 
+func (m *App) syncProviderTitle() string {
+	switch m.syncProvider {
+	case "vault":
+		return "Vault"
+	case "gcp":
+		return "GCP"
+	case "aws":
+		return "AWS"
+	case "azure":
+		return "Azure"
+	case "box":
+		return "box.ascii.dev"
+	default:
+		if m.syncProvider == "" {
+			return "Sync"
+		}
+		return strings.ToUpper(m.syncProvider)
+	}
+}
+
 func (m *App) syncProviders() []syncMenuItem {
 	vaultDetail := m.vaultStatusDetail()
 	providers := []struct {
@@ -46,6 +67,7 @@ func (m *App) syncProviders() []syncMenuItem {
 		{"GCP", "gcp", "Import Compute Engine VMs into Bast"},
 		{"AWS", "aws", "Import EC2 instances into Bast"},
 		{"Azure", "azure", "Import Azure VMs into Bast"},
+		{"box.ascii.dev", "box", "Import ASCII Box sandboxes into Bast"},
 	}
 	items := make([]syncMenuItem, 0, len(providers))
 	for _, provider := range providers {
@@ -138,6 +160,28 @@ func (m *App) providerDetail(provider string) providerDetail {
 			resourceGroups = strings.Join(integration.ResourceGroupFilter, ", ")
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, statusRows, []providerRow{{"Subscription filter", subscriptions}, {"Resource groups", resourceGroups}}}
+	case "box":
+		integration := m.metadata.Box()
+		status := m.syncStatus.Box
+		accountLabel, accountValue := "Account", "not logged in"
+		if status.BoxCLIError != "" {
+			accountLabel, accountValue = "box", status.BoxCLIError
+		} else if status.Authenticated {
+			accountValue = status.Login
+			if accountValue == "" {
+				accountValue = "authenticated"
+			}
+		} else if integration.Disabled {
+			accountValue = "disabled"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		if status.Plan != "" {
+			statusRows = append(statusRows, providerRow{"Plan", status.Plan})
+		}
+		if integration.Disabled {
+			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
 	default:
 		return providerDetail{}
 	}
@@ -153,9 +197,30 @@ func (m *App) syncProviderActions(provider string) []syncMenuItem {
 		return m.awsSyncActions()
 	case "azure":
 		return m.azureSyncActions()
+	case "box":
+		return m.boxSyncActions()
 	default:
 		return nil
 	}
+}
+
+func (m *App) boxSyncActions() []syncMenuItem {
+	box := m.metadata.Box()
+	actions := []syncMenuItem{{label: "Sync now", action: "sync"}}
+	if m.syncStatus.Box.Authenticated {
+		actions = append(actions, syncMenuItem{label: "New box", action: "box_new"})
+	}
+	if box.Enabled {
+		actions = append(actions, syncMenuItem{label: "Disconnect", action: "disable"})
+	} else {
+		actions = append(actions, syncMenuItem{label: "Connect", action: "enable"})
+	}
+	if box.AutoSync {
+		actions = append(actions, syncMenuItem{label: "Disable auto-sync", action: "auto_off"})
+	} else {
+		actions = append(actions, syncMenuItem{label: "Enable auto-sync", action: "auto_on"})
+	}
+	return append(actions, syncMenuItem{label: "Refresh status", action: "refresh"})
 }
 
 func (m *App) azureSyncActions() []syncMenuItem {
@@ -261,6 +326,27 @@ func (m *App) syncAzureCmd() tea.Cmd {
 	}
 }
 
+func (m *App) syncBoxCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncBox(ctx)
+		return syncDoneMsg{provider: "box", result: result, err: err}
+	}
+}
+
+func (m *App) autoConnectBoxCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, ran, err := m.syncer.MaybeAutoConnectBox(ctx)
+		if !ran {
+			return syncDoneMsg{provider: "box", result: result, err: nil, skipped: true}
+		}
+		return syncDoneMsg{provider: "box", result: result, err: err}
+	}
+}
+
 func (m *App) syncStatusCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -306,6 +392,17 @@ func (m *App) disableAzureCmd() tea.Cmd {
 	}
 }
 
+func (m *App) disableBoxCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableBox(ctx); err != nil {
+			return syncDoneMsg{provider: "box", err: err}
+		}
+		return syncDoneMsg{provider: "box", result: sync.Result{Provider: "box", SyncedAt: time.Now().UTC(), Error: "disabled"}}
+	}
+}
+
 func (m *App) renderSync(s styleSet) string {
 	items := m.syncMenuItems()
 
@@ -317,16 +414,7 @@ func (m *App) renderSync(s styleSet) string {
 		return b.String()
 	}
 
-	title := strings.ToUpper(m.syncProvider)
-	switch m.syncProvider {
-	case "vault":
-		title = "Vault"
-	case "gcp":
-		title = "GCP"
-	case "azure":
-		title = "Azure"
-	}
-	b.WriteString("\n  " + s.active.Render(title) + "\n")
+	b.WriteString("\n  " + s.active.Render(m.syncProviderTitle()) + "\n")
 	if m.syncProvider == "vault" {
 		b.WriteString(m.renderVaultStatus(s))
 	} else {
@@ -399,6 +487,9 @@ func (m *App) renderProviderStatus(s styleSet, provider string) string {
 }
 
 func (m *App) updateSyncKeys(key string) (tea.Model, tea.Cmd) {
+	if m.syncBusy != "" {
+		return m, nil
+	}
 	items := m.syncMenuItems()
 	m.clampSyncCursor(items)
 	switch key {
@@ -503,6 +594,19 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.syncAWSCmd(), m.setNotice("Syncing AWS…"))
 		case "azure":
 			return m, tea.Batch(m.syncAzureCmd(), m.setNotice("Syncing Azure…"))
+		case "box":
+			box := m.metadata.Box()
+			box.Disabled = false
+			box.Enabled = true
+			if action == "enable" {
+				box.AutoSync = true
+			}
+			if err := m.metadata.SetBox(box); err != nil {
+				delete(m.syncingProviders, "box")
+				m.setError(err)
+				return m, nil
+			}
+			return m, tea.Batch(m.syncBoxCmd(), m.setNotice("Syncing Box…"))
 		}
 		return m, tea.Batch(m.syncGCPCmd(), m.setNotice("Syncing GCP…"))
 	case "disable":
@@ -513,7 +617,17 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "azure" {
 			return m, m.disableAzureCmd()
 		}
+		if m.syncProvider == "box" {
+			return m, m.disableBoxCmd()
+		}
 		return m, m.disableGCPCmd()
+	case "box_new":
+		m.openForm("New Box", "box_new", []field{
+			{label: "Type", description: "small, default, or large", value: "default", optional: false, placeholder: "default"},
+			{label: "No auto-stop", description: "yes to keep running until stopped", value: "", optional: true, placeholder: "yes"},
+			{label: "No env", description: "yes for an isolated no-env box", value: "", optional: true, placeholder: "yes"},
+		})
+		return m, nil
 	case "auto_on":
 		if m.syncProvider == "aws" {
 			aws := m.metadata.AWS()
@@ -528,6 +642,16 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			azure := m.metadata.Azure()
 			azure.AutoSync = true
 			if err := m.metadata.SetAzure(azure); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "box" {
+			box := m.metadata.Box()
+			box.AutoSync = true
+			box.Disabled = false
+			if err := m.metadata.SetBox(box); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -559,6 +683,15 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync disabled")
 		}
+		if m.syncProvider == "box" {
+			box := m.metadata.Box()
+			box.AutoSync = false
+			if err := m.metadata.SetBox(box); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
 		gcp := m.metadata.GCP()
 		gcp.AutoSync = false
 		if err := m.metadata.SetGCP(gcp); err != nil {
@@ -578,6 +711,9 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 				{label: "SSH user", description: "Blank uses the VM admin user or Microsoft Entra login", value: m.metadata.Azure().DefaultSSHUser, optional: true, placeholder: "azureuser"},
 			})
 			break
+		}
+		if m.syncProvider == "box" {
+			return m, m.setNotice("Box SSH user is always user")
 		}
 		m.openForm("Default GCP SSH user", "sync_gcp_user", []field{
 			{label: "SSH user", description: "Blank uses OS Login or instance metadata when available", value: m.metadata.GCP().DefaultSSHUser, optional: true, placeholder: "ubuntu"},
@@ -627,6 +763,36 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 	gcp := m.metadata.GCP()
 	switch action {
+	case "box_new":
+		boxType := strings.ToLower(strings.TrimSpace(values["Type"]))
+		if boxType == "" {
+			boxType = "default"
+		}
+		if boxType != "small" && boxType != "default" && boxType != "large" {
+			if m.form != nil {
+				m.form.validationError = "type must be small, default, or large"
+			}
+			return nil
+		}
+		noAutoStop := truthyForm(values["No auto-stop"])
+		noEnv := truthyForm(values["No env"])
+		m.form = nil
+		if m.syncingProviders == nil {
+			m.syncingProviders = map[string]bool{}
+		}
+		m.syncingProviders["box"] = true
+		m.beginSyncBusy("Creating box…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.NewBox(ctx, boxcloud.NewOpts{
+				Type: boxType, NoAutoStop: noAutoStop, NoEnv: noEnv,
+			})
+			if err != nil {
+				return syncDoneMsg{provider: "box", result: result, err: err}
+			}
+			return syncDoneMsg{provider: "box", result: result, err: nil, focusAlias: alias}
+		}
 	case "sync_azure_user":
 		azure := m.metadata.Azure()
 		azure.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
@@ -738,6 +904,57 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		m.form = nil
 		return m.setNotice("Service account key removed")
+	case "box_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders == nil {
+			m.syncingProviders = map[string]bool{}
+		}
+		m.syncingProviders["box"] = true
+		m.syncActivity = "stopping…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopBox(ctx, syncID)
+			return syncDoneMsg{provider: "box", result: result, err: err}
+		}
+	case "box_fork":
+		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
+			if m.form != nil {
+				m.form.validationError = "type fork to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders == nil {
+			m.syncingProviders = map[string]bool{}
+		}
+		m.syncingProviders["box"] = true
+		return tea.Batch(m.setNotice("Forking box…"), func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.ForkBox(ctx, syncID, boxcloud.ForkOpts{})
+			if err != nil {
+				return syncDoneMsg{provider: "box", result: result, err: err}
+			}
+			return syncDoneMsg{provider: "box", result: result, focusAlias: alias}
+		})
 	}
 	return nil
+}
+
+func truthyForm(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "y", "yes", "true", "on":
+		return true
+	default:
+		return false
+	}
 }

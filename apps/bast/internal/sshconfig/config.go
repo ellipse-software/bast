@@ -64,6 +64,7 @@ type Manager struct {
 	SyncGCPConfig   string
 	SyncAWSConfig   string
 	SyncAzureConfig string
+	SyncBoxConfig   string
 }
 
 type SyncHostInput struct {

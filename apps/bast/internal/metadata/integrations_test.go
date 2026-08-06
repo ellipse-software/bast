@@ -80,3 +80,30 @@ func TestAzureIntegrationRoundTrip(t *testing.T) {
 		t.Fatalf("azure = %+v", azure)
 	}
 }
+
+func TestBoxIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetBox(BoxIntegration{
+		Enabled: true, AutoSync: true, Disabled: false, LastInstanceCount: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	box := reopened.Box()
+	if !box.Enabled || !box.AutoSync || box.Disabled || box.LastInstanceCount != 2 {
+		t.Fatalf("box = %+v", box)
+	}
+	if err := reopened.SetBox(BoxIntegration{Disabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !reopened.Box().Disabled || reopened.Box().Enabled {
+		t.Fatalf("disabled box = %+v", reopened.Box())
+	}
+}

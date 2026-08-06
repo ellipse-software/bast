@@ -42,8 +42,8 @@ export const securecrtComparison: ComparisonCaseStudy = {
       competitor: "Desktop apps across major platforms",
     },
     {
-      topic: "Cloud VMs",
-      bast: "Import via GCP, AWS, and Azure CLIs",
+      topic: "Cloud hosts",
+      bast: "Import via GCP, AWS, Azure, and box.ascii.dev CLIs",
       competitor: "Manual or scripted session maintenance",
     },
     {

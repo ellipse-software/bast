@@ -3,19 +3,21 @@ import type { GuidePage } from "@/lib/guides/types";
 
 export const cloudSshGuide: GuidePage = {
   slug: "cloud-ssh",
-  title: "SSH into GCP, AWS, and Azure VMs",
+  title: "SSH into GCP, AWS, Azure, and Box sandboxes",
   description:
-    "Import live GCP, AWS, and Azure VMs into Bast as read-only SSH hosts. Use each provider CLI, keep OpenSSH as the connection path, and stop maintaining cloud host spreadsheets.",
+    "Import live GCP, AWS, and Azure VMs plus box.ascii.dev sandboxes into Bast as read-only SSH hosts. Use each provider CLI, keep OpenSSH as the connection path, and stop maintaining cloud host spreadsheets.",
   keywords: [
     "GCP SSH",
     "AWS SSH",
     "Azure SSH",
+    "Box SSH",
+    "box.ascii.dev",
     "SSH into EC2",
     "gcloud SSH alternative",
     "cloud VM SSH",
     "Bast.sh",
   ],
-  lead: "Cloud consoles and one-off CLI copy-paste are fine until you have dozens of VMs. Bast imports live inventory from GCP, AWS, and Azure, then connects with normal OpenSSH.",
+  lead: "Cloud consoles and one-off CLI copy-paste are fine until you have dozens of hosts. Bast imports live inventory from GCP, AWS, Azure, and box.ascii.dev, then connects with normal OpenSSH.",
   problemTitle: "Cloud inventory goes stale the moment you bookmark it",
   problem: [
     <>
@@ -31,9 +33,10 @@ export const cloudSshGuide: GuidePage = {
   solutionTitle: "Provider CLIs in, OpenSSH out",
   solution: [
     <>
-      Bast sync pulls VMs through <Code>gcloud</Code>, AWS CLI v2, or Azure CLI.
-      Synced hosts are read-only reflections of cloud inventory. When sync runs
-      again, the list updates instead of rotting.
+      Bast sync pulls hosts through <Code>gcloud</Code>, AWS CLI v2, Azure CLI,
+      or the ASCII Box <Code>box</Code> CLI. Synced hosts are read-only
+      reflections of cloud inventory. When sync runs again, the list updates
+      instead of rotting.
     </>,
     <>
       Connecting still uses your system <Code>ssh</Code> binary and the same
@@ -45,18 +48,20 @@ export const cloudSshGuide: GuidePage = {
   steps: [
     <>
       Authenticate the provider CLI on your machine (<Code>gcloud</Code>,{" "}
-      <Code>aws</Code>, or <Code>az</Code>).
+      <Code>aws</Code>, <Code>az</Code>, or <Code>box</Code>).
     </>,
     <>
-      Run <Code>bast sync gcp</Code>, <Code>bast sync aws</Code>, or{" "}
-      <Code>bast sync azure</Code> (or use the Sync tab in the TUI).
+      Run <Code>bast sync gcp</Code>, <Code>bast sync aws</Code>,{" "}
+      <Code>bast sync azure</Code>, or <Code>bast sync box</Code> (or use the
+      Sync tab in the TUI).
     </>,
     <>
       Open Bast, find the imported hosts, and connect. Start with the{" "}
       <DocLink href="/docs/features/gcp">GCP</DocLink>,{" "}
-      <DocLink href="/docs/features/aws">AWS</DocLink>, or{" "}
-      <DocLink href="/docs/features/azure">Azure</DocLink> guide for filters and
-      networking notes.
+      <DocLink href="/docs/features/aws">AWS</DocLink>,{" "}
+      <DocLink href="/docs/features/azure">Azure</DocLink>, or{" "}
+      <DocLink href="/docs/features/box">box.ascii.dev</DocLink> guide for
+      provider notes.
     </>,
   ],
   sections: [

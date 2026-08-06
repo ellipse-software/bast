@@ -2507,11 +2507,218 @@ func TestMicrosoftAzureGroupNameUsesOneBrandColor(t *testing.T) {
 	}
 }
 
+func TestBoxGroupNameIsWhite(t *testing.T) {
+	rendered := renderManagedGroupName("Box", lipgloss.NewStyle(), false)
+	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Box")
+	if rendered != provider {
+		t.Fatalf("Box brand colour was not applied: %q", rendered)
+	}
+}
+
+func TestBoxCreateBusyThenSelectsHost(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "box"
+	m.beginSyncBusy("Creating box…")
+	m.syncingProviders = map[string]bool{"box": true}
+	if !m.vaultBusyBlocksSync() {
+		t.Fatal("expected create busy to replace the sync body")
+	}
+	busy := m.renderVaultBusy(m.styles())
+	if !strings.Contains(busy, "box.ascii.dev") || !strings.Contains(busy, "Creating box…") {
+		t.Fatalf("create busy body:\n%s", busy)
+	}
+
+	if err := m.metadata.SetHost("box_sunny", metadata.Host{Label: "sunny", Group: "Box"}); err != nil {
+		t.Fatal(err)
+	}
+	m.collapsedGroups = map[string]bool{"Box": true}
+
+	_, _ = m.Update(syncDoneMsg{
+		provider:   "box",
+		result:     cloudsync.Result{Provider: "box", Count: 1},
+		focusAlias: "box_sunny",
+	})
+	if m.syncBusy != "" {
+		t.Fatalf("busy should clear after create, got %q", m.syncBusy)
+	}
+	if m.section != hostsSection || m.syncProvider != "" {
+		t.Fatalf("expected Hosts after create, section=%v provider=%q", m.section, m.syncProvider)
+	}
+	if m.selectAfterLoadName != "box_sunny" {
+		t.Fatalf("selectAfterLoadName = %q", m.selectAfterLoadName)
+	}
+
+	_, _ = m.Update(loadedMsg{hosts: []sshconfig.Host{{
+		Alias: "box_sunny", Synced: true, SyncSource: "box",
+		Resolved: sshconfig.Resolved{HostName: "1.2.3.4", User: "user"},
+	}}})
+	host, ok := m.selectedHost()
+	if !ok || host.Alias != "box_sunny" {
+		t.Fatalf("new box was not selected: ok=%v host=%+v cursor=%d", ok, host, m.cursor)
+	}
+	if m.collapsedGroups["Box"] {
+		t.Fatalf("Box group should be expanded for selection: %v", m.collapsedGroups)
+	}
+}
+
+func TestStoppedBoxStaysVisibleAndMuted(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{
+		{
+			Alias: "box_live", Synced: true, SyncSource: "box",
+			Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"},
+		},
+		{
+			Alias: "box_idle", Synced: true, SyncSource: "box",
+			Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"},
+		},
+	}
+	if err := m.metadata.SetHost("box_live", metadata.Host{Label: "live", Group: "Box", Tags: []string{"state:idle"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.collapsedGroups = map[string]bool{}
+
+	var sawStopped, sawRunning bool
+	for _, row := range m.hostRows() {
+		if row.header {
+			continue
+		}
+		switch row.host.Alias {
+		case "box_live":
+			sawRunning = true
+			if m.hostLooksStopped(row.host) {
+				t.Fatal("running box should not look stopped")
+			}
+		case "box_idle":
+			sawStopped = true
+			if !m.hostLooksStopped(row.host) {
+				t.Fatal("stopped box should look stopped")
+			}
+		}
+	}
+	if !sawRunning || !sawStopped {
+		t.Fatalf("expected both boxes under Box, running=%v stopped=%v", sawRunning, sawStopped)
+	}
+
+	list := m.renderHosts(m.styles())
+	if !strings.Contains(list, "idle") || !strings.Contains(list, "live") {
+		t.Fatalf("both boxes should remain visible:\n%s", list)
+	}
+	rowWidth := m.panelLayout().listWidth
+	mutedLine := m.styles().muted.Width(rowWidth).Render("    idle")
+	if !strings.Contains(list, mutedLine) {
+		t.Fatalf("stopped box should render muted:\n%s\nwant substring:\n%s", list, mutedLine)
+	}
+	detail := m.renderHostDetail(m.styles(), m.hosts[1], 60)
+	if !strings.Contains(detail, "stopped") || !strings.Contains(detail, "Box stopped") {
+		t.Fatalf("stopped detail:\n%s", detail)
+	}
+	if !strings.Contains(detail, resumeAction) || strings.Contains(detail, connectAction) {
+		t.Fatalf("stopped detail should offer Resume, not Connect:\n%s", detail)
+	}
+}
+
+func TestBoxResumeActionsAreStateAware(t *testing.T) {
+	m := testApp(t)
+	running := sshconfig.Host{
+		Alias: "box_live", Synced: true, SyncSource: "box", SyncID: "bx_live01",
+		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"},
+	}
+	stopped := sshconfig.Host{
+		Alias: "box_idle", Synced: true, SyncSource: "box", SyncID: "bx_idle01",
+		Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"},
+	}
+	m.hosts = []sshconfig.Host{running, stopped}
+	if err := m.metadata.SetHost("box_live", metadata.Host{Label: "live", Group: "Box", Tags: []string{"state:idle"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.collapsedGroups = map[string]bool{}
+
+	selectHost := func(alias string) {
+		t.Helper()
+		m.cursor = -1
+		for i, row := range m.hostRows() {
+			if !row.header && row.host.Alias == alias {
+				m.cursor = i
+				return
+			}
+		}
+		t.Fatalf("host %q not found", alias)
+	}
+
+	selectHost("box_live")
+	footer := strings.Join(m.hostsFooterParts(), " · ")
+	if strings.Contains(footer, "resume") || !strings.Contains(footer, "o stop") {
+		t.Fatalf("running footer = %q", footer)
+	}
+	if m.hostPrimaryAction(running) != connectAction {
+		t.Fatalf("running primary action = %q", m.hostPrimaryAction(running))
+	}
+	if cmd := m.resumeSelectedBox(running, false); cmd == nil {
+		t.Fatal("expected notice cmd when resuming a running box")
+	}
+	// r on a running box should reload, not resume
+	m.syncingProviders = map[string]bool{}
+	_, _ = m.updateKeys(press("r"))
+	if m.syncingProviders["box"] {
+		t.Fatal("r on running box should not start resume")
+	}
+
+	selectHost("box_idle")
+	footer = strings.Join(m.hostsFooterParts(), " · ")
+	if !strings.Contains(footer, "enter connect") || !strings.Contains(footer, "r resume") || strings.Contains(footer, "o stop") {
+		t.Fatalf("stopped footer = %q", footer)
+	}
+	if m.hostPrimaryAction(stopped) != resumeAction {
+		t.Fatalf("stopped primary action = %q", m.hostPrimaryAction(stopped))
+	}
+	_, cmd := m.connectSelected()
+	if !m.syncingProviders["box"] || m.syncActivity != "resuming…" {
+		t.Fatalf("enter should resume with activity label, syncing=%v activity=%q", m.syncingProviders["box"], m.syncActivity)
+	}
+	if m.boxConnectAfter != "box_idle" {
+		t.Fatalf("enter should queue SSH after resume, got %q", m.boxConnectAfter)
+	}
+	if cmd == nil {
+		t.Fatal("expected resume command")
+	}
+	footerLeft := m.renderFooter(m.styles())
+	if !strings.Contains(footerLeft, "resuming…") || strings.Contains(footerLeft, "syncing…") {
+		t.Fatalf("footer during resume = %q", footerLeft)
+	}
+
+	// After a successful resume reload, connect into the woken box.
+	m.syncingProviders = map[string]bool{}
+	m.syncActivity = ""
+	m.hosts = []sshconfig.Host{{
+		Alias: "box_idle", Synced: true, SyncSource: "box", SyncID: "bx_idle01",
+		Resolved: sshconfig.Resolved{HostName: "203.0.113.20", User: "user"},
+	}}
+	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:idle"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.selectAfterLoadSection, m.selectAfterLoadName = hostsSection, "box_idle"
+	_, cmd = m.Update(loadedMsg{hosts: m.hosts})
+	if m.boxConnectAfter != "" {
+		t.Fatal("boxConnectAfter should clear once connect is queued")
+	}
+	if cmd == nil {
+		t.Fatal("expected SSH connect command after resume reload")
+	}
+}
+
 func TestSyncTabRenders(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
 	body := m.renderSync(m.styles())
-	if !strings.Contains(body, "Vault") || !strings.Contains(body, "GCP") {
+	if !strings.Contains(body, "Vault") || !strings.Contains(body, "GCP") || !strings.Contains(body, "box.ascii.dev") {
 		t.Fatalf("sync list body:\n%s", body)
 	}
 	if strings.Contains(body, "Sync now") {
@@ -2625,6 +2832,9 @@ func TestInitDefersProviderAutoSyncUntilHostsDiscovered(t *testing.T) {
 	if err := m.metadata.SetAzure(metadata.AzureIntegration{Enabled: true, AutoSync: true}); err != nil {
 		t.Fatal(err)
 	}
+	if err := m.metadata.SetBox(metadata.BoxIntegration{Disabled: true}); err != nil {
+		t.Fatal(err)
+	}
 
 	cmd := m.Init()
 	if cmd == nil {
@@ -2680,6 +2890,32 @@ func TestAutoSyncDoesNotRestartAfterSyncReload(t *testing.T) {
 	}
 }
 
+func TestBoxAutoConnectSkipsExplicitAutoSyncOff(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true, AutoSync: false}); err != nil {
+		t.Fatal(err)
+	}
+	if cmd := m.autoSyncCmds(); cmd != nil {
+		t.Fatal("enabled Box with auto-sync off should not auto-connect or sync")
+	}
+	if m.syncingProviders["box"] {
+		t.Fatal("Box should not be marked syncing")
+	}
+}
+
+func TestBoxAutoConnectRunsWhenNotEnabled(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetBox(metadata.BoxIntegration{}); err != nil {
+		t.Fatal(err)
+	}
+	if cmd := m.autoSyncCmds(); cmd == nil {
+		t.Fatal("unconfigured Box should schedule auto-connect")
+	}
+	if !m.syncingProviders["box"] {
+		t.Fatal("Box should be marked syncing for auto-connect")
+	}
+}
+
 func TestSyncCompletionNoticeIncludesEveryEnabledProvider(t *testing.T) {
 	m := testApp(t)
 	if err := m.metadata.SetGCP(metadata.GCPIntegration{Enabled: true, LastInstanceCount: 0}); err != nil {
@@ -2704,5 +2940,62 @@ func TestSyncCompletionNoticeIncludesEveryEnabledProvider(t *testing.T) {
 	}
 	if got := m.syncCompletionNotice("gcp", 3); got != "Synced 3 GCP instances" {
 		t.Fatalf("single-provider notice = %q", got)
+	}
+}
+
+func TestPrepareTimeoutForHost(t *testing.T) {
+	if got := prepareTimeoutForHost(sshconfig.Host{Synced: true, SyncSource: "box"}); got != boxPrepareTimeout {
+		t.Fatalf("box timeout = %v, want %v", got, boxPrepareTimeout)
+	}
+	if got := prepareTimeoutForHost(sshconfig.Host{Synced: true, SyncSource: "gcp"}); got != cloudPrepareTimeout {
+		t.Fatalf("gcp timeout = %v, want %v", got, cloudPrepareTimeout)
+	}
+	if got := prepareTimeoutForHost(sshconfig.Host{}); got != cloudPrepareTimeout {
+		t.Fatalf("local timeout = %v, want %v", got, cloudPrepareTimeout)
+	}
+	if boxPrepareTimeout <= 3*time.Minute {
+		t.Fatalf("box prepare timeout %v must exceed Resume WaitReady (3m)", boxPrepareTimeout)
+	}
+}
+
+func TestFavoriteAndHiddenAllowedForNonBoxSyncedHosts(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "gcp_demo_web", Synced: true, SyncSource: "gcp",
+		SyncID:   "projects/demo/zones/us-central1-a/instances/web",
+		Resolved: sshconfig.Resolved{HostName: "web", User: "ubuntu"},
+	}, {
+		Alias: "box_sunny", Synced: true, SyncSource: "box", SyncID: "bx_sunny01",
+		Resolved: sshconfig.Resolved{HostName: "1.2.3.4", User: "user"},
+	}}
+	_ = m.metadata.SetHost("gcp_demo_web", metadata.Host{Label: "web"})
+	_ = m.metadata.SetHost("box_sunny", metadata.Host{Label: "sunny"})
+
+	selectHostAlias(t, m, "gcp_demo_web")
+	m.updateKeys(press("f"))
+	if !m.metadata.Host("gcp_demo_web").Favorite {
+		t.Fatal("GCP synced host should allow favorite toggle")
+	}
+	m.updateKeys(press("h"))
+	if !m.metadata.Host("gcp_demo_web").Hidden {
+		t.Fatal("GCP synced host should allow hidden toggle")
+	}
+
+	selectHostAlias(t, m, "box_sunny")
+	m.status = ""
+	m.updateKeys(press("f"))
+	if m.metadata.Host("box_sunny").Favorite {
+		t.Fatal("Box host should not toggle favorite")
+	}
+	if !strings.Contains(m.status, "Box hosts are read-only") {
+		t.Fatalf("box favorite status = %q", m.status)
+	}
+	m.status = ""
+	m.updateKeys(press("h"))
+	if m.metadata.Host("box_sunny").Hidden {
+		t.Fatal("Box host should not toggle hidden")
+	}
+	if !strings.Contains(m.status, "Box hosts are read-only") {
+		t.Fatalf("box hidden status = %q", m.status)
 	}
 }

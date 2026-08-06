@@ -36,7 +36,7 @@ const features: {
   {
     title: "Cloud sync",
     description:
-      "Pull live VMs from GCP, AWS, and Azure through each provider CLI. Synced hosts stay read-only and owned by the cloud.",
+      "Pull live hosts from GCP, AWS, Azure, and box.ascii.dev through each provider CLI. Synced hosts stay read-only and owned by the cloud.",
     icon: Cloud,
     href: "/docs/features/gcp",
   },

@@ -78,9 +78,11 @@ type discoveredMsg struct {
 }
 
 type syncDoneMsg struct {
-	provider string
-	result   sync.Result
-	err      error
+	provider   string
+	result     sync.Result
+	err        error
+	skipped    bool
+	focusAlias string // when set, jump to Hosts with this alias selected
 }
 
 type syncStatusMsg struct {
@@ -189,6 +191,9 @@ type App struct {
 	vaultOpGen        uint64
 	vaultRemoteRetry  bool // one-shot auto-recovery after ErrRemoteUpdated
 	vaultConflict     *vaultConflictState
+	syncBusy          string // full-screen Sync overlay for long ops (e.g. box create)
+	syncActivity      string // footer label while a provider op runs (e.g. "resuming…")
+	boxConnectAfter   string // after box resume+reload, SSH into this alias
 
 	files filesState
 
@@ -207,7 +212,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig,
 		},
 		openSSH:          client,
 		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
@@ -247,10 +252,12 @@ func (m *App) syncCompletionNotice(provider string, count int) string {
 	gcp := m.metadata.GCP()
 	aws := m.metadata.AWS()
 	azure := m.metadata.Azure()
+	box := m.metadata.Box()
 	providers := []providerCount{
 		{id: "gcp", name: "GCP", enabled: gcp.Enabled, count: gcp.LastInstanceCount},
 		{id: "aws", name: "AWS", enabled: aws.Enabled, count: aws.LastInstanceCount},
 		{id: "azure", name: "Azure", enabled: azure.Enabled, count: azure.LastInstanceCount},
+		{id: "box", name: "Box", enabled: box.Enabled, count: box.LastInstanceCount},
 	}
 	parts := make([]string, 0, len(providers))
 	for _, item := range providers {
@@ -297,6 +304,15 @@ func (m *App) autoSyncCmds() tea.Cmd {
 	if m.metadata.Azure().Enabled && m.metadata.Azure().AutoSync && !m.syncingProviders["azure"] {
 		m.syncingProviders["azure"] = true
 		autoSyncCmds = append(autoSyncCmds, m.syncAzureCmd())
+	}
+	if box := m.metadata.Box(); !box.Disabled && !m.syncingProviders["box"] {
+		if box.Enabled && box.AutoSync {
+			m.syncingProviders["box"] = true
+			autoSyncCmds = append(autoSyncCmds, m.syncBoxCmd())
+		} else if !box.Enabled {
+			m.syncingProviders["box"] = true
+			autoSyncCmds = append(autoSyncCmds, m.autoConnectBoxCmd())
+		}
 	}
 	if pull := m.vaultPullCmd(false); pull != nil {
 		autoSyncCmds = append(autoSyncCmds, pull)
@@ -361,11 +377,19 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.sortHosts()
 		}
 		if msg.err != nil {
+			m.boxConnectAfter = ""
 			m.setError(msg.err)
 			return m, m.autoSyncCmds()
 		}
 		m.keys = msg.keys
 		m.selectAfterLoad()
+		if cmd := m.connectAfterBoxResume(); cmd != nil {
+			cmds := []tea.Cmd{cmd}
+			if msg.enrichmentErrors > 0 {
+				cmds = append(cmds, m.setNotice(fmt.Sprintf("%d host details could not be resolved", msg.enrichmentErrors)))
+			}
+			return m, tea.Batch(cmds...)
+		}
 		if msg.enrichmentErrors > 0 {
 			return m, tea.Batch(m.autoSyncCmds(), m.setNotice(fmt.Sprintf("%d host details could not be resolved", msg.enrichmentErrors)))
 		}
@@ -443,17 +467,52 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.setNotice("Report sent")
 	case syncDoneMsg:
 		delete(m.syncingProviders, msg.provider)
+		m.clearSyncBusy()
+		m.syncActivity = ""
 		m.clampSyncCursor(m.syncMenuItems())
+		if msg.skipped {
+			m.boxConnectAfter = ""
+			return m, m.syncStatusCmd()
+		}
 		if msg.err != nil {
+			m.boxConnectAfter = ""
 			telemetry.Track("sync_"+msg.provider+"_fail", m.version)
 			m.setError(msg.err)
 			return m, m.syncStatusCmd()
 		}
 		label := strings.ToUpper(msg.provider)
 		notice := m.syncCompletionNotice(msg.provider, msg.result.Count)
+		connectAfter := m.boxConnectAfter
 		if msg.result.Error == "disabled" {
+			m.boxConnectAfter = ""
 			notice = label + " sync disconnected"
 			telemetry.Track("sync_"+msg.provider+"_disable", m.version)
+		} else if msg.focusAlias != "" {
+			notice = "Created " + msg.focusAlias
+			m.selectAfterLoadSection = hostsSection
+			m.selectAfterLoadName = msg.focusAlias
+			m.selectAfterLoadGroup = false
+			m.section = hostsSection
+			m.syncProvider = ""
+			telemetry.Track("sync_"+msg.provider, m.version)
+		} else if connectAfter != "" {
+			m.selectAfterLoadSection = hostsSection
+			m.selectAfterLoadName = connectAfter
+			m.selectAfterLoadGroup = false
+			m.section = hostsSection
+			telemetry.Track("sync_"+msg.provider, m.version)
+			m.loading = true
+			m.enriching = false
+			return m, tea.Batch(m.loadCmd(), m.syncStatusCmd())
+		} else if strings.HasPrefix(msg.result.Error, "created ") {
+			// Legacy create notice path; prefer focusAlias for navigation.
+			notice = strings.TrimPrefix(msg.result.Error, "created ")
+			if notice != "" {
+				notice = "Created " + notice
+			} else {
+				notice = "Box created"
+			}
+			telemetry.Track("sync_"+msg.provider, m.version)
 		} else {
 			if msg.result.Error != "" {
 				notice += " (with warnings)"

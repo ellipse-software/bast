@@ -18,6 +18,7 @@ type Paths struct {
 	SyncGCPConfig   string
 	SyncAWSConfig   string
 	SyncAzureConfig string
+	SyncBoxConfig   string
 	AzureDir        string
 	StateFile       string
 }
@@ -37,6 +38,7 @@ func ForHome(home string) Paths {
 		SyncGCPConfig:   filepath.Join(syncDir, "gcp", "config"),
 		SyncAWSConfig:   filepath.Join(syncDir, "aws", "config"),
 		SyncAzureConfig: filepath.Join(syncDir, "azure", "config"),
+		SyncBoxConfig:   filepath.Join(syncDir, "box", "config"),
 		AzureDir:        filepath.Join(managedDir, "azure"),
 		StateFile:       filepath.Join(home, ".config", "bast", "state.json"),
 	}

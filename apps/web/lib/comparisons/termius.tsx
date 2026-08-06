@@ -42,8 +42,8 @@ export const termiusComparison: ComparisonCaseStudy = {
       competitor: "Managed inside Termius, with plan limits on extras",
     },
     {
-      topic: "Cloud VMs",
-      bast: "Import from GCP, AWS, and Azure via their CLIs",
+      topic: "Cloud hosts",
+      bast: "Import from GCP, AWS, Azure, and box.ascii.dev via their CLIs",
       competitor: "Mostly manual host setup",
     },
     {
@@ -126,10 +126,10 @@ export const termiusComparison: ComparisonCaseStudy = {
       ],
     },
     {
-      title: "Cloud VMs without spreadsheet busywork",
+      title: "Cloud hosts without spreadsheet busywork",
       paragraphs: [
         <>
-          Bast imports live inventory from GCP, AWS, and Azure through each
+          Bast imports live inventory from GCP, AWS, Azure, and box.ascii.dev through each
           provider&apos;s CLI. Synced hosts stay read-only and owned by the
           cloud. When an instance disappears upstream, sync removes it locally
           instead of leaving stale GUI bookmarks behind.

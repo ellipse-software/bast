@@ -97,7 +97,7 @@ Run `bast hosts <command> --help`, `bast keys <command> --help`, or `bast sync <
 
 ## Cloud sync
 
-The Sync tab (`3` in the TUI) and `bast sync` commands import read-only virtual machines from [GCP](https://bast.sh/docs/features/gcp), [AWS](https://bast.sh/docs/features/aws), and [Azure](https://bast.sh/docs/features/azure). Each provider guide covers prerequisites, filters, private networking, authentication, and the changes Bast will and will not make.
+The Sync tab (`3` in the TUI) and `bast sync` commands import read-only hosts from [GCP](https://bast.sh/docs/features/gcp), [AWS](https://bast.sh/docs/features/aws), [Azure](https://bast.sh/docs/features/azure), and [box.ascii.dev](https://bast.sh/docs/features/box). Each provider guide covers prerequisites, authentication, and the changes Bast will and will not make. Box also supports create, stop, resume, and fork through `bast box` and the TUI.
 
 ## Vault
 
@@ -124,6 +124,7 @@ See [AI agents](https://bast.sh/docs/reference/agents) for project-local install
 - Google Cloud SDK (`gcloud`) for GCP cloud sync
 - AWS CLI v2 for AWS cloud sync
 - Azure CLI 2.62+ for Azure cloud sync
+- ASCII Box CLI (`box`) for [box.ascii.dev](https://box.ascii.dev/) sync
 - `curl`, `tar`, and `shasum` or `sha256sum` for the installer
 - Go 1.26+ to build from source
 - A Nerd Font is detected automatically in WezTerm, Kitty, iTerm2, Alacritty, Ghostty, Warp, and Windows Terminal for cloud icons; use `BAST_NERD_FONT=1` or `BAST_NERD_FONT=0` to override detection

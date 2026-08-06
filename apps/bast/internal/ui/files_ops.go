@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	boxcloud "bast/internal/cloud/box"
 	"bast/internal/files"
 	"bast/internal/openssh"
 	"bast/internal/sshconfig"
@@ -127,6 +128,19 @@ func (m *App) disconnectFilesPane(index int) tea.Cmd {
 	return m.setNotice("Disconnected")
 }
 
+// cloudPrepareTimeout is the access-prep budget for GCP/AWS/Azure.
+const cloudPrepareTimeout = 90 * time.Second
+
+// boxPrepareTimeout covers resume (up to 3m), sync, and EnsureBoxAccess.
+const boxPrepareTimeout = 5 * time.Minute
+
+func prepareTimeoutForHost(host sshconfig.Host) time.Duration {
+	if host.Synced && host.SyncSource == "box" {
+		return boxPrepareTimeout
+	}
+	return cloudPrepareTimeout
+}
+
 func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
 	m.initFilesState()
 	pane := &m.files.panes[index]
@@ -137,7 +151,7 @@ func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
 	pane.err = ""
 	pane.connectGen++
 	gen := pane.connectGen
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), prepareTimeoutForHost(host))
 	pane.connectCancel = cancel
 	openSSH := m.openSSH
 	alias := host.Alias
@@ -179,6 +193,21 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 		ensure = m.syncer.EnsureAWSAccess
 	case "azure":
 		ensure = m.syncer.EnsureAzureAccess
+	case "box":
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Resuming box…")
+				}
+				// Resume and sync are separate so a post-resume sync failure
+				// does not skip EnsureBoxAccess (which refreshes the SSH host).
+				if err := m.syncer.Box.Resume(ctx, host.SyncID, boxcloud.ResumeOpts{}); err != nil {
+					return err
+				}
+				_, _ = m.syncer.SyncBox(ctx)
+			}
+			return m.syncer.EnsureBoxAccess(ctx, host, status)
+		}
 	}
 	if ensure == nil {
 		return func(func(string)) error {
@@ -186,7 +215,7 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 		}
 	}
 	return func(status func(string)) error {
-		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), prepareTimeoutForHost(host))
 		defer cancel()
 		if err := ensure(ctx, host, status); err != nil {
 			return err

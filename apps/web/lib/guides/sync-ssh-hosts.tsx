@@ -35,8 +35,9 @@ export const syncSshHostsGuide: GuidePage = {
       never leaves the device.
     </>,
     <>
-      Cloud VM inventory is separate on purpose: re-sync GCP, AWS, or Azure per
-      machine through provider CLIs so cloud credentials stay where they belong.
+      Cloud host inventory is separate on purpose: re-sync GCP, AWS, Azure, or
+      box.ascii.dev per machine through provider CLIs so cloud credentials stay
+      where they belong.
     </>,
   ],
   stepsTitle: "Link two machines",

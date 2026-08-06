@@ -90,10 +90,20 @@ type AzureIntegration struct {
 	LastInstanceCount   int        `json:"lastInstanceCount,omitempty"`
 }
 
+type BoxIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	Disabled          bool       `json:"disabled,omitempty"` // sticky user opt-out; blocks auto-connect
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
 type Integrations struct {
 	GCP   *GCPIntegration   `json:"gcp,omitempty"`
 	AWS   *AWSIntegration   `json:"aws,omitempty"`
 	Azure *AzureIntegration `json:"azure,omitempty"`
+	Box   *BoxIntegration   `json:"box,omitempty"`
 }
 
 type State struct {
@@ -546,6 +556,33 @@ func (s *Store) SetAzure(azure AzureIntegration) error {
 	return nil
 }
 
+func (s *Store) Box() BoxIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Box == nil {
+		return BoxIntegration{}
+	}
+	return cloneBox(*s.state.Integrations.Box)
+}
+
+func (s *Store) SetBox(box BoxIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Box
+	if !box.Enabled && !box.AutoSync && !box.Disabled && box.LastSyncAt == nil &&
+		box.LastSyncError == "" && box.LastInstanceCount == 0 {
+		s.state.Integrations.Box = nil
+	} else {
+		copy := cloneBox(box)
+		s.state.Integrations.Box = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Box = previous
+		return err
+	}
+	return nil
+}
+
 func cloneHost(host Host) Host {
 	host.Tags = append([]string(nil), host.Tags...)
 	if host.LastUsedAt != nil {
@@ -615,6 +652,14 @@ func cloneAzure(azure AzureIntegration) AzureIntegration {
 	return azure
 }
 
+func cloneBox(box BoxIntegration) BoxIntegration {
+	if box.LastSyncAt != nil {
+		lastSyncAt := *box.LastSyncAt
+		box.LastSyncAt = &lastSyncAt
+	}
+	return box
+}
+
 func cloneIntegrations(integrations Integrations) Integrations {
 	out := Integrations{}
 	if integrations.GCP != nil {
@@ -628,6 +673,10 @@ func cloneIntegrations(integrations Integrations) Integrations {
 	if integrations.Azure != nil {
 		azure := cloneAzure(*integrations.Azure)
 		out.Azure = &azure
+	}
+	if integrations.Box != nil {
+		box := cloneBox(*integrations.Box)
+		out.Box = &box
 	}
 	return out
 }
