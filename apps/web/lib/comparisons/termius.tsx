@@ -42,7 +42,7 @@ export const termiusComparison: ComparisonCaseStudy = {
       competitor: "Managed inside Termius, with plan limits on extras",
     },
     {
-      topic: "Cloud VMs",
+      topic: "Cloud hosts",
       bast: "Import from GCP, AWS, Azure, and box.ascii.dev via their CLIs",
       competitor: "Mostly manual host setup",
     },
@@ -126,7 +126,7 @@ export const termiusComparison: ComparisonCaseStudy = {
       ],
     },
     {
-      title: "Cloud VMs without spreadsheet busywork",
+      title: "Cloud hosts without spreadsheet busywork",
       paragraphs: [
         <>
           Bast imports live inventory from GCP, AWS, Azure, and box.ascii.dev through each

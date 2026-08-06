@@ -27,7 +27,7 @@ const rows: Row[] = [
     putty: "As saved PuTTY sessions",
   },
   {
-    question: "Cloud VMs?",
+    question: "Cloud hosts?",
     bast: "Imports from GCP, AWS, Azure, and box.ascii.dev via their CLIs",
     termius: "Mostly manual setup",
     putty: "Not built in",

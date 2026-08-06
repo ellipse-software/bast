@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -530,8 +529,8 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "f":
 		if m.section == hostsSection {
 			if host, ok := m.selectedHost(); ok {
-				if host.Synced {
-					return m, m.setNotice("Synced hosts are read-only")
+				if host.Synced && host.SyncSource == "box" {
+					return m, m.setNotice("Box hosts are read-only")
 				}
 				_, err := m.metadata.ToggleFavorite(host.Alias)
 				if err != nil {
@@ -551,8 +550,8 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "h":
 		if m.section == hostsSection {
 			if host, ok := m.selectedHost(); ok {
-				if host.Synced {
-					return m, m.setNotice("Synced hosts are read-only")
+				if host.Synced && host.SyncSource == "box" {
+					return m, m.setNotice("Box hosts are read-only")
 				}
 				hidden, err := m.metadata.ToggleHidden(host.Alias)
 				if err != nil {
@@ -630,8 +629,9 @@ func (m *App) connectSelected() (tea.Model, tea.Cmd) {
 			ensure = m.syncer.EnsureBoxAccess
 		}
 		if ensure != nil {
+			timeout := prepareTimeoutForHost(host)
 			return m.startSSH(host, func(status func(string)) error {
-				ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), timeout)
 				defer cancel()
 				if err := ensure(ctx, host, status); err != nil {
 					return err

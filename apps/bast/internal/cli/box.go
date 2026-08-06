@@ -149,8 +149,15 @@ func (r *Runner) boxResume(engine *sync.Engine, args []string) error {
 	}
 	result, err := engine.ResumeBox(ctx, syncID, boxcloud.ResumeOpts{Type: *boxType, NoEnv: *noEnv})
 	if err != nil {
-		telemetry.Track("box_resume_fail", r.Version)
-		return fail("box_resume", err.Error())
+		if result.Provider == "" {
+			telemetry.Track("box_resume_fail", r.Version)
+			return fail("box_resume", err.Error())
+		}
+		telemetry.Track("box_resume", r.Version)
+		fmt.Fprintf(r.Err, "bast: warning: %v\n", err)
+		return r.success(map[string]any{
+			"provider": result.Provider, "count": result.Count, "warning": err.Error(),
+		}, "Resumed box (sync incomplete)")
 	}
 	telemetry.Track("box_resume", r.Version)
 	return r.success(result, fmt.Sprintf("Resumed box (%d synced)", result.Count))

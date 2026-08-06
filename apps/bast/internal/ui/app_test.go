@@ -2942,3 +2942,60 @@ func TestSyncCompletionNoticeIncludesEveryEnabledProvider(t *testing.T) {
 		t.Fatalf("single-provider notice = %q", got)
 	}
 }
+
+func TestPrepareTimeoutForHost(t *testing.T) {
+	if got := prepareTimeoutForHost(sshconfig.Host{Synced: true, SyncSource: "box"}); got != boxPrepareTimeout {
+		t.Fatalf("box timeout = %v, want %v", got, boxPrepareTimeout)
+	}
+	if got := prepareTimeoutForHost(sshconfig.Host{Synced: true, SyncSource: "gcp"}); got != cloudPrepareTimeout {
+		t.Fatalf("gcp timeout = %v, want %v", got, cloudPrepareTimeout)
+	}
+	if got := prepareTimeoutForHost(sshconfig.Host{}); got != cloudPrepareTimeout {
+		t.Fatalf("local timeout = %v, want %v", got, cloudPrepareTimeout)
+	}
+	if boxPrepareTimeout <= 3*time.Minute {
+		t.Fatalf("box prepare timeout %v must exceed Resume WaitReady (3m)", boxPrepareTimeout)
+	}
+}
+
+func TestFavoriteAndHiddenAllowedForNonBoxSyncedHosts(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "gcp_demo_web", Synced: true, SyncSource: "gcp",
+		SyncID:   "projects/demo/zones/us-central1-a/instances/web",
+		Resolved: sshconfig.Resolved{HostName: "web", User: "ubuntu"},
+	}, {
+		Alias: "box_sunny", Synced: true, SyncSource: "box", SyncID: "bx_sunny01",
+		Resolved: sshconfig.Resolved{HostName: "1.2.3.4", User: "user"},
+	}}
+	_ = m.metadata.SetHost("gcp_demo_web", metadata.Host{Label: "web"})
+	_ = m.metadata.SetHost("box_sunny", metadata.Host{Label: "sunny"})
+
+	selectHostAlias(t, m, "gcp_demo_web")
+	m.updateKeys(press("f"))
+	if !m.metadata.Host("gcp_demo_web").Favorite {
+		t.Fatal("GCP synced host should allow favorite toggle")
+	}
+	m.updateKeys(press("h"))
+	if !m.metadata.Host("gcp_demo_web").Hidden {
+		t.Fatal("GCP synced host should allow hidden toggle")
+	}
+
+	selectHostAlias(t, m, "box_sunny")
+	m.status = ""
+	m.updateKeys(press("f"))
+	if m.metadata.Host("box_sunny").Favorite {
+		t.Fatal("Box host should not toggle favorite")
+	}
+	if !strings.Contains(m.status, "Box hosts are read-only") {
+		t.Fatalf("box favorite status = %q", m.status)
+	}
+	m.status = ""
+	m.updateKeys(press("h"))
+	if m.metadata.Host("box_sunny").Hidden {
+		t.Fatal("Box host should not toggle hidden")
+	}
+	if !strings.Contains(m.status, "Box hosts are read-only") {
+		t.Fatalf("box hidden status = %q", m.status)
+	}
+}

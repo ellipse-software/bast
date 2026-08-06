@@ -42,7 +42,7 @@ export const puttyComparison: ComparisonCaseStudy = {
       competitor: ".ppk via PuTTYgen; conversion needed for OpenSSH tools",
     },
     {
-      topic: "Cloud VMs",
+      topic: "Cloud hosts",
       bast: "Import from GCP, AWS, Azure, and box.ascii.dev via their CLIs",
       competitor: "Not built in",
     },

@@ -42,7 +42,7 @@ export const mobaxtermComparison: ComparisonCaseStudy = {
       competitor: "Sessions inside the MobaXterm workspace",
     },
     {
-      topic: "Cloud VMs",
+      topic: "Cloud hosts",
       bast: "GCP, AWS, Azure, and box.ascii.dev via provider CLIs",
       competitor: "Mostly manual session setup",
     },
