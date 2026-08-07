@@ -37,6 +37,7 @@ func benchmarkApp(b *testing.B, hostCount int) *App {
 	}); err != nil {
 		b.Fatal(err)
 	}
+	m.hostMeta, m.hostMetaRevision = m.metadata.HostsSnapshot()
 	return m
 }
 
@@ -55,5 +56,30 @@ func BenchmarkSortHosts1000(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		m.sortHosts()
+	}
+}
+
+func BenchmarkRenderHosts200(b *testing.B) {
+	m := benchmarkApp(b, 200)
+	m.width, m.height = 120, 40
+	m.nerdFont = true
+	_ = m.hostRows()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		_ = m.render()
+	}
+}
+
+func BenchmarkRenderTabSwitch(b *testing.B) {
+	m := benchmarkApp(b, 200)
+	m.width, m.height = 120, 40
+	_ = m.hostRows()
+	sections := []section{hostsSection, keysSection, syncSection, filesSection}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; b.Loop(); i++ {
+		m.section = sections[i%len(sections)]
+		_ = m.render()
 	}
 }

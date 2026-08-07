@@ -78,9 +78,10 @@ func (m *App) render() string {
 	} else {
 		body = m.renderSync(styles)
 	}
-	body = lipgloss.NewStyle().Width(width).Height(bodyHeight).Render(body)
+	bodyStyle, frameStyle := m.frameStyles(width, bodyHeight)
+	body = bodyStyle.Render(body)
 	footer := m.renderFooter(styles)
-	return lipgloss.NewStyle().Width(width).Render(header + "\n" + m.renderHeaderRule(styles) + "\n" + body + "\n" + footer)
+	return frameStyle.Render(header + "\n" + m.renderHeaderRule(styles) + "\n" + body + "\n" + footer)
 }
 
 func (m *App) renderHeader(s styleSet) string {
@@ -118,9 +119,33 @@ func (m *App) renderError(s styleSet) string {
 	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, panel)
 }
 
-type styleSet struct{ title, active, inactive, selected, muted, label, value, error, success, rule lipgloss.Style }
+type styleSet struct {
+	title, active, inactive, selected, muted, label, value, error, success, rule, plain lipgloss.Style
+}
+
+type frameStyleCache struct {
+	width      int
+	bodyHeight int
+	body       lipgloss.Style
+	frame      lipgloss.Style
+}
+
+var (
+	frameStylesCached frameStyleCache
+	managedLabelCache struct {
+		ready    bool
+		nerdFont bool
+		google   string
+		amazon   string
+		azure    string
+		box      string
+	}
+)
 
 func (m *App) styles() styleSet {
+	if m.styleCache.ready && m.styleCache.dark == m.dark {
+		return m.styleCache.styles
+	}
 	primary := lipgloss.Color("#8B5CF6")
 	text := lipgloss.Color("#E5E7EB")
 	muted := lipgloss.Color("#6B7280")
@@ -130,14 +155,31 @@ func (m *App) styles() styleSet {
 		muted = lipgloss.Color("#6B7280")
 		surface = lipgloss.Color("#EDE9FE")
 	}
-	return styleSet{
-		title:  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(primary),
-		active: lipgloss.NewStyle().Bold(true).Foreground(primary), inactive: lipgloss.NewStyle().Foreground(muted),
-		selected: lipgloss.NewStyle().Bold(true).Foreground(text).Background(surface), muted: lipgloss.NewStyle().Foreground(muted),
-		label: lipgloss.NewStyle().Foreground(muted).Width(16), value: lipgloss.NewStyle().Foreground(text),
-		error: lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")), success: lipgloss.NewStyle().Foreground(lipgloss.Color("#10B981")),
-		rule: lipgloss.NewStyle().Foreground(surface),
+	styles := styleSet{
+		title:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(primary),
+		active:   lipgloss.NewStyle().Bold(true).Foreground(primary),
+		inactive: lipgloss.NewStyle().Foreground(muted),
+		selected: lipgloss.NewStyle().Bold(true).Foreground(text).Background(surface),
+		muted:    lipgloss.NewStyle().Foreground(muted),
+		label:    lipgloss.NewStyle().Foreground(muted).Width(16),
+		value:    lipgloss.NewStyle().Foreground(text),
+		error:    lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444")),
+		success:  lipgloss.NewStyle().Foreground(lipgloss.Color("#10B981")),
+		rule:     lipgloss.NewStyle().Foreground(surface),
+		plain:    lipgloss.NewStyle(),
 	}
+	m.styleCache = styleCache{ready: true, dark: m.dark, styles: styles}
+	return styles
+}
+
+func (m *App) frameStyles(width, bodyHeight int) (body, frame lipgloss.Style) {
+	if frameStylesCached.width == width && frameStylesCached.bodyHeight == bodyHeight {
+		return frameStylesCached.body, frameStylesCached.frame
+	}
+	body = lipgloss.NewStyle().Width(width).Height(bodyHeight)
+	frame = lipgloss.NewStyle().Width(width)
+	frameStylesCached = frameStyleCache{width: width, bodyHeight: bodyHeight, body: body, frame: frame}
+	return body, frame
 }
 
 func (m *App) renderTabs(s styleSet) string {
@@ -196,8 +238,17 @@ func (m *App) renderHosts(s styleSet) string {
 	if layout.mobile && len(rowsData) > listHeight {
 		rowWidth -= mobileScrollbarWidth
 	}
+	selectedRow := s.selected.Width(rowWidth)
+	mutedRow := s.muted.Width(rowWidth)
+	activeRow := s.active.Width(rowWidth)
+	plainRow := s.plain.Width(rowWidth)
+	hostMeta := m.hostMetadata()
+	gcpErr := m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != ""
+	awsErr := m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != ""
+	azureErr := m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != ""
 	start := scrollStart(m.cursor, len(rowsData), listHeight)
 	var list strings.Builder
+	list.Grow(listHeight * (rowWidth + 8))
 	for i := start; i < min(len(rowsData), start+listHeight); i++ {
 		row := rowsData[i]
 		if row.historyHeader {
@@ -207,9 +258,9 @@ func (m *App) renderHosts(s styleSet) string {
 			}
 			line := indicator + " " + row.label + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
 			if i == m.cursor {
-				line = s.selected.Width(rowWidth).Render(line)
+				line = selectedRow.Render(line)
 			} else {
-				line = s.muted.Width(rowWidth).Render(line)
+				line = mutedRow.Render(line)
 			}
 			list.WriteString(line + "\n")
 			continue
@@ -218,9 +269,9 @@ func (m *App) renderHosts(s styleSet) string {
 			indent := strings.Repeat("  ", row.depth)
 			line := indent + "＋ " + truncate(row.suggestion.Alias, max(2, rowWidth-lipgloss.Width(indent)-4))
 			if i == m.cursor {
-				line = s.selected.Width(rowWidth).Render(line)
+				line = selectedRow.Render(line)
 			} else {
-				line = s.muted.Width(rowWidth).Render(line)
+				line = mutedRow.Render(line)
 			}
 			list.WriteString(line + "\n")
 			continue
@@ -240,7 +291,7 @@ func (m *App) renderHosts(s styleSet) string {
 			}
 			count := s.muted.Render(fmt.Sprintf("(%d)", row.count))
 			errorIcon := ""
-			if row.depth == 0 && m.cloudSyncGroupHasError(row.group) {
+			if row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr) {
 				errorIcon = s.error.Render("⚠")
 			}
 			prefix := indent + indicator + " "
@@ -254,15 +305,15 @@ func (m *App) renderHosts(s styleSet) string {
 				line += strings.Repeat(" ", max(1, rowWidth-lipgloss.Width(line)-lipgloss.Width(errorIcon))) + errorIcon
 			}
 			if i == m.cursor {
-				line = s.selected.Width(rowWidth).Render(line)
+				line = selectedRow.Render(line)
 			} else {
-				line = s.active.Width(rowWidth).Render(line)
+				line = activeRow.Render(line)
 			}
 			list.WriteString(line + "\n")
 			continue
 		}
 		host := row.host
-		meta := m.metadata.Host(host.Alias)
+		meta := hostMeta[host.Alias]
 		prefix := "  "
 		if meta.Hidden {
 			prefix = "◌ "
@@ -270,13 +321,13 @@ func (m *App) renderHosts(s styleSet) string {
 			prefix = "◆ "
 		}
 		indent := strings.Repeat("  ", row.depth)
-		line := indent + prefix + truncate(m.hostLabel(host), max(2, rowWidth-lipgloss.Width(indent+prefix)-2))
+		line := indent + prefix + truncate(hostLabel(host, meta), max(2, rowWidth-lipgloss.Width(indent+prefix)-2))
 		if i == m.cursor {
-			line = s.selected.Width(rowWidth).Render(line)
-		} else if m.hostLooksStopped(host) {
-			line = s.muted.Width(rowWidth).Render(line)
+			line = selectedRow.Render(line)
+		} else if hostLooksStopped(host, meta) {
+			line = mutedRow.Render(line)
 		} else {
-			line = lipgloss.NewStyle().Width(rowWidth).Render(line)
+			line = plainRow.Render(line)
 		}
 		list.WriteString(line + "\n")
 	}
@@ -346,13 +397,22 @@ func (m *App) renderHistorySuggestionDetail(s styleSet, suggestion metadata.Hist
 }
 
 func (m *App) cloudSyncGroupHasError(group string) bool {
+	return cloudSyncGroupHasErrorCached(
+		group,
+		m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != "",
+		m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != "",
+		m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != "",
+	)
+}
+
+func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr bool) bool {
 	switch group {
 	case "Google Cloud", "GCP":
-		return m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != ""
+		return gcpErr
 	case "Amazon EC2", "AWS":
-		return m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != ""
+		return awsErr
 	case "Microsoft Azure":
-		return m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != ""
+		return azureErr
 	default:
 		return false
 	}
@@ -378,37 +438,61 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 }
 
 func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool) string {
-	if name == "Amazon EC2" || strings.HasPrefix(name, "Amazon EC2/") {
-		providerName := managedGroupIcon(name, nerdFont) + "Amazon EC2"
-		provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render(providerName)
-		return provider + restStyle.Render(strings.TrimPrefix(name, "Amazon EC2"))
+	labels := managedProviderLabels(nerdFont)
+	switch {
+	case name == "Amazon EC2" || strings.HasPrefix(name, "Amazon EC2/"):
+		return labels.amazon + restStyle.Render(strings.TrimPrefix(name, "Amazon EC2"))
+	case name == "Google Cloud" || strings.HasPrefix(name, "Google Cloud/"):
+		return labels.google + restStyle.Render(strings.TrimPrefix(name, "Google Cloud"))
+	case name == "Microsoft Azure" || strings.HasPrefix(name, "Microsoft Azure/"):
+		return labels.azure + restStyle.Render(strings.TrimPrefix(name, "Microsoft Azure"))
+	case name == "Box" || strings.HasPrefix(name, "Box/"):
+		return labels.box + restStyle.Render(strings.TrimPrefix(name, "Box"))
+	default:
+		return name
 	}
-	if name == "Google Cloud" || strings.HasPrefix(name, "Google Cloud/") {
-		colors := []string{"#4285F4", "#EA4335", "#FBBC05", "#4285F4", "#34A853", "#EA4335"}
-		var rendered strings.Builder
-		if icon := managedGroupIcon(name, nerdFont); icon != "" {
-			rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4")).Render(icon))
+}
+
+func managedProviderLabels(nerdFont bool) (labels struct{ google, amazon, azure, box string }) {
+	if managedLabelCache.ready && managedLabelCache.nerdFont == nerdFont {
+		return struct{ google, amazon, azure, box string }{
+			google: managedLabelCache.google,
+			amazon: managedLabelCache.amazon,
+			azure:  managedLabelCache.azure,
+			box:    managedLabelCache.box,
 		}
-		for i, letter := range "Google" {
-			rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colors[i])).Render(string(letter)))
-		}
-		remainder := name[len("Google"):]
-		cloud := " Cloud"
-		rendered.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(cloud))
-		rendered.WriteString(restStyle.Render(strings.TrimPrefix(remainder, cloud)))
-		return rendered.String()
 	}
-	if name == "Microsoft Azure" || strings.HasPrefix(name, "Microsoft Azure/") {
-		providerName := managedGroupIcon(name, nerdFont) + "Microsoft Azure"
-		provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0078D4")).Render(providerName)
-		return provider + restStyle.Render(strings.TrimPrefix(name, "Microsoft Azure"))
+	amazonName := managedGroupIcon("Amazon EC2", nerdFont) + "Amazon EC2"
+	amazon := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render(amazonName)
+
+	colors := []string{"#4285F4", "#EA4335", "#FBBC05", "#4285F4", "#34A853", "#EA4335"}
+	var google strings.Builder
+	if icon := managedGroupIcon("Google Cloud", nerdFont); icon != "" {
+		google.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4")).Render(icon))
 	}
-	if name == "Box" || strings.HasPrefix(name, "Box/") {
-		providerName := managedGroupIcon(name, nerdFont) + "Box"
-		provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(providerName)
-		return provider + restStyle.Render(strings.TrimPrefix(name, "Box"))
+	for i, letter := range "Google" {
+		google.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colors[i])).Render(string(letter)))
 	}
-	return name
+	google.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(" Cloud"))
+
+	azureName := managedGroupIcon("Microsoft Azure", nerdFont) + "Microsoft Azure"
+	azure := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0078D4")).Render(azureName)
+
+	boxName := managedGroupIcon("Box", nerdFont) + "Box"
+	box := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(boxName)
+
+	managedLabelCache.ready = true
+	managedLabelCache.nerdFont = nerdFont
+	managedLabelCache.google = google.String()
+	managedLabelCache.amazon = amazon
+	managedLabelCache.azure = azure
+	managedLabelCache.box = box
+	return struct{ google, amazon, azure, box string }{
+		google: managedLabelCache.google,
+		amazon: managedLabelCache.amazon,
+		azure:  managedLabelCache.azure,
+		box:    managedLabelCache.box,
+	}
 }
 
 func managedGroupIcon(name string, nerdFont bool) string {
@@ -430,10 +514,13 @@ func managedGroupIcon(name string, nerdFont bool) string {
 }
 
 func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) string {
-	meta := m.metadata.Host(host.Alias)
+	meta := m.hostMetadata()[host.Alias]
 	var b strings.Builder
-	label := m.hostLabel(host)
-	primaryAction := m.hostPrimaryAction(host)
+	label := hostLabel(host, meta)
+	primaryAction := resumeAction
+	if !hostLooksStopped(host, meta) {
+		primaryAction = connectAction
+	}
 	connectBtn := s.title.Render(primaryAction)
 	connectBtnWidth := lipgloss.Width(connectBtn)
 	titleStyle := s.active
@@ -452,7 +539,7 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 		dest = host.Alias
 	}
 	destStyle := s.value
-	if m.hostLooksStopped(host) {
+	if hostLooksStopped(host, meta) {
 		dest = "stopped"
 		destStyle = s.muted
 		if _, ok := contrastingTextColor(meta.Color); !ok {
@@ -520,6 +607,8 @@ func (m *App) renderKeys(s styleSet) string {
 		rowWidth -= mobileScrollbarWidth
 	}
 	start := scrollStart(m.cursor, len(filtered), listHeight)
+	selectedRow := s.selected.Width(rowWidth)
+	plainRow := s.plain.Width(rowWidth)
 	var list strings.Builder
 	for i := start; i < min(len(filtered), start+listHeight); i++ {
 		key := filtered[i]
@@ -529,9 +618,9 @@ func (m *App) renderKeys(s styleSet) string {
 		}
 		line := prefix + truncate(key.Name, rowWidth-4)
 		if i == m.cursor {
-			line = s.selected.Width(rowWidth).Render(line)
+			line = selectedRow.Render(line)
 		} else {
-			line = lipgloss.NewStyle().Width(rowWidth).Render(line)
+			line = plainRow.Render(line)
 		}
 		list.WriteString(line + "\n")
 	}
@@ -1070,7 +1159,7 @@ func (m *App) renderFooter(s styleSet) string {
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.vaultBusyBlocksSync() || m.section == syncSection || m.section == filesSection || m.itemCount() == 0 {
+	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.vaultBusyBlocksSync() || m.section == syncSection || m.section == filesSection || !m.hasListItems() {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	if m.isMobileLayout() {
@@ -1078,6 +1167,19 @@ func (m *App) renderHeaderRule(s styleSet) string {
 	}
 	listWidth, detailWidth, _ := m.columnDimensions()
 	return s.rule.Render(strings.Repeat("─", listWidth) + "┬" + strings.Repeat("─", detailWidth))
+}
+
+func (m *App) hasListItems() bool {
+	switch m.section {
+	case hostsSection:
+		return len(m.hostListRows()) > 0
+	case keysSection:
+		return len(m.filteredKeys()) > 0
+	case filesSection:
+		return false
+	default:
+		return len(m.syncMenuItems()) > 0
+	}
 }
 
 func compactRow(s styleSet, label, value string, width int) string {

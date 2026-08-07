@@ -218,20 +218,56 @@ func (m *App) hostRows() []hostRow {
 }
 
 func (m *App) hostListRows() []hostRow {
-	rows := append([]hostRow(nil), m.hostRows()...)
+	base := m.hostRows()
+	search := m.searchText()
+	suggestionSig := historySuggestionSignature(m.historySuggestions)
+	cache := m.hostListRowsCache
+	if cache.rows != nil &&
+		cache.hostGeneration == m.hostGeneration &&
+		cache.metadataRevision == m.hostMetaRevision &&
+		cache.collapseGeneration == m.collapseRevision &&
+		cache.search == search &&
+		cache.showHidden == m.showHidden &&
+		cache.hostSignature == m.hostRowsCache.hostSignature &&
+		cache.historyCollapsed == m.historySuggestionsCollapsed &&
+		cache.suggestionSig == suggestionSig {
+		return cache.rows
+	}
 	suggestions := m.visibleHistorySuggestions()
-	if len(suggestions) == 0 {
-		return rows
+	rows := base
+	if len(suggestions) > 0 {
+		rows = make([]hostRow, 0, len(base)+1+len(suggestions))
+		rows = append(rows, base...)
+		rows = append(rows, hostRow{historyHeader: true, header: true, label: "(Suggested)", count: len(suggestions)})
+		if !(m.historySuggestionsCollapsed && search == "") {
+			for i := range suggestions {
+				suggestion := suggestions[i]
+				rows = append(rows, hostRow{suggestion: &suggestion, depth: 1})
+			}
+		}
 	}
-	rows = append(rows, hostRow{historyHeader: true, header: true, label: "(Suggested)", count: len(suggestions)})
-	if m.historySuggestionsCollapsed && m.searchText() == "" {
-		return rows
-	}
-	for i := range suggestions {
-		suggestion := suggestions[i]
-		rows = append(rows, hostRow{suggestion: &suggestion, depth: 1})
+	m.hostListRowsCache = hostListRowsCache{
+		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
+		collapseGeneration: m.collapseRevision, search: search,
+		showHidden: m.showHidden, hostSignature: m.hostRowsCache.hostSignature,
+		historyCollapsed: m.historySuggestionsCollapsed, suggestionSig: suggestionSig, rows: rows,
 	}
 	return rows
+}
+
+func historySuggestionSignature(suggestions []metadata.HistorySuggestion) uint64 {
+	const (
+		offset = uint64(14695981039346656037)
+		prime  = uint64(1099511628211)
+	)
+	signature := offset
+	for _, suggestion := range suggestions {
+		for i := range len(suggestion.ID) {
+			signature = (signature ^ uint64(suggestion.ID[i])) * prime
+		}
+		signature = (signature ^ 0xff) * prime
+	}
+	return signature ^ uint64(len(suggestions))
 }
 
 func hostListSignature(hosts []sshconfig.Host) uint64 {
@@ -779,7 +815,7 @@ func destination(h sshconfig.Host) string {
 }
 
 func (m *App) hostLooksStopped(host sshconfig.Host) bool {
-	return hostLooksStopped(host, m.metadata.Host(host.Alias))
+	return hostLooksStopped(host, m.hostMetadata()[host.Alias])
 }
 
 func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {

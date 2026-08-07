@@ -141,9 +141,14 @@ func newFilesPathInput(width int) textinput.Model {
 }
 
 func (m *App) enterFilesSection() tea.Cmd {
+	alreadyReady := m.files.ready
 	m.initFilesState()
 	m.section = filesSection
 	m.search = ""
+	if alreadyReady {
+		// Returning to Files keeps the last listing so tab switches stay snappy.
+		return nil
+	}
 	return m.refreshFilesPane(0)
 }
 

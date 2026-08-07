@@ -131,6 +131,24 @@ type hostRowsCache struct {
 	rows               []hostRow
 }
 
+type hostListRowsCache struct {
+	hostGeneration     uint64
+	metadataRevision   uint64
+	collapseGeneration uint64
+	search             string
+	showHidden         bool
+	hostSignature      uint64
+	historyCollapsed   bool
+	suggestionSig      uint64
+	rows               []hostRow
+}
+
+type styleCache struct {
+	ready  bool
+	dark   bool
+	styles styleSet
+}
+
 type App struct {
 	paths                       paths.Paths
 	config                      sshconfig.Manager
@@ -143,6 +161,8 @@ type App struct {
 	hostGeneration              uint64
 	collapseRevision            uint64
 	hostRowsCache               hostRowsCache
+	hostListRowsCache           hostListRowsCache
+	styleCache                  styleCache
 	historySuggestions          []metadata.HistorySuggestion
 	historyScanStarted          bool
 	historyImporting            string
@@ -177,6 +197,8 @@ type App struct {
 	collapsedGroups   map[string]bool
 	scrollbarDragging bool
 	syncStatus        sync.Status
+	syncStatusAt      time.Time
+	syncStatusProbing bool
 	syncProvider      string
 	syncCursor        int
 	vaultPassphrase   string
@@ -523,8 +545,10 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.enriching = false
 		return m, tea.Batch(m.loadCmd(), m.syncStatusCmd(), m.setNotice(notice))
 	case syncStatusMsg:
+		m.syncStatusProbing = false
 		if msg.err == nil {
 			m.syncStatus = msg.status
+			m.syncStatusAt = time.Now()
 		}
 		return m, nil
 	case vaultOTPStartedMsg:

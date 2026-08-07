@@ -11,6 +11,9 @@ import (
 )
 
 func (m *App) visibleHistorySuggestions() []metadata.HistorySuggestion {
+	if len(m.historySuggestions) == 0 {
+		return nil
+	}
 	query := strings.ToLower(m.searchText())
 	aliases := make(map[string]bool, len(m.hosts))
 	destinations := make(map[string]bool, len(m.hosts))

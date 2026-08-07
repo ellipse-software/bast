@@ -133,7 +133,7 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	_, err = tea.NewProgram(model).Run()
+	_, err = tea.NewProgram(model, tea.WithFilter(ui.FilterIdleMouseMotion)).Run()
 	return err
 }
 

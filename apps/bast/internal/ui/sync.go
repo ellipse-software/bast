@@ -348,12 +348,30 @@ func (m *App) autoConnectBoxCmd() tea.Cmd {
 }
 
 func (m *App) syncStatusCmd() tea.Cmd {
+	if m.syncStatusProbing {
+		return nil
+	}
+	m.syncStatusProbing = true
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		status, err := m.syncer.Status(ctx)
 		return syncStatusMsg{status: status, err: err}
 	}
+}
+
+// enterSyncSection switches to Sync. Cloud CLI probes are reused for a short TTL
+// so tab switches stay instant instead of shelling out on every visit.
+func (m *App) enterSyncSection() tea.Cmd {
+	m.clearFilesOverlays()
+	m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
+	if m.syncStatusProbing {
+		return nil
+	}
+	if !m.syncStatusAt.IsZero() && time.Since(m.syncStatusAt) < 30*time.Second {
+		return nil
+	}
+	return m.syncStatusCmd()
 }
 
 func (m *App) disableGCPCmd() tea.Cmd {

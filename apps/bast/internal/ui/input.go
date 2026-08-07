@@ -110,9 +110,7 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			m.clearFilesOverlays()
 			m.section, m.cursor, m.search = keysSection, 0, ""
 		case mouse.X >= syncStart && mouse.X < syncEnd:
-			m.clearFilesOverlays()
-			m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
-			return m, m.syncStatusCmd()
+			return m, m.enterSyncSection()
 		case mouse.X >= filesStart && mouse.X < filesEnd:
 			return m, m.enterFilesSection()
 		}
@@ -319,9 +317,7 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.section, m.cursor, m.search = keysSection, 0, ""
 			return m, nil
 		case "3":
-			m.clearFilesOverlays()
-			m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
-			return m, m.syncStatusCmd()
+			return m, m.enterSyncSection()
 		case "4":
 			return m, m.enterFilesSection()
 		}
