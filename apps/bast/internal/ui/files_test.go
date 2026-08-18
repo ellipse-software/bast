@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/files"
+	"bast/internal/platform"
 	"bast/internal/vault"
 )
 
@@ -639,8 +640,12 @@ func TestFilesInfoInline(t *testing.T) {
 	if !strings.Contains(body, "file") {
 		t.Fatalf("expected type:\n%s", body)
 	}
-	if !strings.Contains(body, "0600") {
-		t.Fatalf("expected mode:\n%s", body)
+	if platform.SupportsPOSIXPermissions() {
+		if !strings.Contains(body, "0600") {
+			t.Fatalf("expected mode:\n%s", body)
+		}
+	} else if strings.Contains(body, "Mode") {
+		t.Fatalf("local mode should be hidden:\n%s", body)
 	}
 	if strings.Contains(body, "0755") && !strings.Contains(body, "Name") {
 		t.Fatalf("mode column should not appear in listing while info open:\n%s", body)

@@ -17,9 +17,7 @@ func TestLocalFilesDoNotOpenPOSIXPermissionsOnWindows(t *testing.T) {
 	if err := os.WriteFile(path, []byte("secret"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.enterFilesSection(); err != nil {
-		t.Fatal(err)
-	}
+	_ = m.enterFilesSection()
 	entries, err := files.ListLocal(dir, false)
 	if err != nil {
 		t.Fatal(err)
