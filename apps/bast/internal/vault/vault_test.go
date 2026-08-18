@@ -1,7 +1,9 @@
 package vault
 
 import (
+	"errors"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
@@ -138,6 +140,30 @@ func TestPassphraseFileRoundTrip(t *testing.T) {
 	got, err = LoadPassphrase(path)
 	if err != nil || got != "" {
 		t.Fatalf("cleared passphrase still present: %q", got)
+	}
+}
+
+func TestStagedSecretsAreRemovedWhenReplacementFails(t *testing.T) {
+	for name, save := range map[string]func(string) error{
+		"session": func(path string) error {
+			return SaveSession(path, Session{Email: "ted@example.com", Token: "secret"})
+		},
+		"passphrase": func(path string) error {
+			return SavePassphrase(path, "secret phrase")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "destination")
+			if err := os.Mkdir(path, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := save(path); err == nil {
+				t.Fatal("expected replacement to fail for a directory destination")
+			}
+			if _, err := os.Stat(path + ".tmp"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("staged secret remains after failed replacement: %v", err)
+			}
+		})
 	}
 }
 

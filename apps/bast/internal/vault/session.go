@@ -63,6 +63,7 @@ func SaveSession(path string, s Session) error {
 		return err
 	}
 	if err := platform.ReplaceFile(tmp, path); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
 	return platform.SecurePath(path, 0600)
@@ -103,6 +104,7 @@ func SavePassphrase(path, passphrase string) error {
 		return err
 	}
 	if err := platform.ReplaceFile(tmp, path); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
 	return platform.SecurePath(path, 0600)

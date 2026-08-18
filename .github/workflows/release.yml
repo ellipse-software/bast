@@ -118,11 +118,12 @@ jobs:
         goarch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version-file: apps/bast/go.mod
-          cache: true
-          cache-dependency-path: apps/bast/go.sum
+          cache: false
       - name: Run Windows tests
         if: matrix.goarch == 'amd64'
         run: go test ./...
@@ -198,7 +199,12 @@ jobs:
       - name: Create combined checksums
         run: (cd dist && shasum -a 256 *.tar.gz *.zip > SHA256SUMS)
       - name: Render WinGet manifest
-        run: bash .github/scripts/render-winget-manifest.sh "$GITHUB_REF_NAME" dist
+        run: |
+          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            bash .github/scripts/render-winget-manifest.sh "$GITHUB_REF_NAME" dist
+          else
+            echo "Skipping WinGet manifests for prerelease tag $GITHUB_REF_NAME"
+          fi
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -206,28 +212,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          assets=(dist/*.tar.gz dist/*.tar.gz.sha256 dist/*.zip dist/*.zip.sha256 dist/SHA256SUMS dist/EllipseSoftware.Bast.yaml)
+          shopt -s nullglob
+          winget_manifests=(dist/EllipseSoftware.Bast*.yaml)
+          assets=(dist/*.tar.gz dist/*.tar.gz.sha256 dist/*.zip dist/*.zip.sha256 dist/SHA256SUMS "${winget_manifests[@]}")
           title="Bast $GITHUB_REF_NAME"
           state="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+          publish_flags=(--draft=false --title "$title")
+          create_flags=(--draft --verify-tag --generate-notes --title "$title")
+          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            publish_flags+=(--latest)
+          else
+            publish_flags+=(--prerelease --latest=false)
+            create_flags+=(--prerelease)
+          fi
 
           if [[ "$state" == "true" ]]; then
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
-            gh release edit "$GITHUB_REF_NAME" --draft=false --latest --title "$title"
+            gh release edit "$GITHUB_REF_NAME" "${publish_flags[@]}"
           elif [[ "$state" == "false" ]]; then
             echo "Release ${GITHUB_REF_NAME} is already published."
           else
-            gh release create "$GITHUB_REF_NAME" \
-              --draft \
-              --verify-tag \
-              --generate-notes \
-              --title "$title"
+            gh release create "$GITHUB_REF_NAME" "${create_flags[@]}"
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}"
-            gh release edit "$GITHUB_REF_NAME" --draft=false --latest --title "$title"
+            gh release edit "$GITHUB_REF_NAME" "${publish_flags[@]}"
           fi
 
   bump-homebrew:
     name: Bump Homebrew formula
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     needs: release
     runs-on: ubuntu-latest
     timeout-minutes: 5

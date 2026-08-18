@@ -119,11 +119,12 @@ jobs:
         goarch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version-file: apps/bast/go.mod
-          cache: true
-          cache-dependency-path: apps/bast/go.sum
+          cache: false
       - name: Run Windows tests
         if: matrix.goarch == 'amd64'
         run: go test ./...

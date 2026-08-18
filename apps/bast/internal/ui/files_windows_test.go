@@ -23,11 +23,16 @@ func TestLocalFilesDoNotOpenPOSIXPermissionsOnWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	applyFilesList(m, 0, dir, entries)
+	found := false
 	for i, entry := range m.files.panes[0].entries {
 		if entry.Name == "secret.env" {
 			m.files.panes[0].cursor = i
+			found = true
 			break
 		}
+	}
+	if !found {
+		t.Fatal("secret.env was not present in the local file pane")
 	}
 
 	m.updateFilesKeys("p")

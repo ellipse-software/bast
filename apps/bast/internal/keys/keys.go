@@ -230,8 +230,7 @@ func within(path, dir string) bool {
 	if path == "" {
 		return false
 	}
-	rel, err := filepath.Rel(dir, path)
-	return err == nil && platform.PathContained(dir, path) && rel != ".."
+	return platform.PathContained(dir, path)
 }
 
 func expandHome(path, home string) string {

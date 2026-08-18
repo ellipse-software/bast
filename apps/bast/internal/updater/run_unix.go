@@ -23,13 +23,15 @@ func runInstaller(ctx context.Context, script []byte, executable string, stdout,
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0700); err == nil {
-		_, err = tmp.Write(script)
+	if err := tmp.Chmod(0700); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("prepare installer: %w", err)
 	}
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
+	if _, err := tmp.Write(script); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("prepare installer: %w", err)
 	}
-	if err != nil {
+	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("prepare installer: %w", err)
 	}
 	cmd := exec.CommandContext(ctx, "/bin/sh", tmpPath)

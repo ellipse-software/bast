@@ -1,34 +1,5 @@
 PackageIdentifier: EllipseSoftware.Bast
 PackageVersion: {{VERSION}}
-PackageLocale: en-US
-Publisher: Ellipse Software
-PackageName: Bast
-PackageUrl: https://bast.sh
-License: MIT
-LicenseUrl: https://github.com/ellipse-software/bast/blob/master/LICENSE
-ShortDescription: Terminal-native OpenSSH host picker and key manager
-MinimumOSVersion: 10.0.22000.0
-Tags:
-  - openssh
-  - sftp
-  - ssh
-  - terminal
-Installers:
-  - Architecture: x64
-    InstallerType: zip
-    InstallerUrl: https://github.com/ellipse-software/bast/releases/download/v{{VERSION}}/bast_{{VERSION}}_windows_amd64.zip
-    InstallerSha256: {{AMD64_SHA256}}
-    NestedInstallerType: portable
-    NestedInstallerFiles:
-      - RelativeFilePath: bast_{{VERSION}}_windows_amd64\bast.exe
-        PortableCommandAlias: bast
-  - Architecture: arm64
-    InstallerType: zip
-    InstallerUrl: https://github.com/ellipse-software/bast/releases/download/v{{VERSION}}/bast_{{VERSION}}_windows_arm64.zip
-    InstallerSha256: {{ARM64_SHA256}}
-    NestedInstallerType: portable
-    NestedInstallerFiles:
-      - RelativeFilePath: bast_{{VERSION}}_windows_arm64\bast.exe
-        PortableCommandAlias: bast
-ManifestType: singleton
+DefaultLocale: en-US
+ManifestType: version
 ManifestVersion: 1.10.0

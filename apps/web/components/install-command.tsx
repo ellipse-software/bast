@@ -120,6 +120,7 @@ export function InstallCommand({
   const listboxId = useId();
   const showNightly =
     method === "script" || method === "powershell" || method === "homebrew";
+  const prompt = method === "powershell" ? "PS>" : "$";
 
   useEffect(() => {
     if (!open) return;
@@ -237,7 +238,9 @@ export function InstallCommand({
             >
               {copied ? (
                 <>
-                  <span className="mr-3 shrink-0 text-muted select-none">$</span>
+                  <span className="mr-3 shrink-0 text-muted select-none">
+                    {prompt}
+                  </span>
                   <code className="whitespace-nowrap">
                     <span className="text-accent">bast</span>
                     <span className="text-muted">{" // then try this"}</span>
@@ -245,7 +248,9 @@ export function InstallCommand({
                 </>
               ) : (
                 <>
-                  <span className="mr-3 shrink-0 text-muted select-none">$</span>
+                  <span className="mr-3 shrink-0 text-muted select-none">
+                    {prompt}
+                  </span>
                   <CommandDisplay method={method} nightly={nightly} />
                 </>
               )}

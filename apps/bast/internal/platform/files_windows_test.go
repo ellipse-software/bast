@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -65,5 +66,48 @@ func TestSecurePathAppliesProtectedACL(t *testing.T) {
 	}
 	if control&windows.SE_DACL_PROTECTED == 0 {
 		t.Fatal("secret DACL still inherits permissions")
+	}
+	dacl, _, err := descriptor.DACL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dacl.AceCount != 3 {
+		t.Fatalf("secret DACL has %d entries, want 3", dacl.AceCount)
+	}
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	system, err := windows.StringToSid("S-1-5-18")
+	if err != nil {
+		t.Fatal(err)
+	}
+	administrators, err := windows.StringToSid("S-1-5-32-544")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		user.User.Sid.String():  false,
+		system.String():         false,
+		administrators.String(): false,
+	}
+	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, i, &ace); err != nil {
+			t.Fatal(err)
+		}
+		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
+			t.Fatalf("ACE %d is not an allow entry", i)
+		}
+		sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart)).String()
+		if _, ok := want[sid]; !ok {
+			t.Fatalf("unexpected SID in secret DACL: %s", sid)
+		}
+		want[sid] = true
+	}
+	for sid, found := range want {
+		if !found {
+			t.Fatalf("expected SID is missing from secret DACL: %s", sid)
+		}
 	}
 }

@@ -43,7 +43,7 @@ const features: {
   {
     title: "Bast vault",
     description:
-      "Encrypt Bast-managed hosts, keys, and metadata on your machine, then sync ciphertext between macOS, Linux, and Windows devices.",
+      "Encrypt Bast-managed hosts, keys, and metadata on your machine, then sync ciphertext between macOS, Linux, and Windows 11 devices.",
     icon: Lock,
     href: "/docs/features/vault",
   },

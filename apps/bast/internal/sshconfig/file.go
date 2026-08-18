@@ -645,6 +645,9 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	if err := platform.ReplaceFile(tmpName, path); err != nil {
 		return err
 	}
+	// On Windows, this replaces inherited and custom ACEs with the restricted
+	// Bast policy for the current user, SYSTEM, and Administrators. That policy
+	// also applies when Bast updates an existing main SSH config.
 	return platform.SecurePath(path, mode)
 }
 
