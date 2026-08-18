@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/files"
+	"bast/internal/platform"
 )
 
 // filesChmod is an inline permissions editor for the focused Files pane.
@@ -40,6 +41,9 @@ var chmodBitMasks = [9]os.FileMode{
 func (m *App) openFilesChmodMenu() (tea.Model, tea.Cmd) {
 	pane := m.filesFocusedPane()
 	if pane.pickingHost() {
+		return m, nil
+	}
+	if pane.kind == filesPaneLocal && !platform.SupportsPOSIXPermissions() {
 		return m, nil
 	}
 	paths := pane.selectedPaths()

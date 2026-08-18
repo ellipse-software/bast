@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -282,7 +283,7 @@ func TestEnsureAccessGeneratesEntraCertificate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode().Perm() != want {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != want {
 			t.Fatalf("mode for %s = %v", path, info.Mode().Perm())
 		}
 	}
@@ -299,6 +300,17 @@ func TestProxyArguments(t *testing.T) {
 	}
 }
 
+func TestConfigFieldsPreservesUnquotedWindowsPathSeparators(t *testing.T) {
+	fields, err := configFields(`IdentityFile C:\Users\Ted\.ssh\id_ed25519`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"IdentityFile", `C:\Users\Ted\.ssh\id_ed25519`}
+	if !slices.Equal(fields, want) {
+		t.Fatalf("fields = %#v, want %#v", fields, want)
+	}
+}
+
 func TestBastionProxyCommandQuotesOpenSSHAndShellValues(t *testing.T) {
 	command := BastionProxyCommand(Instance{
 		SubscriptionID:       "sub%prod",
@@ -306,13 +318,23 @@ func TestBastionProxyCommandQuotesOpenSSHAndShellValues(t *testing.T) {
 		BastionName:          "core'bastion",
 		SyncID:               "/subscriptions/sub%prod/resourceGroups/apps/providers/Microsoft.Compute/virtualMachines/api",
 	}, "/Applications/Bast Preview/bast")
-	for _, expected := range []string{
+	expectedValues := []string{
 		"'/Applications/Bast Preview/bast'",
 		"sub%%prod",
 		"'network group'",
 		`'core'"'"'bastion'`,
 		"--resource-port %p",
-	} {
+	}
+	if runtime.GOOS == "windows" {
+		expectedValues = []string{
+			`"/Applications/Bast Preview/bast"`,
+			"sub%%prod",
+			`"network group"`,
+			`"core'bastion"`,
+			"--resource-port %p",
+		}
+	}
+	for _, expected := range expectedValues {
 		if !strings.Contains(command, expected) {
 			t.Fatalf("ProxyCommand %q missing %q", command, expected)
 		}
@@ -361,7 +383,11 @@ func TestGeneratedAzureConfigIsAcceptedByOpenSSH(t *testing.T) {
 		t.Fatalf("ssh -G failed: %v\n%s", err, out)
 	}
 	config := strings.ToLower(string(out))
-	for _, expected := range []string{"hostname 10.0.0.5", "user azureuser", "certificatefile ~/.ssh/bast/azure/entra key-aadcert.pub", "proxycommand '/applications/bast preview/bast' __azure-bastion-proxy"} {
+	expectedProxy := "proxycommand '/applications/bast preview/bast' __azure-bastion-proxy"
+	if runtime.GOOS == "windows" {
+		expectedProxy = `proxycommand "/applications/bast preview/bast" __azure-bastion-proxy`
+	}
+	for _, expected := range []string{"hostname 10.0.0.5", "user azureuser", "certificatefile ~/.ssh/bast/azure/entra key-aadcert.pub", expectedProxy} {
 		if !strings.Contains(config, expected) {
 			t.Fatalf("ssh -G output missing %q:\n%s", expected, out)
 		}

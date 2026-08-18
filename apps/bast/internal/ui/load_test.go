@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -12,6 +13,9 @@ import (
 )
 
 func TestLoadDiscoversBeforeEnrichingEveryHost(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX OpenSSH fixtures")
+	}
 	home := t.TempDir()
 	p := paths.ForHome(home)
 	if err := os.MkdirAll(p.SSHDir, 0700); err != nil {
@@ -75,6 +79,9 @@ func TestLoadDiscoversBeforeEnrichingEveryHost(t *testing.T) {
 }
 
 func TestEnrichmentChecksSharedKnownHostEndpointOnce(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX OpenSSH fixtures")
+	}
 	home := t.TempDir()
 	p := paths.ForHome(home)
 	if err := os.MkdirAll(p.SSHDir, 0700); err != nil {

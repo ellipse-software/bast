@@ -61,8 +61,8 @@ export const sshHostManagerGuide: GuidePage = {
       title: "Built for people who already use OpenSSH",
       paragraphs: [
         <>
-          Bast is for macOS and Linux terminals. If you want a phone-native GUI
-          client or a Windows desktop suite, see the{" "}
+          Bast runs in macOS, Linux, and Windows 11 terminals. If you want a
+          phone-native GUI client or a broader Windows desktop suite, see the{" "}
           <DocLink href="/alternatives">comparisons</DocLink>. If you want a
           faster path through the config you already trust, Bast is the host
           manager that fits.

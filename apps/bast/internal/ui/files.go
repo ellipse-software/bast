@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"bast/internal/files"
+	"bast/internal/platform"
 	"bast/internal/sshconfig"
 )
 
@@ -1001,6 +1002,9 @@ func (m *App) filesFooterHint() string {
 		return m.filesChmodHint()
 	}
 	if m.files.info {
+		if m.filesFocusedPane().kind == filesPaneLocal && !platform.SupportsPOSIXPermissions() {
+			return "j/k next · i/esc close"
+		}
 		return "j/k next · p chmod · i/esc close"
 	}
 	if m.files.transfer.active {

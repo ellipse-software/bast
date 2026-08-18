@@ -51,7 +51,7 @@ ASCII Box sandboxes imported through box.ascii.dev sync are written here. Bast i
 ~/.ssh/bast/keys/
 ```
 
-Generated, imported, and promoted keys live here. Private keys are written at mode `0600`. Sync also checks keys under `~/.ssh`.
+Generated, imported, and promoted keys live here. Private keys use mode `0600` on macOS/Linux and a protected Windows DACL on native Windows. Sync also checks keys under `~/.ssh`.
 
 GCP falls back to `~/.ssh/google_compute_engine` when no local key matches VM metadata or an OS Login profile. AWS checks for a private key matching the EC2 key-pair name, then falls back to `~/.ssh/bast/aws_compute` through EC2 Instance Connect. Box uses `~/.ssh/ascii_box_ed25519`.
 
@@ -76,7 +76,9 @@ Stores presentation metadata, cloud sync settings, pending history suggestions, 
 ~/.config/bast/vault-passphrase
 ```
 
-Device bearer token and vault revision live in `vault-session.json`. The local encryption passphrase is stored in `vault-passphrase` (mode `0600`) so Bast can unlock without prompting every launch. Treat that file like an unlocked private key on disk: anyone who can read it can decrypt your vault ciphertext. Log out clears both. The passphrase is never sent to Bast servers.
+Device bearer token and vault revision live in `vault-session.json`. The local encryption passphrase is stored in `vault-passphrase` (mode `0600` on macOS/Linux and a protected DACL on Windows) so Bast can unlock without prompting every launch. Treat that file like an unlocked private key on disk: anyone who can read it can decrypt your vault ciphertext. Log out clears both. The passphrase is never sent to Bast servers.
+
+On native Windows, `~` is `%USERPROFILE%`. WSL has a separate Linux home directory and does not share these files automatically.
 
 ## What stays in OpenSSH
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -213,6 +214,9 @@ func TestAccountParsesRealStatusJSON(t *testing.T) {
 }
 
 func TestResolveBoxBinPrefersAsciiInstall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX executable fixture")
+	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, ".ascii", "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {

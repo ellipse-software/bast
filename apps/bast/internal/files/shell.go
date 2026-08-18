@@ -1,3 +1,5 @@
+//go:build !windows
+
 package files
 
 import (
@@ -19,7 +21,10 @@ func ShellCommand(dir string) (*exec.Cmd, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("%s is not a directory", dir)
 	}
-	shell := os.Getenv("SHELL")
+	shell := os.Getenv("BAST_SHELL")
+	if shell == "" {
+		shell = os.Getenv("SHELL")
+	}
 	if shell == "" {
 		shell = "/bin/sh"
 	}

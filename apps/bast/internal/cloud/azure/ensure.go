@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"bast/internal/platform"
 )
 
 type EnsureConfig struct {
@@ -183,14 +185,19 @@ func configFields(line string) ([]string, error) {
 			current.Reset()
 		}
 	}
-	for _, r := range line {
+	runes := []rune(line)
+	for i, r := range runes {
 		if escaped {
 			current.WriteRune(r)
 			escaped = false
 			continue
 		}
 		if r == '\\' {
-			escaped = true
+			if i+1 < len(runes) && strings.ContainsRune("\\\"' #\t", runes[i+1]) {
+				escaped = true
+			} else {
+				current.WriteRune(r)
+			}
 			continue
 		}
 		if quote != 0 {
@@ -240,6 +247,5 @@ func pathInside(path, dir string) bool {
 	if err != nil {
 		return false
 	}
-	rel, err := filepath.Rel(absDir, absPath)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	return platform.PathContained(absDir, absPath)
 }

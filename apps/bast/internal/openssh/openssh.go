@@ -27,7 +27,7 @@ func Default() Client {
 func (c Client) Check() error {
 	for _, name := range []string{c.SSH, c.SSHKeygen, c.SSHAdd} {
 		if _, err := exec.LookPath(name); err != nil {
-			return fmt.Errorf("required OpenSSH tool %q is not available on PATH", name)
+			return missingToolError(name)
 		}
 	}
 	return nil

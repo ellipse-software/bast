@@ -6,7 +6,7 @@ export const puttyComparison: ComparisonCaseStudy = {
   competitorName: "PuTTY",
   title: "Bast vs PuTTY",
   description:
-    "Bast as a modern PuTTY alternative for macOS and Linux: native OpenSSH, ~/.ssh/config as source of truth, cloud VM sync, SFTP in the TUI, and free MIT licensing.",
+    "Bast as a modern PuTTY alternative for macOS, Linux, and Windows 11: native OpenSSH, ~/.ssh/config as source of truth, cloud VM sync, SFTP in the TUI, and free MIT licensing.",
   keywords: [
     "Bast vs PuTTY",
     "PuTTY alternative",
@@ -15,15 +15,15 @@ export const puttyComparison: ComparisonCaseStudy = {
     "OpenSSH host manager",
     "Bast.sh",
   ],
-  lead: "PuTTY defined desktop SSH for a generation of Windows operators. Bast is what that job looks like when you already live in a Unix terminal and want OpenSSH to stay in charge.",
+  lead: "PuTTY defined desktop SSH for a generation of Windows operators. Bast is what that job looks like when you live in the terminal and want OpenSSH to stay in charge.",
   articleHeadline:
     "Bast vs PuTTY: a terminal-native alternative for OpenSSH workflows",
   articleDescription:
-    "Why Bast is a better fit than PuTTY for macOS and Linux developers who want native OpenSSH, shared config, and a fast host picker.",
+    "Why Bast is a better fit than PuTTY for developers who want native OpenSSH, shared config, and a fast host picker.",
   diffRows: [
     {
       topic: "Platform",
-      bast: "macOS and Linux terminals",
+      bast: "macOS, Linux, and Windows 11 terminals",
       competitor: "Classic Windows desktop app (ports exist elsewhere)",
     },
     {
@@ -73,8 +73,8 @@ export const puttyComparison: ComparisonCaseStudy = {
           for a lot of Windows shops.
         </>,
         <>
-          Bast starts from the opposite default. On macOS and Linux, OpenSSH is
-          already there. The missing piece is not another SSH implementation. It
+          Bast starts from the opposite default. OpenSSH is already available
+          across its supported platforms. The missing piece is not another SSH implementation. It
           is a fast way to browse, organize, and connect to the hosts your
           config already knows.
         </>,
@@ -132,13 +132,13 @@ export const puttyComparison: ComparisonCaseStudy = {
   whenBetterTitle: "When PuTTY is still the better choice",
   whenBetterIntro: "Keep PuTTY (or a Windows-native peer) if:",
   whenBetterItems: [
-    "Your primary machine is Windows and you need a mature desktop SSH client today.",
+    "You need a mature graphical Windows SSH client rather than a terminal TUI.",
     "Your org standardizes on PuTTY sessions and .ppk keys as policy.",
     "You only need occasional ad-hoc SSH and do not care about shared OpenSSH config.",
     "You want a classic Windows GUI terminal rather than a terminal-native TUI.",
   ],
   whenBetterOutro:
-    "Bast is not trying to be PuTTY on Windows. It is the OpenSSH-native answer for people who already work in macOS or Linux terminals.",
+    "Bast is the OpenSSH-native answer for people who work in the terminal. PuTTY remains the better fit for its established GUI and session ecosystem.",
   migrateTitle: "Moving from PuTTY sessions to Bast",
   migrateSteps: [
     <>
@@ -150,7 +150,7 @@ export const puttyComparison: ComparisonCaseStudy = {
       (Host, HostName, User, Port, IdentityFile, ProxyJump).
     </>,
     <>
-      Install Bast on macOS or Linux. It discovers existing config and adds one
+      Install Bast on macOS, Linux, or Windows 11. It discovers existing config and adds one
       managed Include for hosts you create inside Bast.
     </>,
     <>
@@ -162,11 +162,11 @@ export const puttyComparison: ComparisonCaseStudy = {
   faqs: [
     {
       q: "Is Bast a PuTTY alternative?",
-      a: "Yes for macOS and Linux terminal workflows. Bast uses system OpenSSH and ~/.ssh/config instead of PuTTY sessions and .ppk keys.",
+      a: "Yes for terminal OpenSSH workflows on macOS, Linux, and Windows 11. Bast uses system OpenSSH and ~/.ssh/config instead of PuTTY sessions and .ppk keys.",
     },
     {
       q: "Does Bast run on Windows like PuTTY?",
-      a: "Not yet. Bast targets macOS and Linux. On Windows, keep PuTTY, Windows OpenSSH, or another desktop client for now.",
+      a: "Yes on Windows 11. Bast uses Windows OpenSSH and runs in Windows Terminal, PowerShell, or Command Prompt.",
     },
     {
       q: "Can Bast use my old PuTTY keys?",

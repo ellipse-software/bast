@@ -145,7 +145,12 @@ func TestFormatError(t *testing.T) {
 		{255, "connection failed, refused, or interrupted"},
 	}
 	for _, tc := range cases {
-		cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf("exit %d", tc.code))
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.Command("cmd.exe", "/d", "/s", "/c", fmt.Sprintf("exit /b %d", tc.code))
+		} else {
+			cmd = exec.Command("/bin/sh", "-c", fmt.Sprintf("exit %d", tc.code))
+		}
 		err := cmd.Run()
 		if got := FormatError(err); got != tc.want {
 			t.Fatalf("exit %d = %q, want %q", tc.code, got, tc.want)

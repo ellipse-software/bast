@@ -6,6 +6,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"bast/internal/platform"
 )
 
 var (
@@ -21,7 +23,7 @@ func SameLocalPath(a, b string) bool {
 	if errA != nil || errB != nil {
 		return false
 	}
-	return ca == cb
+	return platform.SamePath(ca, cb)
 }
 
 // SameRemotePath reports whether two remote paths resolve to the same location.
@@ -44,16 +46,7 @@ func LocalPathContained(parent, child string) bool {
 	if err != nil {
 		return false
 	}
-	if parent == child {
-		return true
-	}
-	sep := string(filepath.Separator)
-	// Roots such as "/" or `C:\` already end with the separator; appending
-	// another would build "//" / `C:\\` and reject every real child.
-	if strings.HasSuffix(parent, sep) {
-		return strings.HasPrefix(child, parent)
-	}
-	return strings.HasPrefix(child, parent+sep)
+	return platform.PathContained(parent, child)
 }
 
 // RemotePathContained reports whether child is equal to parent or nested under it.
@@ -159,7 +152,7 @@ func JoinLocal(base, name string) (string, error) {
 		return "", err
 	}
 	name = strings.TrimSpace(name)
-	if name == "" || name == "." || name == ".." || strings.ContainsRune(name, filepath.Separator) || strings.ContainsAny(name, "\x00") {
+	if name == "" || name == "." || name == ".." || platform.HasPathSeparator(name) || strings.ContainsAny(name, "\x00") {
 		return "", errInvalidPath
 	}
 	return filepath.Join(base, name), nil

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -224,6 +225,9 @@ func runTestCLI(t *testing.T, home string, client openssh.Client, args ...string
 
 func fakeOpenSSH(t *testing.T) openssh.Client {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX OpenSSH fixtures")
+	}
 	dir := t.TempDir()
 	writeScript := func(name, body string) string {
 		path := filepath.Join(dir, name)

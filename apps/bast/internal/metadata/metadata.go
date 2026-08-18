@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"bast/internal/platform"
 )
 
 const CurrentVersion = 7
@@ -696,6 +698,9 @@ func (s *Store) writeState(syncDisk bool) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create metadata directory: %w", err)
 	}
+	if err := platform.SecurePath(dir, 0700); err != nil {
+		return fmt.Errorf("secure metadata directory: %w", err)
+	}
 	b, err := json.MarshalIndent(s.state, "", "  ")
 	if err != nil {
 		return err
@@ -724,21 +729,16 @@ func (s *Store) writeState(syncDisk bool) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, s.path); err != nil {
+	if err := platform.ReplaceFile(tmpName, s.path); err != nil {
+		return err
+	}
+	if err := platform.SecurePath(s.path, 0600); err != nil {
 		return err
 	}
 	if !syncDisk {
 		return nil
 	}
-	directory, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	if err := directory.Sync(); err != nil {
-		_ = directory.Close()
-		return err
-	}
-	return directory.Close()
+	return platform.SyncDirectory(dir)
 }
 
 func cleanTags(tags []string) []string {

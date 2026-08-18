@@ -5,10 +5,15 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { bastReleaseUrl, bastRepoUrl } from "@/lib/github";
 
-type InstallMethod = "script" | "homebrew" | "source";
+type InstallMethod =
+  | "script"
+  | "powershell"
+  | "homebrew"
+  | "source";
 
 const METHODS: { id: InstallMethod; label: string }[] = [
   { id: "script", label: "Script" },
+  { id: "powershell", label: "PowerShell" },
   { id: "homebrew", label: "Homebrew" },
   { id: "source", label: "Source" },
 ];
@@ -23,6 +28,10 @@ function installCommand(method: InstallMethod, nightly: boolean): string {
       return nightly
         ? "brew install ellipse-software/tap/bast-nightly"
         : "brew install ellipse-software/tap/bast";
+    case "powershell":
+      return nightly
+        ? "irm https://bast.sh/install-nightly.ps1 | iex"
+        : "irm https://bast.sh/install.ps1 | iex";
     case "source":
       return `git clone ${bastRepoUrl}.git && cd bast/apps/bast && go build -trimpath -o bast .`;
   }
@@ -66,6 +75,20 @@ function CommandDisplay({
           </span>
         </code>
       );
+    case "powershell":
+      return (
+        <code className="whitespace-nowrap">
+          <span className="text-accent">irm</span>
+          <span className="text-muted"> </span>
+          <span className="text-accent">
+            {nightly
+              ? "https://bast.sh/install-nightly.ps1"
+              : "https://bast.sh/install.ps1"}
+          </span>
+          <span className="text-muted"> | </span>
+          <span className="text-accent">iex</span>
+        </code>
+      );
     case "source":
       return (
         <code className="whitespace-nowrap">
@@ -95,7 +118,8 @@ export function InstallCommand({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
-  const showNightly = method === "script" || method === "homebrew";
+  const showNightly =
+    method === "script" || method === "powershell" || method === "homebrew";
 
   useEffect(() => {
     if (!open) return;

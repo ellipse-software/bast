@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1600,6 +1601,9 @@ func TestKeysDoNotPresentAgentLoadingAsAPrimaryAction(t *testing.T) {
 }
 
 func TestSSHProcessPreservesTerminalOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX process fixture")
+	}
 	if !strings.Contains(connectbanner.Banner, "Press Enter, then ~.") {
 		t.Fatal("connection banner does not explain how to force-close a stuck session")
 	}
@@ -1637,6 +1641,9 @@ func TestSSHProcessPreservesTerminalOutput(t *testing.T) {
 }
 
 func TestSSHProcessPausesOnFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX process fixture")
+	}
 	var output bytes.Buffer
 	cmd := exec.Command("/bin/sh", "-c", "printf 'host key verification failed\\n'; exit 255")
 	cmd.Stdout = &output
@@ -1658,6 +1665,9 @@ func TestSSHProcessPausesOnFailure(t *testing.T) {
 }
 
 func TestSSHProcessPausesOnPrepareFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX process fixture")
+	}
 	t.Setenv("BAST_NO_TELEMETRY", "")
 	var output bytes.Buffer
 	cmd := exec.Command("/bin/sh", "-c", "printf should-not-run")
@@ -1685,6 +1695,9 @@ func TestSSHProcessPausesOnPrepareFailure(t *testing.T) {
 }
 
 func TestSSHSessionCompletionReturnsToBast(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX process fixture")
+	}
 	exitCmd := exec.Command("/bin/sh", "-c", "exit 255")
 	exitErr := exitCmd.Run()
 	for name, sessionErr := range map[string]error{

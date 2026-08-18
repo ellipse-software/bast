@@ -101,9 +101,88 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build-windows:
+    name: Build windows/${{ matrix.goarch }}
+    needs: validate
+    runs-on: windows-latest
+    environment: artifact-signing
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: apps/bast
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: apps/bast/go.mod
+          cache: true
+          cache-dependency-path: apps/bast/go.sum
+      - name: Run Windows tests
+        if: matrix.goarch == 'amd64'
+        run: go test ./...
+      - name: Build executable
+        id: build
+        shell: pwsh
+        env:
+          GOOS: windows
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bundle = "bast_${env:VERSION}_windows_${env:GOARCH}"
+          New-Item -ItemType Directory -Force "dist/$bundle" | Out-Null
+          go build -trimpath -ldflags "-s -w -X main.version=$env:VERSION" -o "dist/$bundle/bast.exe" .
+          "artifact=$bundle" >> $env:GITHUB_OUTPUT
+          "bundle=$bundle" >> $env:GITHUB_OUTPUT
+      - name: Azure login
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign executable
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\apps\bast\dist\${{ steps.build.outputs.bundle }}\bast.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Verify and package executable
+        shell: pwsh
+        env:
+          BUNDLE: ${{ steps.build.outputs.bundle }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $signature = Get-AuthenticodeSignature "dist/$env:BUNDLE/bast.exe"
+          if ($signature.Status -ne "Valid") { throw "Invalid Authenticode signature: $($signature.Status)" }
+          Copy-Item ../../LICENSE, README.md "dist/$env:BUNDLE/"
+          Compress-Archive -Path "dist/$env:BUNDLE" -DestinationPath "dist/$env:BUNDLE.zip"
+          $hash = (Get-FileHash "dist/$env:BUNDLE.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $env:BUNDLE.zip" | Set-Content -NoNewline -Encoding ascii "dist/$env:BUNDLE.zip.sha256"
+      - name: Upload archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build.outputs.artifact }}
+          path: |
+            apps/bast/dist/*.zip
+            apps/bast/dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Publish nightly release
-    needs: build
+    needs: [build, build-windows]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -126,7 +205,7 @@ jobs:
           version="${version%_*_*}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Create combined checksums
-        run: (cd dist && shasum -a 256 bast_nightly.*.tar.gz > SHA256SUMS)
+        run: (cd dist && shasum -a 256 bast_nightly.*.tar.gz bast_nightly.*.zip > SHA256SUMS)
       - name: Publish nightly release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -135,7 +214,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          assets=(dist/bast_nightly.*.tar.gz dist/bast_nightly.*.tar.gz.sha256 dist/SHA256SUMS)
+          assets=(dist/bast_nightly.*.tar.gz dist/bast_nightly.*.tar.gz.sha256 dist/bast_nightly.*.zip dist/bast_nightly.*.zip.sha256 dist/SHA256SUMS)
           title="Bast nightly (${VERSION})"
 
           notes="Nightly build from \`master\`. Version: \`${VERSION}\`."

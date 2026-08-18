@@ -15,6 +15,8 @@ import (
 	stdsync "sync"
 
 	"golang.org/x/sync/errgroup"
+
+	"bast/internal/platform"
 )
 
 const ProviderName = "azure"
@@ -638,11 +640,5 @@ func publicKeyBlob(value string) string {
 }
 
 func shortenHome(path, home string) string {
-	if home != "" {
-		prefix := strings.TrimRight(home, string(filepath.Separator)) + string(filepath.Separator)
-		if strings.HasPrefix(path, prefix) {
-			return "~/" + filepath.ToSlash(strings.TrimPrefix(path, prefix))
-		}
-	}
-	return path
+	return platform.HomeRelative(path, home)
 }

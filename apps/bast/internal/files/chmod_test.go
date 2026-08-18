@@ -3,6 +3,7 @@ package files
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -86,6 +87,9 @@ func TestFormatSizeAndEntryKind(t *testing.T) {
 }
 
 func TestChmodLocalAndRecursive(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX mode bits are not supported on Windows")
+	}
 	root := t.TempDir()
 	file := filepath.Join(root, "a.txt")
 	dir := filepath.Join(root, "dir")

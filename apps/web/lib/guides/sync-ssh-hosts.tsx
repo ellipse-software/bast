@@ -5,7 +5,7 @@ export const syncSshHostsGuide: GuidePage = {
   slug: "sync-ssh-hosts",
   title: "Sync SSH hosts between machines",
   description:
-    "Sync SSH hosts and keys between Macs and Linux boxes with Bast vault. End-to-end encryption on your machine, OpenSSH config stays local, no GUI account lock-in.",
+    "Sync SSH hosts and keys between macOS, Linux, and Windows devices with Bast vault. End-to-end encryption on your machine, OpenSSH config stays local, no GUI account lock-in.",
   keywords: [
     "sync SSH hosts",
     "sync SSH config",

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -313,6 +314,9 @@ func TestFilesStaleListMsgIgnored(t *testing.T) {
 }
 
 func TestFilesChmodMenuToggleAndApply(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local POSIX permissions are hidden on Windows")
+	}
 	m := testApp(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "secret.env")
@@ -374,6 +378,9 @@ func TestFilesChmodMenuToggleAndApply(t *testing.T) {
 }
 
 func TestFilesChmodMenuCancel(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local POSIX permissions are hidden on Windows")
+	}
 	m := testApp(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "a.txt")
@@ -402,6 +409,9 @@ func TestFilesChmodMenuCancel(t *testing.T) {
 }
 
 func TestFilesChmodRecursiveOptionForDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local POSIX permissions are hidden on Windows")
+	}
 	m := testApp(t)
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "nested")
@@ -431,6 +441,9 @@ func TestFilesChmodRecursiveOptionForDirectory(t *testing.T) {
 }
 
 func TestFilesChmodPreservesSpecialBitsOnToggle(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local POSIX permissions are hidden on Windows")
+	}
 	m := testApp(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "suid.bin")

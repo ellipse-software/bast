@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"bast/internal/paths"
+	"bast/internal/platform"
 )
 
 type Key struct {
@@ -230,7 +231,7 @@ func within(path, dir string) bool {
 		return false
 	}
 	rel, err := filepath.Rel(dir, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	return err == nil && platform.PathContained(dir, path) && rel != ".."
 }
 
 func expandHome(path, home string) string {
@@ -278,6 +279,9 @@ func copyFile(source, destination string, mode os.FileMode) error {
 		return err
 	}
 	if err := out.Close(); err != nil {
+		return err
+	}
+	if err := platform.SecurePath(destination, mode); err != nil {
 		return err
 	}
 	ok = true

@@ -100,8 +100,8 @@ export function GuidePageView({ content, version }: GuidePageViewProps) {
               Install Bast
             </h2>
             <p className="mb-5 text-sm leading-relaxed text-muted">
-              macOS and Linux. Then run <Code>bast</Code> and work from your
-              existing OpenSSH setup.
+              macOS, Linux, and Windows 11. Then run <Code>bast</Code> and work
+              from your existing OpenSSH setup.
             </p>
             <InstallCommand version={version} className="w-full" />
           </div>

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -14,6 +15,9 @@ import (
 
 func keyManager(t *testing.T) Manager {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX OpenSSH fixtures")
+	}
 	home := t.TempDir()
 	p := paths.ForHome(home)
 	bin := filepath.Join(home, "bin")
@@ -74,6 +78,9 @@ func TestDiscoverImportExportAndDelete(t *testing.T) {
 }
 
 func TestDiscoverInspectsMoreCandidatesThanWorkersAndMatchesAgent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX OpenSSH fixtures")
+	}
 	home := t.TempDir()
 	p := paths.ForHome(home)
 	if err := os.MkdirAll(p.ManagedKeys, 0700); err != nil {

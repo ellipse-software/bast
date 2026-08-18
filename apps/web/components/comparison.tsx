@@ -10,7 +10,7 @@ type Row = {
 const rows: Row[] = [
   {
     question: "Where does it run?",
-    bast: "Inside your terminal on macOS and Linux",
+    bast: "Inside your terminal on macOS, Linux, and Windows 11",
     termius: "As a separate GUI app on desktop and phones",
     putty: "As a Windows desktop app",
   },

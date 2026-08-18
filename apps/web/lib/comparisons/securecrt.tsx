@@ -38,7 +38,7 @@ export const securecrtComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Platforms",
-      bast: "macOS and Linux terminals",
+      bast: "macOS, Linux, and Windows 11 terminals",
       competitor: "Desktop apps across major platforms",
     },
     {
@@ -128,7 +128,7 @@ export const securecrtComparison: ComparisonCaseStudy = {
     "You need a vendor support contract tied to the SSH client itself.",
     "Procurement and training already standardize on SecureCRT across the org.",
     "Operators rely on SecureCRT's GUI session tree as the primary interface.",
-    "You require platforms or protocols beyond Bast's current macOS/Linux OpenSSH focus.",
+    "You require protocols beyond Bast's OpenSSH focus.",
   ],
   whenBetterOutro:
     "Bast is the better SecureCRT alternative when the team already trusts OpenSSH and wants a free, terminal-native host layer instead of another licensed GUI client.",
@@ -163,7 +163,7 @@ export const securecrtComparison: ComparisonCaseStudy = {
     },
     {
       q: "Will Bast replace SecureCRT for every enterprise protocol?",
-      a: "No. Bast focuses on OpenSSH workflows on macOS and Linux. Keep SecureCRT where those broader client requirements still matter.",
+      a: "No. Bast focuses on OpenSSH workflows on macOS, Linux, and Windows 11. Keep SecureCRT where broader protocol or vendor-support requirements matter.",
     },
     {
       q: "Can SecureCRT and Bast coexist during migration?",

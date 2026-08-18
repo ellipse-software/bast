@@ -2,6 +2,7 @@ package vault
 
 import (
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -128,7 +129,7 @@ func TestPassphraseFileRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm()&0077 != 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0 {
 		t.Fatalf("passphrase file should be owner-only, got %v", info.Mode())
 	}
 	if err := ClearPassphrase(path); err != nil {

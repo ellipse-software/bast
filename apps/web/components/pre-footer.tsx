@@ -46,8 +46,8 @@ export function PreFooter({ version }: PreFooterProps) {
           Install Bast
         </h2>
         <p className="mb-8 max-w-md text-center text-sm leading-relaxed text-white/70">
-          macOS and Linux. Speaks native OpenSSH, so your config and keys stay
-          where they already are.
+          macOS, Linux, and Windows 11. Uses native OpenSSH, so your config and
+          keys stay where they already are.
         </p>
 
         <div className="w-full max-w-xl" style={installTheme}>
