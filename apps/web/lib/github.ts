@@ -36,7 +36,7 @@ export async function getLatestBastVersion(): Promise<string | null> {
       `https://api.github.com/repos/${BAST_REPO}/releases/latest`,
       {
         headers: githubHeaders,
-        next: { revalidate: 3600 },
+        next: { revalidate: 300 },
       },
     );
 
@@ -89,4 +89,3 @@ export async function getBastReleases(limit = 30): Promise<BastRelease[]> {
 export function bastReleaseUrl(version: string): string {
   return `https://github.com/${BAST_REPO}/releases/tag/${version}`;
 }
-

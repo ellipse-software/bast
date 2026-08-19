@@ -8,8 +8,8 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -17,6 +17,8 @@ import (
 const (
 	InstallerURL        = "https://bast.sh/install"
 	NightlyInstallerURL = "https://bast.sh/install-nightly"
+	WindowsInstallerURL = "https://bast.sh/install.ps1"
+	WindowsNightlyURL   = "https://bast.sh/install-nightly.ps1"
 	LatestReleaseURL    = "https://api.github.com/repos/ellipse-software/bast/releases/latest"
 	NightlyReleaseURL   = "https://api.github.com/repos/ellipse-software/bast/releases?per_page=50"
 	receiptSuffix       = ".install-receipt"
@@ -30,6 +32,7 @@ const (
 	ChannelScriptNightly
 	ChannelHomebrewStable
 	ChannelHomebrewNightly
+	ChannelWinGetStable
 )
 
 func IsStable(version string) bool {
@@ -49,9 +52,11 @@ func ChannelFor(executable string) Channel {
 		return ChannelHomebrewNightly
 	case strings.Contains(path, "/Cellar/bast/"):
 		return ChannelHomebrewStable
-	case scriptInstalled(resolved, NightlyInstallerURL):
+	case wingetInstalled(resolved):
+		return ChannelWinGetStable
+	case scriptInstalled(resolved, platformInstallerURL(NightlyInstallerURL)):
 		return ChannelScriptNightly
-	case scriptInstalled(resolved, InstallerURL):
+	case scriptInstalled(resolved, platformInstallerURL(InstallerURL)):
 		return ChannelScriptStable
 	default:
 		return ChannelOther
@@ -59,11 +64,11 @@ func ChannelFor(executable string) Channel {
 }
 
 func ScriptInstalled(executable string) bool {
-	return scriptInstalled(resolveExecutable(executable), InstallerURL)
+	return scriptInstalled(resolveExecutable(executable), platformInstallerURL(InstallerURL))
 }
 
 func NightlyScriptInstalled(executable string) bool {
-	return scriptInstalled(resolveExecutable(executable), NightlyInstallerURL)
+	return scriptInstalled(resolveExecutable(executable), platformInstallerURL(NightlyInstallerURL))
 }
 
 func Check(ctx context.Context, client *http.Client, current string) (string, error) {
@@ -82,6 +87,8 @@ func Suggestion(executable string) string {
 		return "brew upgrade bast"
 	case ChannelHomebrewNightly:
 		return "brew upgrade bast-nightly"
+	case ChannelWinGetStable:
+		return "winget upgrade --id EllipseSoftware.Bast --exact"
 	default:
 		return "https://bast.sh"
 	}
@@ -103,7 +110,12 @@ func Update(ctx context.Context, client *http.Client, executable string, stdout,
 		return errors.New("this Bast installation is managed by Homebrew; run \"brew upgrade bast\"")
 	case ChannelHomebrewNightly:
 		return errors.New("this Bast installation is managed by Homebrew; run \"brew upgrade bast-nightly\"")
+	case ChannelWinGetStable:
+		return errors.New("this Bast installation is managed by WinGet; run \"winget upgrade --id EllipseSoftware.Bast --exact\"")
 	default:
+		if runtime.GOOS == "windows" {
+			return errors.New("self-update is only available for installs from https://bast.sh/install.ps1 or https://bast.sh/install-nightly.ps1")
+		}
 		return errors.New("self-update is only available for installs from https://bast.sh/install or https://bast.sh/install-nightly")
 	}
 }
@@ -245,6 +257,7 @@ func updateFrom(ctx context.Context, client *http.Client, installerURL, executab
 		client = http.DefaultClient
 	}
 	executable = resolveExecutable(executable)
+	installerURL = platformInstallerURL(installerURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, installerURL, nil)
 	if err != nil {
 		return err
@@ -261,35 +274,17 @@ func updateFrom(ctx context.Context, client *http.Client, installerURL, executab
 	if err != nil {
 		return fmt.Errorf("download installer: %w", err)
 	}
-	if !strings.HasPrefix(string(script), "#!/bin/sh\n") {
-		return errors.New("download installer: unexpected response")
+	return runInstaller(ctx, script, executable, stdout, stderr, pinnedNightly)
+}
+
+func platformInstallerURL(url string) string {
+	if runtime.GOOS != "windows" {
+		return url
 	}
-	tmp, err := os.CreateTemp("", "bast-update-*.sh")
-	if err != nil {
-		return err
+	if url == NightlyInstallerURL {
+		return WindowsNightlyURL
 	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0700); err == nil {
-		_, err = tmp.Write(script)
-	}
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return fmt.Errorf("prepare installer: %w", err)
-	}
-	cmd := exec.CommandContext(ctx, "/bin/sh", tmpPath)
-	env := append(os.Environ(), "BAST_INSTALL_DIR="+filepath.Dir(executable))
-	if pinnedNightly != "" {
-		env = append(env, "BAST_NIGHTLY_VERSION="+pinnedNightly)
-	}
-	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = stdout, stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("run installer: %w", err)
-	}
-	return nil
+	return WindowsInstallerURL
 }
 
 func scriptInstalled(executable, installerURL string) bool {

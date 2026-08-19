@@ -5,6 +5,7 @@ import {
 } from "@/components/marketing-shell";
 import { Code } from "@/lib/comparisons/marks";
 import type { GuidePage } from "@/lib/guides/types";
+import { supportsWindowsRelease } from "@/lib/releases";
 import { siteUrl } from "@/lib/site";
 
 type GuidePageViewProps = {
@@ -14,6 +15,9 @@ type GuidePageViewProps = {
 
 export function GuidePageView({ content, version }: GuidePageViewProps) {
   const pageUrl = `${siteUrl}/${content.slug}`;
+  const platforms = supportsWindowsRelease(version)
+    ? "macOS, Linux, and Windows 11"
+    : "macOS and Linux";
 
   const articleJsonLd = {
     "@context": "https://schema.org",
@@ -100,8 +104,8 @@ export function GuidePageView({ content, version }: GuidePageViewProps) {
               Install Bast
             </h2>
             <p className="mb-5 text-sm leading-relaxed text-muted">
-              macOS and Linux. Then run <Code>bast</Code> and work from your
-              existing OpenSSH setup.
+              {platforms}. Then run <Code>bast</Code> and work from your existing
+              OpenSSH setup.
             </p>
             <InstallCommand version={version} className="w-full" />
           </div>

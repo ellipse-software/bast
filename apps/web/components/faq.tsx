@@ -28,9 +28,10 @@ const faqs: { question: string; answer: ReactNode }[] = [
     question: "Does Bast work on Windows?",
     answer: (
       <>
-        Not yet. Bast targets macOS and Linux terminals. On Windows, keep using
-        OpenSSH, Windows Terminal, or a classic client like PuTTY until native
-        support exists.
+        Yes. Bast runs natively on Windows 11 with Windows OpenSSH, including
+        Windows Terminal, PowerShell, and Command Prompt. It also runs inside
+        WSL as a Linux application. Native Windows and WSL use separate home
+        directories and SSH configuration.
       </>
     ),
   },
@@ -136,7 +137,7 @@ const faqJsonLd = {
       name: "Does Bast work on Windows?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "Not yet. Bast targets macOS and Linux terminals.",
+        text: "Yes. Bast runs natively on Windows 11 with Windows OpenSSH, and it also runs as a Linux application inside WSL.",
       },
     },
     {

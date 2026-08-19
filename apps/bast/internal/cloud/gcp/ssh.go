@@ -1,11 +1,11 @@
 package gcp
 
 import (
-	"path/filepath"
 	"strings"
 
 	"bast/internal/cloud"
 	"bast/internal/cloud/sshutil"
+	"bast/internal/platform"
 	"bast/internal/sshconfig"
 )
 
@@ -44,15 +44,10 @@ func shortenHomePath(path, home string) string {
 	if home == "" {
 		return path
 	}
-	home = strings.TrimRight(home, string(filepath.Separator))
 	if path == home {
 		return "~"
 	}
-	prefix := home + string(filepath.Separator)
-	if strings.HasPrefix(path, prefix) {
-		return "~/" + filepath.ToSlash(path[len(prefix):])
-	}
-	return path
+	return platform.HomeRelative(path, home)
 }
 
 func IAPProxyCommand(inst cloud.Instance) string {
@@ -71,7 +66,7 @@ func IAPProxyCommand(inst cloud.Instance) string {
 	}
 	command := strings.Join(args, " ")
 	if inst.CredentialFile != "" {
-		command = "env CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=" + sshutil.ShellQuote(sshutil.ProxyLiteral(inst.CredentialFile)) + " " + command
+		command = sshutil.WithEnvironment(command, "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE", sshutil.ProxyLiteral(inst.CredentialFile))
 	}
 	return command
 }

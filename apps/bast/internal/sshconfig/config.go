@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"bast/internal/platform"
 )
 
 const (
@@ -236,7 +238,10 @@ func (m Manager) EnsureManaged() error {
 	if err := os.MkdirAll(m.ManagedKeys, 0700); err != nil {
 		return fmt.Errorf("create Bast SSH directory: %w", err)
 	}
-	if err := os.Chmod(m.ManagedDir, 0700); err != nil {
+	if err := platform.SecurePath(m.ManagedDir, 0700); err != nil {
+		return err
+	}
+	if err := platform.SecurePath(m.ManagedKeys, 0700); err != nil {
 		return err
 	}
 	if _, err := os.Stat(m.ManagedConfig); errors.Is(err, os.ErrNotExist) {
@@ -361,10 +366,7 @@ func (m Manager) HomeRelative(path string) string {
 	if path == "" || strings.HasPrefix(path, "~/") {
 		return path
 	}
-	if rel, err := filepath.Rel(m.Home, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "~/" + filepath.ToSlash(rel)
-	}
-	return path
+	return platform.HomeRelative(path, m.Home)
 }
 
 func isPasswordOnly(resolved Resolved) bool {

@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/files"
+	"bast/internal/platform"
 	"bast/internal/vault"
 )
 
@@ -313,6 +315,9 @@ func TestFilesStaleListMsgIgnored(t *testing.T) {
 }
 
 func TestFilesChmodMenuToggleAndApply(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local POSIX permissions are hidden on Windows")
+	}
 	m := testApp(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "secret.env")
@@ -374,6 +379,9 @@ func TestFilesChmodMenuToggleAndApply(t *testing.T) {
 }
 
 func TestFilesChmodMenuCancel(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local POSIX permissions are hidden on Windows")
+	}
 	m := testApp(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "a.txt")
@@ -402,6 +410,9 @@ func TestFilesChmodMenuCancel(t *testing.T) {
 }
 
 func TestFilesChmodRecursiveOptionForDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local POSIX permissions are hidden on Windows")
+	}
 	m := testApp(t)
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "nested")
@@ -431,6 +442,9 @@ func TestFilesChmodRecursiveOptionForDirectory(t *testing.T) {
 }
 
 func TestFilesChmodPreservesSpecialBitsOnToggle(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local POSIX permissions are hidden on Windows")
+	}
 	m := testApp(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "suid.bin")
@@ -626,8 +640,12 @@ func TestFilesInfoInline(t *testing.T) {
 	if !strings.Contains(body, "file") {
 		t.Fatalf("expected type:\n%s", body)
 	}
-	if !strings.Contains(body, "0600") {
-		t.Fatalf("expected mode:\n%s", body)
+	if platform.SupportsPOSIXPermissions() {
+		if !strings.Contains(body, "0600") {
+			t.Fatalf("expected mode:\n%s", body)
+		}
+	} else if strings.Contains(body, "Mode") {
+		t.Fatalf("local mode should be hidden:\n%s", body)
 	}
 	if strings.Contains(body, "0755") && !strings.Contains(body, "Name") {
 		t.Fatalf("mode column should not appear in listing while info open:\n%s", body)

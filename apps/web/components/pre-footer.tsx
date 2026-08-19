@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 
 import { InstallCommand } from "@/components/install-command";
 import { pageMaxWidthClass } from "@/lib/layout";
+import { supportsWindowsRelease } from "@/lib/releases";
 
 type PreFooterProps = {
   version?: string | null;
@@ -27,6 +28,10 @@ const installTheme = {
 } as CSSProperties;
 
 export function PreFooter({ version }: PreFooterProps) {
+  const platforms = supportsWindowsRelease(version)
+    ? "macOS, Linux, and Windows 11"
+    : "macOS and Linux";
+
   return (
     <section className="relative w-full overflow-hidden">
       <div aria-hidden className="absolute inset-0" style={patternStyle} />
@@ -46,8 +51,8 @@ export function PreFooter({ version }: PreFooterProps) {
           Install Bast
         </h2>
         <p className="mb-8 max-w-md text-center text-sm leading-relaxed text-white/70">
-          macOS and Linux. Speaks native OpenSSH, so your config and keys stay
-          where they already are.
+          {platforms}. Uses native OpenSSH, so your config and keys stay where
+          they already are.
         </p>
 
         <div className="w-full max-w-xl" style={installTheme}>

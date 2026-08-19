@@ -15,6 +15,8 @@ The reminder depends on how you installed Bast:
 | bast.sh nightly script | `bast update` |
 | Homebrew | `brew upgrade bast` |
 | Homebrew nightly | `brew upgrade bast-nightly` |
+| Windows PowerShell installer | `bast update` |
+| Windows PowerShell nightly | `bast update` |
 | Source build | Link back to bast.sh |
 
 Press `v` in the TUI to see version info and the update suggestion.
@@ -27,7 +29,7 @@ bast update
 
 This only runs when the bast.sh installer receipt is present beside the executable. It works for both stable and nightly script installs, and will not overwrite Homebrew-managed or source-built copies.
 
-The script downloads the latest release, verifies the checksum, and replaces the binary in place.
+The installer downloads the latest release and verifies its checksum. Windows also verifies the Authenticode publisher, then uses a helper process to replace `bast.exe` after the running command exits.
 
 ## Check manually
 

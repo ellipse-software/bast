@@ -15,7 +15,7 @@ export const mobaxtermComparison: ComparisonCaseStudy = {
     "OpenSSH TUI",
     "Bast.sh",
   ],
-  lead: "MobaXterm is a Windows Swiss-army kit: SSH, X11, sniffers, and a pile of network tools in one installer. Bast is narrower on purpose: a terminal-native OpenSSH host picker for people who already have a Unix shell.",
+  lead: "MobaXterm is a Windows Swiss-army kit: SSH, X11, sniffers, and a pile of network tools in one installer. Bast is narrower on purpose: a terminal-native OpenSSH host picker.",
   articleHeadline:
     "Bast vs MobaXterm: OpenSSH in the terminal instead of a Windows toolbox",
   articleDescription:
@@ -28,7 +28,7 @@ export const mobaxtermComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Platform",
-      bast: "macOS and Linux terminals",
+      bast: "macOS, Linux, and Windows 11 terminals",
       competitor: "Windows-first desktop app",
     },
     {
@@ -126,11 +126,11 @@ export const mobaxtermComparison: ComparisonCaseStudy = {
   whenBetterItems: [
     "You need one Windows suite that also covers X11 and assorted network tools.",
     "Your workplace standardizes on MobaXterm sessions and training.",
-    "You are not moving to macOS/Linux terminals as your primary SSH environment.",
+    "You want an integrated X server and Unix utility bundle on Windows.",
     "You want a graphical multi-tab Windows terminal more than an OpenSSH-native TUI.",
   ],
   whenBetterOutro:
-    "Bast is the better MobaXterm alternative only when the real need is OpenSSH host management in a Unix terminal, not a full Windows admin toolkit.",
+    "Bast is the better MobaXterm alternative when the real need is OpenSSH host management in the terminal, not a full Windows admin toolkit.",
   migrateTitle: "Switching from MobaXterm to Bast",
   migrateSteps: [
     <>
@@ -142,7 +142,7 @@ export const mobaxtermComparison: ComparisonCaseStudy = {
       the MobaXterm environment.
     </>,
     <>
-      Install Bast on macOS or Linux and verify connections with the system{" "}
+      Install Bast on macOS, Linux, or Windows 11 and verify connections with the system{" "}
       <Code>ssh</Code> binary.
     </>,
     <>
@@ -154,7 +154,7 @@ export const mobaxtermComparison: ComparisonCaseStudy = {
   faqs: [
     {
       q: "Is Bast a MobaXterm alternative?",
-      a: "Yes for terminal-native OpenSSH host management on macOS and Linux. It is not a replacement for MobaXterm's wider Windows toolbox.",
+      a: "Yes for terminal-native OpenSSH host management on macOS, Linux, and Windows 11. It is not a replacement for MobaXterm's wider Windows toolbox.",
     },
     {
       q: "Does Bast include X11 and network utilities like MobaXterm?",

@@ -19,7 +19,7 @@ type AskAiMenuProps = {
 };
 
 function buildPrompt(contextUrl: string): string {
-  return `Read ${contextUrl} and help me use Bast, the native SSH picker and key manager for macOS/Linux. Bast wraps OpenSSH (not a custom protocol). Prefer \`bast --json\` for automation.`;
+  return `Read ${contextUrl} and help me use Bast, the native SSH picker and key manager for macOS, Linux, and Windows 11. Bast wraps OpenSSH (not a custom protocol). Prefer \`bast --json\` for automation.`;
 }
 
 type AiLink = {

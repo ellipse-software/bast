@@ -38,6 +38,37 @@ func testApp(t *testing.T) *App {
 	}
 	return &App{paths: p, openSSH: openssh.Default(), metadata: store, hosts: []sshconfig.Host{{Alias: "alpha"}, {Alias: "beta"}}, width: 100, height: 30, dark: true}
 }
+
+func processFixtureCommand(t *testing.T, behavior string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestConnectionProcessFixture$", "--", behavior)
+	cmd.Env = append(os.Environ(), "BAST_CONNECTION_PROCESS_FIXTURE=1")
+	return cmd
+}
+
+func TestConnectionProcessFixture(t *testing.T) {
+	if os.Getenv("BAST_CONNECTION_PROCESS_FIXTURE") != "1" {
+		return
+	}
+	behavior := os.Args[len(os.Args)-1]
+	switch behavior {
+	case "session-output":
+		fmt.Fprint(os.Stdout, "session-output")
+		os.Exit(0)
+	case "ssh-failure":
+		fmt.Fprintln(os.Stdout, "host key verification failed")
+		os.Exit(255)
+	case "should-not-run":
+		fmt.Fprint(os.Stdout, "should-not-run")
+		os.Exit(0)
+	case "exit-255":
+		os.Exit(255)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown connection process fixture: %s\n", behavior)
+		os.Exit(2)
+	}
+}
+
 func press(text string) tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Code: []rune(text)[0], Text: text})
 }
@@ -1604,7 +1635,7 @@ func TestSSHProcessPreservesTerminalOutput(t *testing.T) {
 		t.Fatal("connection banner does not explain how to force-close a stuck session")
 	}
 	var output bytes.Buffer
-	cmd := exec.Command("/bin/sh", "-c", "printf session-output")
+	cmd := processFixtureCommand(t, "session-output")
 	cmd.Stdout = &output
 	prepared := false
 	process := &connectionProcess{cmd: cmd, prepare: func(status func(string)) error {
@@ -1638,7 +1669,7 @@ func TestSSHProcessPreservesTerminalOutput(t *testing.T) {
 
 func TestSSHProcessPausesOnFailure(t *testing.T) {
 	var output bytes.Buffer
-	cmd := exec.Command("/bin/sh", "-c", "printf 'host key verification failed\\n'; exit 255")
+	cmd := processFixtureCommand(t, "ssh-failure")
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 	cmd.Stdin = strings.NewReader("k")
@@ -1660,7 +1691,7 @@ func TestSSHProcessPausesOnFailure(t *testing.T) {
 func TestSSHProcessPausesOnPrepareFailure(t *testing.T) {
 	t.Setenv("BAST_NO_TELEMETRY", "")
 	var output bytes.Buffer
-	cmd := exec.Command("/bin/sh", "-c", "printf should-not-run")
+	cmd := processFixtureCommand(t, "should-not-run")
 	cmd.Stdout = &output
 	cmd.Stdin = strings.NewReader("k")
 	process := &connectionProcess{cmd: cmd, prepare: func(status func(string)) error {
@@ -1685,7 +1716,7 @@ func TestSSHProcessPausesOnPrepareFailure(t *testing.T) {
 }
 
 func TestSSHSessionCompletionReturnsToBast(t *testing.T) {
-	exitCmd := exec.Command("/bin/sh", "-c", "exit 255")
+	exitCmd := processFixtureCommand(t, "exit-255")
 	exitErr := exitCmd.Run()
 	for name, sessionErr := range map[string]error{
 		"logout":          nil,

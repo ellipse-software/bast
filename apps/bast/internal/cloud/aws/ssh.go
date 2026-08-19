@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"bast/internal/cloud/sshutil"
+	"bast/internal/platform"
 	"bast/internal/sshconfig"
 )
 
@@ -101,11 +102,5 @@ func looksPrivateKey(path string) bool {
 }
 
 func shortenHomePath(path, home string) string {
-	if home != "" {
-		prefix := strings.TrimRight(home, string(filepath.Separator)) + string(filepath.Separator)
-		if strings.HasPrefix(path, prefix) {
-			return "~/" + filepath.ToSlash(strings.TrimPrefix(path, prefix))
-		}
-	}
-	return path
+	return platform.HomeRelative(path, home)
 }

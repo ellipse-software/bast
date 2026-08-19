@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -84,7 +85,11 @@ func TestIAPProxyCommandUsesDiscoveryCredential(t *testing.T) {
 		Name: "web", ProjectID: "p", Zone: "us-central1-a",
 		CredentialFile: "/tmp/service account%prod.json",
 	})
-	if !strings.Contains(serviceAccount, "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE='/tmp/service account%%prod.json'") {
+	wantCredential := "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE='/tmp/service account%%prod.json'"
+	if runtime.GOOS == "windows" {
+		wantCredential = `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=/tmp/service account%%prod.json`
+	}
+	if !strings.Contains(serviceAccount, wantCredential) {
 		t.Fatalf("service-account credential missing or unsafe: %s", serviceAccount)
 	}
 }

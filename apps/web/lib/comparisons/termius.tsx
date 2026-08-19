@@ -186,7 +186,6 @@ export const termiusComparison: ComparisonCaseStudy = {
   whenBetterItems: [
     "You need a polished native iOS or Android SSH app as the primary client.",
     "Your team wants one GUI workspace and is fine storing hosts inside that product.",
-    "You are on Windows today. Bast targets macOS and Linux terminals; Windows support is not there yet.",
     "You prefer a full graphical terminal emulator bundled with the client rather than using the shell you already have.",
   ],
   whenBetterOutro:

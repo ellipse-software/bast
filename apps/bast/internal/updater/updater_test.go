@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -129,13 +130,13 @@ func TestSuggestionRequiresInstallerReceiptForSelfUpdate(t *testing.T) {
 	if got := Suggestion(executable); got != "https://bast.sh" {
 		t.Fatalf("source suggestion=%q", got)
 	}
-	if err := os.WriteFile(executable+receiptSuffix, []byte(InstallerURL+"\n"), 0600); err != nil {
+	if err := os.WriteFile(executable+receiptSuffix, []byte(platformInstallerURL(InstallerURL)+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if got := Suggestion(executable); got != "bast update" || !ScriptInstalled(executable) {
 		t.Fatalf("installer suggestion=%q installed=%t", got, ScriptInstalled(executable))
 	}
-	if err := os.WriteFile(executable+receiptSuffix, []byte(NightlyInstallerURL+"\n"), 0600); err != nil {
+	if err := os.WriteFile(executable+receiptSuffix, []byte(platformInstallerURL(NightlyInstallerURL)+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if got := Suggestion(executable); got != "bast update" || !NightlyScriptInstalled(executable) {
@@ -165,6 +166,9 @@ func TestUpdateRefusesUnmanagedExecutablesBeforeDownloading(t *testing.T) {
 }
 
 func TestUpdateRunsInstallerInTheExecutableDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX installer fixture")
+	}
 	dir := t.TempDir()
 	executable := filepath.Join(dir, "bast")
 	if err := os.WriteFile(executable+receiptSuffix, []byte(InstallerURL+"\n"), 0600); err != nil {
@@ -208,6 +212,9 @@ func TestUpdateRunsInstallerInTheExecutableDirectory(t *testing.T) {
 }
 
 func TestUpdateUsesNightlyInstallerReceipt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX installer fixture")
+	}
 	dir := t.TempDir()
 	executable := filepath.Join(dir, "bast")
 	if err := os.WriteFile(executable+receiptSuffix, []byte(NightlyInstallerURL+"\n"), 0600); err != nil {

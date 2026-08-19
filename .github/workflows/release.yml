@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -70,11 +69,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            version="$GITHUB_REF_NAME"
-          else
-            version="dev-${GITHUB_SHA:0:7}"
-          fi
+          version="$GITHUB_REF_NAME"
 
           bundle="bast_${version#v}_${GOOS}_${GOARCH}"
           mkdir -p "dist/$bundle"
@@ -98,17 +93,98 @@ jobs:
             apps/bast/dist/*.tar.gz
             apps/bast/dist/*.sha256
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
+
+  build-windows:
+    name: Build windows/${{ matrix.goarch }}
+    needs: validate
+    runs-on: windows-latest
+    environment: artifact-signing
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: apps/bast
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: apps/bast/go.mod
+          cache: false
+      - name: Run Windows tests
+        if: matrix.goarch == 'amd64'
+        run: go test ./...
+      - name: Build executable
+        id: build
+        shell: pwsh
+        env:
+          GOOS: windows
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = $env:GITHUB_REF_NAME
+          $bundle = "bast_$($version.TrimStart('v'))_windows_$env:GOARCH"
+          New-Item -ItemType Directory -Force "dist/$bundle" | Out-Null
+          go build -trimpath -ldflags "-s -w -X main.version=$version" -o "dist/$bundle/bast.exe" .
+          "artifact=$bundle" >> $env:GITHUB_OUTPUT
+          "bundle=$bundle" >> $env:GITHUB_OUTPUT
+      - name: Azure login
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign executable
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_ARTIFACT_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\apps\bast\dist\${{ steps.build.outputs.bundle }}\bast.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Verify and package executable
+        shell: pwsh
+        env:
+          BUNDLE: ${{ steps.build.outputs.bundle }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $signature = Get-AuthenticodeSignature "dist/$env:BUNDLE/bast.exe"
+          if ($signature.Status -ne "Valid") { throw "Invalid Authenticode signature: $($signature.Status)" }
+          Copy-Item ../../LICENSE, README.md "dist/$env:BUNDLE/"
+          Compress-Archive -Path "dist/$env:BUNDLE" -DestinationPath "dist/$env:BUNDLE.zip"
+          $hash = (Get-FileHash "dist/$env:BUNDLE.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $env:BUNDLE.zip" | Set-Content -NoNewline -Encoding ascii "dist/$env:BUNDLE.zip.sha256"
+      - name: Upload archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build.outputs.artifact }}
+          path: |
+            apps/bast/dist/*.zip
+            apps/bast/dist/*.sha256
+          if-no-files-found: error
+          retention-days: 1
 
   release:
     name: Publish GitHub release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, build-windows]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
       - name: Download archives
         uses: actions/download-artifact@v8
         with:
@@ -116,7 +192,14 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Create combined checksums
-        run: (cd dist && shasum -a 256 *.tar.gz > SHA256SUMS)
+        run: (cd dist && shasum -a 256 *.tar.gz *.zip > SHA256SUMS)
+      - name: Render WinGet manifest
+        run: |
+          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            bash .github/scripts/render-winget-manifest.sh "$GITHUB_REF_NAME" dist
+          else
+            echo "Skipping WinGet manifests for prerelease tag $GITHUB_REF_NAME"
+          fi
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -124,28 +207,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          assets=(dist/*.tar.gz dist/*.tar.gz.sha256 dist/SHA256SUMS)
+          shopt -s nullglob
+          winget_manifests=(dist/EllipseSoftware.Bast*.yaml)
+          assets=(dist/*.tar.gz dist/*.tar.gz.sha256 dist/*.zip dist/*.zip.sha256 dist/SHA256SUMS "${winget_manifests[@]}")
           title="Bast $GITHUB_REF_NAME"
           state="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+          publish_flags=(--draft=false --title "$title")
+          create_flags=(--draft --verify-tag --generate-notes --title "$title")
+          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            publish_flags+=(--latest)
+          else
+            publish_flags+=(--prerelease --latest=false)
+            create_flags+=(--prerelease)
+          fi
 
           if [[ "$state" == "true" ]]; then
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
-            gh release edit "$GITHUB_REF_NAME" --draft=false --latest --title "$title"
+            gh release edit "$GITHUB_REF_NAME" "${publish_flags[@]}"
           elif [[ "$state" == "false" ]]; then
             echo "Release ${GITHUB_REF_NAME} is already published."
           else
-            gh release create "$GITHUB_REF_NAME" \
-              --draft \
-              --verify-tag \
-              --generate-notes \
-              --title "$title"
+            gh release create "$GITHUB_REF_NAME" "${create_flags[@]}"
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}"
-            gh release edit "$GITHUB_REF_NAME" --draft=false --latest --title "$title"
+            gh release edit "$GITHUB_REF_NAME" "${publish_flags[@]}"
           fi
 
   bump-homebrew:
     name: Bump Homebrew formula
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     needs: release
     runs-on: ubuntu-latest
     timeout-minutes: 5

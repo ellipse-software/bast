@@ -4,11 +4,17 @@ import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { bastReleaseUrl, bastRepoUrl } from "@/lib/github";
+import { supportsWindowsRelease } from "@/lib/releases";
 
-type InstallMethod = "script" | "homebrew" | "source";
+type InstallMethod =
+  | "script"
+  | "powershell"
+  | "homebrew"
+  | "source";
 
 const METHODS: { id: InstallMethod; label: string }[] = [
   { id: "script", label: "Script" },
+  { id: "powershell", label: "PowerShell" },
   { id: "homebrew", label: "Homebrew" },
   { id: "source", label: "Source" },
 ];
@@ -23,6 +29,10 @@ function installCommand(method: InstallMethod, nightly: boolean): string {
       return nightly
         ? "brew install ellipse-software/tap/bast-nightly"
         : "brew install ellipse-software/tap/bast";
+    case "powershell":
+      return nightly
+        ? "irm https://bast.sh/install-nightly.ps1 | iex"
+        : "irm https://bast.sh/install.ps1 | iex";
     case "source":
       return `git clone ${bastRepoUrl}.git && cd bast/apps/bast && go build -trimpath -o bast .`;
   }
@@ -66,6 +76,20 @@ function CommandDisplay({
           </span>
         </code>
       );
+    case "powershell":
+      return (
+        <code className="whitespace-nowrap">
+          <span className="text-accent">irm</span>
+          <span className="text-muted"> </span>
+          <span className="text-accent">
+            {nightly
+              ? "https://bast.sh/install-nightly.ps1"
+              : "https://bast.sh/install.ps1"}
+          </span>
+          <span className="text-muted"> | </span>
+          <span className="text-accent">iex</span>
+        </code>
+      );
     case "source":
       return (
         <code className="whitespace-nowrap">
@@ -95,7 +119,12 @@ export function InstallCommand({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
-  const showNightly = method === "script" || method === "homebrew";
+  const methods = supportsWindowsRelease(version)
+    ? METHODS
+    : METHODS.filter(({ id }) => id !== "powershell");
+  const showNightly =
+    method === "script" || method === "powershell" || method === "homebrew";
+  const prompt = method === "powershell" ? "PS>" : "$";
 
   useEffect(() => {
     if (!open) return;
@@ -159,7 +188,7 @@ export function InstallCommand({
                   aria-label="Install method"
                   className="absolute left-0 top-full mt-1 min-w-full border border-border bg-background py-1 shadow-lg"
                 >
-                  {METHODS.map(({ id, label }) => (
+                  {methods.map(({ id, label }) => (
                     <li key={id} role="option" aria-selected={method === id}>
                       <button
                         type="button"
@@ -213,7 +242,9 @@ export function InstallCommand({
             >
               {copied ? (
                 <>
-                  <span className="mr-3 shrink-0 text-muted select-none">$</span>
+                  <span className="mr-3 shrink-0 text-muted select-none">
+                    {prompt}
+                  </span>
                   <code className="whitespace-nowrap">
                     <span className="text-accent">bast</span>
                     <span className="text-muted">{" // then try this"}</span>
@@ -221,7 +252,9 @@ export function InstallCommand({
                 </>
               ) : (
                 <>
-                  <span className="mr-3 shrink-0 text-muted select-none">$</span>
+                  <span className="mr-3 shrink-0 text-muted select-none">
+                    {prompt}
+                  </span>
                   <CommandDisplay method={method} nightly={nightly} />
                 </>
               )}

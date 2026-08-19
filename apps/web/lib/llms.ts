@@ -1,6 +1,12 @@
 import { llms, type InferPageType } from "fumadocs-core/source";
 
+import { getLatestBastVersion } from "@/lib/github";
 import { defaultDescription } from "@/lib/metadata";
+import {
+  preWindowsInstallDescription,
+  resolveWindowsReleaseContent,
+  supportsWindowsRelease,
+} from "@/lib/releases";
 import { siteUrl } from "@/lib/site";
 import { source } from "@/lib/source";
 
@@ -15,7 +21,13 @@ export function getPageMarkdownUrl(page: DocPage) {
 }
 
 export async function getLLMText(page: DocPage) {
-  const processed = await page.data.getText("processed");
+  let processed = await page.data.getText("processed");
+  if (page.url === "/docs/install") {
+    processed = resolveWindowsReleaseContent(
+      processed,
+      supportsWindowsRelease(await getLatestBastVersion()),
+    );
+  }
   const pageUrl = `${siteUrl}${page.url}`;
 
   return `# ${page.data.title} (${pageUrl})
@@ -30,7 +42,7 @@ function absolutizeLinks(content: string): string {
   return content.replace(/\]\(\//g, `](${siteUrl}/`);
 }
 
-export function getLlmsIndex(): string {
+export async function getLlmsIndex(): Promise<string> {
   const index = llms(source, {
     renderName(node, ctx) {
       if (node.type === "page") {
@@ -60,7 +72,15 @@ export function getLlmsIndex(): string {
 
 `;
 
-  return absolutizeLinks(`${preamble}${index.replace(/^# Documentation\n\n/, "")}`);
+  let content = `${preamble}${index.replace(/^# Documentation\n\n/, "")}`;
+  if (!supportsWindowsRelease(await getLatestBastVersion())) {
+    const installDescription = source.getPage(["install"])?.data.description;
+    if (installDescription) {
+      content = content.replace(installDescription, preWindowsInstallDescription);
+    }
+  }
+
+  return absolutizeLinks(content);
 }
 
 export async function getLlmsFull(): Promise<string> {

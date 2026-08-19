@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"bast/internal/platform"
 )
 
 const CurrentVersion = 7
@@ -115,11 +117,12 @@ type State struct {
 }
 
 type Store struct {
-	mu              sync.RWMutex
-	path            string
-	state           State
-	hostRevision    atomic.Uint64
-	historyRevision atomic.Uint64
+	mu               sync.RWMutex
+	path             string
+	state            State
+	directorySecured bool
+	hostRevision     atomic.Uint64
+	historyRevision  atomic.Uint64
 }
 
 func Open(path string) (*Store, error) {
@@ -693,8 +696,8 @@ func (s *Store) saveQuick() error {
 
 func (s *Store) writeState(syncDisk bool) error {
 	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("create metadata directory: %w", err)
+	if err := s.ensureDirectory(dir); err != nil {
+		return err
 	}
 	b, err := json.MarshalIndent(s.state, "", "  ")
 	if err != nil {
@@ -724,21 +727,39 @@ func (s *Store) writeState(syncDisk bool) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, s.path); err != nil {
+	if err := platform.ReplaceFile(tmpName, s.path); err != nil {
+		return err
+	}
+	if err := platform.SecurePath(s.path, 0600); err != nil {
 		return err
 	}
 	if !syncDisk {
 		return nil
 	}
-	directory, err := os.Open(dir)
-	if err != nil {
-		return err
+	return platform.SyncDirectory(dir)
+}
+
+func (s *Store) ensureDirectory(dir string) error {
+	created := false
+	info, err := os.Stat(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return fmt.Errorf("create metadata directory: %w", err)
+		}
+		created = true
+	} else if err != nil {
+		return fmt.Errorf("inspect metadata directory: %w", err)
+	} else if !info.IsDir() {
+		return fmt.Errorf("metadata directory path is not a directory: %s", dir)
 	}
-	if err := directory.Sync(); err != nil {
-		_ = directory.Close()
-		return err
+	if s.directorySecured && !created {
+		return nil
 	}
-	return directory.Close()
+	if err := platform.SecurePath(dir, 0700); err != nil {
+		return fmt.Errorf("secure metadata directory: %w", err)
+	}
+	s.directorySecured = true
+	return nil
 }
 
 func cleanTags(tags []string) []string {

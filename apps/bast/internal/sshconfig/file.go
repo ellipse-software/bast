@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"bast/internal/platform"
 )
 
 func renderBlock(id string, input HostInput) []byte {
@@ -563,14 +565,19 @@ func fields(line string) ([]string, error) {
 			current.Reset()
 		}
 	}
-	for _, r := range line {
+	runes := []rune(line)
+	for i, r := range runes {
 		if escaped {
 			current.WriteRune(r)
 			escaped = false
 			continue
 		}
 		if r == '\\' {
-			escaped = true
+			if i+1 < len(runes) && strings.ContainsRune("\\\"' #\t", runes[i+1]) {
+				escaped = true
+			} else {
+				current.WriteRune(r)
+			}
 			continue
 		}
 		if quote != 0 {
@@ -635,7 +642,13 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, path)
+	if err := platform.ReplaceFile(tmpName, path); err != nil {
+		return err
+	}
+	// On Windows, this replaces inherited and custom ACEs with the restricted
+	// Bast policy for the current user, SYSTEM, and Administrators. That policy
+	// also applies when Bast updates an existing main SSH config.
+	return platform.SecurePath(path, mode)
 }
 
 func atomicWriteChecked(path string, original, updated []byte, mode os.FileMode) error {

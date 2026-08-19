@@ -19,4 +19,4 @@ The application is in `apps/bast`. Run `bun run check` from the repository root 
 
 ## Releases
 
-Stable and nightly binaries are built for supported macOS and Linux architectures by the repository's release workflows. Installation options and channel behavior are documented in the [installation guide](https://bast.sh/docs/install).
+Stable and nightly binaries are built for supported macOS, Linux, and Windows architectures by the repository's release workflows. Windows executables are Authenticode-signed before packaging. Installation options and channel behavior are documented in the [installation guide](https://bast.sh/docs/install).

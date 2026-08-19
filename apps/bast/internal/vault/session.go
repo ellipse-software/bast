@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"bast/internal/platform"
 )
 
 type Session struct {
@@ -44,7 +46,11 @@ func LoadSession(path string) (Session, error) {
 }
 
 func SaveSession(path string, s Session) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	if err := platform.SecurePath(dir, 0700); err != nil {
 		return err
 	}
 	s.UpdatedAt = time.Now().UTC().Unix()
@@ -56,7 +62,11 @@ func SaveSession(path string, s Session) error {
 	if err := os.WriteFile(tmp, append(b, '\n'), 0600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := platform.ReplaceFile(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return platform.SecurePath(path, 0600)
 }
 
 func ClearSession(path string) error {
@@ -82,14 +92,22 @@ func SavePassphrase(path, passphrase string) error {
 	if passphrase == "" {
 		return ClearPassphrase(path)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	if err := platform.SecurePath(dir, 0700); err != nil {
 		return err
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(passphrase+"\n"), 0600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := platform.ReplaceFile(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return platform.SecurePath(path, 0600)
 }
 
 func ClearPassphrase(path string) error {

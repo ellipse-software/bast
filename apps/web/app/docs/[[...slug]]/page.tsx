@@ -11,9 +11,13 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { getMDXComponents } from "@/components/mdx";
-import { bastWebDocsPath } from "@/lib/github";
+import { bastWebDocsPath, getLatestBastVersion } from "@/lib/github";
 import { getPageMarkdownUrl } from "@/lib/llms";
 import { createPageMetadata } from "@/lib/metadata";
+import {
+  preWindowsInstallDescription,
+  supportsWindowsRelease,
+} from "@/lib/releases";
 import { source } from "@/lib/source";
 
 export default async function Page(props: PageProps<"/docs/[[...slug]]">) {
@@ -24,11 +28,22 @@ export default async function Page(props: PageProps<"/docs/[[...slug]]">) {
   const MDX = page.data.body;
   const markdownUrl = getPageMarkdownUrl(page).url;
   const githubUrl = `${bastWebDocsPath}/${page.path}`;
+  const windowsAvailable =
+    page.url !== "/docs/install" ||
+    supportsWindowsRelease(await getLatestBastVersion());
+  const description = windowsAvailable
+    ? page.data.description
+    : preWindowsInstallDescription;
+  const toc = windowsAvailable
+    ? page.data.toc
+    : page.data.toc.filter(
+        ({ url }) => url !== "#windows-11" && url !== "#wsl",
+      );
 
   return (
-    <DocsPage toc={page.data.toc} full={page.data.full}>
+    <DocsPage toc={toc} full={page.data.full}>
       <DocsTitle>{page.data.title}</DocsTitle>
-      <DocsDescription>{page.data.description}</DocsDescription>
+      <DocsDescription>{description}</DocsDescription>
       <div className="not-prose mb-6 flex flex-row flex-wrap items-center gap-2 border-b border-fd-border pb-6">
         <MarkdownCopyButton markdownUrl={markdownUrl} />
         <ViewOptionsPopover markdownUrl={markdownUrl} githubUrl={githubUrl} />
@@ -54,10 +69,15 @@ export async function generateMetadata(
   const params = await props.params;
   const page = source.getPage(params.slug);
   if (!page) notFound();
+  const windowsAvailable =
+    page.url !== "/docs/install" ||
+    supportsWindowsRelease(await getLatestBastVersion());
 
   return createPageMetadata({
     title: page.data.title,
-    description: page.data.description,
+    description: windowsAvailable
+      ? page.data.description
+      : preWindowsInstallDescription,
     path: page.url,
   });
 }

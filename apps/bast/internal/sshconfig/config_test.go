@@ -3,6 +3,7 @@ package sshconfig
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -105,7 +106,7 @@ func TestManagedHostLifecyclePreservesExternalConfig(t *testing.T) {
 		t.Fatalf("main config was not preserved:\n%s", main)
 	}
 	info, _ := os.Stat(m.MainConfig)
-	if info.Mode().Perm() != 0640 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0640 {
 		t.Fatalf("mode = %o", info.Mode().Perm())
 	}
 	hosts, err := m.Discover()
@@ -210,6 +211,16 @@ func TestRenderBlockQuotesIdentityFile(t *testing.T) {
 		if err != nil || len(parts) != 2 || parts[1] != identity {
 			t.Fatalf("quoted identity file did not round trip: parts=%q err=%v", parts, err)
 		}
+	}
+}
+
+func TestFieldsPreservesUnquotedWindowsPathSeparators(t *testing.T) {
+	parts, err := fields(`IdentityFile C:\Users\Ted\.ssh\id_ed25519`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 2 || parts[1] != `C:\Users\Ted\.ssh\id_ed25519` {
+		t.Fatalf("fields = %#v", parts)
 	}
 }
 

@@ -1,6 +1,6 @@
 import { getLlmsFull } from "@/lib/llms";
 
-export const revalidate = false;
+export const revalidate = 300;
 
 export async function GET() {
   return new Response(await getLlmsFull(), {

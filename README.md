@@ -36,6 +36,12 @@ curl -fsSL https://bast.sh/install | sh
 
 This installs `bast` to `~/.local/bin` by default. See [Installation](https://bast.sh/docs/install) for custom locations, updates, and other options.
 
+**Windows 11 (PowerShell):**
+
+```powershell
+irm https://bast.sh/install.ps1 | iex
+```
+
 **Homebrew:**
 
 ```sh
@@ -50,6 +56,12 @@ curl -fsSL https://bast.sh/install-nightly | sh
 
 ```sh
 brew install ellipse-software/tap/bast-nightly
+```
+
+On Windows 11:
+
+```powershell
+irm https://bast.sh/install-nightly.ps1 | iex
 ```
 
 See [Installation](https://bast.sh/docs/install#nightly-channel) for nightly channel behavior.
@@ -119,13 +131,14 @@ See [AI agents](https://bast.sh/docs/reference/agents) for project-local install
 
 ## Requirements
 
-- macOS or Linux
+- macOS, Linux, or Windows 11 (x64 or ARM64). WSL uses the Linux build.
 - OpenSSH (`ssh`, `ssh-keygen`, `ssh-add`)
 - Google Cloud SDK (`gcloud`) for GCP cloud sync
 - AWS CLI v2 for AWS cloud sync
 - Azure CLI 2.62+ for Azure cloud sync
 - ASCII Box CLI (`box`) for [box.ascii.dev](https://box.ascii.dev/) sync
-- `curl`, `tar`, and `shasum` or `sha256sum` for the installer
+- `curl`, `tar`, and `shasum` or `sha256sum` for the macOS/Linux installer
+- PowerShell 5.1+ for the Windows installer
 - Go 1.26+ to build from source
 - A Nerd Font is detected automatically in WezTerm, Kitty, iTerm2, Alacritty, Ghostty, Warp, and Windows Terminal for cloud icons; use `BAST_NERD_FONT=1` or `BAST_NERD_FONT=0` to override detection
 

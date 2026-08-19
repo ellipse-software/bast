@@ -1,7 +1,7 @@
 ---
 name: bast
 description: >-
-  Use Bast CLI for SSH host and key management on macOS/Linux. Load when the
+  Use Bast CLI for SSH host and key management on macOS, Linux, and Windows 11. Load when the
   user mentions bast, Bast.sh, SSH host picker, ~/.ssh/bast, ssh config
   management, or wants to automate SSH workflows with JSON output.
 ---
@@ -24,7 +24,7 @@ Docs: https://bast.sh/llms.txt
 
 ## When not to use Bast
 
-- Windows (macOS and Linux only)
+- PuTTY sessions or `.ppk` keys without OpenSSH conversion
 - One-off `ssh user@host` when the host string is already known
 - CI provisioning where Terraform/Ansible/IaC owns SSH config
 - Non-interactive environments needing TUI (use `bast hosts` / `bast keys` CLI instead)
@@ -43,6 +43,12 @@ Homebrew:
 
 ```sh
 brew install ellipse-software/tap/bast
+```
+
+Windows 11 PowerShell:
+
+```powershell
+irm https://bast.sh/install.ps1 | iex
 ```
 
 ## Automation rules
@@ -118,7 +124,7 @@ bast box stop <host|id>
 bast box resume <host|id> [--type small|default|large] [--no-env]
 ```
 
-In the TUI, Box hosts support Enter to connect (resume first if stopped), `r` resume, `o` stop, and `n` fork. SSH user is always `user` with `~/.ssh/ascii_box_ed25519`.
+In the TUI, Box hosts support Enter to connect (resume first if stopped), `r` resume, `o` stop, and `n` fork. SSH user is always `user` with `~/.ssh/ascii_box_ed25519`. Docs: https://bast.sh/docs/features/box
 
 ## Files (SFTP)
 
@@ -132,7 +138,7 @@ TUI Files tab (`4`) is a dual-pane local/remote browser over OpenSSH SFTP. Prefe
 | `~/.ssh/bast/sync/<provider>/config` | Cloud-synced host blocks (while sync is enabled) |
 | `~/.ssh/bast/keys/` | Generated/imported keys (private keys mode 0600) |
 | `~/.ssh/google_compute_engine` | Fallback GCP identity (created on demand) |
-| `~/.config/bast/state.json` (Linux) | Metadata: groups, tags, colors, notes, favorites, usage stats, sync settings |
+| `~/.config/bast/state.json` | Metadata: groups, tags, colors, notes, favorites, usage stats, sync settings |
 | `~/.ssh/config` | Gets `Include ~/.ssh/bast/config` on first run |
 
 Connection settings (hostname, user, port, identity files) live in SSH config. Bast metadata (groups, tags, notes) lives in `state.json`.

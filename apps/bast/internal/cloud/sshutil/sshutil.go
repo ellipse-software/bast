@@ -35,14 +35,3 @@ func SanitizeAliasPart(value string) string {
 func ProxyLiteral(value string) string {
 	return strings.ReplaceAll(value, "%", "%%")
 }
-
-// ShellQuote quotes one ProxyCommand argument for POSIX shell evaluation.
-func ShellQuote(value string) string {
-	if value != "" && strings.IndexFunc(value, func(r rune) bool {
-		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') || strings.ContainsRune("-_=./:@%+", r))
-	}) < 0 {
-		return value
-	}
-	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
-}

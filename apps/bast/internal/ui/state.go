@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +12,7 @@ import (
 	cloudsync "bast/internal/cloud/sync"
 	"bast/internal/keys"
 	"bast/internal/metadata"
+	"bast/internal/platform"
 	"bast/internal/sshconfig"
 )
 
@@ -932,10 +932,7 @@ func shortPath(path, home string) string {
 	if path == "" {
 		return "-"
 	}
-	if rel, err := filepath.Rel(home, path); err == nil && !strings.HasPrefix(rel, "..") {
-		return "~/" + rel
-	}
-	return path
+	return platform.HomeRelative(path, home)
 }
 func truncate(s string, width int) string {
 	r := []rune(s)

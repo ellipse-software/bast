@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -121,6 +122,14 @@ func sourcePaths(home string, getenv func(string) string) []string {
 	}
 	if !strings.ContainsAny(fishSession, `/\`) {
 		paths = append(paths, filepath.Join(dataHome, "fish", fishSession+"_history"))
+	}
+	if runtime.GOOS == "windows" {
+		if appData := strings.TrimSpace(getenv("APPDATA")); appData != "" {
+			paths = append(paths,
+				filepath.Join(appData, "Microsoft", "Windows", "PowerShell", "PSReadLine", "ConsoleHost_history.txt"),
+				filepath.Join(appData, "Microsoft", "PowerShell", "PSReadLine", "ConsoleHost_history.txt"),
+			)
+		}
 	}
 
 	seen := map[string]bool{}
@@ -240,6 +249,8 @@ func detectFormat(file *os.File, path string, size int64) (string, error) {
 		return "bash", nil
 	case strings.HasSuffix(name, "_history") && strings.Contains(filepath.ToSlash(path), "/fish/"):
 		return "fish", nil
+	case strings.EqualFold(name, "ConsoleHost_history.txt"):
+		return "powershell", nil
 	}
 	peek := make([]byte, min(int64(8192), size))
 	if _, err := file.ReadAt(peek, 0); err != nil && !errors.Is(err, io.EOF) {
@@ -262,6 +273,8 @@ func shellName(path string) string {
 		return "fish"
 	case strings.Contains(path, "bash"):
 		return "bash"
+	case strings.Contains(path, "psreadline"):
+		return "PowerShell"
 	default:
 		return "zsh"
 	}

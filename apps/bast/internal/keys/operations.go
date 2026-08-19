@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"bast/internal/platform"
 )
 
 func (m Manager) GenerateCommand(name, algorithm string) (*exec.Cmd, string, error) {
@@ -20,6 +22,9 @@ func (m Manager) GenerateCommand(name, algorithm string) (*exec.Cmd, string, err
 		return nil, "", errors.New("algorithm must be ed25519 or rsa")
 	}
 	if err := os.MkdirAll(m.Paths.ManagedKeys, 0700); err != nil {
+		return nil, "", err
+	}
+	if err := platform.SecurePath(m.Paths.ManagedKeys, 0700); err != nil {
 		return nil, "", err
 	}
 	path := filepath.Join(m.Paths.ManagedKeys, name)
@@ -82,6 +87,9 @@ func (m Manager) Import(privateSource, publicSource, name, comment string) error
 		return errors.New("public-key comment cannot contain a newline")
 	}
 	if err := os.MkdirAll(m.Paths.ManagedKeys, 0700); err != nil {
+		return err
+	}
+	if err := platform.SecurePath(m.Paths.ManagedKeys, 0700); err != nil {
 		return err
 	}
 	destination := filepath.Join(m.Paths.ManagedKeys, name)
@@ -351,5 +359,8 @@ func (m Manager) SetComment(key Key, comment string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, publicPath)
+	if err := platform.ReplaceFile(tmpName, publicPath); err != nil {
+		return err
+	}
+	return platform.SecurePath(publicPath, 0644)
 }

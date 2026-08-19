@@ -33,6 +33,30 @@ jobs:
       - run: go vet ./...
       - run: go build -trimpath -o /tmp/bast .
 
+  bast-windows:
+    name: Go (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/bast
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: apps/bast/go.mod
+          cache: true
+          cache-dependency-path: apps/bast/go.sum
+      - run: go mod verify
+      - run: go test ./...
+      - run: go vet ./...
+      - run: go build -trimpath -o "$env:RUNNER_TEMP/bast.exe" .
+      - name: Cross-build Windows ARM64
+        run: go build -trimpath -o "$env:RUNNER_TEMP/bast-arm64.exe" .
+        env:
+          GOARCH: arm64
+          CGO_ENABLED: 0
+
   web:
     name: Web
     runs-on: ubuntu-latest
