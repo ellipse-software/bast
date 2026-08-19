@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -70,11 +69,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            version="$GITHUB_REF_NAME"
-          else
-            version="dev-${GITHUB_SHA:0:7}"
-          fi
+          version="$GITHUB_REF_NAME"
 
           bundle="bast_${version#v}_${GOOS}_${GOARCH}"
           mkdir -p "dist/$bundle"
@@ -98,7 +93,7 @@ jobs:
             apps/bast/dist/*.tar.gz
             apps/bast/dist/*.sha256
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
 
   build-windows:
     name: Build windows/${{ matrix.goarch }}
@@ -136,7 +131,7 @@ jobs:
           CGO_ENABLED: 0
         run: |
           $ErrorActionPreference = "Stop"
-          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME } else { "dev-$($env:GITHUB_SHA.Substring(0, 7))" }
+          $version = $env:GITHUB_REF_NAME
           $bundle = "bast_$($version.TrimStart('v'))_windows_$env:GOARCH"
           New-Item -ItemType Directory -Force "dist/$bundle" | Out-Null
           go build -trimpath -ldflags "-s -w -X main.version=$version" -o "dist/$bundle/bast.exe" .
@@ -178,7 +173,7 @@ jobs:
             apps/bast/dist/*.zip
             apps/bast/dist/*.sha256
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
 
   release:
     name: Publish GitHub release

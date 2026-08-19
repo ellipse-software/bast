@@ -4,6 +4,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { bastReleaseUrl, bastRepoUrl } from "@/lib/github";
+import { supportsWindowsRelease } from "@/lib/releases";
 
 type InstallMethod =
   | "script"
@@ -118,6 +119,9 @@ export function InstallCommand({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
+  const methods = supportsWindowsRelease(version)
+    ? METHODS
+    : METHODS.filter(({ id }) => id !== "powershell");
   const showNightly =
     method === "script" || method === "powershell" || method === "homebrew";
   const prompt = method === "powershell" ? "PS>" : "$";
@@ -184,7 +188,7 @@ export function InstallCommand({
                   aria-label="Install method"
                   className="absolute left-0 top-full mt-1 min-w-full border border-border bg-background py-1 shadow-lg"
                 >
-                  {METHODS.map(({ id, label }) => (
+                  {methods.map(({ id, label }) => (
                     <li key={id} role="option" aria-selected={method === id}>
                       <button
                         type="button"

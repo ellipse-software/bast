@@ -95,6 +95,12 @@ $cleanVersion = $version.TrimStart("v")
 $bundle = "bast_${cleanVersion}_windows_${goArchitecture}"
 $archive = "$bundle.zip"
 $assetBase = "https://github.com/$Repo/releases/download/$version"
+if ($Channel -eq "stable") {
+    $assetNames = @($release.assets | ForEach-Object { [string]$_.name })
+    if ($assetNames -notcontains $archive) {
+        throw "Bast $version does not provide a Windows $goArchitecture build. Windows builds begin with Bast v0.9.0."
+    }
+}
 $installDirectory = if ($env:BAST_INSTALL_DIR) { $env:BAST_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\Bast" }
 if ($installDirectory.Contains('"')) {
     throw "BAST_INSTALL_DIR cannot contain a quote"

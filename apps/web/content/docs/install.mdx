@@ -23,6 +23,8 @@ Make sure the install directory is on your `PATH`, then run `bast`.
 brew install ellipse-software/tap/bast
 ```
 
+<WindowsReleaseOnly>
+
 ## Windows 11
 
 Run the PowerShell installer as your normal user. It verifies the release checksum and Authenticode signature, installs to `%LOCALAPPDATA%\Programs\Bast`, and adds that directory to your user `PATH`.
@@ -39,6 +41,8 @@ Bast requires the Windows OpenSSH Client commands `ssh`, `ssh-keygen`, and `ssh-
 
 Run the Linux installer inside WSL. Native Windows and WSL have separate home directories, SSH configuration, and Bast state. Use [Vault](/docs/features/vault) when you want Bast-managed hosts and keys on both sides.
 
+</WindowsReleaseOnly>
+
 ## Nightly channel
 
 Nightly builds track the latest `master` commit and install to the same `bast` command as stable releases. Only one channel can be active at a time. Running either installer uninstalls the other channel first (including a Homebrew install of the other formula), then installs the requested channel.
@@ -53,11 +57,15 @@ Homebrew:
 brew install ellipse-software/tap/bast-nightly
 ```
 
+<WindowsReleaseOnly>
+
 Windows 11:
 
 ```powershell
 irm https://bast.sh/install-nightly.ps1 | iex
 ```
+
+</WindowsReleaseOnly>
 
 Run the same commands again to update. Use `bast update` for script installs on either channel.
 
@@ -73,7 +81,13 @@ go build -trimpath -o bast .
 
 ## Installer requirements
 
-The macOS/Linux script needs `curl`, `tar`, and `shasum` or `sha256sum`. The Windows installer needs PowerShell 5.1 or later.
+The macOS/Linux script needs `curl`, `tar`, and `shasum` or `sha256sum`.
+
+<WindowsReleaseOnly>
+
+The Windows installer needs PowerShell 5.1 or later.
+
+</WindowsReleaseOnly>
 
 ## After install
 

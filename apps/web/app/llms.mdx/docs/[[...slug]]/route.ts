@@ -2,7 +2,7 @@ import { getLLMText, getPageMarkdownUrl } from "@/lib/llms";
 import { source } from "@/lib/source";
 import { notFound } from "next/navigation";
 
-export const revalidate = false;
+export const revalidate = 300;
 
 export async function GET(
   _req: Request,
