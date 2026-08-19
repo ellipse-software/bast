@@ -88,6 +88,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
+      - name: Test WinGet manifest renderer
+        run: bash .github/scripts/render-winget-manifest.test.sh
       - run: bun install --frozen-lockfile
       - run: bun test apps/web
       - run: bun run lint:web
