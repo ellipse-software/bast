@@ -3,6 +3,7 @@
 package updater
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+const utf8BOM = "\xef\xbb\xbf"
+
 func runInstaller(ctx context.Context, script []byte, executable string, stdout, stderr io.Writer, pinnedNightly string) error {
 	if !strings.Contains(string(script), "$BastInstaller = $true") {
 		return errors.New("download installer: unexpected response")
@@ -26,7 +29,13 @@ func runInstaller(ctx context.Context, script []byte, executable string, stdout,
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
-	if _, err = tmp.Write(script); err == nil {
+	if !bytes.HasPrefix(script, []byte(utf8BOM)) {
+		_, err = io.WriteString(tmp, utf8BOM)
+	}
+	if err == nil {
+		_, err = tmp.Write(script)
+	}
+	if err == nil {
 		err = tmp.Close()
 	} else {
 		_ = tmp.Close()
