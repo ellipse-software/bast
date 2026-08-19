@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+
 PackageIdentifier: EllipseSoftware.Bast
 PackageVersion: {{VERSION}}
 MinimumOSVersion: 10.0.22000.0
@@ -18,4 +20,4 @@ Installers:
       - RelativeFilePath: bast_{{VERSION}}_windows_arm64\bast.exe
         PortableCommandAlias: bast
 ManifestType: installer
-ManifestVersion: 1.10.0
+ManifestVersion: 1.12.0

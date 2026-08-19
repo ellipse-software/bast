@@ -7,8 +7,59 @@ $Channel = if ($env:BAST_INSTALL_CHANNEL -eq "nightly") { "nightly" } else { "st
 $InstallerUrl = if ($Channel -eq "nightly") { "https://bast.sh/install-nightly.ps1" } else { "https://bast.sh/install.ps1" }
 $ExpectedPublisherSubject = "CN=ellipse Software Group Limited, O=ellipse Software Group Limited, STREET=45 Fitzroy St, L=London, C=GB, PostalCode=W1T 6EB"
 
+function Write-Banner {
+    Write-Host ""
+    @(
+        "██████╗  █████╗ ███████╗████████╗",
+        "██╔══██╗██╔══██╗██╔════╝╚══██╔══╝",
+        "██████╔╝███████║███████╗   ██║   ",
+        "██╔══██╗██╔══██║╚════██║   ██║   ",
+        "██████╔╝██║  ██║███████║   ██║   ",
+        "╚═════╝ ╚═╝  ╚═╝╚══════╝   ╚═╝   "
+    ) | ForEach-Object { Write-Host "  $_" -ForegroundColor Magenta }
+    Write-Host ""
+}
+
+function Write-Info([string]$Message) {
+    Write-Host "  $Message" -ForegroundColor DarkGray
+}
+
 function Write-Step([string]$Message) {
-    Write-Host "==> $Message"
+    Write-Host "  " -NoNewline
+    Write-Host "→" -NoNewline -ForegroundColor Cyan
+    Write-Host " $Message"
+}
+
+function Write-Success([string]$Message) {
+    Write-Host "  " -NoNewline
+    Write-Host "✓" -NoNewline -ForegroundColor Green
+    Write-Host " $Message"
+}
+
+function Write-RunHint {
+    Write-Host ""
+    Write-Host "  Run " -NoNewline -ForegroundColor DarkGray
+    Write-Host "PS> " -NoNewline -ForegroundColor DarkGray
+    Write-Host "bast" -NoNewline -ForegroundColor Magenta
+    Write-Host " to get started." -ForegroundColor DarkGray
+}
+
+function Send-Telemetry([string]$EventName, [string]$Version, [string]$Architecture) {
+    if ($env:BAST_NO_TELEMETRY) {
+        return
+    }
+    try {
+        $payload = @{
+            event = $EventName
+            version = $Version
+            os = "windows"
+            arch = $Architecture
+            source = "installer"
+        } | ConvertTo-Json -Compress
+        Invoke-WebRequest -UseBasicParsing -Method Post -Uri "https://bast.sh/api/telemetry" -ContentType "application/json" -Body $payload -TimeoutSec 5 | Out-Null
+    } catch {
+        # Installation must not fail when optional telemetry is unavailable.
+    }
 }
 
 function Add-UserPath([string]$Directory) {
@@ -54,6 +105,11 @@ function Install-StagedBinary(
     }
 }
 
+Write-Banner
+Write-Info "Bast collects basic anonymous telemetry to help improve the tool."
+Write-Info "Opt out with BAST_NO_TELEMETRY=1."
+Write-Host ""
+
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
     throw "This installer supports Windows 11. Use https://bast.sh/install on macOS or Linux."
 }
@@ -70,6 +126,19 @@ $goArchitecture = if ($osArchitecture -match "ARM.*64") {
 } else {
     throw "Unsupported Windows architecture: $osArchitecture"
 }
+
+$installDirectory = if ($env:BAST_INSTALL_DIR) { $env:BAST_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\Bast" }
+if ($installDirectory.Contains('"')) {
+    throw "BAST_INSTALL_DIR cannot contain a quote"
+}
+$destination = Join-Path $installDirectory "bast.exe"
+$receipt = "$destination.install-receipt"
+$wasInstalled = Test-Path $destination
+
+Write-Info "Platform: windows/$goArchitecture"
+Write-Info "Install location: $destination"
+Write-Host ""
+Write-Step "Checking for the latest release..."
 
 $headers = @{ Accept = "application/vnd.github+json"; "User-Agent" = "bast-installer" }
 if ($Channel -eq "nightly") {
@@ -90,6 +159,7 @@ if ($Channel -eq "nightly") {
         throw "The latest release has an unsupported version: $version"
     }
 }
+Write-Success "Latest release: $version"
 
 $cleanVersion = $version.TrimStart("v")
 $bundle = "bast_${cleanVersion}_windows_${goArchitecture}"
@@ -101,12 +171,6 @@ if ($Channel -eq "stable") {
         throw "Bast $version does not provide a Windows $goArchitecture build. Windows builds begin with Bast v0.9.0."
     }
 }
-$installDirectory = if ($env:BAST_INSTALL_DIR) { $env:BAST_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\Bast" }
-if ($installDirectory.Contains('"')) {
-    throw "BAST_INSTALL_DIR cannot contain a quote"
-}
-$destination = Join-Path $installDirectory "bast.exe"
-$receipt = "$destination.install-receipt"
 
 New-Item -ItemType Directory -Force $installDirectory | Out-Null
 
@@ -115,20 +179,32 @@ if ((Test-Path $destination) -and (Test-Path $receipt)) {
     $installedVersion = (& $destination --version 2>$null) -join "`n"
     if ($installedReceipt -eq $InstallerUrl -and $installedVersion -match [regex]::Escape($version)) {
         Add-UserPath $installDirectory
-        Write-Host "Bast $version is already installed."
-        exit 0
+        Write-Host ""
+        Write-Success "Bast $version is already up to date."
+        Write-RunHint
+        Send-Telemetry "up_to_date" $version $goArchitecture
+        Write-Host ""
+        return
     }
 }
 
 $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) ("bast-install-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory $temporaryDirectory | Out-Null
 try {
-    Write-Step "Downloading Bast $version for Windows $goArchitecture"
+    Write-Host ""
+    if ($wasInstalled) {
+        Write-Step "Updating Bast to $version..."
+    } else {
+        Write-Step "Installing Bast $version..."
+    }
+    Write-Step "Downloading $archive..."
     $archivePath = Join-Path $temporaryDirectory $archive
     $checksumPath = "$archivePath.sha256"
     Invoke-WebRequest -UseBasicParsing -Uri "$assetBase/$archive" -OutFile $archivePath -TimeoutSec 120
     Invoke-WebRequest -UseBasicParsing -Uri "$assetBase/$archive.sha256" -OutFile $checksumPath -TimeoutSec 30
+    Write-Success "Download complete"
 
+    Write-Step "Verifying SHA-256 checksum..."
     $checksumLine = (Get-Content $checksumPath -Raw).Trim()
     $checksumMatch = [regex]::Match($checksumLine, '^([0-9a-fA-F]{64})\s+(.+)$')
     if (-not $checksumMatch.Success -or $checksumMatch.Groups[2].Value.TrimStart('*') -ne $archive) {
@@ -138,13 +214,16 @@ try {
     if ($actualChecksum -ine $checksumMatch.Groups[1].Value) {
         throw "Checksum verification failed"
     }
+    Write-Success "Checksum verified"
 
     Expand-Archive -Path $archivePath -DestinationPath $temporaryDirectory
     $staged = Join-Path $temporaryDirectory "$bundle\bast.exe"
+    Write-Step "Verifying Authenticode signature..."
     $signature = Get-AuthenticodeSignature $staged
     if ($signature.Status -ne "Valid" -or $signature.SignerCertificate.Subject -cne $ExpectedPublisherSubject) {
         throw "Authenticode verification failed"
     }
+    Write-Success "Authenticode signature verified"
 
     if ($env:BAST_UPDATE_PARENT_PID) {
         $parentId = 0
@@ -188,13 +267,23 @@ try {
         $arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$helperPath`" `"$helperConfigPath`""
         Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -WindowStyle Hidden
         Add-UserPath $installDirectory
-        Write-Host "Bast $version will finish installing after this process exits."
+        Write-Success "Bast $version will finish installing after this process exits."
+        Write-RunHint
         $temporaryDirectory = $null
     } else {
+        Write-Step "Installing to $destination..."
         Install-StagedBinary $staged $destination $receipt $version $temporaryDirectory
         $temporaryDirectory = $null
         Add-UserPath $installDirectory
-        Write-Host "Installed Bast $version to $destination"
+        if ($wasInstalled) {
+            Write-Success "Updated Bast to $version."
+            Send-Telemetry "update" $version $goArchitecture
+        } else {
+            Write-Success "Installed Bast $version."
+            Send-Telemetry "install" $version $goArchitecture
+        }
+        Write-RunHint
+        Write-Host ""
     }
 } finally {
     if ($temporaryDirectory) {

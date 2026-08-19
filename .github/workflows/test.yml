@@ -48,6 +48,28 @@ jobs:
           cache: true
           cache-dependency-path: apps/bast/go.sum
       - run: go mod verify
+      - name: Validate PowerShell installer
+        shell: pwsh
+        run: |
+          $scriptPath = Resolve-Path "../web/public/install.ps1"
+          $tokens = $null
+          $parseErrors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            $scriptPath,
+            [ref]$tokens,
+            [ref]$parseErrors
+          )
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            throw "PowerShell installer contains syntax errors"
+          }
+          $exitStatements = $ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.ExitStatementAst]
+          }, $true)
+          if ($exitStatements.Count -gt 0) {
+            throw "PowerShell installer must not terminate the caller"
+          }
       - run: go test ./...
       - run: go vet ./...
       - run: go build -trimpath -o "$env:RUNNER_TEMP/bast.exe" .
@@ -66,6 +88,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
+      - name: Test WinGet manifest renderer
+        run: bash .github/scripts/render-winget-manifest.test.sh
       - run: bun install --frozen-lockfile
+      - run: bun test apps/web
       - run: bun run lint:web
       - run: bun run build:web
