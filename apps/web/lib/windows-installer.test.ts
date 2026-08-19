@@ -5,9 +5,10 @@ const installerFile = Bun.file(installerPath);
 const installer = await installerFile.text();
 
 describe("Windows installer", () => {
-  test("is UTF-8 BOM encoded for Windows PowerShell 5.1", async () => {
+  test("has no UTF-8 BOM so irm | iex can run on Windows PowerShell 5.1", async () => {
     const prefix = new Uint8Array(await installerFile.slice(0, 3).arrayBuffer());
-    expect([...prefix]).toEqual([0xef, 0xbb, 0xbf]);
+    expect([...prefix]).not.toEqual([0xef, 0xbb, 0xbf]);
+    expect(String.fromCharCode(prefix[0])).toBe("$");
   });
 
   test("does not terminate the caller when Bast is current", () => {

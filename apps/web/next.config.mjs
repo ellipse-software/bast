@@ -15,6 +15,28 @@ const config = {
 			},
 		],
 	},
+	async headers() {
+		return [
+			{
+				source: "/install.ps1",
+				headers: [
+					{
+						key: "Content-Type",
+						value: "text/plain; charset=utf-8",
+					},
+				],
+			},
+			{
+				source: "/install-nightly.ps1",
+				headers: [
+					{
+						key: "Content-Type",
+						value: "text/plain; charset=utf-8",
+					},
+				],
+			},
+		];
+	},
 	async redirects() {
 		return [
 			{

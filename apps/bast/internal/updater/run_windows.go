@@ -29,6 +29,8 @@ func runInstaller(ctx context.Context, script []byte, executable string, stdout,
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
+	// PowerShell 5.1 needs a BOM to parse UTF-8 when running -File. The hosted
+	// installer is served without one so `irm | iex` does not treat it as syntax.
 	if !bytes.HasPrefix(script, []byte(utf8BOM)) {
 		_, err = io.WriteString(tmp, utf8BOM)
 	}
