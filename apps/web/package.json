@@ -9,11 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@flags-sdk/vercel": "^1.4.6",
     "@opencoredev/email-sdk": "^1.0.0",
     "@sentry/node": "^10.68.0",
     "@types/mdx": "^2.0.14",
     "@upstash/redis": "^1.38.1",
     "files-sdk": "^2.2.2",
+    "flags": "^4.3.0",
     "fumadocs-core": "^16.12.1",
     "fumadocs-mdx": "^15.2.0",
     "fumadocs-ui": "^16.12.1",

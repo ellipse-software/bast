@@ -161,11 +161,13 @@ type OpenMenu = "platform" | "method" | null;
 
 type InstallCommandProps = {
   version?: string | null;
+  wingetAvailable?: boolean;
   className?: string;
 };
 
 export function InstallCommand({
   version,
+  wingetAvailable = false,
   className = "w-full max-w-xl",
 }: InstallCommandProps) {
   const windowsAvailable = supportsWindowsRelease(version);
@@ -194,7 +196,7 @@ export function InstallCommand({
     selectedMethod ?? defaultMethodFor(platform),
   );
   const platforms = installPlatforms(windowsAvailable);
-  const methods = methodsForPlatform(platform);
+  const methods = methodsForPlatform(platform, wingetAvailable);
   const showNightly = methodSupportsNightly(method);
   const prompt = promptFor(method);
 

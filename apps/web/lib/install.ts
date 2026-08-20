@@ -41,8 +41,14 @@ export function installPlatforms(
 
 export function methodsForPlatform(
   platform: InstallPlatform,
+  wingetAvailable = false,
 ): { id: InstallMethod; label: string }[] {
-  const ids = platform === "windows" ? WINDOWS_METHODS : UNIX_METHODS;
+  const ids: InstallMethod[] =
+    platform === "windows"
+      ? wingetAvailable
+        ? WINDOWS_METHODS
+        : ["powershell"]
+      : UNIX_METHODS;
   return ids.map((id) => ({ id, label: METHOD_LABELS[id] }));
 }
 

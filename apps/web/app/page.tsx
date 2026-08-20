@@ -8,9 +8,13 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { getLatestBastVersion } from "@/lib/github";
 import { pageMaxWidthClass } from "@/lib/layout";
+import { winget } from "@/flags";
 
 export default async function Home() {
-  const version = await getLatestBastVersion();
+  const [version, wingetAvailable] = await Promise.all([
+    getLatestBastVersion(),
+    winget(),
+  ]);
   return (
     <div className="relative flex min-h-full flex-col">
       <BackgroundGrid accentWash />
@@ -30,7 +34,7 @@ export default async function Home() {
         </header>
 
         <section className="mb-16 flex w-full flex-col items-center sm:mb-14">
-          <InstallCommand version={version} />
+          <InstallCommand version={version} wingetAvailable={wingetAvailable} />
         </section>
 
         <section className="mb-16 flex w-full flex-col items-center sm:mb-14">

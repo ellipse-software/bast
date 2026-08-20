@@ -43,8 +43,14 @@ describe("methodsForPlatform", () => {
     ]);
   });
 
-  test("Windows offers PowerShell and WinGet", () => {
+  test("Windows offers PowerShell by default", () => {
     expect(methodsForPlatform("windows").map(({ id }) => id)).toEqual([
+      "powershell",
+    ]);
+  });
+
+  test("Windows offers WinGet when enabled", () => {
+    expect(methodsForPlatform("windows", true).map(({ id }) => id)).toEqual([
       "powershell",
       "winget",
     ]);
