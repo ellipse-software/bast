@@ -34,8 +34,16 @@ export function r2Configured(): boolean {
   );
 }
 
+export async function putObject(
+  key: string,
+  body: Uint8Array | Buffer | string,
+  contentType: string,
+): Promise<void> {
+  await getFiles().upload(key, body, { contentType });
+}
+
 export async function putVaultObject(key: string, body: Uint8Array | Buffer | string): Promise<void> {
-  await getFiles().upload(key, body, { contentType: "application/json" });
+  await putObject(key, body, "application/json");
 }
 
 export async function deleteVaultObject(key: string): Promise<void> {
@@ -49,7 +57,7 @@ export async function deleteVaultObject(key: string): Promise<void> {
   }
 }
 
-export async function getVaultObject(key: string): Promise<Uint8Array | null> {
+export async function getObject(key: string): Promise<Uint8Array | null> {
   try {
     const file = await getFiles().download(key);
     return new Uint8Array(await file.arrayBuffer());
@@ -59,4 +67,8 @@ export async function getVaultObject(key: string): Promise<Uint8Array | null> {
     }
     throw error;
   }
+}
+
+export async function getVaultObject(key: string): Promise<Uint8Array | null> {
+  return getObject(key);
 }

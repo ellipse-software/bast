@@ -41,6 +41,13 @@
   --color-highlight: var(--highlight);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --animate-testimonial-marquee: testimonial-marquee 60s linear infinite;
+}
+
+@keyframes testimonial-marquee {
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
 }
 
 html,
