@@ -7,6 +7,17 @@ const config = {
 	// peers (unused with client: "fetch") are not resolved at build time.
 	allowedDevOrigins: ["192.168.0.232"],
 	serverExternalPackages: ["files-sdk"],
+	experimental: {
+		serverActions: {
+			// Origin is bast.sh; the reverse proxy forwards
+			// x-forwarded-host as *.vercel.gateway.ellipseusercontent.com.
+			allowedOrigins: [
+				"bast.sh",
+				"www.bast.sh",
+				"**.ellipseusercontent.com",
+			],
+		},
+	},
 	images: {
 		remotePatterns: [
 			{
