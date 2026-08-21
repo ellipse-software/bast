@@ -1,6 +1,7 @@
 import { BackgroundGrid } from "@/components/background-grid";
 import { Comparison } from "@/components/comparison";
 import { Faq } from "@/components/faq";
+import { Sponsors } from "@/components/sponsors";
 import { InstallCommand } from "@/components/install-command";
 import { PreFooter } from "@/components/pre-footer";
 import { Showcase } from "@/components/showcase";
@@ -58,8 +59,12 @@ export default async function Home() {
             <Comparison />
           </section>
 
-          <section className="mb-4 flex w-full flex-col items-center sm:mb-2">
+          <section className="mb-16 flex w-full flex-col items-center sm:mb-14">
             <Faq />
+          </section>
+
+          <section className="mb-4 flex w-full flex-col items-center sm:mb-2">
+            <Sponsors />
           </section>
         </div>
       </main>

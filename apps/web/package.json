@@ -12,6 +12,8 @@
     "@flags-sdk/vercel": "^1.4.6",
     "@opencoredev/email-sdk": "^1.0.0",
     "@sentry/node": "^10.68.0",
+    "@stripe/react-stripe-js": "^6.8.2",
+    "@stripe/stripe-js": "^9.14.0",
     "@types/mdx": "^2.0.14",
     "@upstash/redis": "^1.38.1",
     "files-sdk": "^2.2.2",
@@ -24,7 +26,9 @@
     "next": "16.2.12",
     "posthog-node": "^5.46.1",
     "react": "19.2.4",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
+    "stripe": "^22.5.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

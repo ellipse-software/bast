@@ -13,10 +13,30 @@ function initials(name: string): string {
   return `${first ?? ""}${last ?? ""}`.toUpperCase();
 }
 
-function InitialsMark({ name }: { name: string }) {
+const avatarSize = {
+  md: {
+    box: "size-10",
+    text: "text-[0.7rem]",
+    px: 40,
+  },
+  sm: {
+    box: "size-6",
+    text: "text-[0.55rem]",
+    px: 24,
+  },
+} as const;
+
+function InitialsMark({
+  name,
+  size,
+}: {
+  name: string;
+  size: keyof typeof avatarSize;
+}) {
+  const token = avatarSize[size];
   return (
     <span
-      className="flex size-10 items-center justify-center rounded-full bg-border text-[0.7rem] font-medium tracking-wide text-foreground"
+      className={`flex ${token.box} items-center justify-center rounded-full bg-border ${token.text} font-medium tracking-wide text-foreground`}
       aria-hidden
     >
       {initials(name)}
@@ -28,27 +48,30 @@ export function TestimonialAvatar({
   name,
   username,
   src,
+  size = "md",
 }: {
   name: string;
   username: string;
   src?: string;
+  size?: keyof typeof avatarSize;
 }) {
   const [failed, setFailed] = useState(false);
   const handle = normalizeXHandle(username);
   const url = src ?? (handle ? `/api/avatar/${handle}` : null);
+  const token = avatarSize[size];
 
   return (
-    <span className="relative size-10 shrink-0">
-      <InitialsMark name={name} />
+    <span className={`relative ${token.box} shrink-0`}>
+      <InitialsMark name={name} size={size} />
       {url && !failed ? (
-        // Dynamic avatar endpoint / optional override; 40px.
+        // Dynamic avatar endpoint / optional override.
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={url}
           alt=""
-          width={40}
-          height={40}
-          className="absolute inset-0 size-10 rounded-full object-cover"
+          width={token.px}
+          height={token.px}
+          className={`absolute inset-0 ${token.box} rounded-full object-cover`}
           onError={() => setFailed(true)}
         />
       ) : null}

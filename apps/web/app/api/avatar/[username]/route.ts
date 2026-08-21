@@ -21,7 +21,7 @@ function cacheHeaders(etag: string): HeadersInit {
 function imageResponse(image: AvatarImage): Response {
   const headers = new Headers(cacheHeaders(image.etag));
   headers.set("Content-Type", image.contentType);
-  return new Response(image.body, { status: 200, headers });
+  return new Response(Buffer.from(image.body), { status: 200, headers });
 }
 
 export async function GET(

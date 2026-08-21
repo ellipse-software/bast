@@ -4,7 +4,7 @@
  * Paste tweet URLs. Username, display name, message, avatar, and
  * verified badge load from the post.
  */
-export const testimonials = [
+export const testimonials: readonly string[] = [
 	"https://x.com/lassejv/status/2082077775716815065?s=20",
 	"https://x.com/Itri_SpecialGuy/status/2089385840787042568?s=20",
 	"https://x.com/jess_daniel10/status/2082088417936949569?s=20",
@@ -22,4 +22,4 @@ export const testimonials = [
 	"https://x.com/1kartikkabadi1/status/2085121456909029615?s=20",
 	"https://x.com/luaroncrew/status/2085322565690490919?s=20",
 	"https://x.com/nickventuri/status/2080927436246556744?s=20",
-] as const;
+];

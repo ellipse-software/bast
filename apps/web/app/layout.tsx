@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { RootProvider } from "fumadocs-ui/provider/next";
 
+import { SponsorDialogProvider } from "@/components/sponsor-dialog-context";
 import {
   defaultDescription,
   ogImage,
@@ -95,7 +96,14 @@ export default function RootLayout({
             hotKey: false,
           }}
         >
-          {children}
+          <SponsorDialogProvider
+            paymentsEnabled={Boolean(
+              process.env.STRIPE_SECRET_KEY &&
+                process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+            )}
+          >
+            {children}
+          </SponsorDialogProvider>
         </RootProvider>
       </body>
     </html>
