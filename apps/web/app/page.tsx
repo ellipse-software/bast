@@ -30,10 +30,11 @@ export default async function Home() {
           <header className="mb-12 flex w-full flex-col items-center text-center sm:mb-10">
             <h1 className="mb-8 w-full max-w-3xl sm:mb-10">
               <Image
-                src="https://cdn.bast.sh/bast-long-word.png"
+                src="/bast-long-word.svg"
                 alt="Bast.sh"
                 width={961}
                 height={140}
+                unoptimized
                 className="h-auto w-full"
                 sizes="(max-width: 48rem) 100vw, 48rem"
                 priority

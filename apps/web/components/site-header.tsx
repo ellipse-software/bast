@@ -76,7 +76,7 @@ export function SiteHeader() {
         className={`mx-auto flex ${pageMaxWidthClass} items-center justify-between gap-4 px-4 py-4 sm:px-6`}
       >
         <Link href="/" className="shrink-0" onClick={() => setOpen(false)}>
-          <WordmarkLogo priority />
+          <WordmarkLogo priority color="white" />
         </Link>
 
         <nav
