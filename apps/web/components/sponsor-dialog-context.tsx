@@ -72,10 +72,9 @@ export function SponsorCta() {
     <button
       type="button"
       onClick={open}
-      aria-label="Sponsor"
-      className="flex size-8 items-center justify-center text-lg leading-none text-muted outline-none hover:text-foreground focus-visible:text-foreground"
+      className="inline text-foreground transition-colors hover:text-accent focus-visible:text-accent"
     >
-      +
+      Sponsor now
     </button>
   );
 }

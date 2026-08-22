@@ -15,9 +15,12 @@ export async function Sponsors() {
 
   return (
     <section className="w-full">
-      <div className="mb-10 flex items-center gap-1">
-        <h2 className="text-lg font-medium tracking-tight">Sponsors</h2>
-        <SponsorCta />
+      <div className="mb-10 flex flex-col items-center text-center">
+        <h2 className="text-3xl font-medium tracking-tight">Sponsors</h2>
+        <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted">
+          Bast is free and open source. Sponsorships fund development.{" "}
+          <SponsorCta />
+        </p>
       </div>
       <div
         className={
