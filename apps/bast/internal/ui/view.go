@@ -8,6 +8,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"bast/internal/cloud"
 	"bast/internal/cloud/sync"
 	"bast/internal/keys"
 	"bast/internal/metadata"
@@ -28,7 +29,9 @@ const (
 	keyInstallActionRow = 4
 )
 
-var headerTabLabels = [...]string{"[1] Hosts", "[2] Keys", "[3] Sync", "[4] Files"}
+var headerTabLabels = [...]string{"[1] Hosts", "[2] Keys", "[3] Vault", "[4] Sync", "[5] Files"}
+
+var headerTabSections = [...]section{hostsSection, keysSection, vaultSection, syncSection, filesSection}
 
 func (m *App) connectButtonBounds(layout panelLayout) (x, y, width int) {
 	action := connectAction
@@ -67,12 +70,14 @@ func (m *App) render() string {
 		body = m.renderHelp(styles)
 	} else if m.form != nil {
 		body = m.renderForm(styles)
-	} else if m.vaultBusyBlocksSync() {
+	} else if m.vaultBusyBlocksBody() {
 		body = m.renderVaultBusy(styles)
 	} else if m.section == hostsSection {
 		body = m.renderHosts(styles)
 	} else if m.section == keysSection {
 		body = m.renderKeys(styles)
+	} else if m.section == vaultSection {
+		body = m.renderVault(styles)
 	} else if m.section == filesSection {
 		body = m.renderFiles(styles)
 	} else {
@@ -183,35 +188,28 @@ func (m *App) frameStyles(width, bodyHeight int) (body, frame lipgloss.Style) {
 }
 
 func (m *App) renderTabs(s styleSet) string {
-	hosts, keyTab, syncTab, filesTab := headerTabLabels[0], headerTabLabels[1], headerTabLabels[2], headerTabLabels[3]
-	switch m.section {
-	case hostsSection:
-		hosts = s.active.Render(hosts)
-		keyTab = s.inactive.Render(keyTab)
-		syncTab = s.inactive.Render(syncTab)
-		filesTab = s.inactive.Render(filesTab)
-	case keysSection:
-		hosts = s.inactive.Render(hosts)
-		keyTab = s.active.Render(keyTab)
-		syncTab = s.inactive.Render(syncTab)
-		filesTab = s.inactive.Render(filesTab)
-	case syncSection:
-		hosts = s.inactive.Render(hosts)
-		keyTab = s.inactive.Render(keyTab)
-		syncTab = s.active.Render(syncTab)
-		filesTab = s.inactive.Render(filesTab)
-	case filesSection:
-		hosts = s.inactive.Render(hosts)
-		keyTab = s.inactive.Render(keyTab)
-		syncTab = s.inactive.Render(syncTab)
-		filesTab = s.active.Render(filesTab)
-	default:
-		hosts = s.inactive.Render(hosts)
-		keyTab = s.inactive.Render(keyTab)
-		syncTab = s.inactive.Render(syncTab)
-		filesTab = s.inactive.Render(filesTab)
+	parts := make([]string, 0, len(headerTabLabels))
+	for i, label := range headerTabLabels {
+		if m.section == headerTabSections[i] {
+			parts = append(parts, s.active.Render(label))
+		} else {
+			parts = append(parts, s.inactive.Render(label))
+		}
 	}
-	return hosts + headerTabSpacing + keyTab + headerTabSpacing + syncTab + headerTabSpacing + filesTab
+	return strings.Join(parts, headerTabSpacing)
+}
+
+func tabAtX(x int) (section, bool) {
+	cursor := lipgloss.Width(headerTitle) + 2
+	gap := lipgloss.Width(headerTabSpacing)
+	for i, label := range headerTabLabels {
+		width := lipgloss.Width(label)
+		if x >= cursor && x < cursor+width {
+			return headerTabSections[i], true
+		}
+		cursor += width + gap
+	}
+	return 0, false
 }
 
 func (m *App) renderHosts(s styleSet) string {
@@ -224,7 +222,7 @@ func (m *App) renderHosts(s styleSet) string {
 			return "\n  " + s.muted.Render("No hosts match “"+m.searchText()+"”")
 		}
 		if m.hasHiddenHosts() && !m.showHidden {
-			return "\n  " + s.muted.Render("No visible hosts. Press . to show hidden hosts.")
+			return "\n  " + s.muted.Render("No visible hosts. Press . to show hidden and stopped hosts.")
 		}
 		return "\n\n  " + s.active.Render("◇  No hosts yet") +
 			"\n\n  " + s.muted.Render("Your SSH map is empty.") +
@@ -246,6 +244,7 @@ func (m *App) renderHosts(s styleSet) string {
 	gcpErr := m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != ""
 	awsErr := m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != ""
 	azureErr := m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != ""
+	boxErr := m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != ""
 	start := scrollStart(m.cursor, len(rowsData), listHeight)
 	var list strings.Builder
 	list.Grow(listHeight * (rowWidth + 8))
@@ -291,7 +290,7 @@ func (m *App) renderHosts(s styleSet) string {
 			}
 			count := s.muted.Render(fmt.Sprintf("(%d)", row.count))
 			errorIcon := ""
-			if row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr) {
+			if row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boxErr) {
 				errorIcon = s.error.Render("⚠")
 			}
 			prefix := indent + indicator + " "
@@ -402,23 +401,35 @@ func (m *App) cloudSyncGroupHasError(group string) bool {
 		m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != "",
 		m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != "",
 		m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != "",
+		m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != "",
 	)
 }
 
-func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr bool) bool {
-	switch group {
-	case "Google Cloud", "GCP":
+func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boxErr bool) bool {
+	kind, ok := cloud.KindForGroup(group)
+	if !ok {
+		return false
+	}
+	switch kind {
+	case cloud.GCP:
 		return gcpErr
-	case "Amazon EC2", "AWS":
+	case cloud.AWS:
 		return awsErr
-	case "Microsoft Azure":
+	case cloud.Azure:
 		return azureErr
+	case cloud.Box:
+		return boxErr
 	default:
 		return false
 	}
 }
 
 func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
+	if cloud.IsProviderRoot(row.group) {
+		if kind, ok := cloud.KindForGroup(row.group); ok {
+			return m.renderProviderGroupDetail(s, row, kind, width)
+		}
+	}
 	state := "expanded"
 	if m.collapsedGroups[row.group] {
 		state = "collapsed"
@@ -435,6 +446,53 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 	return "  " + renderManagedGroupName(name, s.active, m.nerdFont) + "\n" +
 		"  " + s.muted.Render(fmt.Sprintf("%d servers · %s", row.count, state)) + "\n\n" +
 		"  " + s.muted.Render(truncate(hint, max(4, width-3)))
+}
+
+func (m *App) renderProviderGroupDetail(s styleSet, row hostRow, kind cloud.Kind, width int) string {
+	var b strings.Builder
+	action := m.providerGroupPrimaryAction(kind)
+	actionBtn := s.title.Render(action)
+	actionWidth := lipgloss.Width(actionBtn)
+	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont))
+	name := truncate(row.group, max(2, width-3-iconWidth-actionWidth-1))
+	titlePart := renderManagedGroupName(name, s.active, m.nerdFont)
+	gap := max(1, width-2-lipgloss.Width(titlePart)-actionWidth)
+	b.WriteString("  " + titlePart + strings.Repeat(" ", gap) + actionBtn + "\n")
+
+	running, stopped := m.providerGroupStats(row.group)
+	summary := fmt.Sprintf("%d instances", running+stopped)
+	if cloud.CapabilitiesFor(kind).Stop {
+		summary = fmt.Sprintf("%d running", running)
+		if stopped > 0 {
+			summary += fmt.Sprintf(" · %d stopped", stopped)
+			if !m.showHidden {
+				summary += " · . to show"
+			}
+		}
+	} else if row.count >= 0 {
+		summary = fmt.Sprintf("%d instances", row.count)
+	}
+	b.WriteString("  " + s.muted.Render(truncate(summary, max(4, width-3))) + "\n")
+
+	detail := m.providerDetail(string(kind))
+	b.WriteString("\n")
+	lastSync := "never"
+	if detail.lastSyncAt != nil {
+		lastSync = detail.lastSyncAt.Local().Format("2006-01-02 15:04")
+	}
+	b.WriteString(compactRow(s, "Last sync", lastSync, width))
+	for _, statusRow := range detail.status {
+		b.WriteString(compactRow(s, statusRow.label, statusRow.value, width))
+	}
+	autoSync := "off"
+	if detail.autoSync {
+		autoSync = "on"
+	}
+	b.WriteString(compactRow(s, "Auto-sync", autoSync, width))
+	if detail.lastSyncError != "" {
+		b.WriteString(compactRow(s, "Error", detail.lastSyncError, width))
+	}
+	return b.String()
 }
 
 func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool) string {
@@ -499,18 +557,15 @@ func managedGroupIcon(name string, nerdFont bool) string {
 	if !nerdFont {
 		return ""
 	}
-	switch {
-	case name == "Amazon EC2" || strings.HasPrefix(name, "Amazon EC2/"):
-		return "\ue7ad "
-	case name == "Google Cloud" || strings.HasPrefix(name, "Google Cloud/"):
-		return "\ue7f1 "
-	case name == "Microsoft Azure" || strings.HasPrefix(name, "Microsoft Azure/"):
-		return "\ue754 "
-	case name == "Box" || strings.HasPrefix(name, "Box/"):
-		return "\uf1b2 " // nf-fa-cube
-	default:
+	kind, ok := cloud.KindForGroup(name)
+	if !ok {
 		return ""
 	}
+	d, ok := cloud.DescriptorForKind(kind)
+	if !ok || d.NerdIcon == "" {
+		return ""
+	}
+	return d.NerdIcon + " "
 }
 
 func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) string {
@@ -886,8 +941,9 @@ func helpSections() []helpSection {
 				{"r", "Reload"},
 				{"1", "Hosts"},
 				{"2", "Keys"},
-				{"3", "Sync"},
-				{"4", "Files"},
+				{"3", "Vault"},
+				{"4", "Sync"},
+				{"5", "Files"},
 				{"?", "Help"},
 				{"v", "About"},
 				{"q", "Quit"},
@@ -910,7 +966,9 @@ func helpSections() []helpSection {
 				{"f", "Toggle favorite"},
 				{"F", "Open Files for host"},
 				{"h", "Hide or show selected"},
-				{".", "Toggle hidden hosts"},
+				{".", "Toggle hidden and stopped hosts"},
+				{"n", "New VM on a provider group"},
+				{"s", "Sync provider group, or cycle sort"},
 				{"K", "Remove known-host entry"},
 			},
 		},
@@ -928,11 +986,22 @@ func helpSections() []helpSection {
 			},
 		},
 		{
+			title: "Vault",
+			bindings: []helpBinding{
+				{"󰌑", "Link, unlock, or sync"},
+				{"j k", "Secondary actions"},
+				{"r", "Sync now when unlocked"},
+			},
+		},
+		{
 			title: "Sync",
 			bindings: []helpBinding{
-				{"󰌑", "Open Vault/provider or run action"},
+				{"h j k l", "Grid move, or cycle actions"},
+				{"󰌑", "Open provider, run action, or connect"},
+				{"␣", "Collapse or expand status group"},
+				{"s", "Sync"},
 				{"Esc", "Back"},
-				{"r", "Refresh"},
+				{"r", "Refresh status"},
 			},
 		},
 		{
@@ -982,6 +1051,8 @@ func (m *App) contextualHelpSections() []helpSection {
 	switch m.section {
 	case keysSection:
 		current = "Keys"
+	case vaultSection:
+		current = "Vault"
 	case syncSection:
 		current = "Sync"
 	case filesSection:
@@ -1001,11 +1072,11 @@ func (m *App) contextualHelpSections() []helpSection {
 }
 
 func (m *App) helpContentWidth() int {
-	return min(48, max(36, m.terminalWidth()-8))
+	return max(36, m.terminalWidth()-6)
 }
 
 func (m *App) helpLines(s styleSet) []string {
-	const keyWidth = 16
+	const keyCol = 18
 	width := m.helpContentWidth()
 	lines := []string{
 		"",
@@ -1018,10 +1089,11 @@ func (m *App) helpLines(s styleSet) []string {
 		}
 		lines = append(lines, s.active.Render(section.title), "")
 		for _, binding := range section.bindings {
-			keys := s.value.Width(keyWidth).Render(binding.keys)
-			descWidth := max(8, width-keyWidth-2)
-			desc := s.muted.Width(descWidth).Render(binding.desc)
-			lines = append(lines, keys+"  "+desc)
+			keys := s.value.Render(binding.keys)
+			gap := max(1, keyCol-lipgloss.Width(binding.keys))
+			descWidth := max(8, width-keyCol-2)
+			desc := s.muted.Render(truncate(binding.desc, descWidth))
+			lines = append(lines, keys+strings.Repeat(" ", gap)+desc)
 		}
 	}
 	return lines
@@ -1059,8 +1131,7 @@ func (m *App) renderHelp(s styleSet) string {
 	offset := min(max(0, m.helpOffset), max(0, len(lines)-bodyHeight))
 	end := min(len(lines), offset+bodyHeight)
 	content := lipgloss.NewStyle().
-		Width(m.helpContentWidth()).
-		MarginLeft(3).
+		MarginLeft(2).
 		Render(strings.Join(lines[offset:end], "\n"))
 	return lipgloss.Place(m.terminalWidth(), bodyHeight, lipgloss.Left, lipgloss.Top, content)
 }
@@ -1084,7 +1155,7 @@ func (m *App) renderCredits(s styleSet) string {
 		return s.label.Width(lipgloss.Width(label)).Render(label) + strings.Repeat(" ", gap) + s.value.Render(value)
 	}
 	content := s.active.Width(infoWidth).Align(lipgloss.Center).Render(banner) +
-		"\n\n" + s.muted.Width(infoWidth).Align(lipgloss.Center).Render("Native SSH picker and key manager") +
+		"\n\n" + s.muted.Width(infoWidth).Align(lipgloss.Center).Render("The fast way into the servers you use every day.") +
 		"\n\n" + row("Created by", "@tedbrine") +
 		"\n" + row("Website", "https://bast.sh") +
 		"\n" + row("Repository", "github.com/ellipse-software/bast") +
@@ -1159,7 +1230,7 @@ func (m *App) renderFooter(s styleSet) string {
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.vaultBusyBlocksSync() || m.section == syncSection || m.section == filesSection || !m.hasListItems() {
+	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.vaultBusyBlocksBody() || m.section == vaultSection || m.section == syncSection || m.section == filesSection || !m.hasListItems() {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	if m.isMobileLayout() {

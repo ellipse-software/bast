@@ -13,10 +13,11 @@ Press `?` inside Bast for the in-app reference. Press `v` for version info, cred
 | Click / tap list row | Select item ([mobile layout](/docs/features/mobile-view)) |
 | `1` | Switch to hosts tab |
 | `2` | Switch to keys tab |
-| `3` | Switch to sync tab |
-| `4` | Switch to files tab |
+| `3` | Switch to vault tab |
+| `4` | Switch to sync tab |
+| `5` | Switch to files tab |
 | `/` | Search |
-| `r` | Reload config from disk (or refresh sync status on the Sync tab) |
+| `r` | Reload config from disk (or refresh sync status on the Sync tab; sync now on Vault) |
 | `?` | Toggle help |
 | `v` | About and version info |
 | `q` | Quit |
@@ -36,9 +37,10 @@ Press `?` inside Bast for the in-app reference. Press `v` for version info, cred
 | `f` | Toggle favorite |
 | `F` | Open Files for the selected host |
 | `h` | Hide or show selected host |
-| `.` | Toggle hidden hosts in the list |
+| `.` | Toggle hidden hosts and stopped cloud VMs |
 | `Space` | Collapse or expand group, including Suggested |
-| `s` | Cycle sort mode |
+| `s` | Cycle sort mode, or sync the selected provider group |
+| `n` | New VM on a provider group that supports create (Box) |
 | `K` | Remove known-host entry |
 
 ## Keys
@@ -54,15 +56,29 @@ Press `?` inside Bast for the in-app reference. Press `v` for version info, cred
 | `p` | Promote an external key, or change passphrase on a managed key |
 | `c` | Copy public key |
 
+## Vault
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Run the selected action (link, unlock, sync, and so on) |
+| Click / tap | Select a menu item; click again to run. The primary button runs immediately |
+| `r` | Sync now when the vault is unlocked |
+
+See [Vault](/docs/features/vault).
+
 ## Sync
 
 | Key | Action |
 | --- | --- |
-| `Enter` | Open Vault or a cloud provider, or run the selected action |
-| `Esc` | Back to the sync list |
+| `h` / `j` / `k` / `l` or arrows | Move across the provider grid |
+| `Enter` | Open a provider, run the selected action, or connect the selected VM |
+| Click / tap | Select a tile, action, or host; click again to open or run. Status group headers toggle on click |
+| `Space` | Collapse or expand a status group on a provider page |
+| `s` | Sync the focused provider without opening it |
+| `Esc` | Back to the provider grid |
 | `r` | Refresh sync status |
 
-See [Vault](/docs/features/vault) for encrypted Bast config sync, and [GCP](/docs/features/gcp) / [AWS](/docs/features/aws) / [Azure](/docs/features/azure) / [box.ascii.dev](/docs/features/box) for cloud host import.
+See [GCP](/docs/features/gcp) / [AWS](/docs/features/aws) / [Azure](/docs/features/azure) / [box.ascii.dev](/docs/features/box) for cloud host import.
 
 ## Files
 

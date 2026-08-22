@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
+	"bast/internal/cloud"
 	"bast/internal/connectbanner"
 	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
@@ -87,32 +87,12 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 				return m.submitForm()
 			}
 		}
-		return m, nil
+		return m.updateFormMouse(msg)
 	}
 
 	if mouse.Y == 0 {
-		if m.syncBusy != "" {
-			return m, nil
-		}
-		tabsStart := lipgloss.Width(headerTitle) + 2
-		hostsEnd := tabsStart + lipgloss.Width(headerTabLabels[0])
-		keysStart := hostsEnd + lipgloss.Width(headerTabSpacing)
-		keysEnd := keysStart + lipgloss.Width(headerTabLabels[1])
-		syncStart := keysEnd + lipgloss.Width(headerTabSpacing)
-		syncEnd := syncStart + lipgloss.Width(headerTabLabels[2])
-		filesStart := syncEnd + lipgloss.Width(headerTabSpacing)
-		filesEnd := filesStart + lipgloss.Width(headerTabLabels[3])
-		switch {
-		case mouse.X >= tabsStart && mouse.X < hostsEnd:
-			m.clearFilesOverlays()
-			m.section, m.cursor, m.search = hostsSection, 0, ""
-		case mouse.X >= keysStart && mouse.X < keysEnd:
-			m.clearFilesOverlays()
-			m.section, m.cursor, m.search = keysSection, 0, ""
-		case mouse.X >= syncStart && mouse.X < syncEnd:
-			return m, m.enterSyncSection()
-		case mouse.X >= filesStart && mouse.X < filesEnd:
-			return m, m.enterFilesSection()
+		if sec, ok := tabAtX(mouse.X); ok {
+			return m, m.switchToSection(sec)
 		}
 		return m, nil
 	}
@@ -120,8 +100,11 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	layout := m.panelLayout()
 	listWidth := layout.listWidth
 
+	if m.section == vaultSection {
+		return m.updateVaultMouse(msg)
+	}
 	if m.section == syncSection {
-		return m, nil
+		return m.updateSyncMouse(msg)
 	}
 	if m.section == filesSection {
 		return m.updateFilesMouse(msg)
@@ -133,6 +116,8 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			action = m.hostPrimaryAction(host)
 		} else if _, ok := m.selectedHistorySuggestion(); ok {
 			action = addAction
+		} else if kind, ok := m.selectedProviderRoot(); ok {
+			action = m.providerGroupPrimaryAction(kind)
 		}
 		if action != "" {
 			btnX, btnY, btnWidth := m.hostActionButtonBounds(layout, action)
@@ -140,6 +125,9 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			if inDetail && mouse.Y == btnY && mouse.X >= btnX && mouse.X < btnX+btnWidth {
 				if action == addAction {
 					return m.importSelectedHistorySuggestion()
+				}
+				if kind, ok := m.selectedProviderRoot(); ok {
+					return m.runProviderGroupPrimary(kind)
 				}
 				return m.connectSelected()
 			}
@@ -231,6 +219,21 @@ func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		return m.updateFilesMouseWheel(msg)
 	}
 	mouse := msg.Mouse()
+	delta := 0
+	switch mouse.Button {
+	case tea.MouseWheelUp:
+		delta = -1
+	case tea.MouseWheelDown:
+		delta = 1
+	default:
+		return m, nil
+	}
+	if m.section == vaultSection || m.section == syncSection {
+		if mouse.Y < 2 || mouse.Y >= m.terminalHeight()-1 {
+			return m, nil
+		}
+		return m.moveMenuWheel(delta)
+	}
 	layout := m.panelLayout()
 	if mouse.Y < layout.listTop || mouse.Y >= layout.listTop+layout.listHeight {
 		return m, nil
@@ -238,16 +241,44 @@ func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	if !layout.mobile && (mouse.X < 0 || mouse.X >= layout.listWidth) {
 		return m, nil
 	}
-	switch mouse.Button {
-	case tea.MouseWheelUp:
+	switch {
+	case delta < 0:
 		if m.cursor > 0 {
 			m.cursor--
 		}
-	case tea.MouseWheelDown:
+	case delta > 0:
 		if m.cursor+1 < m.itemCount() {
 			m.cursor++
 		}
 	}
+	return m, nil
+}
+
+func (m *App) moveMenuWheel(delta int) (tea.Model, tea.Cmd) {
+	if m.section == vaultSection {
+		if m.vaultBusy != "" {
+			return m, nil
+		}
+		items := m.vaultMenuItems()
+		m.clampVaultCursor(items)
+		next := m.syncCursor + delta
+		if next < -1 {
+			next = -1
+		}
+		if next >= len(items) {
+			next = len(items) - 1
+		}
+		m.syncCursor = next
+		return m, nil
+	}
+	if m.syncProvider != "" {
+		if delta < 0 {
+			return m.updateProviderKeys("k")
+		}
+		return m.updateProviderKeys("j")
+	}
+	items := m.syncMenuItems()
+	m.moveSyncGrid(0, delta, items)
 	return m, nil
 }
 
@@ -300,26 +331,21 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.help, m.helpOffset = true, 0
 		return m, nil
-	case "1", "2", "3", "4":
+	case "1", "2", "3", "4", "5":
 		if m.filesTyping() {
 			break
 		}
-		if m.syncBusy != "" {
-			return m, nil
-		}
 		switch key {
 		case "1":
-			m.clearFilesOverlays()
-			m.section, m.cursor, m.search = hostsSection, 0, ""
-			return m, nil
+			return m, m.switchToSection(hostsSection)
 		case "2":
-			m.clearFilesOverlays()
-			m.section, m.cursor, m.search = keysSection, 0, ""
-			return m, nil
+			return m, m.switchToSection(keysSection)
 		case "3":
-			return m, m.enterSyncSection()
+			return m, m.switchToSection(vaultSection)
 		case "4":
-			return m, m.enterFilesSection()
+			return m, m.switchToSection(syncSection)
+		case "5":
+			return m, m.switchToSection(filesSection)
 		}
 	case "v":
 		if m.section != filesSection {
@@ -338,12 +364,13 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case ".":
 		if m.section == hostsSection {
+			kind, name := m.hostCursorKey()
 			m.showHidden = !m.showHidden
-			m.cursor = 0
+			m.restoreHostCursor(kind, name)
 			if m.showHidden {
-				return m, m.setNotice("Showing hidden hosts")
+				return m, m.setNotice("Showing hidden and stopped hosts")
 			}
-			return m, m.setNotice("Hidden hosts concealed")
+			return m, m.setNotice("Hidden and stopped hosts concealed")
 		}
 	case "esc":
 		if m.section == syncSection && m.syncProvider != "" {
@@ -359,6 +386,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.section == syncSection {
 			return m.updateSyncKeys(key)
 		}
+		if m.section == vaultSection {
+			return m.updateVaultKeys(key)
+		}
 		if m.cursor > 0 {
 			m.cursor--
 		}
@@ -366,23 +396,36 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.section == syncSection {
 			return m.updateSyncKeys(key)
 		}
+		if m.section == vaultSection {
+			return m.updateVaultKeys(key)
+		}
 		if m.cursor+1 < m.itemCount() {
 			m.cursor++
+		}
+	case "left", "right", "l":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
 		}
 	case "home", "g":
 		if m.section == syncSection {
 			return m.updateSyncKeys(key)
+		}
+		if m.section == vaultSection {
+			return m.updateVaultKeys(key)
 		}
 		m.cursor = 0
 	case "end", "G":
 		if m.section == syncSection {
 			return m.updateSyncKeys(key)
 		}
+		if m.section == vaultSection {
+			return m.updateVaultKeys(key)
+		}
 		if m.itemCount() > 0 {
 			m.cursor = m.itemCount() - 1
 		}
 	case "/":
-		if m.section == syncSection {
+		if m.section == syncSection || m.section == vaultSection {
 			return m, nil
 		}
 		m.search = "\x00"
@@ -391,8 +434,12 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.section == syncSection {
 			return m.updateSyncKeys(key)
 		}
+		if m.section == vaultSection {
+			return m.updateVaultKeys(key)
+		}
 		if m.section == hostsSection {
-			if host, ok := m.selectedHost(); ok && host.Synced && host.SyncSource == "box" && m.hostLooksStopped(host) {
+			if host, ok := m.selectedHost(); ok && m.hostLooksStopped(host) &&
+				m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Start }) {
 				return m, m.resumeSelectedBox(host, false)
 			}
 		}
@@ -400,10 +447,19 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.enriching = false
 		return m, tea.Batch(m.loadCmd(), m.setNotice("Reloading OpenSSH files…"))
 	case "s":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.section == hostsSection {
+			if kind, ok := m.selectedProviderRoot(); ok {
+				return m.syncProviderFromHosts(kind)
+			}
 			return m, m.cycleSort()
 		}
 	case "space":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.section == hostsSection {
 			if m.historySuggestionsHeaderSelected() {
 				return m, m.toggleHistorySuggestions()
@@ -419,7 +475,7 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.expandAllGroups()
 		}
 	case "a":
-		if m.section == syncSection {
+		if m.section == syncSection || m.section == vaultSection {
 			return m, nil
 		}
 		if m.section == hostsSection {
@@ -428,7 +484,7 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.openGenerateForm()
 		}
 	case "e":
-		if m.section == syncSection {
+		if m.section == syncSection || m.section == vaultSection {
 			return m, nil
 		}
 		if m.section == hostsSection {
@@ -450,7 +506,7 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.openGroupAssignmentForm()
 		}
 	case "d":
-		if m.section == syncSection {
+		if m.section == syncSection || m.section == vaultSection {
 			return m, nil
 		}
 		if m.section == hostsSection {
@@ -501,22 +557,28 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "o":
 		if m.section == hostsSection {
-			if host, ok := m.selectedHost(); ok && host.Synced && host.SyncSource == "box" {
-				if m.syncingProviders["box"] {
-					return m, m.setNotice("Box operation already in progress")
+			if host, ok := m.selectedHost(); ok && m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Stop }) {
+				if m.syncingProviders[host.SyncSource] {
+					return m, m.setNotice("Operation already in progress")
 				}
 				if m.hostLooksStopped(host) {
-					return m, m.setNotice("Box is already stopped")
+					return m, m.setNotice("Already stopped")
 				}
 				m.openBoxStopForm(host)
 				return m, nil
 			}
 		}
 	case "n":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.section == hostsSection {
-			if host, ok := m.selectedHost(); ok && host.Synced && host.SyncSource == "box" {
-				if m.syncingProviders["box"] {
-					return m, m.setNotice("Box operation already in progress")
+			if kind, ok := m.selectedProviderRoot(); ok && cloud.CapabilitiesFor(kind).Create {
+				return m.runProviderGroupCreate(kind)
+			}
+			if host, ok := m.selectedHost(); ok && m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Fork }) {
+				if m.syncingProviders[host.SyncSource] {
+					return m, m.setNotice("Operation already in progress")
 				}
 				m.openBoxForkForm(host)
 				return m, nil
@@ -544,6 +606,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "h":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.section == hostsSection {
 			if host, ok := m.selectedHost(); ok {
 				if host.Synced && host.SyncSource == "box" {
@@ -566,6 +631,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if m.section == syncSection {
 			return m.updateSyncKeys(key)
+		}
+		if m.section == vaultSection {
+			return m.updateVaultKeys(key)
 		}
 		if m.section == hostsSection {
 			if m.historySuggestionsHeaderSelected() {
@@ -609,10 +677,14 @@ func (m *App) connectSelected() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	return m.connectHost(host)
+}
+
+func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	if host.Synced && host.SyncSource == "box" && m.hostLooksStopped(host) {
 		return m, m.resumeSelectedBox(host, true)
 	}
-	if host.Synced && host.SyncID != "" {
+	if host.Synced && host.SyncID != "" && m.syncer != nil {
 		var ensure func(context.Context, sshconfig.Host, func(string)) error
 		switch host.SyncSource {
 		case "gcp":

@@ -94,6 +94,75 @@ func (m *App) updateFormQuit(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	return m, nil, false
 }
 
+func (m *App) updateFormMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	mouse := msg.Mouse()
+	if mouse.Button != tea.MouseLeft || m.form == nil {
+		return m, nil
+	}
+	if isHostForm(m.form) || isGroupAssignmentForm(m.form) {
+		return m, nil
+	}
+	f := m.form
+	if f.index < 0 || f.index >= len(f.fields) {
+		return m, nil
+	}
+	item := &f.fields[f.index]
+	if !f.selecting || len(item.options) == 0 {
+		return m, nil
+	}
+	y := m.formOptionListOriginY()
+	if y < 0 {
+		return m, nil
+	}
+	rows := min(7, len(item.options))
+	start := scrollStart(item.selected, len(item.options), rows)
+	end := min(len(item.options), start+rows)
+	for optionIndex := start; optionIndex < end; optionIndex++ {
+		if mouse.Y == y {
+			if optionIndex == item.selected {
+				return m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+			}
+			item.selected = optionIndex
+			m.focusFormField()
+			return m, nil
+		}
+		y++
+	}
+	return m, nil
+}
+
+func (m *App) formOptionListOriginY() int {
+	f := m.form
+	if f == nil {
+		return -1
+	}
+	y := 2
+	y++ // leading blank in renderForm
+	y++ // title
+	y++ // blank after title
+	if destructiveConfirmationTarget(f) != "" {
+		y += 2
+	}
+	for i, item := range f.fields {
+		if item.hidden || i > f.revealed {
+			continue
+		}
+		if i != f.index {
+			y++
+			continue
+		}
+		y++ // label
+		if item.description != "" {
+			y++
+		}
+		if len(item.options) > 0 && f.selecting {
+			return y
+		}
+		return -1
+	}
+	return -1
+}
+
 func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if model, cmd, quit := m.updateFormQuit(msg); quit {
 		return model, cmd
@@ -472,9 +541,14 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		if m.form != nil && m.form.validationError != "" {
 			return m, nil
 		}
+		if m.form != nil && m.form.action == "vault_terms" {
+			return m, nil
+		}
 		m.form = nil
 		m.beginVaultBusy("Sending code…")
 		return m, cmd
+	case "vault_terms":
+		return m, m.submitVaultTerms()
 	case "vault_code":
 		cmd := m.submitVaultCode()
 		if m.form != nil && m.form.validationError != "" {

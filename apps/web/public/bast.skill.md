@@ -124,11 +124,13 @@ bast box stop <host|id>
 bast box resume <host|id> [--type small|default|large] [--no-env]
 ```
 
-In the TUI, Box hosts support Enter to connect (resume first if stopped), `r` resume, `o` stop, and `n` fork. SSH user is always `user` with `~/.ssh/ascii_box_ed25519`. Docs: https://bast.sh/docs/features/box
+In the TUI, the Box group offers `n` to create and `s` to sync. Stopped boxes are hidden until `.`. Box hosts support Enter to connect (resume first if stopped), `r` resume, `o` stop, and `n` fork. SSH user is always `user` with `~/.ssh/ascii_box_ed25519`. Docs: https://bast.sh/docs/features/box
 
 ## Files (SFTP)
 
-TUI Files tab (`4`) is a dual-pane local/remote browser over OpenSSH SFTP. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
+TUI Files tab (`5`) is a dual-pane local/remote browser over OpenSSH SFTP. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
+
+TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Box). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`.
 
 ## File layout
 

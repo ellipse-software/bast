@@ -5,6 +5,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"bast/internal/cloud"
 	"bast/internal/cloud/sync"
 )
 
@@ -17,6 +18,8 @@ func (m *App) browseFooterHint(maxWidth int) string {
 		parts = m.hostsFooterParts()
 	case keysSection:
 		parts = m.keysFooterParts()
+	case vaultSection:
+		parts = m.vaultFooterParts()
 	case syncSection:
 		parts = m.syncFooterParts()
 	case filesSection:
@@ -46,6 +49,19 @@ func (m *App) hostsFooterParts() []string {
 	}
 	if group, ok := m.selectedGroupHeader(); ok {
 		parts := []string{"␣ " + m.collapseActionLabel()}
+		if kind, ok := m.selectedProviderRoot(); ok {
+			caps := cloud.CapabilitiesFor(kind)
+			if caps.Create {
+				parts = append(parts, "n new")
+			}
+			parts = append(parts, "s sync")
+			if caps.Stop && !m.showHidden {
+				if _, stopped := m.providerGroupStats(group); stopped > 0 {
+					parts = append(parts, ". show stopped")
+				}
+			}
+			return append(parts, "?")
+		}
 		if !sync.IsSyncedGroup(group) {
 			parts = append(parts, "e rename")
 		}
@@ -91,9 +107,51 @@ func (m *App) keysFooterParts() []string {
 	return []string{"u add", "c copy", "e edit", "?"}
 }
 
+func (m *App) vaultFooterParts() []string {
+	if m.syncCursor >= 0 {
+		return []string{"enter", "?"}
+	}
+	if !m.vaultLinked() {
+		return []string{"enter link", "?"}
+	}
+	if m.vaultPassphrase == "" {
+		return []string{"enter unlock", "?"}
+	}
+	return []string{"enter sync", "?"}
+}
+
 func (m *App) syncFooterParts() []string {
 	if m.syncProvider == "" {
-		return []string{"enter open", "?"}
+		return []string{"hjkl move", "enter open", "s sync", "?"}
+	}
+	life, _ := m.providerActionLayout()
+	inv := m.providerInventoryRows()
+	L, I := len(life), len(inv)
+	if m.syncCursor < L {
+		parts := []string{"enter"}
+		if L > 1 {
+			parts = []string{"h/l cycle", "enter"}
+		}
+		if m.syncCursor >= 0 && m.syncCursor < len(life) {
+			switch life[m.syncCursor].action {
+			case "sync":
+				parts[len(parts)-1] = "enter sync"
+			case "enable":
+				parts[len(parts)-1] = "enter connect"
+			}
+		}
+		return append(parts, "esc back", "?")
+	}
+	if m.syncCursor < L+I {
+		row := inv[m.syncCursor-L]
+		if row.header {
+			label := "collapse"
+			if m.providerInvCollapsed(row.group) {
+				label = "expand"
+			}
+			return []string{"␣ " + label, "esc back", "?"}
+		}
+		return []string{"enter connect", "esc back", "?"}
 	}
 	return []string{"enter", "esc back", "?"}
 }

@@ -67,6 +67,14 @@ func (m *App) connectAfterBoxResume() tea.Cmd {
 	return cmd
 }
 
+func (m *App) openBoxNewForm() {
+	m.openForm("New Box", "box_new", []field{
+		{label: "Type", description: "small, default, or large", value: "default", optional: false, placeholder: "default"},
+		{label: "No auto-stop", description: "yes to keep running until stopped", value: "", optional: true, placeholder: "yes"},
+		{label: "No env", description: "yes for an isolated no-env box", value: "", optional: true, placeholder: "yes"},
+	})
+}
+
 func (m *App) openBoxStopForm(host sshconfig.Host) {
 	if m.hostLooksStopped(host) {
 		m.setError(errString("box is already stopped"))

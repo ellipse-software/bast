@@ -67,9 +67,9 @@ func TestFilesTabNavigationAndMarks(t *testing.T) {
 		t.Fatal("expected left focus")
 	}
 
-	m.Update(press("4"))
+	m.Update(press("5"))
 	if m.section != filesSection {
-		t.Fatal("key 4 should open Files")
+		t.Fatal("key 5 should open Files")
 	}
 	m.section = hostsSection
 	m.cursor = 0
@@ -716,11 +716,10 @@ func TestVaultConflictFormOpens(t *testing.T) {
 
 func TestVaultBusyBlocksSyncMenu(t *testing.T) {
 	m := testApp(t)
-	m.section = syncSection
-	m.syncProvider = "vault"
+	m.section = vaultSection
 	m.beginVaultBusy("Sending code…")
 
-	if !m.vaultBusyBlocksSync() {
+	if !m.vaultBusyBlocksBody() {
 		t.Fatal("expected vault busy to block the sync body")
 	}
 	busy := m.renderVaultBusy(m.styles())
@@ -732,7 +731,7 @@ func TestVaultBusyBlocksSyncMenu(t *testing.T) {
 	}
 
 	m.section = hostsSection
-	if m.vaultBusyBlocksSync() {
+	if m.vaultBusyBlocksBody() {
 		t.Fatal("hosts section should not swap to the vault busy body")
 	}
 	footer := m.renderFooter(m.styles())
@@ -743,8 +742,7 @@ func TestVaultBusyBlocksSyncMenu(t *testing.T) {
 
 func TestVaultLinkKeepsBusyThroughReload(t *testing.T) {
 	m := testApp(t)
-	m.section = syncSection
-	m.syncProvider = "vault"
+	m.section = vaultSection
 	m.beginVaultBusy("Linking vault…")
 
 	next, cmd := m.Update(vaultPullMsg{
@@ -762,7 +760,7 @@ func TestVaultLinkKeepsBusyThroughReload(t *testing.T) {
 	if !app.vaultBusyHoldLoad || !app.loading {
 		t.Fatalf("expected hold+loading after link, hold=%v loading=%v", app.vaultBusyHoldLoad, app.loading)
 	}
-	if !app.vaultBusyBlocksSync() {
+	if !app.vaultBusyBlocksBody() {
 		t.Fatal("vault menu should stay blocked while hosts reload")
 	}
 	if cmd == nil {
@@ -778,8 +776,7 @@ func TestVaultLinkKeepsBusyThroughReload(t *testing.T) {
 
 func TestVaultLinkErrorsAreInteractive(t *testing.T) {
 	m := testApp(t)
-	m.section = syncSection
-	m.syncProvider = "vault"
+	m.section = vaultSection
 	m.beginVaultBusy("Linking vault…")
 
 	next, _ := m.Update(vaultPullMsg{
@@ -797,8 +794,7 @@ func TestVaultLinkErrorsAreInteractive(t *testing.T) {
 
 func TestVaultLinkErrorKeepsSessionWhenPresent(t *testing.T) {
 	m := testApp(t)
-	m.section = syncSection
-	m.syncProvider = "vault"
+	m.section = vaultSection
 	m.beginVaultBusy("Linking vault…")
 
 	next, _ := m.Update(vaultPullMsg{
@@ -825,8 +821,7 @@ func TestVaultLinkErrorKeepsSessionWhenPresent(t *testing.T) {
 
 func TestVaultConflictDuringLinkKeepsSession(t *testing.T) {
 	m := testApp(t)
-	m.section = syncSection
-	m.syncProvider = "vault"
+	m.section = vaultSection
 	m.beginVaultBusy("Linking vault…")
 
 	next, _ := m.Update(vaultConflictMsg{
@@ -850,8 +845,7 @@ func TestVaultConflictDuringLinkKeepsSession(t *testing.T) {
 
 func TestVaultRemoteUpdatedTriggersPull(t *testing.T) {
 	m := testApp(t)
-	m.section = syncSection
-	m.syncProvider = "vault"
+	m.section = vaultSection
 	m.vaultSession = &vault.Session{Email: "you@example.com", Token: "t", Revision: "old"}
 	m.vaultPassphrase = "secret"
 
@@ -873,8 +867,7 @@ func TestVaultRemoteUpdatedTriggersPull(t *testing.T) {
 
 func TestVaultRemoteUpdatedDoesNotLoop(t *testing.T) {
 	m := testApp(t)
-	m.section = syncSection
-	m.syncProvider = "vault"
+	m.section = vaultSection
 	m.vaultSession = &vault.Session{Email: "you@example.com", Token: "t", Revision: "old"}
 	m.vaultPassphrase = "secret"
 	m.beginVaultBusy("Syncing vault…")
@@ -899,8 +892,7 @@ func TestVaultRemoteUpdatedDoesNotLoop(t *testing.T) {
 
 func TestVaultPushIgnoresStaleOpGen(t *testing.T) {
 	m := testApp(t)
-	m.section = syncSection
-	m.syncProvider = "vault"
+	m.section = vaultSection
 	m.beginVaultBusy("Syncing vault…")
 	stale := m.vaultOpGen
 	m.cancelVaultOp()
@@ -937,8 +929,7 @@ func TestVaultPassphraseCopyOmitsModeHint(t *testing.T) {
 
 func TestVaultAPIBaseFormPersistsPreference(t *testing.T) {
 	m := testApp(t)
-	m.section = syncSection
-	m.syncProvider = "vault"
+	m.section = vaultSection
 	m.openVaultAPIBaseForm()
 	if m.form == nil || m.form.action != "vault_api_base" {
 		t.Fatalf("form = %#v", m.form)

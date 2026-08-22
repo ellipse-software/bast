@@ -3,7 +3,7 @@ title: box.ascii.dev
 description: Import ASCII Box sandboxes into Bast as read-only hosts via the native box CLI.
 ---
 
-The **Sync** tab (`3`) imports [ASCII Box](https://box.ascii.dev/) sandboxes into Bast. Synced boxes show up in the host picker under **Box**, stay connectable with your system `ssh`, and keep connection details owned by Box sync.
+The **Sync** tab (`4`) imports [ASCII Box](https://box.ascii.dev/) sandboxes into Bast. Synced boxes show up in the host picker under **Box**, stay connectable with your system `ssh`, and keep connection details owned by Box sync.
 
 Bast talks to Box through the native **`box` CLI** on your machine. There is no separate Bast cloud agent or Go SDK. Auth, list, stop, resume, and SSH key authorization all use the same CLI you already use with [box.ascii.dev](https://box.ascii.dev/).
 
@@ -17,7 +17,7 @@ Bast supports **GCP**, **AWS**, **Azure**, and **box.ascii.dev** through each pr
 
 ## Connect box.ascii.dev
 
-1. Open Bast and press `3` for Sync.
+1. Open Bast and press `4` for Sync.
 2. Select **box.ascii.dev** and press Enter.
 3. Choose **Connect** or **Sync now**.
 
@@ -45,7 +45,9 @@ Box
   box-name
 ```
 
-Running boxes show **Box synced**. Stopped or archiving boxes stay in the same group, rendered muted, with detail **Box stopped**. Connection settings, group, and label are owned by sync, so edit (`e`), delete (`d`), move, favorite, and hide are blocked. Manage lifecycle from Sync or the Box host keys below.
+Running boxes show **Box synced**. Stopped or archiving boxes stay in the same group but are hidden from the host list until you press `.` (the same toggle that shows user-hidden hosts). Search still finds them by name. Selecting the **Box** group shows running vs stopped counts and **New box**. Connection settings, group, and label are owned by sync, so edit (`e`), delete (`d`), move, favorite, and hide are blocked.
+
+On the Box provider page (Sync `4`), boxes are listed under **Running** and **Stopped**, the same collapse/expand pattern as the Hosts tab. Stopped starts collapsed. Enter on a host connects (or resumes a stopped box).
 
 ## How Bast connects
 
@@ -61,7 +63,7 @@ SSH user is always `user`. There is no default-user setting for Box.
 
 ## Stopping and archiving
 
-Stopping a box snapshots it and pauses billing (`archiving` → `archived`). That can take a few minutes. Bast keeps the host visible and muted while the box is stopping, then keeps it under **Box** so you can resume later.
+Stopping a box snapshots it and pauses billing (`archiving` → `archived`). That can take a few minutes. Stopped and stopping boxes drop off the visible host list (press `.` to show them) and stay under **Box** so you can resume later.
 
 ## box.ascii.dev settings
 
@@ -75,9 +77,18 @@ Inside the box.ascii.dev submenu:
 | Enable / Disable auto-sync | Sync when the TUI opens |
 | Refresh status | Reload account and last-sync info |
 
-Press Esc to return to the provider list.
+Synced boxes appear below those actions, grouped by status. Press Esc to return to the provider list.
 
 ## Host keys (Hosts tab)
+
+With the **Box** group selected:
+
+| Key | Action |
+| --- | --- |
+| `n` | Create a new box |
+| `s` | Sync now |
+| `.` | Show stopped boxes |
+| Space | Collapse or expand |
 
 With a Box host selected:
 

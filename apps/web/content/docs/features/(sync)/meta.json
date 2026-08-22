@@ -1,4 +1,4 @@
 {
   "title": "Sync",
-  "pages": ["vault", "gcp", "aws", "azure", "box"]
+  "pages": ["gcp", "aws", "azure", "box"]
 }

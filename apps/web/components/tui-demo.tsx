@@ -2,8 +2,8 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 
-type Section = "hosts" | "keys" | "sync" | "files";
-type SyncProvider = "" | "vault" | "gcp" | "aws" | "azure";
+type Section = "hosts" | "keys" | "vault" | "sync" | "files";
+type SyncProvider = "" | "gcp" | "aws" | "azure" | "box";
 
 type DetailRow = { label: string; value: string };
 
@@ -51,7 +51,7 @@ type SyncMenuItem = {
   detail?: string;
   description?: string;
   disabled?: boolean;
-  action?: "open-vault" | "open-gcp" | "open-aws" | "open-azure";
+  action?: "open-gcp" | "open-aws" | "open-azure" | "open-box";
 };
 
 type HostGroupNode = {
@@ -242,12 +242,6 @@ const keys: KeyItem[] = [
 
 const syncProviders: SyncMenuItem[] = [
   {
-    label: "Vault",
-    detail: "you@example.com · a1b2c3d4",
-    description: "Bast-managed hosts and keys, encrypted between machines",
-    action: "open-vault",
-  },
-  {
     label: "GCP",
     detail: "2 · 2026-07-26 13:55",
     description: "Import Compute Engine VMs into Bast",
@@ -264,6 +258,12 @@ const syncProviders: SyncMenuItem[] = [
     detail: "3 · 2026-07-28 10:12",
     description: "Import Azure VMs into Bast",
     action: "open-azure",
+  },
+  {
+    label: "Box",
+    detail: "2 running",
+    description: "Import ASCII Box sandboxes into Bast",
+    action: "open-box",
   },
 ];
 
@@ -311,7 +311,6 @@ const gcpStatusRows: DetailRow[] = [
 ];
 
 const syncProviderActions: Record<Exclude<SyncProvider, "">, SyncMenuItem[]> = {
-  vault: syncVaultActions,
   gcp: syncGcpActions,
   aws: [
     { label: "Sync now" },
@@ -331,10 +330,15 @@ const syncProviderActions: Record<Exclude<SyncProvider, "">, SyncMenuItem[]> = {
     { label: "Resource group filter" },
     { label: "Refresh status" },
   ],
+  box: [
+    { label: "Sync now" },
+    { label: "New box" },
+    { label: "Disconnect" },
+    { label: "Refresh status" },
+  ],
 };
 
 const syncProviderStatus: Record<Exclude<SyncProvider, "">, DetailRow[]> = {
-  vault: vaultStatusRows,
   gcp: gcpStatusRows,
   aws: [
     { label: "Status", value: "enabled" },
@@ -349,6 +353,12 @@ const syncProviderStatus: Record<Exclude<SyncProvider, "">, DetailRow[]> = {
     { label: "Last sync", value: "2026-07-28 10:12 · 3" },
     { label: "Auto-sync", value: "off" },
     { label: "Resource groups", value: "all" },
+  ],
+  box: [
+    { label: "Status", value: "enabled" },
+    { label: "Account", value: "ted" },
+    { label: "Last sync", value: "2026-07-28 11:02 · 2" },
+    { label: "Auto-sync", value: "on" },
   ],
 };
 
@@ -463,14 +473,14 @@ function providerForAction(
   action: SyncMenuItem["action"],
 ): Exclude<SyncProvider, ""> | null {
   switch (action) {
-    case "open-vault":
-      return "vault";
     case "open-gcp":
       return "gcp";
     case "open-aws":
       return "aws";
     case "open-azure":
       return "azure";
+    case "open-box":
+      return "box";
     default:
       return null;
   }
@@ -478,14 +488,14 @@ function providerForAction(
 
 function syncProviderTitle(provider: Exclude<SyncProvider, "">): string {
   switch (provider) {
-    case "vault":
-      return "Vault";
     case "gcp":
       return "GCP";
     case "aws":
       return "AWS";
     case "azure":
       return "Azure";
+    case "box":
+      return "box.ascii.dev";
   }
 }
 
@@ -576,9 +586,12 @@ export function TuiDemo() {
   const selectedHostRow = hostRows[safeHostCursor];
   const selectedKey = keys[Math.min(keyCursor, keys.length - 1)];
 
-  const syncItems = syncProvider
-    ? syncProviderActions[syncProvider]
-    : syncProviders;
+  const syncItems =
+    section === "vault"
+      ? syncVaultActions
+      : syncProvider
+        ? syncProviderActions[syncProvider]
+        : syncProviders;
   const safeSyncCursor = Math.min(syncCursor, Math.max(0, syncItems.length - 1));
   const safeLocalCursor = Math.min(
     localCursor,
@@ -591,7 +604,7 @@ export function TuiDemo() {
 
   const switchSection = useCallback((next: Section) => {
     setSection(next);
-    if (next === "sync") {
+    if (next === "sync" || next === "vault") {
       setSyncProvider("");
       setSyncCursor(0);
     }
@@ -710,9 +723,13 @@ export function TuiDemo() {
           break;
         case "3":
           event.preventDefault();
-          switchSection("sync");
+          switchSection("vault");
           break;
         case "4":
+          event.preventDefault();
+          switchSection("sync");
+          break;
+        case "5":
           event.preventDefault();
           switchSection("files");
           break;
@@ -782,18 +799,18 @@ export function TuiDemo() {
             : "tab pane • ␣ mark • i info • p chmod • ? help"
           : syncProvider
             ? "↵ action • esc providers • r refresh • ? help"
-            : "↵ open provider • 1 hosts • 2 keys • 4 files • ? help";
+            : "hjkl move • ↵ open • 1 hosts • 3 vault • 5 files • ? help";
 
   const footerHintMobile =
     section === "hosts"
-      ? "tap select • 1/2/3/4 tabs"
+      ? "tap select • 1/2/3/4/5 tabs"
       : section === "keys"
-        ? "tap select • 1/2/3/4 tabs"
+        ? "tap select • 1/2/3/4/5 tabs"
         : section === "files"
           ? filesInfo
-            ? "i/esc close • 1/2/3/4 tabs"
-            : "tap pane • i info • 1/2/3/4 tabs"
-          : "tap provider • 1/2/3/4 tabs";
+            ? "i/esc close • 1/2/3/4/5 tabs"
+            : "tap pane • i info • 1/2/3/4/5 tabs"
+          : "tap provider • 1/2/3/4/5 tabs";
 
   return (
     <div
@@ -803,7 +820,7 @@ export function TuiDemo() {
       onMouseDown={() => containerRef.current?.focus()}
       className="absolute inset-0 flex flex-col overflow-hidden p-3 pt-2 font-mono text-xs leading-snug text-foreground outline-none focus-visible:ring-1 focus-visible:ring-border focus-visible:ring-inset sm:p-4 sm:pt-2 sm:text-sm md:px-5 md:pt-2 md:pb-0 md:text-[15px]"
       role="application"
-      aria-label="Interactive Bast TUI demo. Use j/k or arrow keys to navigate, 1/2/3/4 to switch tabs."
+      aria-label="Interactive Bast TUI demo. Use j/k or arrow keys to navigate, 1/2/3/4/5 to switch tabs."
     >
       <header className="mb-2 flex shrink-0 items-center gap-x-2 sm:gap-x-3">
         <span className="bg-accent px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-white sm:text-xs md:text-sm">
@@ -823,16 +840,22 @@ export function TuiDemo() {
             [2] Keys
           </TabButton>
           <TabButton
+            active={section === "vault"}
+            onClick={() => switchSection("vault")}
+          >
+            [3] Vault
+          </TabButton>
+          <TabButton
             active={section === "sync"}
             onClick={() => switchSection("sync")}
           >
-            [3] Sync
+            [4] Sync
           </TabButton>
           <TabButton
             active={section === "files"}
             onClick={() => switchSection("files")}
           >
-            [4] Files
+            [5] Files
           </TabButton>
         </span>
         <span className="ml-auto text-[11px] font-bold text-muted sm:text-sm md:text-[15px]">
@@ -840,7 +863,17 @@ export function TuiDemo() {
         </span>
       </header>
 
-      {section === "sync" ? (
+      {section === "vault" ? (
+        <SyncPanel
+          provider="vault"
+          items={syncVaultActions}
+          cursor={safeSyncCursor}
+          onSelect={setSyncCursor}
+          onBack={() => switchSection("hosts")}
+          footerDesktop="↵ action • 4 sync • ? help"
+          footerMobile="tap action • 1/2/3/4/5 tabs"
+        />
+      ) : section === "sync" ? (
         <SyncPanel
           provider={syncProvider}
           items={syncItems}
@@ -1420,7 +1453,7 @@ function SyncPanel({
   footerDesktop,
   footerMobile,
 }: {
-  provider: SyncProvider;
+  provider: SyncProvider | "vault";
   items: SyncMenuItem[];
   cursor: number;
   onSelect: (index: number) => void;
@@ -1436,7 +1469,7 @@ function SyncPanel({
           <>
             <div className="mb-1 flex items-center justify-between gap-2">
               <p className="font-bold text-accent">
-                {syncProviderTitle(provider)}
+                {provider === "vault" ? "Vault" : syncProviderTitle(provider)}
               </p>
               <button
                 type="button"
@@ -1447,7 +1480,10 @@ function SyncPanel({
               </button>
             </div>
             <div className="mb-3 space-y-0.5">
-              {syncProviderStatus[provider].map((row) => (
+              {(provider === "vault"
+                ? vaultStatusRows
+                : syncProviderStatus[provider]
+              ).map((row) => (
                 <DetailLine key={row.label} {...row} />
               ))}
             </div>

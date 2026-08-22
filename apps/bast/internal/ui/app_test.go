@@ -1899,6 +1899,112 @@ func TestErrorOverlaySpaceSendsReport(t *testing.T) {
 	}
 }
 
+func TestDotToggleKeepsHostCursor(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetHost("alpha", metadata.Host{Hidden: true}); err != nil {
+		t.Fatal(err)
+	}
+	m.cursor = 0
+	host, ok := m.selectedHost()
+	if !ok || host.Alias != "beta" {
+		t.Fatalf("expected beta selected, got %+v ok=%v", host, ok)
+	}
+	m.Update(press("."))
+	host, ok = m.selectedHost()
+	if !ok || host.Alias != "beta" {
+		t.Fatalf(". jumped cursor to %+v ok=%v cursor=%d", host, ok, m.cursor)
+	}
+}
+
+func TestSyncGridIndentsEveryTileLine(t *testing.T) {
+	m := testApp(t)
+	m.width = 80
+	m.section = syncSection
+	body := m.renderSync(m.styles())
+	var boxLines []string
+	for _, line := range strings.Split(body, "\n") {
+		if strings.Contains(line, "┌") || strings.Contains(line, "│") || strings.Contains(line, "└") {
+			boxLines = append(boxLines, line)
+		}
+	}
+	if len(boxLines) < 4 {
+		t.Fatalf("expected boxed grid:\n%s", body)
+	}
+	leading := func(s string) int {
+		n := 0
+		for _, r := range s {
+			if r != ' ' {
+				break
+			}
+			n++
+		}
+		return n
+	}
+	want := leading(boxLines[0])
+	if want < 2 {
+		t.Fatalf("expected indented tiles, got %d\n%s", want, body)
+	}
+	for _, line := range boxLines {
+		if got := leading(line); got != want {
+			t.Fatalf("indent %d != %d\n%q\n%s", got, want, line, body)
+		}
+	}
+}
+
+func TestHelpUsesTerminalWidthWithoutWrapping(t *testing.T) {
+	m := testApp(t)
+	m.width = 100
+	if got := m.helpContentWidth(); got < 80 {
+		t.Fatalf("helpContentWidth = %d", got)
+	}
+	for _, line := range m.helpLines(m.styles()) {
+		if strings.Contains(line, "\n") {
+			t.Fatalf("help line wrapped internally: %q", line)
+		}
+	}
+}
+
+func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
+	m := testApp(t)
+	m.width = 50
+	m.section = syncSection
+	if !m.isMobileLayout() {
+		t.Fatal("expected mobile layout")
+	}
+	if m.syncGridCols() != 1 {
+		t.Fatalf("mobile grid cols = %d", m.syncGridCols())
+	}
+	body := m.renderSync(m.styles())
+	if strings.Count(body, "┌") != 4 {
+		t.Fatalf("mobile should keep one boxed tile per provider:\n%s", body)
+	}
+	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") {
+		t.Fatalf("mobile grid body:\n%s", body)
+	}
+}
+
+func TestSyncTileLinesAlignWhenSelected(t *testing.T) {
+	m := testApp(t)
+	item := syncMenuItem{label: "GCP", detail: "disabled", provider: "gcp"}
+	selected := m.renderSyncTile(m.styles(), 0, item, 24)
+	plain := m.renderSyncTile(m.styles(), 1, item, 24)
+	for _, tile := range []string{selected, plain} {
+		lines := strings.Split(strings.TrimRight(tile, "\n"), "\n")
+		if len(lines) != 4 {
+			t.Fatalf("tile lines = %d\n%s", len(lines), tile)
+		}
+		width := lipgloss.Width(lines[0])
+		for i, line := range lines {
+			if lipgloss.Width(line) != width {
+				t.Fatalf("line %d width %d != %d\n%s", i, lipgloss.Width(line), width, tile)
+			}
+		}
+		if !strings.Contains(tile, "┌") || !strings.Contains(tile, " Cloud") {
+			t.Fatalf("expected boxed branded tile:\n%s", tile)
+		}
+	}
+}
+
 func TestHostsCanBeHiddenAndTemporarilyShown(t *testing.T) {
 	m := testApp(t)
 	if err := m.metadata.SetHost("alpha", metadata.Host{Hidden: true}); err != nil {
@@ -1929,7 +2035,7 @@ func TestHiddenHostsConcealedStatusClears(t *testing.T) {
 	m := testApp(t)
 	m.showHidden = true
 	_, cmd := m.Update(press("."))
-	if cmd == nil || m.status != "Hidden hosts concealed" {
+	if cmd == nil || m.status != "Hidden and stopped hosts concealed" {
 		t.Fatal("concealing hidden hosts did not schedule the status to clear")
 	}
 	statusID := m.statusID
@@ -2552,7 +2658,7 @@ func TestBoxCreateBusyThenSelectsHost(t *testing.T) {
 	m.syncProvider = "box"
 	m.beginSyncBusy("Creating box…")
 	m.syncingProviders = map[string]bool{"box": true}
-	if !m.vaultBusyBlocksSync() {
+	if !m.vaultBusyBlocksBody() {
 		t.Fatal("expected create busy to replace the sync body")
 	}
 	busy := m.renderVaultBusy(m.styles())
@@ -2593,7 +2699,7 @@ func TestBoxCreateBusyThenSelectsHost(t *testing.T) {
 	}
 }
 
-func TestStoppedBoxStaysVisibleAndMuted(t *testing.T) {
+func TestStoppedBoxHiddenUntilToggled(t *testing.T) {
 	m := testApp(t)
 	m.hosts = []sshconfig.Host{
 		{
@@ -2621,9 +2727,26 @@ func TestStoppedBoxStaysVisibleAndMuted(t *testing.T) {
 		switch row.host.Alias {
 		case "box_live":
 			sawRunning = true
-			if m.hostLooksStopped(row.host) {
-				t.Fatal("running box should not look stopped")
-			}
+		case "box_idle":
+			sawStopped = true
+		}
+	}
+	if !sawRunning {
+		t.Fatal("running box should stay visible")
+	}
+	if sawStopped {
+		t.Fatal("stopped box should be hidden by default")
+	}
+
+	m.showHidden = true
+	sawStopped, sawRunning = false, false
+	for _, row := range m.hostRows() {
+		if row.header {
+			continue
+		}
+		switch row.host.Alias {
+		case "box_live":
+			sawRunning = true
 		case "box_idle":
 			sawStopped = true
 			if !m.hostLooksStopped(row.host) {
@@ -2632,18 +2755,21 @@ func TestStoppedBoxStaysVisibleAndMuted(t *testing.T) {
 		}
 	}
 	if !sawRunning || !sawStopped {
-		t.Fatalf("expected both boxes under Box, running=%v stopped=%v", sawRunning, sawStopped)
+		t.Fatalf("expected both boxes after ., running=%v stopped=%v", sawRunning, sawStopped)
 	}
 
-	list := m.renderHosts(m.styles())
-	if !strings.Contains(list, "idle") || !strings.Contains(list, "live") {
-		t.Fatalf("both boxes should remain visible:\n%s", list)
+	m.showHidden = false
+	m.search = "idle"
+	sawStopped = false
+	for _, row := range m.hostRows() {
+		if !row.header && row.host.Alias == "box_idle" {
+			sawStopped = true
+		}
 	}
-	rowWidth := m.panelLayout().listWidth
-	mutedLine := m.styles().muted.Width(rowWidth).Render("    idle")
-	if !strings.Contains(list, mutedLine) {
-		t.Fatalf("stopped box should render muted:\n%s\nwant substring:\n%s", list, mutedLine)
+	if !sawStopped {
+		t.Fatal("search should reveal matching stopped boxes")
 	}
+
 	detail := m.renderHostDetail(m.styles(), m.hosts[1], 60)
 	if !strings.Contains(detail, "stopped") || !strings.Contains(detail, "Box stopped") {
 		t.Fatalf("stopped detail:\n%s", detail)
@@ -2671,6 +2797,7 @@ func TestBoxResumeActionsAreStateAware(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.collapsedGroups = map[string]bool{}
+	m.showHidden = true
 
 	selectHost := func(alias string) {
 		t.Helper()
@@ -2749,77 +2876,416 @@ func TestSyncTabRenders(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
 	body := m.renderSync(m.styles())
-	if !strings.Contains(body, "Vault") || !strings.Contains(body, "GCP") || !strings.Contains(body, "box.ascii.dev") {
-		t.Fatalf("sync list body:\n%s", body)
+	if strings.Contains(body, "Vault") {
+		t.Fatalf("sync grid should not include Vault:\n%s", body)
+	}
+	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Amazon EC2") ||
+		!strings.Contains(body, "Microsoft Azure") || !strings.Contains(body, "Box") {
+		t.Fatalf("sync grid body:\n%s", body)
 	}
 	if strings.Contains(body, "Sync now") {
-		t.Fatalf("sync list should not show submenu actions:\n%s", body)
+		t.Fatalf("sync grid should not show submenu actions:\n%s", body)
 	}
-	if strings.Contains(body, "Vault syncs Bast-managed hosts") {
-		t.Fatalf("sync list should not show a general description:\n%s", body)
+	if !strings.Contains(body, "Import Compute Engine") {
+		t.Fatalf("selected GCP tile should show description:\n%s", body)
 	}
-	if !strings.Contains(body, "Bast-managed hosts and keys") {
-		t.Fatalf("selected vault item should show description:\n%s", body)
+
+	m.updateSyncKeys("l")
+	if m.syncCursor != 1 {
+		t.Fatalf("l should move to AWS tile, cursor=%d", m.syncCursor)
 	}
-	if !strings.Contains(body, "AWS") || !strings.Contains(body, "Azure") || !strings.Contains(body, "disabled") {
-		t.Fatalf("expected cloud providers:\n%s", body)
+	m.updateSyncKeys("j")
+	if m.syncCursor != 3 {
+		t.Fatalf("j should move to Box tile, cursor=%d", m.syncCursor)
 	}
-	m.updateSyncKeys("enter")
-	if m.syncProvider != "vault" {
-		t.Fatalf("syncProvider = %q", m.syncProvider)
+	m.updateSyncKeys("h")
+	if m.syncCursor != 2 {
+		t.Fatalf("h should move to Azure tile, cursor=%d", m.syncCursor)
 	}
-	body = m.renderSync(m.styles())
-	if !strings.Contains(body, "Link account") && !strings.Contains(body, "not linked") {
-		t.Fatalf("vault submenu body:\n%s", body)
-	}
-	if !strings.Contains(body, "API base") {
-		t.Fatalf("vault submenu should show API base:\n%s", body)
-	}
-	if strings.Contains(body, "Pull now") || strings.Contains(body, "Push now") {
-		t.Fatalf("vault should use a single Sync now action:\n%s", body)
-	}
-	if strings.Contains(body, "needs current") || strings.Contains(body, "overwrite remote") {
-		t.Fatalf("vault should not show side labels:\n%s", body)
-	}
-	m.updateSyncKeys("esc")
-	if m.syncProvider != "" {
-		t.Fatalf("expected esc to return to sync list, got %q", m.syncProvider)
-	}
-	m.updateSyncKeys("down")
-	m.updateSyncKeys("enter")
-	if m.syncProvider != "gcp" {
-		t.Fatalf("expected GCP provider, got %q", m.syncProvider)
-	}
-	body = m.renderSync(m.styles())
-	if !strings.Contains(body, "Sync now") || !strings.Contains(body, "Connect") {
-		t.Fatalf("gcp submenu body:\n%s", body)
-	}
-	m.updateSyncKeys("esc")
-	m.updateSyncKeys("down")
-	m.updateSyncKeys("down")
-	m.updateSyncKeys("enter")
-	if m.syncProvider != "aws" {
-		t.Fatalf("expected AWS provider, got %q", m.syncProvider)
-	}
-	body = m.renderSync(m.styles())
-	if !strings.Contains(body, "Profile filter") || !strings.Contains(body, "Region filter") {
-		t.Fatalf("aws submenu body:\n%s", body)
-	}
-	m.updateSyncKeys("esc")
-	m.updateSyncKeys("down")
-	m.updateSyncKeys("down")
-	m.updateSyncKeys("down")
 	m.updateSyncKeys("enter")
 	if m.syncProvider != "azure" {
 		t.Fatalf("expected Azure provider, got %q", m.syncProvider)
 	}
 	body = m.renderSync(m.styles())
 	if !strings.Contains(body, "Subscription filter") || !strings.Contains(body, "Resource group filter") {
-		t.Fatalf("azure submenu body:\n%s", body)
+		t.Fatalf("azure provider body:\n%s", body)
+	}
+	if !strings.Contains(body, "Connect") {
+		t.Fatalf("disabled provider should offer Connect:\n%s", body)
+	}
+	m.updateSyncKeys("esc")
+	if m.syncProvider != "" {
+		t.Fatalf("expected esc to return to sync grid, got %q", m.syncProvider)
+	}
+	m.syncCursor = 0
+	m.updateSyncKeys("enter")
+	if m.syncProvider != "gcp" {
+		t.Fatalf("expected GCP provider, got %q", m.syncProvider)
+	}
+	body = m.renderSync(m.styles())
+	if !strings.Contains(body, "Connect") || !strings.Contains(body, "Project filter") {
+		t.Fatalf("gcp provider body:\n%s", body)
+	}
+	if strings.Contains(body, "Sync now") {
+		t.Fatalf("primary should be Connect, not a Sync now list item:\n%s", body)
 	}
 	tabs := m.renderTabs(m.styles())
-	if !strings.Contains(tabs, "[3] Sync") {
+	if !strings.Contains(tabs, "[3] Vault") || !strings.Contains(tabs, "[4] Sync") || !strings.Contains(tabs, "[5] Files") {
 		t.Fatalf("tabs = %q", tabs)
+	}
+}
+
+func TestBoxProviderLifecycleRow(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "box"
+	m.syncCursor = 0
+	m.syncStatus.Box.Authenticated = true
+	body := m.renderSync(m.styles())
+	if !strings.Contains(body, "New box") {
+		t.Fatalf("box page should offer New box:\n%s", body)
+	}
+	if !strings.Contains(body, "disabled") && !strings.Contains(body, "enabled") {
+		t.Fatalf("box page should show status:\n%s", body)
+	}
+	sameRow := false
+	for _, line := range strings.Split(body, "\n") {
+		if strings.Contains(line, "New box") && (strings.Contains(line, "Sync") || strings.Contains(line, "Connect")) {
+			sameRow = true
+			break
+		}
+	}
+	if !sameRow {
+		t.Fatalf("Sync/Connect and New box should share a row:\n%s", body)
+	}
+	m.updateSyncKeys("l")
+	if m.syncCursor != 1 {
+		t.Fatalf("l should move to New box, cursor=%d", m.syncCursor)
+	}
+	m.updateSyncKeys("enter")
+	if m.form == nil || m.form.action != "box_new" {
+		t.Fatalf("enter on New box should open form, got %#v", m.form)
+	}
+}
+
+func TestProviderPageJMovesToConfig(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "gcp"
+	m.syncCursor = 0
+	body := m.renderSync(m.styles())
+	if !strings.Contains(body, "disabled") {
+		t.Fatalf("expected status identity:\n%s", body)
+	}
+	if !strings.Contains(body, "Connect") {
+		t.Fatalf("expected Connect chip:\n%s", body)
+	}
+	m.updateSyncKeys("j")
+	if m.syncCursor != 1 {
+		t.Fatalf("j from chips should move to config, cursor=%d", m.syncCursor)
+	}
+	m.updateSyncKeys("k")
+	if m.syncCursor != 0 {
+		t.Fatalf("k should return to chips, cursor=%d", m.syncCursor)
+	}
+}
+
+func TestVaultMenuMouse(t *testing.T) {
+	m := testApp(t)
+	m.section = vaultSection
+	m.syncCursor = -1
+	y := m.vaultMenuOriginY()
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: y, Button: tea.MouseLeft}))
+	if m.syncCursor != 0 {
+		t.Fatalf("first click should select API base, cursor=%d", m.syncCursor)
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: y, Button: tea.MouseLeft}))
+	if m.form == nil || m.form.action != "vault_api_base" {
+		t.Fatalf("second click should open API base, form=%#v", m.form)
+	}
+}
+
+func TestVaultTermsFormMouse(t *testing.T) {
+	m := testApp(t)
+	m.openVaultTermsForm("you@example.com", "https://bast.sh")
+	if m.form == nil || !m.form.selecting {
+		t.Fatal("terms form should start selecting")
+	}
+	y := m.formOptionListOriginY()
+	if y < 0 {
+		t.Fatal("expected option list")
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 6, Y: y + 1, Button: tea.MouseLeft}))
+	if m.form == nil || m.form.fields[m.form.index].selected != 1 {
+		t.Fatalf("first click should select Cancel, form=%#v", m.form)
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 6, Y: y + 1, Button: tea.MouseLeft}))
+	if m.form != nil {
+		t.Fatal("second click on Cancel should close terms")
+	}
+}
+
+func TestProviderInventoryGroupsByStatus(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "box"
+	m.syncCursor = -1
+	m.hosts = []sshconfig.Host{
+		{Alias: "box_run", Synced: true, SyncSource: "box", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"}},
+		{Alias: "box_stop", Synced: true, SyncSource: "box", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"}},
+	}
+	if err := m.metadata.SetHost("box_run", metadata.Host{Label: "alpha-box", Group: "Box", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("box_stop", metadata.Host{Label: "idle-box", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+		t.Fatal(err)
+	}
+	body := m.renderSync(m.styles())
+	if !strings.Contains(body, "Running") || !strings.Contains(body, "Stopped") {
+		t.Fatalf("expected status groups:\n%s", body)
+	}
+	if !strings.Contains(body, "alpha-box") {
+		t.Fatalf("running host should be visible:\n%s", body)
+	}
+	if strings.Contains(body, "idle-box") {
+		t.Fatalf("stopped group should start collapsed:\n%s", body)
+	}
+
+	m.updateSyncKeys("j")
+	if m.syncCursor != 1 {
+		t.Fatalf("j should focus Running header, cursor=%d", m.syncCursor)
+	}
+	m.updateSyncKeys("j")
+	if m.syncCursor != 2 {
+		t.Fatalf("j should focus running host, cursor=%d", m.syncCursor)
+	}
+	if got := m.browseFooterHint(80); !strings.Contains(got, "enter connect") {
+		t.Fatalf("host footer = %q", got)
+	}
+	m.updateSyncKeys("j")
+	if m.syncCursor != 3 {
+		t.Fatalf("j should focus Stopped header, cursor=%d", m.syncCursor)
+	}
+	m.updateSyncKeys("space")
+	body = m.renderSync(m.styles())
+	if !strings.Contains(body, "idle-box") {
+		t.Fatalf("space should expand stopped:\n%s", body)
+	}
+
+	m.updateSyncKeys("j")
+	_, cmd := m.updateSyncKeys("enter")
+	if m.boxConnectAfter != "box_stop" {
+		t.Fatalf("enter on stopped box should resume+connect, after=%q", m.boxConnectAfter)
+	}
+	if cmd == nil {
+		t.Fatal("expected resume command")
+	}
+}
+
+func TestProviderInstancesGroup(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "gcp"
+	m.syncCursor = -1
+	m.hosts = []sshconfig.Host{
+		{Alias: "gcp_web", Synced: true, SyncSource: "gcp", SyncID: "projects/p/zones/z/instances/web"},
+		{Alias: "gcp_api", Synced: true, SyncSource: "gcp", SyncID: "projects/p/zones/z/instances/api"},
+	}
+	if err := m.metadata.SetHost("gcp_web", metadata.Host{Label: "web", Group: "Google Cloud/prod"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("gcp_api", metadata.Host{Label: "api", Group: "Google Cloud/prod"}); err != nil {
+		t.Fatal(err)
+	}
+	body := m.renderSync(m.styles())
+	if !strings.Contains(body, "Instances") || !strings.Contains(body, "web") || !strings.Contains(body, "api") {
+		t.Fatalf("gcp inventory:\n%s", body)
+	}
+	if strings.Contains(body, "Running") || strings.Contains(body, "Stopped") {
+		t.Fatalf("gcp should not split running/stopped:\n%s", body)
+	}
+}
+
+func TestProviderNavChipThenInventory(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "box"
+	m.syncCursor = -1
+	m.syncStatus.Box.Authenticated = true
+	m.hosts = []sshconfig.Host{
+		{Alias: "box_run", Synced: true, SyncSource: "box", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10"}},
+	}
+	if err := m.metadata.SetHost("box_run", metadata.Host{Label: "alpha-box", Group: "Box", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.updateSyncKeys("l")
+	if m.syncCursor != 1 {
+		t.Fatalf("l from Sync/Connect should hit New box, cursor=%d", m.syncCursor)
+	}
+	m.updateSyncKeys("j")
+	if m.syncCursor != 2 {
+		t.Fatalf("j from chips should hit inventory, cursor=%d", m.syncCursor)
+	}
+}
+
+func TestProviderPageMouse(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "gcp"
+	m.syncCursor = -1
+	var configHit providerPageHit
+	found := false
+	for _, h := range m.providerPageHits() {
+		if h.kind == "config" && h.index == 0 {
+			configHit = h
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected config hit")
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: configHit.y0, Button: tea.MouseLeft}))
+	if m.syncCursor < 0 {
+		t.Fatalf("first click should select config, cursor=%d", m.syncCursor)
+	}
+	_, cmd := m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: configHit.y0, Button: tea.MouseLeft}))
+	if m.form == nil && cmd == nil {
+		t.Fatal("second click should run config action")
+	}
+}
+
+func TestBoxLifecycleChipMouse(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "box"
+	m.syncCursor = -1
+	m.syncStatus.Box.Authenticated = true
+	life, _ := m.providerActionLayout()
+	newIdx := -1
+	for i, item := range life {
+		if item.action == "box_new" {
+			newIdx = i
+			break
+		}
+	}
+	if newIdx < 0 {
+		t.Fatal("expected New box action")
+	}
+	var chip providerPageHit
+	found := false
+	for _, h := range m.providerPageHits() {
+		if h.kind == "chip" && h.index == newIdx {
+			chip = h
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected New box chip")
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: chip.x0 + 1, Y: chip.y0, Button: tea.MouseLeft}))
+	if m.syncCursor != newIdx {
+		t.Fatalf("first click should select New box, cursor=%d", m.syncCursor)
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: chip.x0 + 1, Y: chip.y0, Button: tea.MouseLeft}))
+	if m.form == nil || m.form.action != "box_new" {
+		t.Fatalf("second click should open New box, form=%#v", m.form)
+	}
+}
+
+func TestProviderInventoryMouseToggle(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "box"
+	m.syncCursor = -1
+	m.hosts = []sshconfig.Host{
+		{Alias: "box_stop", Synced: true, SyncSource: "box", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"}},
+	}
+	if err := m.metadata.SetHost("box_stop", metadata.Host{Label: "idle-box", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(m.renderSync(m.styles()), "idle-box") {
+		t.Fatal("stopped host should start hidden")
+	}
+	var header providerPageHit
+	found := false
+	for _, h := range m.providerPageHits() {
+		if h.kind == "inv" && h.index == 0 {
+			header = h
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected stopped header hit")
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: header.y0, Button: tea.MouseLeft}))
+	if !strings.Contains(m.renderSync(m.styles()), "idle-box") {
+		t.Fatal("clicking Stopped should expand the group")
+	}
+}
+
+func TestVaultTabRenders(t *testing.T) {
+	m := testApp(t)
+	m.section = vaultSection
+	m.syncCursor = -1
+	body := m.renderVault(m.styles())
+	if !strings.Contains(body, "Vault") || !strings.Contains(body, "not linked") {
+		t.Fatalf("vault body:\n%s", body)
+	}
+	if !strings.Contains(body, "Link") {
+		t.Fatalf("vault should show Link:\n%s", body)
+	}
+	if strings.Contains(body, "Link account") {
+		t.Fatalf("primary should not be duplicated in the list:\n%s", body)
+	}
+	if strings.Contains(body, "GCP") {
+		t.Fatalf("vault tab should not list cloud providers:\n%s", body)
+	}
+	if strings.Contains(body, "Does not sync external") {
+		t.Fatalf("vault should not narrate the interface:\n%s", body)
+	}
+}
+
+func TestVaultHostedTermsForm(t *testing.T) {
+	m := testApp(t)
+	m.form = &form{
+		action: "vault_login",
+		fields: []field{
+			{label: "Email", value: "you@example.com"},
+			{label: "API base", value: "https://bast.sh"},
+		},
+	}
+	if cmd := m.submitVaultLogin(); cmd != nil {
+		t.Fatal("hosted login should open terms before sending OTP")
+	}
+	if m.form == nil || m.form.action != "vault_terms" {
+		t.Fatalf("expected vault_terms form, got %#v", m.form)
+	}
+	if !strings.Contains(m.form.fields[2].description, "legal/terms") {
+		t.Fatalf("terms form should cite URLs: %+v", m.form.fields)
+	}
+	m.form.fields[2].value = "cancel"
+	if cmd := m.submitVaultTerms(); cmd == nil {
+		t.Fatal("cancel should notice")
+	}
+	if m.form != nil {
+		t.Fatal("cancel should close the form")
+	}
+
+	m.form = &form{
+		action: "vault_login",
+		fields: []field{
+			{label: "Email", value: "you@example.com"},
+			{label: "API base", value: "https://vault.example"},
+		},
+	}
+	if cmd := m.submitVaultLogin(); cmd == nil {
+		t.Fatal("self-host login should send OTP without terms")
+	}
+	if m.form != nil && m.form.action == "vault_terms" {
+		t.Fatal("self-host should skip terms")
 	}
 }
 
@@ -3028,5 +3494,48 @@ func TestFavoriteAndHiddenAllowedForNonBoxSyncedHosts(t *testing.T) {
 	}
 	if !strings.Contains(m.status, "Box hosts are read-only") {
 		t.Fatalf("box hidden status = %q", m.status)
+	}
+}
+
+func TestTabKeysOpenVaultSyncFiles(t *testing.T) {
+	m := testApp(t)
+	m.Update(press("3"))
+	if m.section != vaultSection {
+		t.Fatalf("3 should open Vault, got %v", m.section)
+	}
+	m.Update(press("4"))
+	if m.section != syncSection {
+		t.Fatalf("4 should open Sync, got %v", m.section)
+	}
+	m.Update(press("5"))
+	if m.section != filesSection {
+		t.Fatalf("5 should open Files, got %v", m.section)
+	}
+	m.Update(press("1"))
+	if m.section != hostsSection {
+		t.Fatalf("1 should open Hosts, got %v", m.section)
+	}
+}
+
+func TestProviderGroupShowsCreate(t *testing.T) {
+	m := testApp(t)
+	m.hosts = nil
+	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	m.collapsedGroups = map[string]bool{}
+	rows := m.hostRows()
+	if len(rows) == 0 || !rows[0].header || rows[0].group != "Box" {
+		t.Fatalf("expected injected Box group, rows=%+v", rows)
+	}
+	m.cursor = 0
+	detail := m.renderGroupDetail(m.styles(), rows[0], 60)
+	if !strings.Contains(detail, "New box") {
+		t.Fatalf("Box group should offer New box:\n%s", detail)
+	}
+	_, cmd := m.updateKeys(press("n"))
+	_ = cmd
+	if m.form == nil || m.form.action != "box_new" {
+		t.Fatalf("n on Box group should open new form, got %#v", m.form)
 	}
 }

@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 
+import { legalVersion } from "@/lib/company";
 import { sendVaultOTP } from "@/lib/email";
 import { getRedis } from "@/lib/redis";
 
@@ -24,9 +25,24 @@ export function normalizeOTP(value: unknown): string {
   return digits.length === 6 ? digits : "";
 }
 
-type StoredOTP = { code: string };
+type StoredOTP = {
+  code: string;
+  acceptTerms?: boolean;
+  termsVersion?: string;
+};
 
-export async function startEmailOTP(emailRaw: string, clientIP = ""): Promise<void> {
+type VaultUserRecord = {
+  id: string;
+  email: string;
+  acceptedTermsAt?: string;
+  termsVersion?: string;
+};
+
+export async function startEmailOTP(
+  emailRaw: string,
+  clientIP = "",
+  opts: { acceptTerms?: boolean } = {},
+): Promise<void> {
   const email = normalizeEmail(emailRaw);
   if (!email.includes("@")) {
     throw Object.assign(new Error("invalid email"), { status: 400 });
@@ -53,6 +69,10 @@ export async function startEmailOTP(emailRaw: string, clientIP = ""): Promise<vo
 
   const otp = String(randomInt(0, 1_000_000)).padStart(6, "0");
   const payload: StoredOTP = { code: otp };
+  if (opts.acceptTerms) {
+    payload.acceptTerms = true;
+    payload.termsVersion = legalVersion;
+  }
   await redis.set(`vault:otp:${email}`, payload, { ex: OTP_TTL_SECONDS });
   await redis.del(`vault:otp:attempts:${email}`);
   await redis.set(cooldownKey, "1", { ex: OTP_SEND_COOLDOWN_SECONDS });
@@ -94,10 +114,11 @@ export async function verifyEmailOTP(emailRaw: string, codeRaw: string): Promise
   }
 
   const raw = await redis.get<StoredOTP | string | number>(`vault:otp:${email}`);
-  const expected =
-    raw && typeof raw === "object" && "code" in raw
-      ? normalizeOTP((raw as StoredOTP).code)
-      : normalizeOTP(raw);
+  const storedOTP =
+    raw && typeof raw === "object" && "code" in raw ? (raw as StoredOTP) : null;
+  const expected = storedOTP
+    ? normalizeOTP(storedOTP.code)
+    : normalizeOTP(raw);
   if (!expected || expected.length !== 6 || expected !== code) {
     if (attempts <= 0) {
       await redis.set(attemptsKey, 1, { ex: OTP_TTL_SECONDS });
@@ -113,8 +134,28 @@ export async function verifyEmailOTP(emailRaw: string, codeRaw: string): Promise
   if (!userId) {
     userId = randomBytes(16).toString("hex");
     await redis.set(`vault:user:email:${email}`, userId);
-    await redis.set(`vault:user:${userId}`, JSON.stringify({ id: userId, email }));
   }
+  const userKey = `vault:user:${userId}`;
+  const existingUser = await redis.get<string>(userKey);
+  let user: VaultUserRecord = { id: userId, email };
+  if (existingUser) {
+    try {
+      const parsed =
+        typeof existingUser === "string"
+          ? (JSON.parse(existingUser) as VaultUserRecord)
+          : (existingUser as VaultUserRecord);
+      if (parsed?.id && parsed?.email) {
+        user = parsed;
+      }
+    } catch {
+      // keep the default record
+    }
+  }
+  if (storedOTP?.acceptTerms) {
+    user.acceptedTermsAt = new Date().toISOString();
+    user.termsVersion = storedOTP.termsVersion || legalVersion;
+  }
+  await redis.set(userKey, JSON.stringify(user));
 
   const deviceId = randomBytes(12).toString("hex");
   const token = randomBytes(32).toString("base64url");

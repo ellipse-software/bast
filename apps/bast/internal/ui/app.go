@@ -26,6 +26,7 @@ type section int
 const (
 	hostsSection section = iota
 	keysSection
+	vaultSection
 	syncSection
 	filesSection
 )
@@ -128,6 +129,7 @@ type hostRowsCache struct {
 	search             string
 	showHidden         bool
 	hostSignature      uint64
+	boxEnabled         bool
 	rows               []hostRow
 }
 
@@ -137,6 +139,7 @@ type hostListRowsCache struct {
 	collapseGeneration uint64
 	search             string
 	showHidden         bool
+	boxEnabled         bool
 	hostSignature      uint64
 	historyCollapsed   bool
 	suggestionSig      uint64
@@ -213,9 +216,10 @@ type App struct {
 	vaultOpGen        uint64
 	vaultRemoteRetry  bool // one-shot auto-recovery after ErrRemoteUpdated
 	vaultConflict     *vaultConflictState
-	syncBusy          string // full-screen Sync overlay for long ops (e.g. box create)
-	syncActivity      string // footer label while a provider op runs (e.g. "resuming…")
-	boxConnectAfter   string // after box resume+reload, SSH into this alias
+	syncBusy          string          // full-screen Sync overlay for long ops (e.g. box create)
+	syncActivity      string          // footer label while a provider op runs (e.g. "resuming…")
+	boxConnectAfter   string          // after box resume+reload, SSH into this alias
+	syncInvCollapsed  map[string]bool // session-only status-group collapse on provider pages
 
 	files filesState
 
