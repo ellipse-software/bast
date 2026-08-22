@@ -4,6 +4,7 @@ import {
   MarketingBreadcrumb,
   MarketingShell,
 } from "@/components/marketing-shell";
+import { ReleaseBody } from "@/components/release-body";
 import {
   bastReleasesUrl,
   getBastReleases,
@@ -27,82 +28,6 @@ function formatDate(value: string | null): string {
     month: "short",
     day: "numeric",
   }).format(date);
-}
-
-function ReleaseBody({ body }: { body: string }) {
-  if (!body) {
-    return (
-      <p className="text-sm text-muted">No release notes for this tag.</p>
-    );
-  }
-
-  const lines = body.split(/\r?\n/);
-
-  return (
-    <div className="space-y-2 text-sm leading-relaxed text-muted">
-      {lines.map((line, index) => {
-        const trimmed = line.trim();
-        if (!trimmed) return <div key={`blank-${index}`} className="h-2" />;
-
-        const bullet = trimmed.match(/^[-*]\s+(.*)$/);
-        const content = bullet ? bullet[1] : trimmed.replace(/^#+\s*/, "");
-
-        const nodes = linkify(content);
-
-        if (bullet) {
-          return (
-            <p key={index} className="pl-4">
-              <span className="mr-2 text-foreground/50">-</span>
-              {nodes}
-            </p>
-          );
-        }
-
-        if (/^#+\s/.test(trimmed) || /^\*\*.*\*\*$/.test(trimmed)) {
-          return (
-            <p key={index} className="font-medium text-foreground">
-              {nodes}
-            </p>
-          );
-        }
-
-        return <p key={index}>{nodes}</p>;
-      })}
-    </div>
-  );
-}
-
-function linkify(text: string) {
-  const parts = text.split(/(https?:\/\/[^\s)]+|#[0-9]+)/g);
-  return parts.map((part, index) => {
-    if (/^https?:\/\//.test(part)) {
-      return (
-        <a
-          key={index}
-          href={part}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-foreground underline-offset-2 hover:underline"
-        >
-          {part.replace(/^https:\/\/github\.com\/ellipse-software\/bast\//, "")}
-        </a>
-      );
-    }
-    if (/^#[0-9]+$/.test(part)) {
-      return (
-        <a
-          key={index}
-          href={`https://github.com/ellipse-software/bast/pull/${part.slice(1)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-foreground underline-offset-2 hover:underline"
-        >
-          {part}
-        </a>
-      );
-    }
-    return <span key={index}>{part.replace(/\*\*/g, "")}</span>;
-  });
 }
 
 export default async function ChangelogPage() {
