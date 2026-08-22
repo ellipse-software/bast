@@ -9,13 +9,19 @@ import {
   getStatusPageData,
   type AggregateStatus,
 } from "@/lib/betterstack";
+import {
+  company,
+  privacyPath,
+  termsPath,
+  trademarkNotice,
+} from "@/lib/company";
 import { bastRepoUrl, bastReleasesUrl, bastSponsorUrl } from "@/lib/github";
+import { pageMaxWidthClass } from "@/lib/layout";
 import {
   comparisonNavItems,
   guideNavItems,
 } from "@/lib/marketing";
 import { llmsFullUrl, llmsTxtUrl, skillUrl } from "@/lib/site";
-import { pageMaxWidthClass } from "@/lib/layout";
 
 const linkClass =
   "text-sm text-muted transition-colors hover:text-foreground";
@@ -164,40 +170,71 @@ export async function SiteFooter() {
           </FooterColumn>
         </div>
 
-        <div className="mt-12 flex flex-col gap-3 border-t border-border pt-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
-          <p>
-            © {new Date().getFullYear()} Bast.sh
-            <span aria-hidden className="mx-2 text-border">
-              ·
-            </span>
-            An{" "}
-            <a
-              href="https://ellipse.software"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="transition-colors hover:text-foreground"
-            >
-              ellipse Software
-            </a>{" "}
-            product.
-          </p>
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <Link
-              href="/status"
-              className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
-              title={aggregateLabel(status.aggregate)}
-            >
-              <span
-                className={`size-1.5 shrink-0 rounded-full ${statusDotClass(status.aggregate)}`}
-                aria-hidden
-              />
-              {footerStatusLabel(status.aggregate)}
-            </Link>
-            <span aria-hidden className="text-border">
-              ·
-            </span>
-            <span>MIT licensed</span>
-          </p>
+        <div className="mt-12 border-t border-border pt-6">
+          <div className="flex flex-col gap-3 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              © {new Date().getFullYear()} Bast.sh
+              <span aria-hidden className="mx-2 text-border">
+                ·
+              </span>
+              An{" "}
+              <a
+                href={company.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="transition-colors hover:text-foreground"
+              >
+                {company.tradingName}
+              </a>{" "}
+              product.
+            </p>
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <Link
+                href="/status"
+                className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
+                title={aggregateLabel(status.aggregate)}
+              >
+                <span
+                  className={`size-1.5 shrink-0 rounded-full ${statusDotClass(status.aggregate)}`}
+                  aria-hidden
+                />
+                {footerStatusLabel(status.aggregate)}
+              </Link>
+              <span aria-hidden className="text-border">
+                ·
+              </span>
+              <Link
+                href={termsPath}
+                className="transition-colors hover:text-foreground"
+              >
+                Terms
+              </Link>
+              <span aria-hidden className="text-border">
+                ·
+              </span>
+              <Link
+                href={privacyPath}
+                className="transition-colors hover:text-foreground"
+              >
+                Privacy
+              </Link>
+              <span aria-hidden className="text-border">
+                ·
+              </span>
+              <span>MIT licensed</span>
+            </p>
+          </div>
+
+          <div className="mt-10 w-full space-y-2 text-[11px] leading-relaxed text-muted/55">
+            <address className="not-italic">
+              {company.legalName} trading as {company.tradingName} is a limited
+              company registered in {company.jurisdiction}. Company number{" "}
+              {company.companyNumber}. Registered office:{" "}
+              {company.registeredAddress}. Bast.sh is a product and hosted
+              service of {company.legalName}.
+            </address>
+            <p>{trademarkNotice}</p>
+          </div>
         </div>
       </div>
 

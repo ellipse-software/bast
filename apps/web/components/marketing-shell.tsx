@@ -10,9 +10,14 @@ import { pageMaxWidthClass } from "@/lib/layout";
 type MarketingShellProps = {
   children: ReactNode;
   version?: string | null;
+  preFooter?: boolean;
 };
 
-export function MarketingShell({ children, version }: MarketingShellProps) {
+export function MarketingShell({
+  children,
+  version,
+  preFooter = true,
+}: MarketingShellProps) {
   return (
     <div className="relative flex min-h-full flex-col">
       <BackgroundGrid />
@@ -22,7 +27,7 @@ export function MarketingShell({ children, version }: MarketingShellProps) {
       >
         <div className="w-full">{children}</div>
       </main>
-      <PreFooter version={version} />
+      {preFooter ? <PreFooter version={version} /> : null}
       <SiteFooter />
     </div>
   );

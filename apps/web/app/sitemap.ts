@@ -50,6 +50,21 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "hourly",
       priority: 0.7,
     },
+    {
+      url: `${siteUrl}/legal`,
+      changeFrequency: "yearly",
+      priority: 0.4,
+    },
+    {
+      url: `${siteUrl}/legal/privacy`,
+      changeFrequency: "yearly",
+      priority: 0.4,
+    },
+    {
+      url: `${siteUrl}/legal/terms`,
+      changeFrequency: "yearly",
+      priority: 0.4,
+    },
     ...comparisonPages,
     ...guidePages,
     {
