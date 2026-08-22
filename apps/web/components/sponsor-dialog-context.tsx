@@ -12,10 +12,8 @@ import {
 } from "react";
 
 import {
-  isCheckoutSessionId,
-  SPONSOR_COMPLETE_PARAM,
-  SPONSOR_COMPLETE_VALUE,
-  SPONSOR_SESSION_PARAM,
+  parseSponsorDialogIntent,
+  stripSponsorDialogSearch,
 } from "@/lib/checkout-return";
 
 const SponsorDialog = dynamic(
@@ -43,16 +41,10 @@ function emitSponsorReturn() {
 function readSponsorReturnFromUrl(): SponsorReturnSnapshot {
   if (returnRead) return returnSnapshot;
   returnRead = true;
-  const params = new URLSearchParams(window.location.search);
-  if (params.get(SPONSOR_COMPLETE_PARAM) !== SPONSOR_COMPLETE_VALUE) {
-    returnSnapshot = closedReturn;
-    return returnSnapshot;
-  }
-  const rawId = params.get(SPONSOR_SESSION_PARAM);
-  returnSnapshot = {
-    sessionId: rawId && isCheckoutSessionId(rawId) ? rawId : null,
-    open: true,
-  };
+  const intent = parseSponsorDialogIntent(window.location.search);
+  returnSnapshot = intent.open
+    ? { sessionId: intent.sessionId, open: true }
+    : closedReturn;
   return returnSnapshot;
 }
 
@@ -74,12 +66,10 @@ function dismissSponsorReturn() {
 }
 
 function stripSponsorReturnQuery() {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get(SPONSOR_COMPLETE_PARAM) !== SPONSOR_COMPLETE_VALUE) return;
-  params.delete(SPONSOR_COMPLETE_PARAM);
-  params.delete(SPONSOR_SESSION_PARAM);
-  const search = params.toString();
-  const next = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`;
+  const stripped = stripSponsorDialogSearch(window.location.search);
+  const current = window.location.search.replace(/^\?/, "");
+  if (stripped === current) return;
+  const next = `${window.location.pathname}${stripped ? `?${stripped}` : ""}${window.location.hash}`;
   window.history.replaceState(null, "", next);
 }
 

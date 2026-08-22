@@ -4,8 +4,10 @@ import {
   buildCheckoutReturnUrl,
   checkoutOrigin,
   isCheckoutSessionId,
+  parseSponsorDialogIntent,
   requestOriginFromHeaders,
   sanitizeCheckoutReturnPath,
+  stripSponsorDialogSearch,
 } from "@/lib/checkout-return";
 import { siteUrl } from "@/lib/site";
 
@@ -110,5 +112,47 @@ describe("buildCheckoutReturnUrl", () => {
     expect(buildCheckoutReturnUrl("https://bast.sh", "/docs")).toBe(
       "https://bast.sh/docs?sponsor=complete&session_id={CHECKOUT_SESSION_ID}",
     );
+  });
+});
+
+describe("parseSponsorDialogIntent", () => {
+  test("opens the dialog from /?sponsor=open", () => {
+    expect(parseSponsorDialogIntent("?sponsor=open")).toEqual({
+      open: true,
+      sessionId: null,
+    });
+  });
+
+  test("resumes a completed checkout session", () => {
+    expect(
+      parseSponsorDialogIntent(
+        "?sponsor=complete&session_id=cs_test_abc123",
+      ),
+    ).toEqual({
+      open: true,
+      sessionId: "cs_test_abc123",
+    });
+  });
+
+  test("ignores unrelated queries", () => {
+    expect(parseSponsorDialogIntent("")).toEqual({
+      open: false,
+      sessionId: null,
+    });
+    expect(parseSponsorDialogIntent("?foo=1")).toEqual({
+      open: false,
+      sessionId: null,
+    });
+  });
+});
+
+describe("stripSponsorDialogSearch", () => {
+  test("removes sponsor open and complete params", () => {
+    expect(stripSponsorDialogSearch("?sponsor=open")).toBe("");
+    expect(
+      stripSponsorDialogSearch(
+        "?sponsor=complete&session_id=cs_test_abc123&keep=1",
+      ),
+    ).toBe("keep=1");
   });
 });

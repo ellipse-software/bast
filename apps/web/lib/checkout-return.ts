@@ -4,7 +4,9 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "192.168.0.232"]);
 
 export const SPONSOR_COMPLETE_PARAM = "sponsor";
 export const SPONSOR_COMPLETE_VALUE = "complete";
+export const SPONSOR_OPEN_VALUE = "open";
 export const SPONSOR_SESSION_PARAM = "session_id";
+export const SPONSOR_OPEN_HREF = `/?${SPONSOR_COMPLETE_PARAM}=${SPONSOR_OPEN_VALUE}`;
 
 export function isCheckoutSessionId(value: string): boolean {
   return /^cs_(test|live)_[A-Za-z0-9]+$/.test(value);
@@ -55,6 +57,40 @@ export function requestOriginFromHeaders(input: {
   if (!host) return null;
   const proto = input.forwardedProto?.split(",")[0]?.trim() || "http";
   return `${proto}://${host}`;
+}
+
+export function parseSponsorDialogIntent(search: string): {
+  open: boolean;
+  sessionId: string | null;
+} {
+  const params = new URLSearchParams(
+    search.startsWith("?") ? search.slice(1) : search,
+  );
+  const sponsor = params.get(SPONSOR_COMPLETE_PARAM);
+  if (sponsor === SPONSOR_COMPLETE_VALUE) {
+    const rawId = params.get(SPONSOR_SESSION_PARAM);
+    return {
+      open: true,
+      sessionId: rawId && isCheckoutSessionId(rawId) ? rawId : null,
+    };
+  }
+  if (sponsor === SPONSOR_OPEN_VALUE) {
+    return { open: true, sessionId: null };
+  }
+  return { open: false, sessionId: null };
+}
+
+export function stripSponsorDialogSearch(search: string): string {
+  const params = new URLSearchParams(
+    search.startsWith("?") ? search.slice(1) : search,
+  );
+  const sponsor = params.get(SPONSOR_COMPLETE_PARAM);
+  if (sponsor !== SPONSOR_COMPLETE_VALUE && sponsor !== SPONSOR_OPEN_VALUE) {
+    return params.toString();
+  }
+  params.delete(SPONSOR_COMPLETE_PARAM);
+  params.delete(SPONSOR_SESSION_PARAM);
+  return params.toString();
 }
 
 /** Stripe replaces `{CHECKOUT_SESSION_ID}` literally; do not URL-encode it. */

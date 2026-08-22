@@ -55,6 +55,11 @@ const config = {
 				destination: "/docs/install",
 				permanent: true,
 			},
+			{
+				source: "/sponser",
+				destination: "/sponsor",
+				permanent: true,
+			},
 		];
 	},
 };
