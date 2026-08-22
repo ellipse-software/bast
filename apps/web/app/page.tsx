@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 import { BackgroundGrid } from "@/components/background-grid";
 import { Comparison } from "@/components/comparison";
 import { Faq } from "@/components/faq";
@@ -25,14 +27,21 @@ export default async function Home() {
         <div
           className={`mx-auto flex w-full ${pageMaxWidthClass} flex-col items-center px-4 pt-12 sm:px-6 sm:pt-14 md:pt-16 lg:pt-20`}
         >
-          <header className="mb-12 flex max-w-2xl flex-col items-center text-center sm:mb-10">
-            <h1 className="mb-5 text-5xl font-medium tracking-tight sm:mb-4">
-              Bast<span className="text-accent">.sh</span>
+          <header className="mb-12 flex w-full flex-col items-center text-center sm:mb-10">
+            <h1 className="mb-8 w-full max-w-3xl sm:mb-10">
+              <Image
+                src="https://cdn.bast.sh/bast-long-word.png"
+                alt="Bast.sh"
+                width={961}
+                height={140}
+                className="h-auto w-full"
+                sizes="(max-width: 48rem) 100vw, 48rem"
+                priority
+              />
             </h1>
             <p className="max-w-lg text-base leading-relaxed text-muted sm:text-base md:text-lg">
               Browse SSH hosts, transfer files over SFTP, sync cloud VMs, manage
-              keys, and connect from the terminal. The fast way into the servers
-              you use every day.
+              keys, and connect from the terminal.
             </p>
           </header>
 

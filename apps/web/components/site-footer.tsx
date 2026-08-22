@@ -119,8 +119,7 @@ export async function SiteFooter() {
               <WordmarkLogo />
             </Link>
             <p className="mt-3 text-sm leading-relaxed text-muted">
-              Terminal-native SSH host picker for macOS, Linux, and Windows 11. OpenSSH stays
-              the source of truth.
+              The fast way into the servers you use every day.
             </p>
           </div>
           <AgentResources contextUrl={llmsTxtUrl} />
