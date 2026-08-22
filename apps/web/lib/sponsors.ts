@@ -16,6 +16,11 @@ export const sponsors: Sponsor[] = [
 		message: "It’s a great tool, thanks for making it!",
 		amount: 100,
 	},
+	{
+		href: "https://x.com/trylle",
+		message: "Trylle ❤️ Bast",
+		amount: 100,
+	},
 ];
 
 export const SPONSOR_PRESETS_USD = [5, 10, 25, 50, 100] as const;

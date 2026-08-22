@@ -4,6 +4,16 @@ import { formatUsd, sponsors } from "@/lib/sponsors";
 import { splitTweetText } from "@/lib/tweet-text";
 import { parseXProfileUrl } from "@/lib/x-handle";
 
+function sponsorListClass(count: number): string {
+  if (count <= 1) {
+    return "flex justify-center";
+  }
+  if (count === 2) {
+    return "mx-auto grid w-full max-w-3xl grid-cols-1 justify-items-center gap-x-8 gap-y-12 md:grid-cols-2";
+  }
+  return "grid grid-cols-1 justify-items-center gap-x-8 gap-y-12 md:grid-cols-3";
+}
+
 export async function Sponsors() {
   const parsed = sponsors
     .map((sponsor) => {
@@ -22,13 +32,7 @@ export async function Sponsors() {
           <SponsorCta />
         </p>
       </div>
-      <div
-        className={
-          parsed.length === 1
-            ? "flex justify-center"
-            : "grid grid-cols-1 justify-items-center gap-x-8 gap-y-12 md:grid-cols-3"
-        }
-      >
+      <div className={sponsorListClass(parsed.length)}>
         {parsed.map((sponsor) => {
           const itemClass =
             "flex w-full max-w-md flex-col items-center text-center";
