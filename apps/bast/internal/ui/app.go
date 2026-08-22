@@ -26,6 +26,7 @@ type section int
 const (
 	hostsSection section = iota
 	keysSection
+	vaultSection
 	syncSection
 	filesSection
 )
@@ -128,6 +129,7 @@ type hostRowsCache struct {
 	search             string
 	showHidden         bool
 	hostSignature      uint64
+	boxEnabled         bool
 	rows               []hostRow
 }
 
@@ -137,6 +139,7 @@ type hostListRowsCache struct {
 	collapseGeneration uint64
 	search             string
 	showHidden         bool
+	boxEnabled         bool
 	hostSignature      uint64
 	historyCollapsed   bool
 	suggestionSig      uint64
@@ -168,54 +171,56 @@ type App struct {
 	historyImporting            string
 	historySuggestionsCollapsed bool
 
-	section           section
-	hosts             []sshconfig.Host
-	keys              []keys.Key
-	cursor            int
-	search            string
-	form              *form
-	help              bool
-	helpOffset        int
-	credits           bool
-	showHidden        bool
-	loading           bool
-	enriching         bool
-	autoSyncStarted   bool
-	syncingProviders  map[string]bool
-	status            string
-	statusError       bool
-	statusID          uint64
-	hostSaveHintID    uint64
-	hostSaveHintEnter bool
-	width             int
-	height            int
-	dark              bool
-	nerdFont          bool
-	version           string
-	latestVersion     string
-	updateSuggestion  string
-	collapsedGroups   map[string]bool
-	scrollbarDragging bool
-	syncStatus        sync.Status
-	syncStatusAt      time.Time
-	syncStatusProbing bool
-	syncProvider      string
-	syncCursor        int
-	vaultPassphrase   string
-	vaultSession      *vault.Session
-	vaultAPIBase      string // remembered server URL (including unlinked preference)
-	vaultStatus       string
-	vaultLastSync     string
-	vaultDirty        bool
-	vaultBusy         string
-	vaultBusyHoldLoad bool
-	vaultPushID       uint64
-	vaultOpGen        uint64
-	vaultRemoteRetry  bool // one-shot auto-recovery after ErrRemoteUpdated
-	vaultConflict     *vaultConflictState
-	syncBusy          string // full-screen Sync overlay for long ops (e.g. box create)
-	syncActivity      string // footer label while a provider op runs (e.g. "resuming…")
-	boxConnectAfter   string // after box resume+reload, SSH into this alias
+	section             section
+	hosts               []sshconfig.Host
+	keys                []keys.Key
+	cursor              int
+	search              string
+	form                *form
+	help                bool
+	helpOffset          int
+	credits             bool
+	showHidden          bool
+	loading             bool
+	enriching           bool
+	autoSyncStarted     bool
+	syncingProviders    map[string]bool
+	status              string
+	statusError         bool
+	statusID            uint64
+	hostSaveHintID      uint64
+	hostSaveHintEnter   bool
+	width               int
+	height              int
+	dark                bool
+	nerdFont            bool
+	version             string
+	latestVersion       string
+	updateSuggestion    string
+	collapsedGroups     map[string]bool
+	scrollbarDragging   bool
+	syncStatus          sync.Status
+	syncStatusAt        time.Time
+	syncStatusProbing   bool
+	syncProvider        string
+	syncCursor          int
+	vaultPassphrase     string
+	vaultSession        *vault.Session
+	vaultSessionChecked bool   // true after a session cache read or explicit set
+	vaultAPIBase        string // remembered server URL (including unlinked preference)
+	vaultStatus         string
+	vaultLastSync       string
+	vaultDirty          bool
+	vaultBusy           string
+	vaultBusyHoldLoad   bool
+	vaultPushID         uint64
+	vaultOpGen          uint64
+	vaultRemoteRetry    bool // one-shot auto-recovery after ErrRemoteUpdated
+	vaultConflict       *vaultConflictState
+	syncBusy            string          // full-screen Sync overlay for long ops (e.g. box create)
+	syncActivity        string          // footer label while a provider op runs (e.g. "resuming…")
+	boxConnectAfter     string          // after box resume+reload, SSH into this alias
+	syncInvCollapsed    map[string]bool // session-only status-group collapse on provider pages
 
 	files filesState
 

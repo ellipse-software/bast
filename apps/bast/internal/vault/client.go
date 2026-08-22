@@ -15,8 +15,24 @@ import (
 
 const (
 	DefaultAPIBase = "https://bast.sh"
+	TermsURL       = "https://bast.sh/legal/terms"
+	PrivacyURL     = "https://bast.sh/legal/privacy"
 	MaxVaultBytes  = 1 << 20 // 1 MiB
 )
+
+// HostedTermsRequired is true when linking to Ellipse's hosted Vault.
+func HostedTermsRequired(apiBase string) bool {
+	base := strings.ToLower(NormalizeAPIBase(apiBase))
+	if base == "" {
+		base = strings.ToLower(DefaultAPIBase)
+	}
+	switch base {
+	case "https://bast.sh", "https://www.bast.sh", "http://bast.sh", "http://www.bast.sh":
+		return true
+	default:
+		return false
+	}
+}
 
 // ErrRemoteUpdated means the vault changed since the caller's If-Match revision.
 var ErrRemoteUpdated = errors.New("vault was updated elsewhere; pull and merge before pushing")
@@ -84,8 +100,12 @@ type VaultGetResult struct {
 	Ciphertext  []byte
 }
 
-func (c *Client) StartOTP(ctx context.Context, email string) error {
-	body, _ := json.Marshal(map[string]string{"email": email})
+func (c *Client) StartOTP(ctx context.Context, email string, acceptTerms bool) error {
+	payload := map[string]any{"email": email}
+	if acceptTerms {
+		payload["acceptTerms"] = true
+	}
+	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base()+"/api/auth/otp/start", bytes.NewReader(body))
 	if err != nil {
 		return err

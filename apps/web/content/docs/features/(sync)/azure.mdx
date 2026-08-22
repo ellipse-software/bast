@@ -3,7 +3,7 @@ title: Azure
 description: Import Azure Linux VMs into Bast as read-only hosts via the native Azure CLI.
 ---
 
-The **Sync** tab (`3`) imports running standalone Linux virtual machines from Azure. Synced hosts remain ordinary OpenSSH entries, while their connection details, label, and group stay owned by Azure sync.
+The **Sync** tab (`4`) imports running standalone Linux virtual machines from Azure. Synced hosts remain ordinary OpenSSH entries, while their connection details, label, and group stay owned by Azure sync.
 
 Bast uses the native **Azure CLI (`az`)** on your machine. It does not store Azure credentials, use an Azure SDK, or run a cloud agent.
 
@@ -38,7 +38,7 @@ Bast scans enabled subscriptions in the Azure cloud currently selected by the CL
 
 ## Connect Azure
 
-1. Open Bast and press `3` for Sync.
+1. Open Bast and press `4` for Sync.
 2. Select **Azure** and press Enter.
 3. Choose **Connect** or **Sync now**.
 
@@ -62,6 +62,8 @@ Microsoft Azure / <subscription> / <resource group>
 ```
 
 Detail shows **Azure synced**. Connection settings, group, and label are read-only. Favoriting and hiding still work.
+
+The Azure provider page on Sync (`4`) lists those VMs in a collapsible **Instances** group. Enter connects.
 
 Bast imports only running standalone Linux VMs with a usable route. Windows VMs, stopped VMs, virtual machine scale sets, Azure Arc machines, and VMs without either a public address or a matching Azure Bastion route are not imported.
 

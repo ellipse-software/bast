@@ -109,7 +109,7 @@ Run `bast hosts <command> --help`, `bast keys <command> --help`, or `bast sync <
 
 ## Cloud sync
 
-The Sync tab (`3` in the TUI) and `bast sync` commands import read-only hosts from [GCP](https://bast.sh/docs/features/gcp), [AWS](https://bast.sh/docs/features/aws), [Azure](https://bast.sh/docs/features/azure), and [box.ascii.dev](https://bast.sh/docs/features/box). Each provider guide covers prerequisites, authentication, and the changes Bast will and will not make. Box also supports create, stop, resume, and fork through `bast box` and the TUI.
+The Vault tab (`3`) syncs Bast-managed hosts and keys between machines. The Sync tab (`4`) and `bast sync` commands import read-only hosts from [GCP](https://bast.sh/docs/features/gcp), [AWS](https://bast.sh/docs/features/aws), [Azure](https://bast.sh/docs/features/azure), and [box.ascii.dev](https://bast.sh/docs/features/box). Each provider guide covers prerequisites, authentication, and the changes Bast will and will not make. Box also supports create, stop, resume, and fork through `bast box` and the TUI. Files is tab `5`.
 
 ## Vault
 
@@ -148,7 +148,7 @@ Press `?` in Bast to see contextual keybindings, or use the [keyboard shortcut r
 
 ## Files
 
-The Files tab (`4` in the TUI) is a dual-pane local/remote browser over OpenSSH SFTP. See [Files](https://bast.sh/docs/features/files).
+The Files tab (`5` in the TUI) is a dual-pane local/remote browser over OpenSSH SFTP. See [Files](https://bast.sh/docs/features/files).
 
 For paths Bast writes under `~/.ssh`, see [Files and storage](https://bast.sh/docs/reference/files). Back up `~/.ssh` before trying unreleased builds on a real config, and never paste private keys into issues.
 

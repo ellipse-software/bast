@@ -3,7 +3,7 @@ title: AWS
 description: Import Amazon EC2 instances into Bast as read-only hosts via AWS CLI v2.
 ---
 
-The **Sync** tab (`3`) imports running Linux EC2 instances into Bast. Synced hosts remain ordinary OpenSSH entries, while their connection details, label, and group stay owned by AWS sync.
+The **Sync** tab (`4`) imports running Linux EC2 instances into Bast. Synced hosts remain ordinary OpenSSH entries, while their connection details, label, and group stay owned by AWS sync.
 
 Bast uses **AWS CLI v2** on your machine. It does not store AWS credentials or use a separate cloud agent. Discovery, EC2 Instance Connect keys, and private tunnels run through the AWS CLI profiles you already use.
 
@@ -52,7 +52,7 @@ aws sts get-caller-identity --profile default
 
 ## Connect AWS
 
-1. Open Bast and press `3` for Sync.
+1. Open Bast and press `4` for Sync.
 2. Select **AWS** and press Enter.
 3. Choose **Connect** or **Sync now**.
 
@@ -83,6 +83,8 @@ Amazon EC2 / default / eu-west-2
 ```
 
 Detail shows **AWS synced**. Connection settings, group, and label are read-only. Favoriting and hiding still work. Bast uses the EC2 `Name` tag as the label, falling back to the instance ID when no name is set.
+
+The AWS provider page on Sync (`4`) lists those instances in a collapsible **Instances** group. Enter connects.
 
 ## How Bast connects
 

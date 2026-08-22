@@ -60,6 +60,24 @@ func (r *Runner) vault(args []string) error {
 	}
 }
 
+func (r *Runner) acceptVaultTerms() error {
+	if r.NoInput || !r.interactive() {
+		return fail("confirmation_required", "confirmation required; pass --accept-terms")
+	}
+	fmt.Fprintf(r.Err, "Terms    %s\n", vault.TermsURL)
+	fmt.Fprintf(r.Err, "Privacy  %s\n", vault.PrivacyURL)
+	answer, err := r.prompt("Agree to the Terms of Service and Privacy Policy? [y/N]", "", false)
+	if err != nil {
+		return err
+	}
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "y", "yes":
+		return nil
+	default:
+		return fail("confirmation_required", "terms were not accepted")
+	}
+}
+
 func (r *Runner) vaultSessionPath() string {
 	return vault.SessionPath(r.Paths.StateFile)
 }
@@ -73,11 +91,12 @@ func (r *Runner) vaultLogin(args []string) error {
 	emailFlag := fs.String("email", "", "account email")
 	apiBase := fs.String("api", "", "vault API base URL")
 	mode := fs.String("mode", "merge", "first-link merge mode: merge|replace_local|replace_remote")
+	acceptTerms := fs.Bool("accept-terms", false, "accept the Terms of Service and Privacy Policy (required for bast.sh)")
 	if err := fs.Parse(args); err != nil {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 0 {
-		return usagef("usage: bast vault login [--email address] [--api url] [--mode merge|replace_local|replace_remote]")
+		return usagef("usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]")
 	}
 	email := strings.TrimSpace(*emailFlag)
 	var err error
@@ -92,10 +111,19 @@ func (r *Runner) vaultLogin(args []string) error {
 	if base == "" {
 		base = vault.EffectiveAPIBase("")
 	}
+	accepted := *acceptTerms
+	if vault.HostedTermsRequired(base) {
+		if !accepted {
+			if err := r.acceptVaultTerms(); err != nil {
+				return err
+			}
+			accepted = true
+		}
+	}
 	client := &vault.Client{BaseURL: base}
 	{
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-		err := client.StartOTP(ctx, email)
+		err := client.StartOTP(ctx, email, accepted)
 		cancel()
 		if err != nil {
 			return err

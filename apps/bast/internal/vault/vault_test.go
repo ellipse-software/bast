@@ -236,3 +236,12 @@ func TestNormalizeAndEffectiveAPIBase(t *testing.T) {
 		t.Fatalf("env override = %q", got)
 	}
 }
+
+func TestHostedTermsRequired(t *testing.T) {
+	if !HostedTermsRequired("") || !HostedTermsRequired("https://bast.sh") || !HostedTermsRequired("https://bast.sh/") {
+		t.Fatal("hosted bast.sh should require terms")
+	}
+	if HostedTermsRequired("https://vault.example") || HostedTermsRequired("http://localhost:3000") {
+		t.Fatal("custom API bases should skip Ellipse terms")
+	}
+}

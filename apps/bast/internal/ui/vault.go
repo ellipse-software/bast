@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"bast/internal/telemetry"
 	"bast/internal/vault"
@@ -86,23 +87,169 @@ func (m *App) cancelVaultOp() {
 	m.vaultOpGen++
 }
 
-// vaultBusyBlocksSync replaces the Sync/Vault menu while a vault network step or
-// long Sync op (e.g. box create) runs. Other sections keep their normal body and
-// only show the footer busy hint.
-func (m *App) vaultBusyBlocksSync() bool {
-	return (m.vaultBusy != "" || m.syncBusy != "") && m.section == syncSection
+// vaultBusyBlocksBody replaces Vault or Sync content while a network step or
+// long Sync op (e.g. box create from the Sync tab) runs. Other sections keep
+// their normal body and only show the footer busy hint.
+func (m *App) vaultBusyBlocksBody() bool {
+	if m.vaultBusy != "" && m.section == vaultSection {
+		return true
+	}
+	return m.syncBusy != "" && m.section == syncSection
 }
 
 func (m *App) renderVaultBusy(s styleSet) string {
 	title := "Vault"
-	if m.syncProvider != "" {
+	if m.section == syncSection && m.syncProvider != "" {
 		title = m.syncProviderTitle()
+	} else if m.section == syncSection {
+		title = "Sync"
 	}
 	label := m.vaultBusy
 	if label == "" {
 		label = m.syncBusy
 	}
 	return "\n  " + s.active.Render(title) + "\n\n  " + s.muted.Render(label)
+}
+
+func (m *App) enterVaultSection() tea.Cmd {
+	m.clearFilesOverlays()
+	m.section, m.syncCursor, m.search = vaultSection, -1, ""
+	return nil
+}
+
+func (m *App) switchToSection(sec section) tea.Cmd {
+	if m.syncBusy != "" {
+		return nil
+	}
+	m.clearFilesOverlays()
+	switch sec {
+	case hostsSection:
+		m.section, m.cursor, m.search = hostsSection, 0, ""
+	case keysSection:
+		m.section, m.cursor, m.search = keysSection, 0, ""
+	case vaultSection:
+		return m.enterVaultSection()
+	case syncSection:
+		return m.enterSyncSection()
+	case filesSection:
+		return m.enterFilesSection()
+	}
+	return nil
+}
+
+func (m *App) updateVaultKeys(key string) (tea.Model, tea.Cmd) {
+	if m.vaultBusy != "" {
+		return m, nil
+	}
+	items := m.vaultMenuItems()
+	m.clampVaultCursor(items)
+	switch key {
+	case "up", "k":
+		if m.syncCursor >= 0 {
+			m.syncCursor--
+		}
+	case "down", "j":
+		if m.syncCursor+1 < len(items) {
+			m.syncCursor++
+		}
+	case "home", "g":
+		m.syncCursor = -1
+	case "end", "G":
+		if len(items) > 0 {
+			m.syncCursor = len(items) - 1
+		}
+	case "r":
+		return m.runVaultAction("vault_sync")
+	case "enter":
+		if m.syncCursor < 0 || m.syncCursor >= len(items) {
+			return m.runVaultPrimary()
+		}
+		return m.runVaultAction(items[m.syncCursor].action)
+	}
+	return m, nil
+}
+
+func (m *App) clampVaultCursor(items []syncMenuItem) {
+	if m.syncCursor < -1 {
+		m.syncCursor = -1
+	}
+	if len(items) == 0 {
+		m.syncCursor = -1
+		return
+	}
+	if m.syncCursor >= len(items) {
+		m.syncCursor = len(items) - 1
+	}
+}
+
+func (m *App) vaultMenuOriginY() int {
+	n := visualLineCount(m.renderVaultStatus(m.styles()))
+	return 2 + 1 + n + 1
+}
+
+func (m *App) updateVaultMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	if m.vaultBusy != "" {
+		return m, nil
+	}
+	mouse := msg.Mouse()
+	if mouse.Button != tea.MouseLeft {
+		return m, nil
+	}
+	x, y, width := m.vaultActionButtonBounds()
+	if mouse.Y == y && mouse.X >= x && mouse.X < x+width {
+		return m.runVaultPrimary()
+	}
+	if mouse.Y == y {
+		m.syncCursor = -1
+		return m, nil
+	}
+	items := m.vaultMenuItems()
+	m.clampVaultCursor(items)
+	rowY := m.vaultMenuOriginY()
+	for i, item := range items {
+		h := 1
+		if i == m.syncCursor && item.description != "" {
+			h = 2
+		}
+		if mouse.Y >= rowY && mouse.Y < rowY+h {
+			if i == m.syncCursor {
+				return m.runVaultAction(item.action)
+			}
+			m.syncCursor = i
+			return m, nil
+		}
+		rowY += h
+	}
+	return m, nil
+}
+
+func (m *App) runVaultPrimary() (tea.Model, tea.Cmd) {
+	if !m.vaultLinked() {
+		return m.runVaultAction("vault_login")
+	}
+	if m.vaultPassphrase == "" {
+		return m.runVaultAction("vault_unlock")
+	}
+	return m.runVaultAction("vault_sync")
+}
+
+func (m *App) vaultActionButtonBounds() (x, y, width int) {
+	action := m.vaultPrimaryAction()
+	btn := m.styles().title.Render(action)
+	width = lipgloss.Width(btn)
+	y = 2
+	x = max(0, m.terminalWidth()-width-2)
+	return
+}
+
+func (m *App) vaultPrimaryAction() string {
+	if !m.vaultLinked() {
+		return " Link "
+	}
+	if m.vaultPassphrase == "" {
+		return " Unlock "
+	}
+	return " Sync "
 }
 
 func (m *App) beginSyncBusy(label string) {
@@ -296,6 +443,7 @@ func (m *App) vaultSessionPath() string {
 }
 
 func (m *App) setVaultSession(session *vault.Session) {
+	m.vaultSessionChecked = true
 	m.vaultSession = session
 	if session != nil {
 		if base := vault.NormalizeAPIBase(session.APIBase); base != "" {
@@ -305,6 +453,7 @@ func (m *App) setVaultSession(session *vault.Session) {
 }
 
 func (m *App) refreshVaultSessionCache() {
+	m.vaultSessionChecked = true
 	session, err := vault.LoadSession(m.vaultSessionPath())
 	if err != nil {
 		m.vaultSession = nil
@@ -324,25 +473,10 @@ func (m *App) vaultLinked() bool {
 	if m.vaultSession != nil && m.vaultSession.Token != "" {
 		return true
 	}
-	m.refreshVaultSessionCache()
+	if !m.vaultSessionChecked {
+		m.refreshVaultSessionCache()
+	}
 	return m.vaultSession != nil && m.vaultSession.Token != ""
-}
-
-func (m *App) vaultStatusDetail() string {
-	if !m.vaultLinked() || m.vaultSession == nil {
-		return "not linked"
-	}
-	if m.vaultSession.Revision == "" {
-		return m.vaultSession.Email
-	}
-	return m.vaultSession.Email + " · " + shortRevision(m.vaultSession.Revision)
-}
-
-func shortRevision(rev string) string {
-	if len(rev) <= 8 {
-		return rev
-	}
-	return rev[:8]
 }
 
 func (m *App) vaultMenuItems() []syncMenuItem {
@@ -352,23 +486,9 @@ func (m *App) vaultMenuItems() []syncMenuItem {
 		description: "Vault server for this machine (self-hosted or bast.sh)",
 	}
 	if !m.vaultLinked() {
-		return []syncMenuItem{
-			{label: "Link account", action: "vault_login", description: "Email a one-time code to link this machine"},
-			apiBaseItem,
-		}
-	}
-	if m.vaultPassphrase == "" {
-		return []syncMenuItem{
-			{label: "Unlock", action: "vault_unlock", description: "Enter passphrase to decrypt the vault"},
-			{label: "Sync now", action: "vault_sync", description: syncNowDescription(m.vaultStatus)},
-			{label: "Rotate passphrase", action: "vault_rotate_passphrase", description: "Requires the current passphrase"},
-			{label: "Reset passphrase", action: "vault_reset_passphrase", description: "Overwrites the remote vault with this machine"},
-			apiBaseItem,
-			{label: "Log out", action: "vault_logout"},
-		}
+		return []syncMenuItem{apiBaseItem}
 	}
 	return []syncMenuItem{
-		{label: "Sync now", action: "vault_sync", description: syncNowDescription(m.vaultStatus)},
 		{label: "Rotate passphrase", action: "vault_rotate_passphrase", description: "Requires the current passphrase"},
 		{label: "Reset passphrase", action: "vault_reset_passphrase", description: "Overwrites the remote vault with this machine"},
 		apiBaseItem,
@@ -383,35 +503,57 @@ func syncNowDescription(status string) string {
 	return "Keep this machine and the vault in sync"
 }
 
-func (m *App) renderVaultStatus(s styleSet) string {
+func (m *App) renderVault(s styleSet) string {
 	width := m.terminalWidth()
 	var b strings.Builder
+	action := m.vaultPrimaryAction()
+	actionBtn := s.title.Render(action)
+	title := s.active.Render("Vault")
+	gap := max(1, width-2-lipgloss.Width(title)-lipgloss.Width(actionBtn))
+	b.WriteString("  " + title + strings.Repeat(" ", gap) + actionBtn + "\n")
+	b.WriteString(m.renderVaultStatus(s))
+	items := m.vaultMenuItems()
+	m.clampVaultCursor(items)
+	if len(items) > 0 {
+		b.WriteString("\n")
+		for i, item := range items {
+			b.WriteString(m.renderSyncMenuLine(s, i, item) + "\n")
+		}
+	}
+	return b.String()
+}
+
+func (m *App) renderVaultStatus(s styleSet) string {
+	var b strings.Builder
 	if !m.vaultLinked() || m.vaultSession == nil {
-		b.WriteString(compactRow(s, "Status", "not linked", width))
-		b.WriteString(compactRow(s, "API base", m.preferredVaultAPIBase(), width))
-		b.WriteString("  " + s.muted.Render("Syncs Bast-managed hosts, keys, and metadata.") + "\n")
-		b.WriteString("  " + s.muted.Render("Does not sync external SSH config or cloud VMs.") + "\n")
-		b.WriteString("  " + s.muted.Render("Encrypted locally. Bast never sees your passphrase.") + "\n")
+		b.WriteString("  " + s.muted.Render("Encrypted hosts and keys between machines.") + "\n")
+		b.WriteString("  " + s.value.Render("not linked") + s.muted.Render(" · "+m.preferredVaultAPIBase()) + "\n")
 		if m.vaultStatus != "" {
-			b.WriteString(compactRow(s, "Note", m.vaultStatus, width))
+			b.WriteString("  " + s.error.Render(m.vaultStatus) + "\n")
 		}
 		return b.String()
 	}
 	session := m.vaultSession
-	b.WriteString(compactRow(s, "Status", "linked", width))
-	b.WriteString(compactRow(s, "Email", session.Email, width))
-	b.WriteString(compactRow(s, "API base", vault.EffectiveAPIBase(session.APIBase), width))
+	b.WriteString("  " + s.value.Render(session.Email) + "\n")
+	state := "unlocked"
+	stateStyle := s.success
 	if m.vaultPassphrase == "" {
-		b.WriteString(compactRow(s, "Session", "locked", width))
-	} else {
-		b.WriteString(compactRow(s, "Session", "unlocked", width))
+		state = "locked"
+		stateStyle = s.muted
 	}
-	b.WriteString(compactRow(s, "Revision", noneValue(session.Revision), width))
+	meta := state
 	if m.vaultLastSync != "" {
-		b.WriteString(compactRow(s, "Last sync", m.vaultLastSync, width))
+		meta += " · " + m.vaultLastSync
 	}
+	if rev := strings.TrimSpace(session.Revision); rev != "" {
+		if len(rev) > 8 {
+			rev = rev[:8]
+		}
+		meta += " · " + rev
+	}
+	b.WriteString("  " + stateStyle.Render(state) + s.muted.Render(strings.TrimPrefix(meta, state)) + "\n")
 	if m.vaultStatus != "" {
-		b.WriteString(compactRow(s, "Note", m.vaultStatus, width))
+		b.WriteString("  " + s.muted.Render(m.vaultStatus) + "\n")
 	}
 	return b.String()
 }
@@ -513,11 +655,51 @@ func (m *App) submitVaultLogin() tea.Cmd {
 		m.form.validationError = err.Error()
 		return nil
 	}
+	if vault.HostedTermsRequired(apiBase) {
+		m.form = nil
+		m.openVaultTermsForm(email, apiBase)
+		return nil
+	}
+	return m.startVaultOTP(email, apiBase, false)
+}
+
+func (m *App) openVaultTermsForm(email, apiBase string) {
+	m.openForm("Vault: terms", "vault_terms", []field{
+		{label: "Email", value: email, hidden: true},
+		{label: "APIBase", value: apiBase, hidden: true},
+		{
+			label:       "Agreement",
+			description: vault.TermsURL + "  ·  " + vault.PrivacyURL,
+			options: []fieldOption{
+				{label: "Accept", value: "accept"},
+				{label: "Cancel", value: "cancel"},
+			},
+		},
+	})
+}
+
+func (m *App) submitVaultTerms() tea.Cmd {
+	if m.form == nil {
+		return nil
+	}
+	m.commitFormField()
+	value := strings.TrimSpace(m.formValue("Agreement"))
+	email := m.formValue("Email")
+	apiBase := m.formValue("APIBase")
+	m.form = nil
+	if value != "accept" {
+		return m.setNotice("Link cancelled")
+	}
+	m.beginVaultBusy("Sending code…")
+	return m.startVaultOTP(email, apiBase, true)
+}
+
+func (m *App) startVaultOTP(email, apiBase string, acceptTerms bool) tea.Cmd {
 	client := &vault.Client{BaseURL: apiBase}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
-		err := client.StartOTP(ctx, email)
+		err := client.StartOTP(ctx, email, acceptTerms)
 		return vaultOTPStartedMsg{email: email, apiBase: apiBase, err: err}
 	}
 }
@@ -599,7 +781,7 @@ func (m *App) submitVaultAPIBase() tea.Cmd {
 		cp := session
 		m.setVaultSession(&cp)
 	} else {
-		m.vaultSession = nil
+		m.setVaultSession(nil)
 	}
 	notice := "API base set to " + base
 	if linked && previous != base {
@@ -1145,7 +1327,7 @@ func (m *App) runVaultAction(action string) (tea.Model, tea.Cmd) {
 			m.vaultAPIBase = ""
 		}
 		m.forgetVaultPassphrase()
-		m.vaultSession = nil
+		m.setVaultSession(nil)
 		m.vaultStatus = ""
 		m.vaultLastSync = ""
 		telemetry.Track("vault_logout", m.version)

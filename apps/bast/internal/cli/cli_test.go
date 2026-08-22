@@ -250,3 +250,11 @@ exit 0`)
 	sshAdd := writeScript("ssh-add", "exit 1")
 	return openssh.Client{SSH: ssh, SSHKeygen: keygen, SSHAdd: sshAdd}
 }
+
+func TestVaultLoginRequiresAcceptTerms(t *testing.T) {
+	home := t.TempDir()
+	_, errOut, err := runTestCLI(t, home, fakeOpenSSH(t), "--no-input", "vault", "login", "--email", "you@example.com")
+	if err == nil || !strings.Contains(errOut, "accept-terms") {
+		t.Fatalf("expected --accept-terms gate, stderr=%q err=%v", errOut, err)
+	}
+}

@@ -56,12 +56,18 @@ func TestContextualFootersBySection(t *testing.T) {
 		t.Fatalf("empty keys = %q", got)
 	}
 
+	m.section = vaultSection
+	m.syncCursor = -1
+	if got := m.browseFooterHint(80); !strings.Contains(got, "enter link") {
+		t.Fatalf("unlinked vault = %q", got)
+	}
+
 	m.section = syncSection
 	m.syncProvider = ""
-	if got := m.browseFooterHint(80); got != "enter open · ?" {
+	if got := m.browseFooterHint(80); !strings.Contains(got, "enter open") {
 		t.Fatalf("sync root = %q", got)
 	}
-	m.syncProvider = "vault"
+	m.syncProvider = "gcp"
 	if got := m.browseFooterHint(80); !strings.Contains(got, "esc back") {
 		t.Fatalf("sync provider = %q", got)
 	}

@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"bast/internal/cloud"
 	boxcloud "bast/internal/cloud/box"
 	cloudsync "bast/internal/cloud/sync"
 	"bast/internal/keys"
@@ -115,6 +116,9 @@ func (m *App) filteredHostsWithMetadata(hostMetadata map[string]metadata.Host) [
 		if meta.Hidden && !m.showHidden {
 			continue
 		}
+		if !m.showHidden && q == "" && hostLooksStopped(h, meta) {
+			continue
+		}
 		if q == "" {
 			out = append(out, h)
 			continue
@@ -156,6 +160,7 @@ func (m *App) hostRows() []hostRow {
 		cache.collapseGeneration == m.collapseRevision &&
 		cache.search == search &&
 		cache.showHidden == m.showHidden &&
+		cache.boxEnabled == m.metadata.Box().Enabled &&
 		cache.hostSignature == hostSignature {
 		return cache.rows
 	}
@@ -199,6 +204,17 @@ func (m *App) hostRows() []hostRow {
 		}
 		parent.hosts = append(parent.hosts, host)
 	}
+	for _, d := range cloud.Descriptors() {
+		if seenTopLevel[d.GroupRoot] {
+			continue
+		}
+		if !m.shouldInjectProviderRoot(d.Kind) {
+			continue
+		}
+		seenTopLevel[d.GroupRoot] = true
+		topLevelOrder = append(topLevelOrder, d.GroupRoot)
+		groups[d.GroupRoot] = &hostGroup{path: d.GroupRoot}
+	}
 	rows := make([]hostRow, 0, len(hosts)+len(groups))
 	for _, group := range topLevelOrder {
 		if group == "" {
@@ -212,7 +228,8 @@ func (m *App) hostRows() []hostRow {
 	m.hostRowsCache = hostRowsCache{
 		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
 		collapseGeneration: m.collapseRevision, search: search,
-		showHidden: m.showHidden, hostSignature: hostSignature, rows: rows,
+		showHidden: m.showHidden, boxEnabled: m.metadata.Box().Enabled,
+		hostSignature: hostSignature, rows: rows,
 	}
 	return rows
 }
@@ -228,6 +245,7 @@ func (m *App) hostListRows() []hostRow {
 		cache.collapseGeneration == m.collapseRevision &&
 		cache.search == search &&
 		cache.showHidden == m.showHidden &&
+		cache.boxEnabled == m.hostRowsCache.boxEnabled &&
 		cache.hostSignature == m.hostRowsCache.hostSignature &&
 		cache.historyCollapsed == m.historySuggestionsCollapsed &&
 		cache.suggestionSig == suggestionSig {
@@ -249,7 +267,8 @@ func (m *App) hostListRows() []hostRow {
 	m.hostListRowsCache = hostListRowsCache{
 		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
 		collapseGeneration: m.collapseRevision, search: search,
-		showHidden: m.showHidden, hostSignature: m.hostRowsCache.hostSignature,
+		showHidden: m.showHidden, boxEnabled: m.hostRowsCache.boxEnabled,
+		hostSignature:    m.hostRowsCache.hostSignature,
 		historyCollapsed: m.historySuggestionsCollapsed, suggestionSig: suggestionSig, rows: rows,
 	}
 	return rows
@@ -357,6 +376,9 @@ func (m *App) hasHiddenHosts() bool {
 	hostMetadata := m.hostMetadata()
 	for _, host := range m.hosts {
 		if hostMetadata[host.Alias].Hidden {
+			return true
+		}
+		if hostLooksStopped(host, hostMetadata[host.Alias]) {
 			return true
 		}
 	}
@@ -525,7 +547,58 @@ func (m *App) clampCursor() {
 		m.cursor = 0
 	} else if m.cursor >= n {
 		m.cursor = n - 1
+	} else if m.cursor < 0 {
+		m.cursor = 0
 	}
+}
+
+func (m *App) hostCursorKey() (kind, name string) {
+	rows := m.hostListRows()
+	if m.cursor < 0 || m.cursor >= len(rows) {
+		return "", ""
+	}
+	row := rows[m.cursor]
+	switch {
+	case row.historyHeader:
+		return "historyHeader", ""
+	case row.suggestion != nil:
+		return "suggestion", row.suggestion.ID
+	case row.header:
+		return "group", row.group
+	default:
+		return "host", row.host.Alias
+	}
+}
+
+func (m *App) restoreHostCursor(kind, name string) {
+	prev := m.cursor
+	rows := m.hostListRows()
+	for i, row := range rows {
+		switch kind {
+		case "host":
+			if !row.header && row.suggestion == nil && row.host.Alias == name {
+				m.cursor = i
+				return
+			}
+		case "group":
+			if row.header && !row.historyHeader && row.group == name {
+				m.cursor = i
+				return
+			}
+		case "suggestion":
+			if row.suggestion != nil && row.suggestion.ID == name {
+				m.cursor = i
+				return
+			}
+		case "historyHeader":
+			if row.historyHeader {
+				m.cursor = i
+				return
+			}
+		}
+	}
+	m.cursor = prev
+	m.clampCursor()
 }
 
 func (m *App) selectAfterLoad() {
@@ -819,10 +892,17 @@ func (m *App) hostLooksStopped(host sshconfig.Host) bool {
 }
 
 func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
-	if !host.Synced || host.SyncSource != boxcloud.ProviderName {
+	if !host.Synced {
 		return false
 	}
-	return boxcloud.HostLooksStopped(host.Resolved.HostName, meta.Tags)
+	kind, ok := cloud.KindForSource(host.SyncSource)
+	if !ok || !cloud.CapabilitiesFor(kind).Stop {
+		return false
+	}
+	if kind == cloud.Box {
+		return boxcloud.HostLooksStopped(host.Resolved.HostName, meta.Tags)
+	}
+	return false
 }
 func hostIdentity(h sshconfig.Host) string {
 	if passwordOnly(h.Resolved) {

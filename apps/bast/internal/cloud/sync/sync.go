@@ -1131,13 +1131,7 @@ type BoxStatus struct {
 }
 
 func IsSyncedGroup(group string) bool {
-	group = strings.TrimSpace(group)
-	return group == "Google Cloud" || strings.HasPrefix(group, "Google Cloud/") ||
-		group == "GCP" || strings.HasPrefix(group, "GCP/") ||
-		group == "Amazon EC2" || strings.HasPrefix(group, "Amazon EC2/") ||
-		group == "AWS" || strings.HasPrefix(group, "AWS/") ||
-		group == "Microsoft Azure" || strings.HasPrefix(group, "Microsoft Azure/") ||
-		group == "Box" || strings.HasPrefix(group, "Box/")
+	return cloud.IsSyncedGroup(group)
 }
 
 func ValidateServiceAccountPath(path string) error {

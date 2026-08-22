@@ -11,6 +11,7 @@ export const company = {
 } as const;
 
 export const legalUpdated = "22 August 2026";
+export const legalVersion = "2026-08-22";
 
 export const privacyPath = "/legal/privacy";
 export const termsPath = "/legal/terms";

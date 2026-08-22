@@ -3,7 +3,7 @@ title: Vault
 description: Sync Bast-managed hosts and keys between machines with end-to-end encryption.
 ---
 
-Vault syncs **Bast-managed** hosts, keys, and metadata between your machines. It is separate from cloud provider sync (GCP / AWS / Azure / box.ascii.dev), which imports hosts into local SSH config.
+Vault syncs **Bast-managed** hosts, keys, and metadata between your machines. It is separate from cloud provider sync (GCP / AWS / Azure / box.ascii.dev), which lives on the **Sync** tab (`4`).
 
 Ciphertext is stored by Bast. The encryption passphrase never leaves your machine. Bast keeps a local copy in `~/.config/bast/vault-passphrase` (mode `0600`) so linked machines stay unlocked across launches. That file is a local secret equivalent to an unlocked key: protect the account that can read `~/.config/bast`. Log out deletes it.
 
@@ -20,15 +20,18 @@ External hosts and keys stay local until you [promote](#promote) them into Bast-
 
 ## Link a machine
 
-From the Sync tab, open **Vault**, or use the CLI:
+Open the **Vault** tab (`3`), or use the CLI:
 
 ```bash
-bast vault login --email you@example.com
+bast vault login --email you@example.com --accept-terms
 ```
 
-1. Enter your email. Bast sends a one-time code.
-2. Paste the code in the terminal.
-3. Choose a vault passphrase (and confirm it).
+1. Enter your email.
+2. On hosted bast.sh, accept the [Terms of Service](/legal/terms) and [Privacy Policy](/legal/privacy). Self-hosted API bases skip this step.
+3. Paste the one-time code from email.
+4. Choose a vault passphrase (and confirm it).
+
+`--json` / `--no-input` require `--accept-terms` when talking to `https://bast.sh`.
 
 Lost passphrase means the remote vault cannot be decrypted. Bast cannot recover it.
 
@@ -41,7 +44,7 @@ bast vault pull --mode replace_remote  # keep this machine
 
 ## Everyday use
 
-In the TUI (Sync → Vault), **Sync now** pulls remote changes and then pushes local ones. If the same alias or key name exists on both sides with different identities, Bast opens that same keep-local / keep-remote chooser instead of failing with a dead-end status. Linked machines also pull in the background after hosts load when a passphrase is available, and local edits debounce a push after a few seconds (push merges with the remote vault first). Opening Bast never waits on the network to show your hosts.
+On the Vault tab, **Sync** (or **Sync now**) pulls remote changes and then pushes local ones. Click the primary button to run it, or click a secondary row twice to open that action. If the same alias or key name exists on both sides with different identities, Bast opens that same keep-local / keep-remote chooser instead of failing with a dead-end status. Linked machines also pull in the background after hosts load when a passphrase is available, and local edits debounce a push after a few seconds (push merges with the remote vault first). Opening Bast never waits on the network to show your hosts.
 
 CLI still exposes pull and push separately:
 
@@ -62,7 +65,7 @@ bast vault passphrase --force  # reset: encrypt this machine and overwrite remot
 bast vault passphrase
 ```
 
-In the TUI: Sync → Vault → **Rotate passphrase**. If the session is already unlocked, only the new passphrase is requested.
+In the TUI: Vault → **Rotate passphrase**. If the session is already unlocked, only the new passphrase is requested.
 
 **Force reset** when the old passphrase is lost, or you want this machine’s managed hosts/keys to become the remote vault under a new passphrase. This does not need the old passphrase. Remote-only data that is not on this machine is discarded:
 
@@ -70,13 +73,13 @@ In the TUI: Sync → Vault → **Rotate passphrase**. If the session is already 
 bast vault passphrase --force
 ```
 
-In the TUI: Sync → Vault → **Reset passphrase**, type `RESET`, then enter the new passphrase twice.
+In the TUI: Vault → **Reset passphrase**, type `RESET`, then enter the new passphrase twice.
 
 Other linked machines must unlock (or reset) with the new passphrase afterward.
 
 ## Self-hosting
 
-By default Bast talks to `https://bast.sh`. To keep vault storage on your own infrastructure, [self-host the web app](/docs/reference/self-hosting) and set the API base in Sync → Vault → **API base URL**, with `bast vault login --api https://your.origin`, or with `BAST_VAULT_API`.
+By default Bast talks to `https://bast.sh`. To keep vault storage on your own infrastructure, [self-host the web app](/docs/reference/self-hosting) and set the API base in Vault → **API base URL**, with `bast vault login --api https://your.origin`, or with `BAST_VAULT_API`. Custom API bases do not show Ellipse terms.
 
 ## Promote
 
