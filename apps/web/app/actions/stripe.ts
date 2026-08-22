@@ -46,6 +46,8 @@ export async function startSponsorCheckout(
       redirect_on_completion: "never",
       mode: "payment",
       submit_type: "donate",
+      // Lets the customer pay in local currency (Stripe FX) or USD (bank FX).
+      adaptive_pricing: { enabled: true },
       branding_settings: {
         background_color: "#0a0a0a",
         button_color: "#8b5cf6",
