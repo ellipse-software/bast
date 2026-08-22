@@ -1,13 +1,26 @@
 "use client";
 
 import {
-  EmbeddedCheckout,
-  EmbeddedCheckoutProvider,
-} from "@stripe/react-stripe-js";
+  CheckoutElementsProvider,
+  ContactDetailsElement,
+  CurrencySelectorElement,
+  PaymentElement,
+  useCheckoutElements,
+} from "@stripe/react-stripe-js/checkout";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-import { startSponsorCheckout } from "@/app/actions/stripe";
+import {
+  getSponsorCheckoutStatus,
+  startSponsorCheckout,
+} from "@/app/actions/stripe";
 import {
   formatUsd,
   SPONSOR_MAX_USD,
@@ -15,22 +28,36 @@ import {
   SPONSOR_MESSAGE_MAX,
   SPONSOR_PRESETS_USD,
 } from "@/lib/sponsors";
+import { sponsorCheckoutAppearance } from "@/lib/stripe-appearance";
 
-type Step = "amount" | "pay" | "done";
+type Step = "amount" | "pay" | "verify" | "done";
 
 const stripePromise: Promise<Stripe | null> = process.env
   .NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
   : Promise.resolve(null);
 
+const PAYMENT_ELEMENT_OPTIONS = {
+  layout: {
+    type: "accordion" as const,
+    defaultCollapsed: false,
+    spacedAccordionItems: true,
+  },
+};
+
+const primaryButtonClass =
+  "border border-accent bg-[color-mix(in_srgb,var(--accent)_18%,var(--background))] px-3 py-2 text-sm font-medium text-foreground hover:bg-[color-mix(in_srgb,var(--accent)_28%,var(--background))] disabled:opacity-50";
+
 export function SponsorDialog({
   open,
   paymentsEnabled,
   onClose,
+  resumeSessionId,
 }: {
   open: boolean;
   paymentsEnabled: boolean;
   onClose: () => void;
+  resumeSessionId: string | null;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -62,15 +89,34 @@ export function SponsorDialog({
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (open && !dialog.open) {
-      setStep("amount");
       setError(null);
       setAnonymous(false);
+      setStep(resumeSessionId ? "verify" : "amount");
       dialog.showModal();
     }
     if (!open && dialog.open) {
       dialog.close();
     }
-  }, [open]);
+  }, [open, resumeSessionId]);
+
+  useEffect(() => {
+    if (!open || step !== "verify" || !resumeSessionId) return;
+    let cancelled = false;
+    getSponsorCheckoutStatus(resumeSessionId).then((result) => {
+      if (cancelled) return;
+      if ("status" in result && result.status === "complete") {
+        setStep("done");
+        return;
+      }
+      setError(
+        "error" in result ? result.error : "Payment was not completed.",
+      );
+      setStep("amount");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, step, resumeSessionId]);
 
   const fetchClientSecret = useCallback(async () => {
     const result = await startSponsorCheckout({
@@ -78,6 +124,7 @@ export function SponsorDialog({
       handle,
       message,
       anonymous,
+      returnPath: window.location.pathname,
     });
     if ("error" in result) {
       setError(result.error);
@@ -91,9 +138,9 @@ export function SponsorDialog({
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
-      className="m-auto w-[calc(100%-2rem)] max-w-md border border-border bg-background p-0 text-foreground backdrop:bg-black/70"
+      className="m-auto max-h-[min(90dvh,48rem)] w-[calc(100%-2rem)] max-w-md overflow-y-auto border border-border bg-background p-0 text-foreground backdrop:bg-black/70"
     >
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background px-4 py-3">
         <h3 id={titleId} className="text-sm font-medium tracking-tight">
           Sponsor
         </h3>
@@ -236,41 +283,29 @@ export function SponsorDialog({
 
           {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
-          <button
-            type="submit"
-            className="border border-accent bg-[color-mix(in_srgb,var(--accent)_18%,var(--background))] px-3 py-2 text-sm font-medium text-foreground hover:bg-[color-mix(in_srgb,var(--accent)_28%,var(--background))]"
-          >
+          <button type="submit" className={primaryButtonClass}>
             Continue
           </button>
         </form>
       ) : null}
 
-      {step === "pay" ? (
+      {step === "verify" ? (
         <div className="p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="text-sm tabular-nums">{formatUsd(amountUsd)}</p>
-            <button
-              type="button"
-              onClick={() => {
-                setStep("amount");
-                setError(null);
-              }}
-              className="text-sm text-muted hover:text-foreground"
-            >
-              Back
-            </button>
-          </div>
-          <EmbeddedCheckoutProvider
-            key={`${amountUsd}-${handle}-${message}-${anonymous}`}
-            stripe={stripePromise}
-            options={{
-              fetchClientSecret,
-              onComplete: () => setStep("done"),
-            }}
-          >
-            <EmbeddedCheckout />
-          </EmbeddedCheckoutProvider>
+          <CheckoutSpinner />
         </div>
+      ) : null}
+
+      {step === "pay" ? (
+        <SponsorPayStep
+          key={`${amountUsd}-${handle}-${message}-${anonymous}`}
+          amountUsd={amountUsd}
+          fetchClientSecret={fetchClientSecret}
+          onBack={() => {
+            setStep("amount");
+            setError(null);
+          }}
+          onComplete={() => setStep("done")}
+        />
       ) : null}
 
       {step === "done" ? (
@@ -289,5 +324,200 @@ export function SponsorDialog({
         </div>
       ) : null}
     </dialog>
+  );
+}
+
+function SponsorPayStep({
+  amountUsd,
+  fetchClientSecret,
+  onBack,
+  onComplete,
+}: {
+  amountUsd: number;
+  fetchClientSecret: () => Promise<string>;
+  onBack: () => void;
+  onComplete: () => void;
+}) {
+  const clientSecret = useMemo(
+    () => fetchClientSecret(),
+    [fetchClientSecret],
+  );
+  const options = useMemo(
+    () => ({
+      clientSecret,
+      adaptivePricing: { allowed: true },
+      elementsOptions: {
+        appearance: sponsorCheckoutAppearance,
+        loader: "auto" as const,
+      },
+    }),
+    [clientSecret],
+  );
+
+  return (
+    <div className="p-4">
+      <CheckoutElementsProvider stripe={stripePromise} options={options}>
+        <SponsorCheckoutForm
+          amountUsd={amountUsd}
+          onBack={onBack}
+          onComplete={onComplete}
+        />
+      </CheckoutElementsProvider>
+    </div>
+  );
+}
+
+function SponsorCheckoutForm({
+  amountUsd,
+  onBack,
+  onComplete,
+}: {
+  amountUsd: number;
+  onBack: () => void;
+  onComplete: () => void;
+}) {
+  const checkoutState = useCheckoutElements();
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [contactReady, setContactReady] = useState(false);
+  const [paymentReady, setPaymentReady] = useState(false);
+  const elementsReady = contactReady && paymentReady;
+
+  if (checkoutState.type === "loading") {
+    return (
+      <div className="flex flex-col gap-4">
+        <PayHeader amountLabel={formatUsd(amountUsd)} onBack={onBack} />
+        <CheckoutSpinner />
+      </div>
+    );
+  }
+
+  if (checkoutState.type === "error") {
+    return (
+      <>
+        <PayHeader amountLabel={formatUsd(amountUsd)} onBack={onBack} />
+        <p className="text-sm text-red-400">{checkoutState.error.message}</p>
+      </>
+    );
+  }
+
+  const { checkout } = checkoutState;
+  const amountLabel = checkout.total.total.amount || formatUsd(amountUsd);
+  const showCurrencySelector = Boolean(checkout.currencyOptions?.length);
+
+  return (
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (submitting || !checkout.canConfirm) return;
+        setSubmitting(true);
+        setMessage(null);
+        try {
+          const result = await checkout.confirm({ redirect: "if_required" });
+          if (result.type === "error") {
+            setMessage(result.error.message);
+            setSubmitting(false);
+            return;
+          }
+          onComplete();
+        } catch (error) {
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not complete payment.",
+          );
+          setSubmitting(false);
+        }
+      }}
+    >
+      <PayHeader amountLabel={amountLabel} onBack={onBack} />
+      <div className="relative min-h-40">
+        <div
+          className={
+            elementsReady
+              ? "flex flex-col gap-4"
+              : "pointer-events-none invisible flex flex-col gap-4"
+          }
+          aria-hidden={!elementsReady}
+        >
+          {showCurrencySelector ? <CurrencySelectorElement /> : null}
+          <ContactDetailsElement
+            onReady={() => setContactReady(true)}
+            onLoadError={() => setContactReady(true)}
+          />
+          <PaymentElement
+            options={PAYMENT_ELEMENT_OPTIONS}
+            onReady={() => setPaymentReady(true)}
+            onLoadError={() => setPaymentReady(true)}
+          />
+          {message ? <p className="text-sm text-red-400">{message}</p> : null}
+          <button
+            type="submit"
+            disabled={submitting || !checkout.canConfirm}
+            className={primaryButtonClass}
+          >
+            Sponsor
+          </button>
+        </div>
+        {elementsReady ? null : (
+          <CheckoutSpinner className="absolute inset-0 flex items-center justify-center" />
+        )}
+      </div>
+    </form>
+  );
+}
+
+function CheckoutSpinner({ className }: { className?: string }) {
+  return (
+    <div
+      className={className ?? "flex min-h-40 items-center justify-center"}
+      aria-busy="true"
+      aria-live="polite"
+    >
+      <span className="sr-only">Loading</span>
+      <svg
+        viewBox="0 0 16 16"
+        className="size-4 animate-spin text-muted motion-reduce:animate-none"
+        fill="none"
+        aria-hidden
+      >
+        <circle
+          cx="8"
+          cy="8"
+          r="5.5"
+          stroke="currentColor"
+          strokeOpacity="0.2"
+          strokeWidth="1.5"
+        />
+        <path
+          d="M13.5 8a5.5 5.5 0 0 0-5.5-5.5"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="square"
+        />
+      </svg>
+    </div>
+  );
+}
+
+function PayHeader({
+  amountLabel,
+  onBack,
+}: {
+  amountLabel: string;
+  onBack: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <p className="text-sm tabular-nums">{amountLabel}</p>
+      <button
+        type="button"
+        onClick={onBack}
+        className="text-sm text-muted hover:text-foreground"
+      >
+        Back
+      </button>
+    </div>
   );
 }

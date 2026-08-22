@@ -1,7 +1,15 @@
 "use server";
 
+import { headers } from "next/headers";
 import Stripe from "stripe";
 
+import {
+  buildCheckoutReturnUrl,
+  checkoutOrigin,
+  isCheckoutSessionId,
+  requestOriginFromHeaders,
+  sanitizeCheckoutReturnPath,
+} from "@/lib/checkout-return";
 import { getStripe, stripeConfigured } from "@/lib/stripe";
 import {
   parseSponsorAmountUsd,
@@ -14,6 +22,7 @@ export type SponsorCheckoutInput = {
   handle?: string;
   message?: string;
   anonymous?: boolean;
+  returnPath?: string;
 };
 
 export async function startSponsorCheckout(
@@ -42,19 +51,10 @@ export async function startSponsorCheckout(
 
   try {
     const session = await getStripe().checkout.sessions.create({
-      ui_mode: "embedded_page",
-      redirect_on_completion: "never",
+      ui_mode: "elements",
       mode: "payment",
-      submit_type: "donate",
-      // Lets the customer pay in local currency (Stripe FX) or USD (bank FX).
+      return_url: await sponsorCheckoutReturnUrl(input.returnPath),
       adaptive_pricing: { enabled: true },
-      branding_settings: {
-        background_color: "#0a0a0a",
-        button_color: "#8b5cf6",
-        border_style: "rectangular",
-        font_family: "inter",
-        display_name: "Bast",
-      },
       line_items: [
         {
           price_data: {
@@ -94,4 +94,46 @@ export async function startSponsorCheckout(
     }
     return { error: "Could not start checkout." };
   }
+}
+
+export async function getSponsorCheckoutStatus(
+  sessionId: string,
+): Promise<{ status: "complete" | "open" | "expired" } | { error: string }> {
+  if (!stripeConfigured()) {
+    return { error: "Payments are not configured yet." };
+  }
+  if (!isCheckoutSessionId(sessionId)) {
+    return { error: "Invalid checkout session." };
+  }
+
+  try {
+    const session = await getStripe().checkout.sessions.retrieve(sessionId);
+    if (session.metadata?.kind !== "sponsorship") {
+      return { error: "Invalid checkout session." };
+    }
+    if (
+      session.status === "complete" ||
+      session.status === "open" ||
+      session.status === "expired"
+    ) {
+      return { status: session.status };
+    }
+    return { error: "Could not verify payment." };
+  } catch {
+    return { error: "Could not verify payment." };
+  }
+}
+
+async function sponsorCheckoutReturnUrl(returnPath: string | undefined): Promise<string> {
+  const h = await headers();
+  const origin = checkoutOrigin({
+    vercelEnv: process.env.VERCEL_ENV,
+    vercelUrl: process.env.VERCEL_URL,
+    requestOrigin: requestOriginFromHeaders({
+      forwardedHost: h.get("x-forwarded-host"),
+      host: h.get("host"),
+      forwardedProto: h.get("x-forwarded-proto"),
+    }),
+  });
+  return buildCheckoutReturnUrl(origin, sanitizeCheckoutReturnPath(returnPath));
 }
