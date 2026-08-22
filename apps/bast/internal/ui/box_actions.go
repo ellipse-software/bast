@@ -69,9 +69,35 @@ func (m *App) connectAfterBoxResume() tea.Cmd {
 
 func (m *App) openBoxNewForm() {
 	m.openForm("New Box", "box_new", []field{
-		{label: "Type", description: "small, default, or large", value: "default", optional: false, placeholder: "default"},
-		{label: "No auto-stop", description: "yes to keep running until stopped", value: "", optional: true, placeholder: "yes"},
-		{label: "No env", description: "yes for an isolated no-env box", value: "", optional: true, placeholder: "yes"},
+		{
+			label:       "Type",
+			description: "small, default, or large",
+			value:       "default",
+			selected:    1,
+			options: []fieldOption{
+				{label: "small", value: "small"},
+				{label: "default", value: "default"},
+				{label: "large", value: "large"},
+			},
+		},
+		{
+			label:       "No auto-stop",
+			description: "Keep running until stopped",
+			optional:    true,
+			options: []fieldOption{
+				{label: "No", value: ""},
+				{label: "Yes", value: "yes"},
+			},
+		},
+		{
+			label:       "No env",
+			description: "Isolated no-env box",
+			optional:    true,
+			options: []fieldOption{
+				{label: "No", value: ""},
+				{label: "Yes", value: "yes"},
+			},
+		},
 	})
 }
 

@@ -443,6 +443,7 @@ func (m *App) vaultSessionPath() string {
 }
 
 func (m *App) setVaultSession(session *vault.Session) {
+	m.vaultSessionChecked = true
 	m.vaultSession = session
 	if session != nil {
 		if base := vault.NormalizeAPIBase(session.APIBase); base != "" {
@@ -452,6 +453,7 @@ func (m *App) setVaultSession(session *vault.Session) {
 }
 
 func (m *App) refreshVaultSessionCache() {
+	m.vaultSessionChecked = true
 	session, err := vault.LoadSession(m.vaultSessionPath())
 	if err != nil {
 		m.vaultSession = nil
@@ -471,7 +473,9 @@ func (m *App) vaultLinked() bool {
 	if m.vaultSession != nil && m.vaultSession.Token != "" {
 		return true
 	}
-	m.refreshVaultSessionCache()
+	if !m.vaultSessionChecked {
+		m.refreshVaultSessionCache()
+	}
 	return m.vaultSession != nil && m.vaultSession.Token != ""
 }
 
@@ -777,7 +781,7 @@ func (m *App) submitVaultAPIBase() tea.Cmd {
 		cp := session
 		m.setVaultSession(&cp)
 	} else {
-		m.vaultSession = nil
+		m.setVaultSession(nil)
 	}
 	notice := "API base set to " + base
 	if linked && previous != base {
@@ -1323,7 +1327,7 @@ func (m *App) runVaultAction(action string) (tea.Model, tea.Cmd) {
 			m.vaultAPIBase = ""
 		}
 		m.forgetVaultPassphrase()
-		m.vaultSession = nil
+		m.setVaultSession(nil)
 		m.vaultStatus = ""
 		m.vaultLastSync = ""
 		telemetry.Track("vault_logout", m.version)

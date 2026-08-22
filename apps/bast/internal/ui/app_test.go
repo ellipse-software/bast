@@ -3226,6 +3226,30 @@ func TestProviderInventoryMouseToggle(t *testing.T) {
 	}
 }
 
+func TestProviderInventoryCollapseIsPerProvider(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "gcp"
+	m.hosts = []sshconfig.Host{
+		{Alias: "gcp_web", Synced: true, SyncSource: "gcp", SyncID: "projects/p/zones/z/instances/web"},
+		{Alias: "aws_web", Synced: true, SyncSource: "aws", SyncID: "arn:aws:ec2:eu-west-1:1:instance/i-1"},
+	}
+	if err := m.metadata.SetHost("gcp_web", metadata.Host{Label: "web", Group: "Google Cloud"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("aws_web", metadata.Host{Label: "api", Group: "Amazon EC2"}); err != nil {
+		t.Fatal(err)
+	}
+	m.toggleProviderInv(invGroupInstances)
+	if !m.providerInvCollapsed(invGroupInstances) {
+		t.Fatal("gcp instances should collapse")
+	}
+	m.syncProvider = "aws"
+	if m.providerInvCollapsed(invGroupInstances) {
+		t.Fatal("aws instances should not inherit gcp collapse")
+	}
+}
+
 func TestVaultTabRenders(t *testing.T) {
 	m := testApp(t)
 	m.section = vaultSection
@@ -3537,5 +3561,8 @@ func TestProviderGroupShowsCreate(t *testing.T) {
 	_ = cmd
 	if m.form == nil || m.form.action != "box_new" {
 		t.Fatalf("n on Box group should open new form, got %#v", m.form)
+	}
+	if len(m.form.fields) < 3 || len(m.form.fields[0].options) != 3 || m.form.fields[0].selected != 1 {
+		t.Fatalf("new box form should offer constrained type options, got %#v", m.form.fields)
 	}
 }

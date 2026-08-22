@@ -1,5 +1,5 @@
 import { startEmailOTP } from "@/lib/auth";
-import { termsAcceptanceError } from "@/lib/vault-terms";
+import { termsAcceptanceError, vaultRequestHost } from "@/lib/vault-terms";
 import { redisConfigured } from "@/lib/redis";
 
 export async function POST(request: Request) {
@@ -19,10 +19,7 @@ export async function POST(request: Request) {
 	if (!email) {
 		return Response.json({ error: "email is required" }, { status: 400 });
 	}
-	const host =
-		request.headers.get("x-forwarded-host") ||
-		request.headers.get("host") ||
-		"";
+	const host = vaultRequestHost(request.headers);
 	const termsError = termsAcceptanceError(host, body.acceptTerms);
 	if (termsError) {
 		return Response.json({ error: termsError }, { status: 400 });

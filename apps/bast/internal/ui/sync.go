@@ -610,9 +610,16 @@ func (m *App) providerInventoryRows() []hostRow {
 	return rows
 }
 
+func (m *App) invCollapseKey(group string) string {
+	if m.syncProvider == "" {
+		return group
+	}
+	return m.syncProvider + "/" + group
+}
+
 func (m *App) providerInvCollapsed(key string) bool {
 	if m.syncInvCollapsed != nil {
-		if collapsed, ok := m.syncInvCollapsed[key]; ok {
+		if collapsed, ok := m.syncInvCollapsed[m.invCollapseKey(key)]; ok {
 			return collapsed
 		}
 	}
@@ -623,8 +630,9 @@ func (m *App) toggleProviderInv(key string) {
 	if m.syncInvCollapsed == nil {
 		m.syncInvCollapsed = map[string]bool{}
 	}
-	m.syncInvCollapsed[key] = !m.providerInvCollapsed(key)
-	if !m.syncInvCollapsed[key] {
+	collapsed := !m.providerInvCollapsed(key)
+	m.syncInvCollapsed[m.invCollapseKey(key)] = collapsed
+	if !collapsed {
 		return
 	}
 	life, _ := m.providerActionLayout()

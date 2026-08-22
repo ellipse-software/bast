@@ -761,6 +761,9 @@ export function TuiDemo() {
             event.preventDefault();
             setSyncProvider("");
             setSyncCursor(0);
+          } else if (section === "vault") {
+            event.preventDefault();
+            switchSection("hosts");
           } else if (section === "files" && filesInfo) {
             event.preventDefault();
             setFilesInfo(false);
@@ -790,7 +793,7 @@ export function TuiDemo() {
 
   const footerHintDesktop =
     section === "hosts"
-      ? "↵ connect • ␣ group • a add • e edit • 4 files • ? help"
+      ? "↵ connect • ␣ group • a add • e edit • 5 files • ? help"
       : section === "keys"
         ? "a generate • i import • x export • u add to server • ? help"
         : section === "files"

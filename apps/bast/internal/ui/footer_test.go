@@ -57,8 +57,9 @@ func TestContextualFootersBySection(t *testing.T) {
 	}
 
 	m.section = vaultSection
-	if got := m.browseFooterHint(80); !strings.Contains(got, "enter") {
-		t.Fatalf("vault = %q", got)
+	m.syncCursor = -1
+	if got := m.browseFooterHint(80); !strings.Contains(got, "enter link") {
+		t.Fatalf("unlinked vault = %q", got)
 	}
 
 	m.section = syncSection
