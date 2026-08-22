@@ -4,7 +4,7 @@
   <a href="https://bast.sh">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://cdn.bast.sh/bast-long-word.png">
-      <img alt="Bast" src="https://cdn.bast.sh/bast-long-word.png" width="250">
+      <img alt="Bast" src="https://cdn.bast.sh/bast-long-word.png" width="600">
     </picture>
   </a>
 </h1>
