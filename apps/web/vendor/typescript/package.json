@@ -1,0 +1,24 @@
+{
+  "name": "typescript",
+  "version": "7.0.2",
+  "private": true,
+  "description": "TypeScript 7 CLI plus the TypeScript 6 compiler API for typescript-eslint until 7.1.",
+  "type": "module",
+  "main": "./index.cjs",
+  "types": "./index.d.ts",
+  "bin": {
+    "tsc": "./bin/tsc"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "require": "./index.cjs",
+      "default": "./index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "typescript6": "https://registry.npmjs.org/typescript/-/typescript-6.0.3.tgz",
+    "typescript7": "https://registry.npmjs.org/typescript/-/typescript-7.0.2.tgz"
+  }
+}
