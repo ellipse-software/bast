@@ -11,14 +11,17 @@ import {
   sanitizeCheckoutReturnPath,
 } from "@/lib/checkout-return";
 import { getStripe, stripeConfigured } from "@/lib/stripe";
+import { buildSponsorCheckoutSession } from "@/lib/sponsor-checkout";
 import {
   parseSponsorAmountUsd,
+  parseSponsorInterval,
   SPONSOR_MESSAGE_MAX,
 } from "@/lib/sponsors";
 import { normalizeXHandle } from "@/lib/x-handle";
 
 export type SponsorCheckoutInput = {
   amountUsd: number;
+  interval?: string;
   handle?: string;
   message?: string;
   anonymous?: boolean;
@@ -37,6 +40,11 @@ export async function startSponsorCheckout(
     return { error: "Enter an amount between $1 and $10,000." };
   }
 
+  const interval = parseSponsorInterval(input.interval);
+  if (interval === null) {
+    return { error: "Choose one time or monthly." };
+  }
+
   const handle = input.handle?.trim()
     ? normalizeXHandle(input.handle)
     : null;
@@ -50,38 +58,16 @@ export async function startSponsorCheckout(
   }
 
   try {
-    const session = await getStripe().checkout.sessions.create({
-      ui_mode: "elements",
-      mode: "payment",
-      return_url: await sponsorCheckoutReturnUrl(input.returnPath),
-      adaptive_pricing: { enabled: true },
-      line_items: [
-        {
-          price_data: {
-            currency: "usd",
-            product_data: {
-              name: "Bast sponsorship",
-            },
-            unit_amount: cents,
-          },
-          quantity: 1,
-        },
-      ],
-      metadata: {
-        kind: "sponsorship",
-        anonymous: input.anonymous ? "true" : "false",
-        ...(handle ? { handle } : {}),
-        ...(message ? { message } : {}),
-      },
-      payment_intent_data: {
-        metadata: {
-          kind: "sponsorship",
-          anonymous: input.anonymous ? "true" : "false",
-          ...(handle ? { handle } : {}),
-          ...(message ? { message } : {}),
-        },
-      },
-    });
+    const session = await getStripe().checkout.sessions.create(
+      buildSponsorCheckoutSession({
+        cents,
+        interval,
+        handle,
+        message,
+        anonymous: Boolean(input.anonymous),
+        returnUrl: await sponsorCheckoutReturnUrl(input.returnPath),
+      }),
+    );
 
     if (!session.client_secret) {
       return { error: "Could not start checkout." };

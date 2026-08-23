@@ -2368,12 +2368,15 @@ func TestDetailsAreCompactAndOmitEmptyMetadata(t *testing.T) {
 	if !strings.Contains(host, "[p] Promote to Bast managed") {
 		t.Fatalf("external host details missing promote action:\n%s", host)
 	}
-	if lipgloss.Height(host) > 11 {
+	if lipgloss.Height(host) > 13 {
 		t.Fatalf("host details are too tall: %d lines\n%s", lipgloss.Height(host), host)
 	}
 	hostLines := strings.Split(host, "\n")
-	if len(hostLines) < 2 || strings.Contains(hostLines[0], "Connect") || !strings.Contains(hostLines[1], "Connect") {
+	if len(hostLines) < 3 || strings.Contains(hostLines[0], "Connect") || !strings.Contains(hostLines[2], "Connect") {
 		t.Fatalf("Connect should sit under the host title:\n%s", host)
+	}
+	if strings.TrimSpace(hostLines[1]) != "" || (len(hostLines) > 3 && strings.TrimSpace(hostLines[3]) != "") {
+		t.Fatalf("Connect chip should have a blank line above and below:\n%s", host)
 	}
 	key := m.renderKeyDetail(m.styles(), keymodel.Key{Name: "work", Algorithm: "ED25519", Fingerprint: "SHA256:test", PrivatePath: "/tmp/work", Managed: true}, 50)
 	if strings.Contains(key, "Name") || strings.Contains(key, "Public") || strings.Contains(key, "Used by") {
@@ -3801,10 +3804,10 @@ func TestProviderGroupShowsCreate(t *testing.T) {
 		t.Fatalf("Box group should offer New box:\n%s", detail)
 	}
 	lines := strings.Split(detail, "\n")
-	if len(lines) < 2 || !strings.Contains(lines[0], "Box") || strings.Contains(lines[0], "New box") {
+	if len(lines) < 3 || !strings.Contains(lines[0], "Box") || strings.Contains(lines[0], "New box") {
 		t.Fatalf("New box should sit under the Box title:\n%s", detail)
 	}
-	if !strings.Contains(lines[1], "New box") {
+	if !strings.Contains(lines[2], "New box") {
 		t.Fatalf("New box chip should be on the action row:\n%s", detail)
 	}
 	_, cmd := m.updateKeys(press("n"))

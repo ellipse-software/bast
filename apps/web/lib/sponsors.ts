@@ -27,6 +27,9 @@ export const SPONSOR_PRESETS_USD = [5, 10, 25, 50, 100] as const;
 export const SPONSOR_MIN_USD = 1;
 export const SPONSOR_MAX_USD = 10_000;
 export const SPONSOR_MESSAGE_MAX = 280;
+export const SPONSOR_INTERVALS = ["once", "month"] as const;
+
+export type SponsorInterval = (typeof SPONSOR_INTERVALS)[number];
 
 export function formatUsd(amount: number): string {
 	return new Intl.NumberFormat("en-US", {
@@ -55,4 +58,14 @@ export function parseSponsorAmountUsd(input: unknown): number | null {
 		return null;
 	}
 	return cents;
+}
+
+export function parseSponsorInterval(input: unknown): SponsorInterval | null {
+	if (input === undefined || input === null || input === "") {
+		return "once";
+	}
+	if (input === "once" || input === "month") {
+		return input;
+	}
+	return null;
 }

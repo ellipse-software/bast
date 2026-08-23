@@ -22,7 +22,7 @@ const (
 	connectAction        = " Connect "
 	resumeAction         = " Resume "
 	addAction            = " Add "
-	connectActionRow     = 1
+	connectActionRow     = 2
 	mobileScrollbarWidth = 3
 
 	keyInstallAction    = "[u] Add to server"
@@ -60,7 +60,7 @@ func (m *App) hostActionButtonBounds(layout panelLayout, action string) (x, y, w
 }
 
 func (m *App) renderDetailActionChip(s styleSet, action string) string {
-	return "  " + s.title.Render(action)
+	return "\n  " + s.title.Render(action) + "\n\n"
 }
 
 func (m *App) render() string {
@@ -397,7 +397,7 @@ func (m *App) renderHistorySuggestionDetail(s styleSet, suggestion metadata.Hist
 	var b strings.Builder
 	title := truncate(suggestion.Alias, max(4, width-3))
 	b.WriteString("  " + s.active.Render(title) + "\n")
-	b.WriteString(m.renderDetailActionChip(s, addAction) + "\n")
+	b.WriteString(m.renderDetailActionChip(s, addAction))
 	destination := suggestion.HostName
 	if suggestion.User != "" {
 		destination = suggestion.User + "@" + destination
@@ -481,7 +481,7 @@ func (m *App) renderProviderGroupDetail(s styleSet, row hostRow, kind cloud.Kind
 	name := truncate(row.group, max(2, width-3-iconWidth))
 	titlePart := renderManagedGroupName(name, s.active, m.nerdFont)
 	b.WriteString("  " + titlePart + "\n")
-	b.WriteString(m.renderDetailActionChip(s, m.providerGroupPrimaryAction(kind)) + "\n")
+	b.WriteString(m.renderDetailActionChip(s, m.providerGroupPrimaryAction(kind)))
 
 	running, stopped := m.providerGroupStats(row.group)
 	summary := fmt.Sprintf("%d instances", running+stopped)
@@ -661,7 +661,7 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	}
 	titlePart := titleStyle.Render(title)
 	b.WriteString("  " + titlePart + "\n")
-	b.WriteString(m.renderDetailActionChip(s, primaryAction) + "\n")
+	b.WriteString(m.renderDetailActionChip(s, primaryAction))
 	b.WriteString("  " + destStyle.Render(truncate(dest, max(4, width-3))) + "\n")
 	b.WriteString("  " + s.muted.Render(truncate(hostStatusLine(host, meta), max(4, width-3))) + "\n")
 
