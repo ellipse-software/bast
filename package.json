@@ -15,6 +15,9 @@
     "lint:web": "bun run --cwd apps/web lint",
     "test": "go -C apps/bast test ./...",
     "sync:skill": "bash scripts/sync-skill.sh",
+    "changelog:extract": "bash .github/scripts/changelog.sh extract",
+    "changelog:preview": "bash .github/scripts/changelog.sh preview",
+    "changelog:cut": "bash .github/scripts/changelog.sh cut",
     "check": "bun run sync:skill && go -C apps/bast mod verify && go -C apps/bast test ./... && go -C apps/bast vet ./... && bun run lint:web && bun run build:web"
   }
 }

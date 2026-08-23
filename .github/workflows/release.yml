@@ -22,6 +22,9 @@ jobs:
         working-directory: apps/bast
     steps:
       - uses: actions/checkout@v7
+      - name: Require changelog notes
+        working-directory: .
+        run: bash .github/scripts/changelog.sh extract "$GITHUB_REF_NAME" >/dev/null
       - uses: actions/setup-go@v7
         with:
           go-version-file: apps/bast/go.mod
@@ -211,9 +214,11 @@ jobs:
           winget_manifests=(dist/EllipseSoftware.Bast*.yaml)
           assets=(dist/*.tar.gz dist/*.tar.gz.sha256 dist/*.zip dist/*.zip.sha256 dist/SHA256SUMS "${winget_manifests[@]}")
           title="Bast $GITHUB_REF_NAME"
+          notes_file="$(mktemp)"
+          bash .github/scripts/changelog.sh extract "$GITHUB_REF_NAME" > "$notes_file"
           state="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
           publish_flags=(--draft=false --title "$title")
-          create_flags=(--draft --verify-tag --generate-notes --title "$title")
+          create_flags=(--draft --verify-tag --notes-file "$notes_file" --title "$title")
           if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             publish_flags+=(--latest)
           else

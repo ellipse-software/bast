@@ -47,3 +47,18 @@ curl -fsSL https://bast.sh/install-nightly | sh
 # or
 brew install ellipse-software/tap/bast-nightly
 ```
+
+## Changelog
+
+User-facing product changes (CLI, installers, updater, and behavior) add a bullet under `Unreleased` in `CHANGELOG.md` in the same change. Website-only work does not.
+
+`bash .github/scripts/changelog.sh preview` prints commits since the last stable tag next to the current Unreleased notes.
+
+## Stable release
+
+1. Review notes: `bash .github/scripts/changelog.sh preview`
+2. Cut the version: `bash .github/scripts/changelog.sh cut vX.Y.Z`
+3. Commit `chore: release vX.Y.Z` and push to `master`
+4. Tag and push `vX.Y.Z`
+
+The tag workflow publishes the GitHub release body from that changelog section. Publishing fails if the section is missing or empty. Nightly notes are unchanged.
