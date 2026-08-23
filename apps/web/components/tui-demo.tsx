@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 
 type Section = "hosts" | "keys" | "vault" | "sync" | "files";
-type SyncProvider = "" | "gcp" | "aws" | "azure" | "box";
+type SyncProvider = "" | "gcp" | "aws" | "azure" | "box" | "upstash";
 
 type DetailRow = { label: string; value: string };
 
@@ -268,6 +268,12 @@ const syncTiles: SyncTile[] = [
     detail: "2 running",
     description: "Import ASCII Box sandboxes into Bast",
   },
+  {
+    id: "upstash",
+    title: "Upstash",
+    detail: "2 running",
+    description: "Import Upstash Box sandboxes into Bast",
+  },
 ];
 
 const vaultMenu: SyncMenuItem[] = [
@@ -343,6 +349,15 @@ const providerPages: Record<Exclude<SyncProvider, "">, ProviderPage> = {
     chips: ["Sync", "New box"],
     config: [
       { label: "Disconnect" },
+      { label: "Refresh status" },
+    ],
+  },
+  upstash: {
+    identity: ["enabled · 2 running", "key stored · auto-sync on"],
+    chips: ["Sync", "New box", "API key"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Disable auto-sync" },
       { label: "Refresh status" },
     ],
   },
@@ -1790,6 +1805,8 @@ function ProviderTitle({
       return <span className="font-bold text-[#0078D4]">Microsoft Azure</span>;
     case "box":
       return <span className="font-bold text-foreground">Box</span>;
+    case "upstash":
+      return <span className="font-bold text-[#00E9A3]">Upstash</span>;
   }
 }
 
