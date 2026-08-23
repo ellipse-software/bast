@@ -44,7 +44,7 @@ bast vault pull --mode replace_remote  # keep this machine
 
 ## Everyday use
 
-On the Vault tab, **Sync** (or **Sync now**) pulls remote changes and then pushes local ones. Click the primary button to run it, or click a secondary row twice to open that action. If the same alias or key name exists on both sides with different identities, Bast opens that same keep-local / keep-remote chooser instead of failing with a dead-end status. Linked machines also pull in the background after hosts load when a passphrase is available, and local edits debounce a push after a few seconds (push merges with the remote vault first). Opening Bast never waits on the network to show your hosts.
+On the Vault tab, **Sync** (or **Sync now**) pulls remote changes and then pushes local ones. Click the **Link**, **Unlock**, or **Sync** chip to run it, or click a secondary row twice to open that action. If the same alias or key name exists on both sides with different identities, Bast opens that same keep-local / keep-remote chooser instead of failing with a dead-end status. Linked machines also pull in the background after hosts load when a passphrase is available, and local edits debounce a push after a few seconds (push merges with the remote vault first). Opening Bast never waits on the network to show your hosts.
 
 CLI still exposes pull and push separately:
 

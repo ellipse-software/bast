@@ -1404,12 +1404,10 @@ function HostDetail({
 }) {
   return (
     <>
-      <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 truncate font-bold text-accent">{host.name}</p>
-        <span className="shrink-0 bg-accent px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-white sm:text-xs">
-          {" Connect "}
-        </span>
-      </div>
+      <p className="min-w-0 truncate font-bold text-accent">{host.name}</p>
+      <p className="w-fit bg-accent px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-white sm:text-xs">
+        {" Connect "}
+      </p>
       <p className="truncate">{host.destination}</p>
       <p className="truncate text-muted">{host.summary}</p>
       <div className={`space-y-0.5 ${compact ? "mt-1.5" : "mt-2"}`}>

@@ -26,6 +26,7 @@ import (
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
+	"bast/internal/vault"
 )
 
 func testApp(t *testing.T) *App {
@@ -2166,6 +2167,9 @@ func TestDesktopConnectButtonIsClickable(t *testing.T) {
 	if btnX <= layout.listWidth {
 		t.Fatalf("connect button x=%d should be in the detail panel (listWidth=%d)", btnX, layout.listWidth)
 	}
+	if btnY != layout.detailTop+connectActionRow {
+		t.Fatalf("connect chip y=%d, want %d", btnY, layout.detailTop+connectActionRow)
+	}
 	_, cmd := m.Update(tea.MouseClickMsg(tea.Mouse{X: btnX, Y: btnY, Button: tea.MouseLeft}))
 	if cmd == nil {
 		t.Fatal("desktop connect button click did not trigger connect")
@@ -2364,8 +2368,12 @@ func TestDetailsAreCompactAndOmitEmptyMetadata(t *testing.T) {
 	if !strings.Contains(host, "[p] Promote to Bast managed") {
 		t.Fatalf("external host details missing promote action:\n%s", host)
 	}
-	if lipgloss.Height(host) > 10 {
+	if lipgloss.Height(host) > 11 {
 		t.Fatalf("host details are too tall: %d lines\n%s", lipgloss.Height(host), host)
+	}
+	hostLines := strings.Split(host, "\n")
+	if len(hostLines) < 2 || strings.Contains(hostLines[0], "Connect") || !strings.Contains(hostLines[1], "Connect") {
+		t.Fatalf("Connect should sit under the host title:\n%s", host)
 	}
 	key := m.renderKeyDetail(m.styles(), keymodel.Key{Name: "work", Algorithm: "ED25519", Fingerprint: "SHA256:test", PrivatePath: "/tmp/work", Managed: true}, 50)
 	if strings.Contains(key, "Name") || strings.Contains(key, "Public") || strings.Contains(key, "Used by") {
@@ -3270,6 +3278,114 @@ func TestVaultTabRenders(t *testing.T) {
 	if strings.Contains(body, "Does not sync external") {
 		t.Fatalf("vault should not narrate the interface:\n%s", body)
 	}
+	for _, line := range strings.Split(body, "\n") {
+		if strings.Contains(line, "Vault") && strings.Contains(line, "Link") {
+			t.Fatalf("Link should not sit on the Vault title row:\n%s", body)
+		}
+	}
+}
+
+func TestVaultLinkChipIsClickable(t *testing.T) {
+	m := testApp(t)
+	m.section = vaultSection
+	x, y, _ := m.vaultActionButtonBounds()
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x, Y: y, Button: tea.MouseLeft}))
+	if m.form == nil || m.form.action != "vault_login" {
+		t.Fatalf("link chip should open login, form=%#v", m.form)
+	}
+}
+
+func TestVaultLinkChipUnhighlightsWhenMenuFocused(t *testing.T) {
+	m := testApp(t)
+	m.section = vaultSection
+	chips := []syncMenuItem{m.vaultPrimaryChip()}
+	highlighted := m.renderActionChips(m.styles(), chips, 0)
+	rest := m.renderActionChips(m.styles(), chips, -1)
+	if highlighted == rest {
+		t.Fatal("chip highlight style should differ from rest")
+	}
+
+	m.syncCursor = -1
+	onChip := m.renderVault(m.styles())
+	if !strings.Contains(onChip, highlighted) || strings.Contains(onChip, rest) {
+		t.Fatalf("link chip should be highlighted when focused:\n%s", onChip)
+	}
+
+	m.syncCursor = 0
+	onMenu := m.renderVault(m.styles())
+	if strings.Contains(onMenu, highlighted) {
+		t.Fatalf("link chip should not stay highlighted when API base is selected:\n%s", onMenu)
+	}
+	if !strings.Contains(onMenu, rest) {
+		t.Fatalf("link chip should use rest style when API base is selected:\n%s", onMenu)
+	}
+}
+
+func TestUnlinkedVaultHasFirstRunSeal(t *testing.T) {
+	m := testApp(t)
+	m.section = vaultSection
+	m.syncCursor = -1
+	body := m.renderVault(m.styles())
+	for _, want := range []string{
+		"No vault yet",
+		"Sync hosts and keys between your computers.",
+		"The passphrase never leaves this machine.",
+		"not linked",
+		"API base URL",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "Press") || strings.Contains(body, "Click") {
+		t.Fatalf("unlinked vault should not narrate the action:\n%s", body)
+	}
+
+	for _, width := range []int{40, 60, 100} {
+		m.width = width
+		view := m.renderVault(m.styles())
+		for _, line := range strings.Split(view, "\n") {
+			if lipgloss.Width(line) > width {
+				t.Fatalf("line wider than %d (%d): %q", width, lipgloss.Width(line), line)
+			}
+		}
+	}
+	m.width = 40
+	narrow := m.renderVault(m.styles())
+	if !strings.Contains(narrow, "No vault yet") || !strings.Contains(narrow, "not linked") {
+		t.Fatalf("narrow unlinked vault:\n%s", narrow)
+	}
+	if strings.Contains(narrow, "Sync hosts and keys between your computers.") {
+		t.Fatalf("narrow identity should wrap, not overflow:\n%s", narrow)
+	}
+}
+
+func TestWrapWords(t *testing.T) {
+	got := wrapWords("Sync hosts and keys between your computers.", 24)
+	if len(got) < 2 || strings.Join(got, " ") != "Sync hosts and keys between your computers." {
+		t.Fatalf("wrap=%q", got)
+	}
+	if wrapWords("", 20)[0] != "" {
+		t.Fatal("empty should yield a blank line")
+	}
+	if got := wrapWords("supercalifragilisticexpialidocious", 8); len(got) != 1 || !strings.HasSuffix(got[0], "…") {
+		t.Fatalf("long token=%q", got)
+	}
+}
+
+func TestLinkedVaultOmitsFirstRunSeal(t *testing.T) {
+	m := testApp(t)
+	m.section = vaultSection
+	m.vaultSessionChecked = true
+	m.vaultSession = &vault.Session{Email: "you@example.com", Token: "t", Revision: "abcdefghij"}
+	m.vaultPassphrase = "secret"
+	body := m.renderVault(m.styles())
+	if strings.Contains(body, "No vault yet") || strings.Contains(body, "between your computers") {
+		t.Fatalf("linked vault should not use the first-run seal:\n%s", body)
+	}
+	if !strings.Contains(body, "you@example.com") || !strings.Contains(body, "unlocked") {
+		t.Fatalf("linked vault:\n%s", body)
+	}
 }
 
 func TestVaultHostedTermsForm(t *testing.T) {
@@ -3556,6 +3672,13 @@ func TestProviderGroupShowsCreate(t *testing.T) {
 	detail := m.renderGroupDetail(m.styles(), rows[0], 60)
 	if !strings.Contains(detail, "New box") {
 		t.Fatalf("Box group should offer New box:\n%s", detail)
+	}
+	lines := strings.Split(detail, "\n")
+	if len(lines) < 2 || !strings.Contains(lines[0], "Box") || strings.Contains(lines[0], "New box") {
+		t.Fatalf("New box should sit under the Box title:\n%s", detail)
+	}
+	if !strings.Contains(lines[1], "New box") {
+		t.Fatalf("New box chip should be on the action row:\n%s", detail)
 	}
 	_, cmd := m.updateKeys(press("n"))
 	_ = cmd

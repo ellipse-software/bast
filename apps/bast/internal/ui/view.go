@@ -22,7 +22,7 @@ const (
 	connectAction        = " Connect "
 	resumeAction         = " Resume "
 	addAction            = " Add "
-	connectActionRow     = 0
+	connectActionRow     = 1
 	mobileScrollbarWidth = 3
 
 	keyInstallAction    = "[u] Add to server"
@@ -52,8 +52,15 @@ func (m *App) hostActionButtonBounds(layout panelLayout, action string) (x, y, w
 	btn := m.styles().title.Render(action)
 	width = lipgloss.Width(btn)
 	y = layout.detailTop + connectActionRow
-	x = max(0, m.terminalWidth()-width-2)
+	x = 2
+	if !layout.mobile {
+		x = layout.listWidth + 1 + 2
+	}
 	return x, y, width
+}
+
+func (m *App) renderDetailActionChip(s styleSet, action string) string {
+	return "  " + s.title.Render(action)
 }
 
 func (m *App) render() string {
@@ -370,10 +377,9 @@ func (m *App) renderHistorySuggestionsDetail(s styleSet, count, width int) strin
 
 func (m *App) renderHistorySuggestionDetail(s styleSet, suggestion metadata.HistorySuggestion, width int) string {
 	var b strings.Builder
-	addButton := s.title.Render(addAction)
-	title := truncate(suggestion.Alias, max(4, width-lipgloss.Width(addButton)-4))
-	gap := max(1, width-2-lipgloss.Width(title)-lipgloss.Width(addButton))
-	b.WriteString("  " + s.active.Render(title) + strings.Repeat(" ", gap) + addButton + "\n")
+	title := truncate(suggestion.Alias, max(4, width-3))
+	b.WriteString("  " + s.active.Render(title) + "\n")
+	b.WriteString(m.renderDetailActionChip(s, addAction) + "\n")
 	destination := suggestion.HostName
 	if suggestion.User != "" {
 		destination = suggestion.User + "@" + destination
@@ -450,14 +456,11 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 
 func (m *App) renderProviderGroupDetail(s styleSet, row hostRow, kind cloud.Kind, width int) string {
 	var b strings.Builder
-	action := m.providerGroupPrimaryAction(kind)
-	actionBtn := s.title.Render(action)
-	actionWidth := lipgloss.Width(actionBtn)
 	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont))
-	name := truncate(row.group, max(2, width-3-iconWidth-actionWidth-1))
+	name := truncate(row.group, max(2, width-3-iconWidth))
 	titlePart := renderManagedGroupName(name, s.active, m.nerdFont)
-	gap := max(1, width-2-lipgloss.Width(titlePart)-actionWidth)
-	b.WriteString("  " + titlePart + strings.Repeat(" ", gap) + actionBtn + "\n")
+	b.WriteString("  " + titlePart + "\n")
+	b.WriteString(m.renderDetailActionChip(s, m.providerGroupPrimaryAction(kind)) + "\n")
 
 	running, stopped := m.providerGroupStats(row.group)
 	summary := fmt.Sprintf("%d instances", running+stopped)
@@ -576,17 +579,15 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	if !hostLooksStopped(host, meta) {
 		primaryAction = connectAction
 	}
-	connectBtn := s.title.Render(primaryAction)
-	connectBtnWidth := lipgloss.Width(connectBtn)
 	titleStyle := s.active
-	titleMax := max(4, width-connectBtnWidth-4)
+	titleMax := max(4, width-3)
 	title := truncate(label, titleMax)
 	if foreground, ok := contrastingTextColor(meta.Color); ok {
 		titleStyle = lipgloss.NewStyle().Bold(true).
 			Foreground(lipgloss.Color(foreground)).
 			Background(lipgloss.Color(meta.Color)).
 			Padding(0, 1)
-		titleMax = max(4, width-connectBtnWidth-6)
+		titleMax = max(4, width-5)
 		title = truncate(label, titleMax)
 	}
 	dest := destination(host)
@@ -602,8 +603,8 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 		}
 	}
 	titlePart := titleStyle.Render(title)
-	gap := max(1, width-2-lipgloss.Width(titlePart)-connectBtnWidth)
-	b.WriteString("  " + titlePart + strings.Repeat(" ", gap) + connectBtn + "\n")
+	b.WriteString("  " + titlePart + "\n")
+	b.WriteString(m.renderDetailActionChip(s, primaryAction) + "\n")
 	b.WriteString("  " + destStyle.Render(truncate(dest, max(4, width-3))) + "\n")
 	b.WriteString("  " + s.muted.Render(truncate(hostStatusLine(host, meta), max(4, width-3))) + "\n")
 

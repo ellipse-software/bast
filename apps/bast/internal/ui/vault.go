@@ -182,9 +182,13 @@ func (m *App) clampVaultCursor(items []syncMenuItem) {
 	}
 }
 
-func (m *App) vaultMenuOriginY() int {
+func (m *App) vaultChipOriginY() int {
 	n := visualLineCount(m.renderVaultStatus(m.styles()))
 	return 2 + 1 + n + 1
+}
+
+func (m *App) vaultMenuOriginY() int {
+	return m.vaultChipOriginY() + 2
 }
 
 func (m *App) updateVaultMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
@@ -233,13 +237,14 @@ func (m *App) runVaultPrimary() (tea.Model, tea.Cmd) {
 	return m.runVaultAction("vault_sync")
 }
 
+func (m *App) vaultPrimaryChip() syncMenuItem {
+	return syncMenuItem{label: strings.TrimSpace(m.vaultPrimaryAction())}
+}
+
 func (m *App) vaultActionButtonBounds() (x, y, width int) {
-	action := m.vaultPrimaryAction()
-	btn := m.styles().title.Render(action)
-	width = lipgloss.Width(btn)
-	y = 2
-	x = max(0, m.terminalWidth()-width-2)
-	return
+	bounds := m.actionChipBounds([]syncMenuItem{m.vaultPrimaryChip()})
+	y = m.vaultChipOriginY()
+	return bounds[0][0], y, bounds[0][1] - bounds[0][0]
 }
 
 func (m *App) vaultPrimaryAction() string {
@@ -504,14 +509,16 @@ func syncNowDescription(status string) string {
 }
 
 func (m *App) renderVault(s styleSet) string {
-	width := m.terminalWidth()
 	var b strings.Builder
-	action := m.vaultPrimaryAction()
-	actionBtn := s.title.Render(action)
 	title := s.active.Render("Vault")
-	gap := max(1, width-2-lipgloss.Width(title)-lipgloss.Width(actionBtn))
-	b.WriteString("  " + title + strings.Repeat(" ", gap) + actionBtn + "\n")
+	b.WriteString("  " + title + "\n")
 	b.WriteString(m.renderVaultStatus(s))
+	b.WriteString("\n")
+	chipSel := -1
+	if m.syncCursor < 0 {
+		chipSel = 0
+	}
+	b.WriteString(m.renderActionChips(s, []syncMenuItem{m.vaultPrimaryChip()}, chipSel) + "\n")
 	items := m.vaultMenuItems()
 	m.clampVaultCursor(items)
 	if len(items) > 0 {
@@ -524,15 +531,10 @@ func (m *App) renderVault(s styleSet) string {
 }
 
 func (m *App) renderVaultStatus(s styleSet) string {
-	var b strings.Builder
 	if !m.vaultLinked() || m.vaultSession == nil {
-		b.WriteString("  " + s.muted.Render("Encrypted hosts and keys between machines.") + "\n")
-		b.WriteString("  " + s.value.Render("not linked") + s.muted.Render(" · "+m.preferredVaultAPIBase()) + "\n")
-		if m.vaultStatus != "" {
-			b.WriteString("  " + s.error.Render(m.vaultStatus) + "\n")
-		}
-		return b.String()
+		return m.renderUnlinkedVault(s)
 	}
+	var b strings.Builder
 	session := m.vaultSession
 	b.WriteString("  " + s.value.Render(session.Email) + "\n")
 	state := "unlocked"
@@ -556,6 +558,95 @@ func (m *App) renderVaultStatus(s styleSet) string {
 		b.WriteString("  " + s.muted.Render(m.vaultStatus) + "\n")
 	}
 	return b.String()
+}
+
+func (m *App) renderUnlinkedVault(s styleSet) string {
+	inner := min(50, max(8, m.terminalWidth()-2))
+	content := max(4, inner-2)
+	border := s.muted
+	top := border.Render("╭" + strings.Repeat("─", inner) + "╮")
+	bot := border.Render("╰" + strings.Repeat("─", inner) + "╯")
+	side := border.Render("│")
+	row := func(line string) string {
+		if lipgloss.Width(line) > content {
+			line = truncate(line, content)
+		}
+		return side + " " + padVisual(line, content) + " " + side
+	}
+
+	var b strings.Builder
+	b.WriteString(top + "\n")
+	b.WriteString(row(s.active.Render("◇  No vault yet")) + "\n")
+	b.WriteString(row("") + "\n")
+	for _, line := range []string{
+		"Sync hosts and keys between your computers.",
+		"The passphrase never leaves this machine.",
+	} {
+		for _, wrapped := range wrapWords(line, content) {
+			b.WriteString(row(s.muted.Render(wrapped)) + "\n")
+		}
+	}
+	b.WriteString(row("") + "\n")
+	b.WriteString(row(unlinkedVaultMeta(s, m.preferredVaultAPIBase(), content)) + "\n")
+	if m.vaultStatus != "" {
+		for _, wrapped := range wrapWords(m.vaultStatus, content) {
+			b.WriteString(row(s.error.Render(wrapped)) + "\n")
+		}
+	}
+	b.WriteString(bot)
+	placed := lipgloss.PlaceHorizontal(m.terminalWidth(), lipgloss.Center, b.String())
+	return "\n" + placed + "\n"
+}
+
+func unlinkedVaultMeta(s styleSet, apiBase string, width int) string {
+	label := s.value.Render("not linked")
+	if strings.TrimSpace(apiBase) == "" {
+		return label
+	}
+	sep := s.muted.Render(" · ")
+	restWidth := width - lipgloss.Width("not linked · ")
+	if restWidth < 8 {
+		return label
+	}
+	return label + sep + s.muted.Render(truncate(apiBase, restWidth))
+}
+
+func wrapWords(s string, width int) []string {
+	if width < 1 {
+		return []string{s}
+	}
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return []string{""}
+	}
+	var lines []string
+	var cur string
+	flush := func() {
+		if cur == "" {
+			return
+		}
+		lines = append(lines, cur)
+		cur = ""
+	}
+	for _, word := range words {
+		if lipgloss.Width(word) > width {
+			flush()
+			lines = append(lines, truncate(word, width))
+			continue
+		}
+		next := word
+		if cur != "" {
+			next = cur + " " + word
+		}
+		if lipgloss.Width(next) <= width {
+			cur = next
+			continue
+		}
+		flush()
+		cur = word
+	}
+	flush()
+	return lines
 }
 
 func (m *App) preferredVaultAPIBase() string {

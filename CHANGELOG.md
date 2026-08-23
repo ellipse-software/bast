@@ -6,6 +6,11 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+### Changed
+
+- Unlinked Vault tab shows a first-run seal instead of a two-line stub.
+- Hosts and Vault primary actions sit in a chip row under the title, matching Sync.
+
 ## v0.9.1 - 2026-08-23
 
 ### Added
