@@ -3,7 +3,7 @@ title: Host management
 description: Add, edit, favorite, hide, and organize SSH hosts with groups, tags, and colors.
 ---
 
-Press `a` to add a host or `e` to edit the selected one. The form keeps the required label and hostname at the top, with separate menus for authentication, advanced SSH settings, and metadata. Click **Save** or press `Ctrl+J` to save from anywhere in the form. `Ctrl+Enter` remains available when your terminal reports it.
+Press `a` to add a host or `e` to edit the selected one. The form keeps label, hostname, and user at the top, with separate menus for authentication, advanced SSH settings, and metadata. Click **Save** or press `Ctrl+J` to save from anywhere in the form. `Ctrl+Enter` remains available when your terminal reports it.
 
 ## Connection fields
 
@@ -12,8 +12,9 @@ Press `a` to add a host or `e` to edit the selected one. The form keeps the requ
 | Label | Display name shown in the list (spaces become SSH-safe aliases) |
 | Hostname | Server hostname or IP address |
 | User | Remote username (blank uses your SSH default) |
+| Method | SSH key, a password stored in Bast, or OpenSSH defaults |
+| Password | Shown when Method is Password. Stored locally; blank prompts on connect |
 | Port | Port number (blank defaults to 22) |
-| Identity | Key file, password auth, or ssh-agent defaults |
 
 Choose **Advanced** to configure jump hosts, startup commands, forwarding, keepalives, environment variables, and custom OpenSSH flags. See [Advanced host options](/docs/features/advanced-host-options) for each setting and its CLI equivalent.
 

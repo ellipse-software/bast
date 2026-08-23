@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/atotto/clipboard"
+
+	"bast/internal/askpass"
 )
 
 func (r *Runner) keys(args []string) error {
@@ -321,7 +323,9 @@ func (r *Runner) keyInstall(args []string) error {
 	if err != nil {
 		return err
 	}
-	if r.JSON && len(cmd.Args) >= 2 {
+	if askpass.Needed(host.raw, r.Paths.PasswordsDir) {
+		r.prepareSSH(cmd, host.raw)
+	} else if r.JSON && len(cmd.Args) >= 2 {
 		cmd.Args = append([]string{cmd.Args[0], "-o", "BatchMode=yes"}, cmd.Args[1:]...)
 	}
 	if err := r.runProcess(cmd, false); err != nil {

@@ -13,9 +13,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/term"
 
+	"bast/internal/askpass"
 	"bast/internal/cli"
 	azurecloud "bast/internal/cloud/azure"
 	upstashcloud "bast/internal/cloud/upstash"
+	"bast/internal/hostpass"
 	"bast/internal/openssh"
 	"bast/internal/paths"
 	"bast/internal/telemetry"
@@ -64,15 +66,24 @@ func main() {
 }
 
 func run(args []string) error {
-	if upstashcloud.IsAskPassRequest() {
+	if askpass.IsRequest() {
 		if term.IsTerminal(os.Stdout.Fd()) {
-			return errors.New("upstash askpass refused: stdout is a terminal")
+			return errors.New("askpass refused: stdout is a terminal")
 		}
 		p, err := paths.Default()
 		if err != nil {
 			return err
 		}
-		return upstashcloud.PrintAPIKey(os.Stdout, p.UpstashAPIKey)
+		prompt := ""
+		if len(args) > 0 {
+			prompt = args[0]
+		}
+		switch askpass.Kind() {
+		case askpass.KindHost:
+			return hostpass.Print(os.Stdout, p.PasswordsDir, askpass.HostID(), prompt)
+		default:
+			return upstashcloud.PrintAPIKey(os.Stdout, p.UpstashAPIKey)
+		}
 	}
 	if len(args) > 0 && args[0] == "__azure-bastion-proxy" {
 		options, err := azurecloud.ParseProxyOptions(args[1:])

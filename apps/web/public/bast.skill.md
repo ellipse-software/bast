@@ -72,8 +72,8 @@ Use `--no-input` to never prompt (all required fields must be passed as flags).
 ```sh
 bast hosts list [--search text] [--sort smart|label|recent|group] [--all] [--json]
 bast hosts show <host> [--json]
-bast hosts add [label] --hostname host [--user u] [--group g] [--tag t] [--json]
-bast hosts edit <host> [patch flags] [--json]
+bast hosts add [label] --hostname host [--user u] [--password | --password-only] [--group g] [--tag t] [--json]
+bast hosts edit <host> [patch flags] [--password] [--clear-password] [--json]
 bast hosts delete <host> [--yes] [--json]
 bast hosts favorite <host> [--json]
 bast hosts hide <host> [--json]
@@ -158,9 +158,10 @@ TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is en
 | `~/.ssh/google_compute_engine` | Fallback GCP identity (created on demand) |
 | `~/.config/bast/state.json` | Metadata: groups, tags, colors, notes, favorites, usage stats, sync settings |
 | `~/.config/bast/upstash-box-api-key` | Upstash Box API key (mode 0600; not vaulted) |
+| `~/.config/bast/passwords/<managed-id>` | Optional host SSH password (mode 0600; not vaulted) |
 | `~/.ssh/config` | Gets `Include ~/.ssh/bast/config` on first run |
 
-Connection settings (hostname, user, port, identity files) live in SSH config. Bast metadata (groups, tags, notes) lives in `state.json`.
+Connection settings (hostname, user, port, identity files, password-only flags) live in SSH config. Bast metadata (groups, tags, notes) lives in `state.json`. Host passwords stay in `~/.config/bast/passwords/` and are fed to `ssh` via askpass. They do not sync through Vault.
 
 ## Safety
 

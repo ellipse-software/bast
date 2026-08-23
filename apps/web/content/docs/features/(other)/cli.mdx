@@ -11,14 +11,16 @@ Everything in the TUI is also available from the shell. That matters for scripts
 bast hosts list --sort group
 bast hosts show production_web
 bast hosts add "Production web" --hostname prod.example.com --user deploy --group Work/Production --tag web
+bast hosts add legacy --hostname legacy.example --user root --password
 bast hosts edit production_web --notes "Primary application server"
+bast hosts edit legacy --clear-password
 bast hosts favorite production_web
 bast hosts hide old_server
 bast hosts known-host remove production_web
 bast hosts delete production_web
 ```
 
-Host edits are patches: fields you omit stay unchanged. Flags like `--clear-group`, `--clear-notes`, and `--clear-identity` remove values on purpose.
+Host edits are patches: fields you omit stay unchanged. Flags like `--clear-group`, `--clear-notes`, `--clear-identity`, and `--clear-password` remove values on purpose. `--password` prompts on the terminal and stores the secret locally for connect.
 
 Advanced connection settings use dedicated flags:
 

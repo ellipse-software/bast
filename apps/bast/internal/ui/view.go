@@ -664,7 +664,7 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 
 	b.WriteString("\n")
 	b.WriteString("  " + s.muted.Render("Access") + "\n")
-	b.WriteString(compactRow(s, "Auth", hostAuthSummary(host), width))
+	b.WriteString(compactRow(s, "Auth", hostAuthSummary(host, m.hostPasswordStored(host)), width))
 	if host.Resolved.ProxyJump != "" && host.Resolved.ProxyJump != "none" {
 		b.WriteString(compactRow(s, "Jump", host.Resolved.ProxyJump, width))
 	}

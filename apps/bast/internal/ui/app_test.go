@@ -96,6 +96,17 @@ func requireQuit(t *testing.T, cmd tea.Cmd) {
 	}
 }
 
+func hostHubIndex(t *testing.T, m *App, id string) int {
+	t.Helper()
+	for i, item := range hostHubItems(m.form) {
+		if item.id == id {
+			return i
+		}
+	}
+	t.Fatalf("hub item %q not found", id)
+	return -1
+}
+
 func enterHostFormSection(t *testing.T, m *App, section string) {
 	t.Helper()
 	for i, item := range hostHubItems(m.form) {
@@ -1106,8 +1117,6 @@ func TestFooterShowsControlsForTheActiveFormState(t *testing.T) {
 	m.hosts[0].Managed = true
 	m.openEditHostForm()
 	enterHostFormSection(t, m, formSectionAuth)
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "q quit") {
 		t.Fatalf("selectable host field does not advertise q as quit: %q", footer)
 	}
@@ -1144,29 +1153,28 @@ func TestEditFormUsesSpaceToChangeAChoice(t *testing.T) {
 	m.hosts = []sshconfig.Host{{Alias: "alpha", Managed: true, ManagedID: "alpha"}}
 	m.openEditHostForm()
 	enterHostFormSection(t, m, formSectionAuth)
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.form.fields[m.form.index].label != "Identity file" || m.form.selecting {
-		t.Fatal("arrow navigation did not focus the identity field")
+	if m.form.fields[m.form.index].label != methodFieldLabel || m.form.selecting {
+		t.Fatal("auth section did not open on the method field")
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
 	if !m.form.selecting {
-		t.Fatal("Space did not open the identity choices")
+		t.Fatal("Space did not open the method choices")
 	}
 	m.updateForm(press("j"))
+	m.updateForm(press("j"))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if m.form.selecting || m.form.fields[m.form.index].label != "Identity file" {
-		t.Fatal("Enter did not confirm the identity choice in place")
+	if m.form.fields[m.form.index].label != passwordFieldLabel {
+		t.Fatal("choosing Password did not move to the password field")
 	}
-	if got := m.form.fields[m.form.index].value; got != passwordOnlyIdentity {
-		t.Fatalf("selected identity = %q", got)
+	if got := formFieldByLabel(m, methodFieldLabel).value; got != passwordOnlyIdentity {
+		t.Fatalf("selected method = %q", got)
 	}
 }
 
 func TestHostFormQuitKeysWorkFromMenus(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
-	m.form.hubIndex = 2
+	m.form.hubIndex = hostHubIndex(t, m, "auth")
 	m.focusHostHubItem()
 	_, cmd := m.updateForm(press("q"))
 	if cmd == nil {
@@ -1220,7 +1228,7 @@ func TestHostFormBackspaceNavigatesSubmenus(t *testing.T) {
 		t.Fatal("backspace in an empty hostname field should remain in the field")
 	}
 
-	m.form.hubIndex = 3
+	m.form.hubIndex = hostHubIndex(t, m, "auth")
 	m.focusHostHubItem()
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
 	if m.form != nil {
@@ -1353,13 +1361,13 @@ func TestFormRevealsFieldsProgressivelyAndRevisitsThem(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
 	initial := m.renderForm(m.styles())
-	if !strings.Contains(initial, "Label") || !strings.Contains(initial, "Authentication") || strings.Contains(initial, "User") {
+	if !strings.Contains(initial, "Label") || !strings.Contains(initial, "Authentication") || !strings.Contains(initial, "User") {
 		t.Fatalf("initial hub form layout is incorrect:\n%s", initial)
 	}
 	m.form.input.SetValue("prod")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	second := m.renderForm(m.styles())
-	if !strings.Contains(second, "Label  prod") || !strings.Contains(second, "› Hostname") || strings.Contains(second, "User") {
+	if !strings.Contains(second, "Label  prod") || !strings.Contains(second, "› Hostname") {
 		t.Fatalf("Enter did not advance to hostname:\n%s", second)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
@@ -1371,9 +1379,13 @@ func TestFormRevealsFieldsProgressivelyAndRevisitsThem(t *testing.T) {
 		t.Fatalf("down did not return to hostname: hubIndex=%d", m.form.hubIndex)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if m.form.hubIndex != hostHubIndex(t, m, "user") {
+		t.Fatalf("down did not move to user: hubIndex=%d", m.form.hubIndex)
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	third := m.renderForm(m.styles())
-	if !strings.Contains(third, "› Authentication") || strings.Contains(third, "User") {
-		t.Fatal("down moved to authentication menu without opening it, or leaked section fields")
+	if !strings.Contains(third, "› Authentication") {
+		t.Fatal("down did not move to authentication menu")
 	}
 }
 
@@ -1471,63 +1483,51 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 	}
 	m.openAddHostForm()
 	enterHostFormSection(t, m, formSectionAuth)
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.form.fields[m.form.index].label != "Identity file" {
-		t.Fatalf("identity field was not focused: %+v", m.form)
+	if m.form.fields[m.form.index].label != methodFieldLabel {
+		t.Fatalf("method field was not focused: %+v", m.form)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if !m.form.selecting {
-		t.Fatal("Enter did not open the identity picker")
+		t.Fatal("Enter did not open the method picker")
 	}
 	view := m.renderForm(m.styles())
-	if !strings.Contains(view, "OpenSSH defaults / agent") || !strings.Contains(view, "work · ~/.ssh/bast/keys/work") || !strings.Contains(view, "Manual path…") {
-		t.Fatalf("identity picker is missing expected choices:\n%s", view)
+	if !strings.Contains(view, "OpenSSH defaults / agent") || !strings.Contains(view, "work · ~/.ssh/bast/keys/work") || !strings.Contains(view, "Manual path…") || !strings.Contains(view, "Password") {
+		t.Fatalf("method picker is missing expected choices:\n%s", view)
 	}
 	if strings.Contains(view, "agent-only") {
-		t.Fatalf("agent-only key was offered as an IdentityFile:\n%s", view)
+		t.Fatalf("agent-only key was offered as a method:\n%s", view)
 	}
-	if !m.form.selecting {
-		t.Fatal("identity picker closed while rendering")
+	method := formFieldByLabel(m, methodFieldLabel)
+	if method.options[len(method.options)-1].value != passwordOnlyIdentity {
+		t.Fatalf("Password should be last: %+v", method.options)
 	}
 
 	m.updateForm(press("j"))
-	if option := m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected]; option.value != passwordOnlyIdentity {
-		t.Fatalf("j did not select password-only authentication: %+v", option)
-	}
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.form.screen != "hub" {
-		t.Fatal("password-only selection did not return to the hub")
-	}
-	enterAdvancedSubsection(t, m, formSectionAdvancedJump)
-	if m.form.fields[m.form.index].label != "Proxy jump" {
-		t.Fatal("jump subsection did not open on proxy jump")
-	}
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
-	enterHostFormSection(t, m, formSectionAuth)
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.form.fields[m.form.index].label != "Identity file" {
-		t.Fatal("did not return to the identity field")
-	}
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	m.updateForm(press("j"))
 	if option := m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected]; option.value != "~/.ssh/bast/keys/work" {
-		t.Fatalf("second j selected wrong identity option: %+v", option)
+		t.Fatalf("j did not select the first key: %+v", option)
 	}
-	m.updateForm(press("k"))
-	if option := m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected]; option.value != passwordOnlyIdentity {
-		t.Fatalf("k selected wrong identity option: %+v", option)
-	}
-	m.updateForm(press("j"))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if got := formFieldByLabel(m, "Identity file").value; got != "~/.ssh/bast/keys/work" {
-		t.Fatalf("selected identity = %q", got)
+	if got := formFieldByLabel(m, methodFieldLabel).value; got != "~/.ssh/bast/keys/work" {
+		t.Fatalf("selected method = %q", got)
 	}
-	if m.form.screen != "hub" {
-		t.Fatalf("selecting a key did not return to the hub: screen=%q", m.form.screen)
+	if !formFieldByLabel(m, passwordFieldLabel).hidden {
+		t.Fatal("password field should stay hidden for a key")
+	}
+
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	for m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected].value != passwordOnlyIdentity {
+		prev := m.form.fields[m.form.index].selected
+		m.updateForm(press("j"))
+		if m.form.fields[m.form.index].selected == prev {
+			t.Fatal("could not reach Password in the method picker")
+		}
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.form.fields[m.form.index].label != passwordFieldLabel {
+		t.Fatal("choosing Password did not focus the password field")
+	}
+	if formFieldByLabel(m, passwordFieldLabel).hidden {
+		t.Fatal("password field stayed hidden")
 	}
 
 	m = testApp(t)
@@ -1535,25 +1535,22 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 	m.keys = []keymodel.Key{{Name: "work", PrivatePath: manualTestPath}}
 	m.openAddHostForm()
 	enterHostFormSection(t, m, formSectionAuth)
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	m.updateForm(press("j"))
 	m.updateForm(press("j"))
-	m.updateForm(press("j"))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if m.form.selecting || m.form.fields[m.form.index].label != "Identity file" {
+	if m.form.selecting || m.form.fields[m.form.index].label != methodFieldLabel {
 		t.Fatal("manual choice did not switch the picker to path entry")
 	}
 	m.form.input.SetValue("~/.ssh/special_key")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
-	identityIdx := m.form.fieldIndex("Identity file")
-	if !m.form.selecting || m.form.fields[identityIdx].customValue != "~/.ssh/special_key" {
+	methodIdx := m.form.fieldIndex(methodFieldLabel)
+	if !m.form.selecting || m.form.fields[methodIdx].customValue != "~/.ssh/special_key" {
 		t.Fatal("Esc did not return manual path entry to the key choices")
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if got := formFieldByLabel(m, "Identity file").value; got != "~/.ssh/special_key" {
+	if got := formFieldByLabel(m, methodFieldLabel).value; got != "~/.ssh/special_key" {
 		t.Fatalf("manual identity = %q", got)
 	}
 
@@ -1562,9 +1559,9 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 	m.keys = []keymodel.Key{{Name: "work", PrivatePath: editPath}}
 	m.hosts = []sshconfig.Host{{Alias: "alpha", Managed: true, ManagedID: "alpha", Resolved: sshconfig.Resolved{IdentityFiles: []string{editPath}}}}
 	m.openEditHostForm()
-	identity := formFieldByLabel(m, "Identity file")
-	if identity.options[identity.selected].value != "~/.ssh/bast/keys/work" {
-		t.Fatalf("existing detected identity was not preselected: %+v", identity)
+	method = formFieldByLabel(m, methodFieldLabel)
+	if method.options[method.selected].value != "~/.ssh/bast/keys/work" {
+		t.Fatalf("existing detected identity was not preselected: %+v", method)
 	}
 	enterHostFormSection(t, m, formSectionMetadata)
 	rendered := m.renderForm(m.styles())
@@ -1574,9 +1571,70 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 
 	m.hosts[0].Resolved = sshconfig.Resolved{PubkeyAuthentication: "no", PasswordAuthentication: "yes"}
 	m.openEditHostForm()
-	identity = formFieldByLabel(m, "Identity file")
-	if identity.options[identity.selected].value != passwordOnlyIdentity {
-		t.Fatalf("password-only authentication was not preselected: %+v", identity)
+	method = formFieldByLabel(m, methodFieldLabel)
+	if method.options[method.selected].value != passwordOnlyIdentity {
+		t.Fatalf("password authentication was not preselected: %+v", method)
+	}
+}
+
+func TestHostFormStoresAndClearsPasswords(t *testing.T) {
+	m := testApp(t)
+	m.config = sshconfig.Manager{
+		Home: m.paths.Home, MainConfig: m.paths.MainConfig, ManagedDir: m.paths.ManagedDir,
+		ManagedConfig: m.paths.ManagedConfig, ManagedKeys: m.paths.ManagedKeys,
+	}
+	m.openAddHostForm()
+	m.form.fieldByLabel("Label").value = "legacy"
+	m.form.fieldByLabel("Hostname").value = "legacy.example"
+	m.form.fieldByLabel(methodFieldLabel).value = passwordOnlyIdentity
+	pwd := m.form.fieldByLabel(passwordFieldLabel)
+	pwd.value = "s3cret"
+	pwd.hidden = false
+	m.submitForm()
+	if m.statusError {
+		t.Fatalf("save failed: %s", m.status)
+	}
+	hosts, err := m.config.Discover()
+	if err != nil || len(hosts) != 1 {
+		t.Fatalf("hosts = %v err=%v", hosts, err)
+	}
+	id := hosts[0].ManagedID
+	got, err := os.ReadFile(filepath.Join(m.paths.PasswordsDir, id))
+	if err != nil || strings.TrimSpace(string(got)) != "s3cret" {
+		t.Fatalf("stored password = %q err=%v", got, err)
+	}
+	config, err := os.ReadFile(m.paths.ManagedConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(config), "PubkeyAuthentication no") || strings.Contains(string(config), "s3cret") {
+		t.Fatalf("managed config = %s", config)
+	}
+
+	m.hosts = hosts
+	m.hosts[0].Resolved = sshconfig.Resolved{HostName: "legacy.example", PubkeyAuthentication: "no", PasswordAuthentication: "yes"}
+	m.openEditHostForm()
+	if formFieldByLabel(m, passwordFieldLabel).hidden {
+		t.Fatal("stored password did not reveal the password field")
+	}
+	if formFieldByLabel(m, passwordFieldLabel).value != passwordKeepValue {
+		t.Fatal("edit did not default to keeping the stored password")
+	}
+	m.form.fieldByLabel(passwordFieldLabel).value = ""
+	m.submitForm()
+	got, err = os.ReadFile(filepath.Join(m.paths.PasswordsDir, id))
+	if err != nil || strings.TrimSpace(string(got)) != "s3cret" {
+		t.Fatalf("blank edit cleared the password: %q err=%v", got, err)
+	}
+
+	m.openEditHostForm()
+	method := m.form.fieldByLabel(methodFieldLabel)
+	method.value = ""
+	method.selected = 0
+	m.syncHostPasswordField()
+	m.submitForm()
+	if _, err := os.Stat(filepath.Join(m.paths.PasswordsDir, id)); !os.IsNotExist(err) {
+		t.Fatalf("switching method left the password file: %v", err)
 	}
 }
 
@@ -2434,17 +2492,24 @@ func TestHostDetailShowsConnectReadySections(t *testing.T) {
 }
 
 func TestHostAuthSummary(t *testing.T) {
-	if got := hostAuthSummary(sshconfig.Host{}); got != "agent/defaults" {
+	if got := hostAuthSummary(sshconfig.Host{}, false); got != "agent/defaults" {
 		t.Fatalf("empty = %q", got)
 	}
-	if got := hostAuthSummary(sshconfig.Host{Synced: true}); got != "SSH access ensured on connect" {
+	if got := hostAuthSummary(sshconfig.Host{Synced: true}, false); got != "SSH access ensured on connect" {
 		t.Fatalf("synced empty = %q", got)
 	}
 	got := hostAuthSummary(sshconfig.Host{Synced: true, Resolved: sshconfig.Resolved{
 		User: "ubuntu", IdentityFiles: []string{"~/.ssh/bast/keys/IRIS"},
-	}})
+	}}, false)
 	if got != "~/.ssh/bast/keys/IRIS" {
 		t.Fatalf("synced key = %q", got)
+	}
+	passwordHost := sshconfig.Host{Resolved: sshconfig.Resolved{PubkeyAuthentication: "no", PasswordAuthentication: "yes"}}
+	if got := hostAuthSummary(passwordHost, false); got != "password" {
+		t.Fatalf("password = %q", got)
+	}
+	if got := hostAuthSummary(passwordHost, true); got != "password · saved" {
+		t.Fatalf("saved password = %q", got)
 	}
 }
 

@@ -23,6 +23,7 @@ type Paths struct {
 	AzureDir          string
 	StateFile         string
 	UpstashAPIKey     string
+	PasswordsDir      string
 }
 
 func ForHome(home string) Paths {
@@ -46,6 +47,7 @@ func ForHome(home string) Paths {
 		AzureDir:          filepath.Join(managedDir, "azure"),
 		StateFile:         filepath.Join(configDir, "state.json"),
 		UpstashAPIKey:     filepath.Join(configDir, "upstash-box-api-key"),
+		PasswordsDir:      filepath.Join(configDir, "passwords"),
 	}
 }
 

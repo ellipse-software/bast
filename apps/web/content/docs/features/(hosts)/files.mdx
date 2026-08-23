@@ -27,7 +27,7 @@ The Files tab is a dual-pane browser. Each pane can be **local** or **remote**, 
 
 In a remote pane, select a host and press Enter. Bast prepares cloud access the same way as a normal [connection](/docs/features/connections), then opens OpenSSH SFTP (`ssh -s sftp`).
 
-SFTP uses `BatchMode`, so passphrase and host-key prompts cannot interrupt the TUI. If connect fails, unlock the key with `ssh-add`, or Connect once from Hosts to accept the host key, then retry.
+SFTP uses `BatchMode` for key-based hosts, so passphrase and host-key prompts cannot interrupt the TUI. Hosts with a stored password use askpass instead. If connect fails, unlock the key with `ssh-add`, or Connect once from Hosts to accept the host key, then retry.
 
 ## Navigation
 
