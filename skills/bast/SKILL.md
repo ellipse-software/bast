@@ -46,6 +46,12 @@ Homebrew:
 brew install ellipse-software/tap/bast
 ```
 
+Linux packages:
+
+```sh
+curl -fsSL https://packages.bast.sh/setup.sh | sudo sh
+```
+
 Windows 11 PowerShell:
 
 ```powershell

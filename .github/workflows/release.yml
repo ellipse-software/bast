@@ -194,8 +194,20 @@ jobs:
           pattern: bast_*
           path: dist
           merge-multiple: true
+      - name: Build Linux packages
+        run: |
+          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            bash .github/scripts/package-linux.sh "$GITHUB_REF_NAME" dist
+          else
+            echo "Skipping Linux packages for prerelease tag $GITHUB_REF_NAME"
+          fi
       - name: Create combined checksums
-        run: (cd dist && shasum -a 256 *.tar.gz *.zip > SHA256SUMS)
+        run: |
+          set -euo pipefail
+          cd dist
+          shopt -s nullglob
+          files=(*.tar.gz *.zip *.deb *.rpm *.apk *.pkg.tar.zst)
+          shasum -a 256 "${files[@]}" > SHA256SUMS
       - name: Render WinGet manifest
         run: |
           if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -212,7 +224,16 @@ jobs:
 
           shopt -s nullglob
           winget_manifests=(dist/EllipseSoftware.Bast*.yaml)
-          assets=(dist/*.tar.gz dist/*.tar.gz.sha256 dist/*.zip dist/*.zip.sha256 dist/SHA256SUMS "${winget_manifests[@]}")
+          assets=(
+            dist/*.tar.gz dist/*.tar.gz.sha256
+            dist/*.zip dist/*.zip.sha256
+            dist/*.deb dist/*.deb.sha256
+            dist/*.rpm dist/*.rpm.sha256
+            dist/*.apk dist/*.apk.sha256
+            dist/*.pkg.tar.zst dist/*.pkg.tar.zst.sha256
+            dist/SHA256SUMS
+            "${winget_manifests[@]}"
+          )
           title="Bast $GITHUB_REF_NAME"
           notes_file="$(mktemp)"
           bash .github/scripts/changelog.sh extract "$GITHUB_REF_NAME" > "$notes_file"
@@ -236,6 +257,47 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}"
             gh release edit "$GITHUB_REF_NAME" "${publish_flags[@]}"
           fi
+
+  publish-linux-repo:
+    name: Publish Linux package repository
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    needs: release
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install repository tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y reprepro createrepo-c rpm gnupg unzip
+          if ! command -v aws >/dev/null 2>&1; then
+            curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+            unzip -q /tmp/awscliv2.zip -d /tmp
+            sudo /tmp/aws/install
+          fi
+      - name: Download Linux packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$GITHUB_REF_NAME" --dir dist --pattern "bast_*_linux_*"
+      - name: Publish packages.bast.sh
+        env:
+          LINUX_SIGNING_PRIVATE_KEY: ${{ secrets.LINUX_SIGNING_PRIVATE_KEY }}
+          LINUX_SIGNING_PUBLIC_KEY: ${{ secrets.LINUX_SIGNING_PUBLIC_KEY }}
+          LINUX_SIGNING_PASSPHRASE: ${{ secrets.LINUX_SIGNING_PASSPHRASE }}
+          LINUX_APK_RSA_PRIVATE: ${{ secrets.LINUX_APK_RSA_PRIVATE }}
+          LINUX_APK_RSA_PUBLIC: ${{ secrets.LINUX_APK_RSA_PUBLIC }}
+          PACKAGES_R2_ACCOUNT_ID: ${{ secrets.PACKAGES_R2_ACCOUNT_ID }}
+          PACKAGES_R2_ACCESS_KEY_ID: ${{ secrets.PACKAGES_R2_ACCESS_KEY_ID }}
+          PACKAGES_R2_SECRET_ACCESS_KEY: ${{ secrets.PACKAGES_R2_SECRET_ACCESS_KEY }}
+          PACKAGES_R2_BUCKET: ${{ secrets.PACKAGES_R2_BUCKET }}
+        run: bash .github/scripts/publish-linux-repo.sh "$GITHUB_REF_NAME" dist
 
   bump-homebrew:
     name: Bump Homebrew formula

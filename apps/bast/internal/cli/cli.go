@@ -32,7 +32,7 @@ Usage:
   bast                         Open the TUI
   bast <label>                 Connect directly using a host label
   bast tui                     Open the TUI explicitly
-  bast update                  Update installer-managed copies of Bast
+  bast update                  Update script-installed copies of Bast
   bast connect <host>          Connect using an alias or display label
   bast hosts <command>         Manage SSH hosts
   bast keys <command>          Manage SSH keys
