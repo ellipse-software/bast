@@ -7,11 +7,18 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 ### Added
 
 - Sync tab (`4`) for AWS, GCP, Azure, and box.ascii.dev, separate from Vault.
+- Grid layout in the Sync tab.
+- Improved Vault tab UX.
+- Terms of service dialog for the hosted service.
 
 ### Fixed
 
 - Windows PowerShell installer first-run output and telemetry notice.
 - `bast update` on Windows writes the installer script with a UTF-8 BOM so PowerShell can run it.
+- Inactive VMs from ASCII Box are hidden automatically.
+- Switching between hidden and visible hosts no longer jumps the cursor to the top.
+
+Get started at [https://bast.sh](https://bast.sh) or update with `bast update`.
 
 ## v0.9.0 - 2026-08-19
 
