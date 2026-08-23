@@ -84,11 +84,12 @@ Then run `bast`. Nightly builds, custom install paths, and building from source 
 ```sh
 bast                    # host picker
 bast production         # connect by label
+bast doctor             # diagnose SSH config and setup
 bast hosts list         # list hosts
 bast keys list          # list keys
 ```
 
-Press `?` in the TUI for keybindings. [Documentation](https://bast.sh/docs) covers hosts, keys, Vault, cloud sync, Files, and the CLI.
+Press `?` in the TUI for keybindings. [Documentation](https://bast.sh/docs) covers hosts, keys, Vault, cloud sync, Files, doctor, and the CLI.
 
 ## Agent skill
 

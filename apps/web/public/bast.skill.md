@@ -22,6 +22,7 @@ Docs: https://bast.sh/llms.txt
 - User has an Upstash Box API key (Bast stores it locally and uses it for API + SSH)
 - User SSHs from a phone or narrow terminal: the TUI switches to a stacked mobile layout below 60 columns (tap Connect)
 - Automation/scripts need host or key management with stable JSON output
+- SSH hosts are missing, auth fails, or Bast looks empty: `bast doctor --json`
 
 ## When not to use Bast
 
@@ -84,6 +85,12 @@ bast keys delete old_key --yes --json
 Success: `{"ok":true,"data":...}` on stdout. Errors: `{"ok":false,"error":{...}}` on stderr with non-zero exit.
 
 Use `--no-input` to never prompt (all required fields must be passed as flags).
+
+When SSH hosts are missing, auth fails, or Bast looks empty, run `bast doctor --json`. Do not scrape the text output. `ok: true` means the command ran; `data.healthy` and `data.findings[].id` are the diagnosis. `--fix` only prepends the Bast Include and tightens modes OpenSSH will refuse. `--probe` is DNS/TCP only (no SSH handshake).
+
+```sh
+bast doctor [--fix] [--probe] [--category name] [--json]
+```
 
 ## Host commands
 

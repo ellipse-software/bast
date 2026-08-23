@@ -100,6 +100,7 @@ Brief version of what the skill covers, useful even without installing it:
 
 - Bast wraps **OpenSSH**, not a custom SSH protocol. Connection settings live in `~/.ssh/config`; metadata (groups, tags, notes) lives in `~/.config/bast/state.json`.
 - Use **`--json --no-input`** for scripts. Add **`--yes`** for deletes and exports.
+- `bast doctor --json` diagnoses SSH config and Bast setup. `data.healthy` is false when `fail` findings remain; finding `id` values are stable.
 - Host and key edits are **patches**: only flags you pass change. Use `--clear-*` flags to remove values.
 - Prefer `bast hosts` / `bast keys` subcommands over the TUI in non-interactive environments.
 

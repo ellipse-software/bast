@@ -33,6 +33,7 @@ Usage:
   bast <label>                 Connect directly using a host label
   bast tui                     Open the TUI explicitly
   bast update                  Update script-installed copies of Bast
+  bast doctor                  Diagnose SSH config, keys, and Bast setup
   bast connect <host>          Connect using an alias or display label
   bast hosts <command>         Manage SSH hosts
   bast keys <command>          Manage SSH keys
@@ -66,9 +67,9 @@ Global options:
   --json                      Emit structured JSON
   --no-input                  Never prompt for missing input
 
-Run "bast hosts <command> --help", "bast keys <command> --help", "bast sync <command> --help",
-"bast box <command> --help", "bast upstash <command> --help", "bast vault <command> --help",
-or "bast completion --help" for details.
+Run "bast doctor --help", "bast hosts <command> --help", "bast keys <command> --help",
+"bast sync <command> --help", "bast box <command> --help", "bast upstash <command> --help",
+"bast vault <command> --help", or "bast completion --help" for details.
 `
 
 func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
@@ -92,6 +93,10 @@ type Runner struct {
 type reportedError struct{ code int }
 
 func (e reportedError) Error() string { return "CLI error already reported" }
+
+type silentExit struct{ code int }
+
+func (e silentExit) Error() string { return "silent exit" }
 func ExitCode(err error) (int, bool) {
 	var reported reportedError
 	ok := errors.As(err, &reported)
@@ -122,7 +127,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "connect", "hosts", "keys", "sync", "box", "upstash", "vault", "completion", "__complete":
+	case "tui", "update", "doctor", "connect", "hosts", "keys", "sync", "box", "upstash", "vault", "completion", "__complete":
 		return true
 	}
 	return false
@@ -163,6 +168,8 @@ func (r *Runner) Run(args []string) error {
 	var err error
 	if args[0] == "update" {
 		err = r.update(args[1:])
+	} else if args[0] == "doctor" {
+		err = r.doctor(args[1:])
 	} else {
 		store, openErr := metadata.Open(r.Paths.StateFile)
 		err = openErr
@@ -198,6 +205,10 @@ func (r *Runner) report(err error) error {
 	if err == nil {
 		return nil
 	}
+	var silent silentExit
+	if errors.As(err, &silent) {
+		return reportedError{code: silent.code}
+	}
 	ce := &commandError{code: "operation_failed", message: err.Error(), exit: 1}
 	var typed *commandError
 	if errors.As(err, &typed) {
@@ -224,6 +235,7 @@ func (r *Runner) report(err error) error {
 func commandUsage(resource, command string) string {
 	usage := map[string]string{
 		"update --help": "Usage: bast update",
+		"doctor --help": "Usage: bast doctor [--fix] [--probe] [--category name]",
 		"hosts --help": `Usage: bast hosts <command>
 
 Commands: list, show, add, edit, delete, promote, favorite, unfavorite, hide,
