@@ -42,6 +42,25 @@ require_env PACKAGES_R2_ACCOUNT_ID
 require_env PACKAGES_R2_ACCESS_KEY_ID
 require_env PACKAGES_R2_SECRET_ACCESS_KEY
 
+# GitHub secrets often pick up a trailing newline from paste/`echo`.
+# R2 Access Key IDs must be exactly 32 characters.
+trim_secret() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+PACKAGES_R2_ACCOUNT_ID="$(trim_secret "$PACKAGES_R2_ACCOUNT_ID")"
+PACKAGES_R2_ACCESS_KEY_ID="$(trim_secret "$PACKAGES_R2_ACCESS_KEY_ID")"
+PACKAGES_R2_SECRET_ACCESS_KEY="$(trim_secret "$PACKAGES_R2_SECRET_ACCESS_KEY")"
+PACKAGES_R2_BUCKET="$(trim_secret "$PACKAGES_R2_BUCKET")"
+
+if [[ ${#PACKAGES_R2_ACCESS_KEY_ID} -ne 32 ]]; then
+  echo "PACKAGES_R2_ACCESS_KEY_ID is ${#PACKAGES_R2_ACCESS_KEY_ID} characters; R2 access keys are 32. A trailing newline in the GitHub secret is the usual cause. Reset it with: printf '%s' 'KEY' | gh secret set PACKAGES_R2_ACCESS_KEY_ID" >&2
+  exit 1
+fi
+
 for goarch in amd64 arm64; do
   for ext in deb rpm; do
     if [[ ! -f "$dist_dir/bast_${version}_linux_${goarch}.${ext}" ]]; then
