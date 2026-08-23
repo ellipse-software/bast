@@ -68,11 +68,16 @@ func (m *App) hostsFooterParts() []string {
 		return append(parts, "?")
 	}
 	if host, ok := m.selectedHost(); ok {
-		if host.Synced && host.SyncSource == "box" {
+		if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash") {
 			parts := []string{"enter connect", "o stop", "n fork"}
+			if host.SyncSource == "upstash" {
+				parts = append(parts, "d delete")
+			}
 			if m.hostLooksStopped(host) {
-				// Enter resumes then SSHes; r only wakes the box.
 				parts = []string{"enter connect", "r resume", "n fork"}
+				if host.SyncSource == "upstash" {
+					parts = append(parts, "d delete")
+				}
 			}
 			if !m.isMobileLayout() {
 				parts = append(parts, "F files")

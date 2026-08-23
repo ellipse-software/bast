@@ -1,0 +1,106 @@
+---
+title: Upstash Box
+description: Import Upstash Box sandboxes into Bast and manage create, pause, resume, fork, and delete through the Box API.
+---
+
+The **Sync** tab (`4`) imports [Upstash Box](https://upstash.com/docs/box/overall/quickstart) sandboxes into Bast. Synced boxes show up in the host picker under **Upstash**. Bast talks to Upstash over the Box REST API. There is no Upstash CLI to install.
+
+SSH is `ssh <box-id>@us-east-1.box.upstash.com` with the Box API key as the password. Bast stores that key locally and supplies it to OpenSSH on connect and in Files.
+
+## Requirements
+
+- An [Upstash Box API key](https://console.upstash.com) (`box_…`)
+- Network access to `https://us-east-1.box.upstash.com`
+
+The Developer API key used by `upstash login` is a different credential and does not work here.
+
+## Connect Upstash
+
+1. Open Bast and press `4` for Sync.
+2. Select **Upstash Box** and press Enter.
+3. Choose **Connect**. Paste the API key.
+
+Bast writes the key to `~/.config/bast/upstash-box-api-key` (mode `0600`). It is not stored in SSH config, `state.json`, or Vault. Disconnect leaves the key file in place so you can reconnect without pasting again.
+
+You can also set `UPSTASH_BOX_API_KEY` in the environment. The first successful sync copies it into the local key file so SSH askpass can read it.
+
+CLI:
+
+```bash
+bast upstash key                 # prompt, or use $UPSTASH_BOX_API_KEY
+bast upstash key --key-file path
+bast sync upstash
+bast sync status
+bast sync disable upstash
+```
+
+If a key is already stored, Bast **auto-connects** on TUI start and `bast sync status`, unless you previously chose **Disconnect**.
+
+## What gets created
+
+Each box becomes an SSH host under:
+
+```
+~/.ssh/bast/sync/upstash/config
+```
+
+```
+Host upstash_dev
+    HostName us-east-1.box.upstash.com
+    User current-wasp-05510
+    PubkeyAuthentication no
+    PasswordAuthentication yes
+    PreferredAuthentications keyboard-interactive,password
+```
+
+The SSH user is the box id. The password is the stored API key, injected by Bast; it is never written into the SSH config.
+
+Paused boxes stay in the **Upstash** group and are hidden from the host list until you press `.`. Connection settings, group, and label are owned by sync.
+
+## Lifecycle
+
+| Action | What Upstash does |
+| --- | --- |
+| New | `POST /v2/box` with runtime, size, optional name and keep-alive |
+| Pause (`o` / `bast upstash stop`) | Releases compute, keeps the filesystem. Keep-alive boxes cannot pause. |
+| Resume (`r` / Enter on a paused box) | Wakes the box, then SSH |
+| Fork (`n`) | Snapshot, then create a new box from it |
+| Delete (`d`) | Destroys the live box. Snapshots remain. |
+
+Create options: runtime `node` / `python` / `golang` / `ruby` / `rust` (and `*-alpine`), size `small` / `medium` / `large`, optional keep-alive.
+
+## Host keys (Hosts tab)
+
+With the **Upstash** group selected:
+
+| Key | Action |
+| --- | --- |
+| `n` | Create a new box |
+| `s` | Sync now |
+| `.` | Show paused boxes |
+
+With an Upstash host selected:
+
+| Key | Action |
+| --- | --- |
+| Enter | Connect (resume first if paused) |
+| `r` | Resume only (when paused) |
+| `o` | Pause (when running; confirms with `pause`) |
+| `n` | Fork (confirms with `fork`) |
+| `d` | Delete the remote box (confirms with `delete`) |
+| `F` | Open Files (SFTP) |
+
+## CLI
+
+```bash
+bast upstash new [--name name] [--runtime node] [--size small|medium|large] [--keep-alive]
+bast upstash fork <host|id>
+bast upstash stop <host|id>
+bast upstash resume <host|id>
+bast upstash delete <host|id> [--yes]
+bast connect upstash_dev
+```
+
+## Re-sync and cleanup
+
+Press `r` on the Sync tab (or `bast sync upstash`) after you create, pause, or delete boxes outside Bast. Disconnecting Upstash removes the generated sync config. The API key file stays until you delete `~/.config/bast/upstash-box-api-key`.

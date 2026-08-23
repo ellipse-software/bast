@@ -239,7 +239,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig,
 		},
 		openSSH:          client,
 		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
@@ -280,11 +280,13 @@ func (m *App) syncCompletionNotice(provider string, count int) string {
 	aws := m.metadata.AWS()
 	azure := m.metadata.Azure()
 	box := m.metadata.Box()
+	upstash := m.metadata.Upstash()
 	providers := []providerCount{
 		{id: "gcp", name: "GCP", enabled: gcp.Enabled, count: gcp.LastInstanceCount},
 		{id: "aws", name: "AWS", enabled: aws.Enabled, count: aws.LastInstanceCount},
 		{id: "azure", name: "Azure", enabled: azure.Enabled, count: azure.LastInstanceCount},
 		{id: "box", name: "Box", enabled: box.Enabled, count: box.LastInstanceCount},
+		{id: "upstash", name: "Upstash", enabled: upstash.Enabled, count: upstash.LastInstanceCount},
 	}
 	parts := make([]string, 0, len(providers))
 	for _, item := range providers {
@@ -339,6 +341,15 @@ func (m *App) autoSyncCmds() tea.Cmd {
 		} else if !box.Enabled {
 			m.syncingProviders["box"] = true
 			autoSyncCmds = append(autoSyncCmds, m.autoConnectBoxCmd())
+		}
+	}
+	if upstash := m.metadata.Upstash(); !upstash.Disabled && !m.syncingProviders["upstash"] {
+		if upstash.Enabled && upstash.AutoSync {
+			m.syncingProviders["upstash"] = true
+			autoSyncCmds = append(autoSyncCmds, m.syncUpstashCmd())
+		} else if !upstash.Enabled && m.upstashHasKey() {
+			m.syncingProviders["upstash"] = true
+			autoSyncCmds = append(autoSyncCmds, m.autoConnectUpstashCmd())
 		}
 	}
 	if pull := m.vaultPullCmd(false); pull != nil {

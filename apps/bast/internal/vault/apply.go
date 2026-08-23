@@ -153,6 +153,14 @@ func applyIntegrations(store *metadata.Store, in VaultIntegrations) error {
 			return err
 		}
 	}
+	if in.Upstash != nil {
+		cur := store.Upstash()
+		cur.Enabled = in.Upstash.Enabled
+		cur.AutoSync = in.Upstash.AutoSync
+		if err := store.SetUpstash(cur); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

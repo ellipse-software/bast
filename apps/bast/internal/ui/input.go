@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/cloud"
+	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/connectbanner"
 	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
@@ -440,6 +441,9 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.section == hostsSection {
 			if host, ok := m.selectedHost(); ok && m.hostLooksStopped(host) &&
 				m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Start }) {
+				if host.SyncSource == "upstash" {
+					return m, m.resumeSelectedUpstash(host, false)
+				}
 				return m, m.resumeSelectedBox(host, false)
 			}
 		}
@@ -510,6 +514,10 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.section == hostsSection {
+			if host, ok := m.selectedHost(); ok && m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Delete }) {
+				m.openUpstashDeleteForm(host)
+				return m, nil
+			}
 			m.openDeleteHostForm()
 		} else {
 			m.openDeleteKeyForm()
@@ -564,7 +572,11 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				if m.hostLooksStopped(host) {
 					return m, m.setNotice("Already stopped")
 				}
-				m.openBoxStopForm(host)
+				if host.SyncSource == "upstash" {
+					m.openUpstashStopForm(host)
+				} else {
+					m.openBoxStopForm(host)
+				}
 				return m, nil
 			}
 		}
@@ -580,15 +592,19 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				if m.syncingProviders[host.SyncSource] {
 					return m, m.setNotice("Operation already in progress")
 				}
-				m.openBoxForkForm(host)
+				if host.SyncSource == "upstash" {
+					m.openUpstashForkForm(host)
+				} else {
+					m.openBoxForkForm(host)
+				}
 				return m, nil
 			}
 		}
 	case "f":
 		if m.section == hostsSection {
 			if host, ok := m.selectedHost(); ok {
-				if host.Synced && host.SyncSource == "box" {
-					return m, m.setNotice("Box hosts are read-only")
+				if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash") {
+					return m, m.setNotice("Synced sandbox hosts are read-only")
 				}
 				_, err := m.metadata.ToggleFavorite(host.Alias)
 				if err != nil {
@@ -611,8 +627,8 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.section == hostsSection {
 			if host, ok := m.selectedHost(); ok {
-				if host.Synced && host.SyncSource == "box" {
-					return m, m.setNotice("Box hosts are read-only")
+				if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash") {
+					return m, m.setNotice("Synced sandbox hosts are read-only")
 				}
 				hidden, err := m.metadata.ToggleHidden(host.Alias)
 				if err != nil {
@@ -684,6 +700,9 @@ func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	if host.Synced && host.SyncSource == "box" && m.hostLooksStopped(host) {
 		return m, m.resumeSelectedBox(host, true)
 	}
+	if host.Synced && host.SyncSource == "upstash" && m.hostLooksStopped(host) {
+		return m, m.resumeSelectedUpstash(host, true)
+	}
 	if host.Synced && host.SyncID != "" && m.syncer != nil {
 		var ensure func(context.Context, sshconfig.Host, func(string)) error
 		switch host.SyncSource {
@@ -695,6 +714,8 @@ func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 			ensure = m.syncer.EnsureAzureAccess
 		case "box":
 			ensure = m.syncer.EnsureBoxAccess
+		case "upstash":
+			ensure = m.syncer.EnsureUpstashAccess
 		}
 		if ensure != nil {
 			timeout := prepareTimeoutForHost(host)
@@ -716,6 +737,9 @@ func (m *App) startSSH(host sshconfig.Host, prepare func(func(string)) error) (t
 	if err != nil {
 		m.setError(err)
 		return m, nil
+	}
+	if host.Synced && host.SyncSource == "upstash" {
+		upstashcloud.PrepareSSH(cmd, m.syncer.BastExecutable)
 	}
 	if prepare == nil {
 		if err := m.metadata.RecordUse(host.Alias); err != nil {

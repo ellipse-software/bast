@@ -8,10 +8,11 @@ import (
 type Kind string
 
 const (
-	GCP   Kind = "gcp"
-	AWS   Kind = "aws"
-	Azure Kind = "azure"
-	Box   Kind = "box"
+	GCP     Kind = "gcp"
+	AWS     Kind = "aws"
+	Azure   Kind = "azure"
+	Box     Kind = "box"
+	Upstash Kind = "upstash"
 )
 
 // Descriptor is the stable identity for a cloud provider. UI, grouping, and
@@ -32,6 +33,7 @@ type Capabilities struct {
 	Stop   bool
 	Start  bool // resume
 	Fork   bool
+	Delete bool
 }
 
 type SSHKey struct {
@@ -96,13 +98,19 @@ var descriptors = []Descriptor{
 		Description: "Import ASCII Box sandboxes into Bast",
 		BrandColor:  "#FFFFFF", NerdIcon: "\uf1b2",
 	},
+	{
+		Kind: Upstash, Title: "Upstash", FullTitle: "Upstash Box", GroupRoot: "Upstash",
+		Description: "Import Upstash Box sandboxes into Bast",
+		BrandColor:  "#00E9A3", NerdIcon: "\uf1b2",
+	},
 }
 
 var capabilities = map[Kind]Capabilities{
-	GCP:   {},
-	AWS:   {},
-	Azure: {},
-	Box:   {Create: true, Stop: true, Start: true, Fork: true},
+	GCP:     {},
+	AWS:     {},
+	Azure:   {},
+	Box:     {Create: true, Stop: true, Start: true, Fork: true},
+	Upstash: {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
 }
 
 func Descriptors() []Descriptor {

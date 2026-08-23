@@ -173,5 +173,11 @@ func packIntegrations(in metadata.Integrations) VaultIntegrations {
 			AutoSync:            in.Azure.AutoSync,
 		}
 	}
+	if in.Upstash != nil {
+		out.Upstash = &VaultUpstashIntegration{
+			Enabled:  in.Upstash.Enabled,
+			AutoSync: in.Upstash.AutoSync,
+		}
+	}
 	return out
 }

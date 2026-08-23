@@ -35,8 +35,8 @@ export const syncSshHostsGuide: GuidePage = {
       never leaves the device.
     </>,
     <>
-      Cloud host inventory is separate on purpose: re-sync GCP, AWS, Azure, or
-      box.ascii.dev per machine through provider CLIs so cloud credentials stay
+      Cloud host inventory is separate on purpose: re-sync GCP, AWS, Azure,
+      box.ascii.dev, or Upstash Box per machine so cloud credentials stay
       where they belong.
     </>,
   ],

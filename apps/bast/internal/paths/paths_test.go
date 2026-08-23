@@ -22,6 +22,12 @@ func TestForHomeUsesDotConfig(t *testing.T) {
 	if p.SyncBoxConfig != filepath.Join(home, ".ssh", "bast", "sync", "box", "config") {
 		t.Fatalf("SyncBoxConfig = %q", p.SyncBoxConfig)
 	}
+	if p.SyncUpstashConfig != filepath.Join(home, ".ssh", "bast", "sync", "upstash", "config") {
+		t.Fatalf("SyncUpstashConfig = %q", p.SyncUpstashConfig)
+	}
+	if p.UpstashAPIKey != filepath.Join(home, ".config", "bast", "upstash-box-api-key") {
+		t.Fatalf("UpstashAPIKey = %q", p.UpstashAPIKey)
+	}
 	if p.AzureDir != filepath.Join(home, ".ssh", "bast", "azure") {
 		t.Fatalf("AzureDir = %q", p.AzureDir)
 	}

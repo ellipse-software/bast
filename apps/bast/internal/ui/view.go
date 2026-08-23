@@ -151,6 +151,7 @@ var (
 		amazon   string
 		azure    string
 		box      string
+		upstash  string
 	}
 )
 
@@ -244,6 +245,7 @@ func (m *App) renderHosts(s styleSet) string {
 		rowWidth -= mobileScrollbarWidth
 	}
 	selectedRow := s.selected.Width(rowWidth)
+	selectedBrandRow := selectedRow.UnsetForeground()
 	mutedRow := s.muted.Width(rowWidth)
 	activeRow := s.active.Width(rowWidth)
 	plainRow := s.plain.Width(rowWidth)
@@ -252,6 +254,7 @@ func (m *App) renderHosts(s styleSet) string {
 	awsErr := m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != ""
 	azureErr := m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != ""
 	boxErr := m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != ""
+	upstashErr := m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != ""
 	start := scrollStart(m.cursor, len(rowsData), listHeight)
 	var list strings.Builder
 	list.Grow(listHeight * (rowWidth + 8))
@@ -297,7 +300,7 @@ func (m *App) renderHosts(s styleSet) string {
 			}
 			count := s.muted.Render(fmt.Sprintf("(%d)", row.count))
 			errorIcon := ""
-			if row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boxErr) {
+			if row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boxErr, upstashErr) {
 				errorIcon = s.error.Render("⚠")
 			}
 			prefix := indent + indicator + " "
@@ -306,13 +309,28 @@ func (m *App) renderHosts(s styleSet) string {
 				reservedWidth += 1 + lipgloss.Width(errorIcon)
 			}
 			name = truncate(name, max(2, rowWidth-reservedWidth))
-			line := prefix + renderManagedGroupName(name, s.active, m.nerdFont) + " " + count
+			accent, branded := providerBrandStyle(row)
+			nameStyle := s.active
+			if branded {
+				nameStyle = accent
+				prefix = accent.Render(prefix)
+			}
+			namePart := renderManagedGroupName(name, nameStyle, m.nerdFont)
+			if branded && !cloud.IsProviderRoot(row.group) {
+				namePart = accent.Render(name)
+			}
+			line := prefix + namePart + " " + count
 			if errorIcon != "" {
 				line += strings.Repeat(" ", max(1, rowWidth-lipgloss.Width(line)-lipgloss.Width(errorIcon))) + errorIcon
 			}
-			if i == m.cursor {
+			switch {
+			case i == m.cursor && branded:
+				line = selectedBrandRow.Render(line)
+			case i == m.cursor:
 				line = selectedRow.Render(line)
-			} else {
+			case branded:
+				line = plainRow.Render(line)
+			default:
 				line = activeRow.Render(line)
 			}
 			list.WriteString(line + "\n")
@@ -408,10 +426,11 @@ func (m *App) cloudSyncGroupHasError(group string) bool {
 		m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != "",
 		m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != "",
 		m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != "",
+		m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != "",
 	)
 }
 
-func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boxErr bool) bool {
+func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boxErr, upstashErr bool) bool {
 	kind, ok := cloud.KindForGroup(group)
 	if !ok {
 		return false
@@ -425,6 +444,8 @@ func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boxErr
 		return azureErr
 	case cloud.Box:
 		return boxErr
+	case cloud.Upstash:
+		return upstashErr
 	default:
 		return false
 	}
@@ -509,18 +530,21 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool
 		return labels.azure + restStyle.Render(strings.TrimPrefix(name, "Microsoft Azure"))
 	case name == "Box" || strings.HasPrefix(name, "Box/"):
 		return labels.box + restStyle.Render(strings.TrimPrefix(name, "Box"))
+	case name == "Upstash" || strings.HasPrefix(name, "Upstash/"):
+		return labels.upstash + restStyle.Render(strings.TrimPrefix(name, "Upstash"))
 	default:
 		return name
 	}
 }
 
-func managedProviderLabels(nerdFont bool) (labels struct{ google, amazon, azure, box string }) {
+func managedProviderLabels(nerdFont bool) (labels struct{ google, amazon, azure, box, upstash string }) {
 	if managedLabelCache.ready && managedLabelCache.nerdFont == nerdFont {
-		return struct{ google, amazon, azure, box string }{
-			google: managedLabelCache.google,
-			amazon: managedLabelCache.amazon,
-			azure:  managedLabelCache.azure,
-			box:    managedLabelCache.box,
+		return struct{ google, amazon, azure, box, upstash string }{
+			google:  managedLabelCache.google,
+			amazon:  managedLabelCache.amazon,
+			azure:   managedLabelCache.azure,
+			box:     managedLabelCache.box,
+			upstash: managedLabelCache.upstash,
 		}
 	}
 	amazonName := managedGroupIcon("Amazon EC2", nerdFont) + "Amazon EC2"
@@ -542,17 +566,22 @@ func managedProviderLabels(nerdFont bool) (labels struct{ google, amazon, azure,
 	boxName := managedGroupIcon("Box", nerdFont) + "Box"
 	box := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(boxName)
 
+	upstashName := managedGroupIcon("Upstash", nerdFont) + "Upstash"
+	upstash := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00E9A3")).Render(upstashName)
+
 	managedLabelCache.ready = true
 	managedLabelCache.nerdFont = nerdFont
 	managedLabelCache.google = google.String()
 	managedLabelCache.amazon = amazon
 	managedLabelCache.azure = azure
 	managedLabelCache.box = box
-	return struct{ google, amazon, azure, box string }{
-		google: managedLabelCache.google,
-		amazon: managedLabelCache.amazon,
-		azure:  managedLabelCache.azure,
-		box:    managedLabelCache.box,
+	managedLabelCache.upstash = upstash
+	return struct{ google, amazon, azure, box, upstash string }{
+		google:  managedLabelCache.google,
+		amazon:  managedLabelCache.amazon,
+		azure:   managedLabelCache.azure,
+		box:     managedLabelCache.box,
+		upstash: managedLabelCache.upstash,
 	}
 }
 
@@ -571,6 +600,29 @@ func managedGroupIcon(name string, nerdFont bool) string {
 	return d.NerdIcon + " "
 }
 
+func providerBrandColor(kind cloud.Kind) (string, bool) {
+	d, ok := cloud.DescriptorForKind(kind)
+	if !ok || d.BrandColor == "" {
+		return "", false
+	}
+	return d.BrandColor, true
+}
+
+func providerBrandStyle(row hostRow) (lipgloss.Style, bool) {
+	kind, ok := cloud.KindForGroup(row.group)
+	if !ok && row.host.Synced {
+		kind, ok = cloud.KindForSource(row.host.SyncSource)
+	}
+	if !ok {
+		return lipgloss.Style{}, false
+	}
+	color, ok := providerBrandColor(kind)
+	if !ok {
+		return lipgloss.Style{}, false
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)), true
+}
+
 func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) string {
 	meta := m.hostMetadata()[host.Alias]
 	var b strings.Builder
@@ -580,6 +632,11 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 		primaryAction = connectAction
 	}
 	titleStyle := s.active
+	if kind, ok := cloud.KindForSource(host.SyncSource); ok {
+		if color, found := providerBrandColor(kind); found {
+			titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color))
+		}
+	}
 	titleMax := max(4, width-3)
 	title := truncate(label, titleMax)
 	if foreground, ok := contrastingTextColor(meta.Color); ok {

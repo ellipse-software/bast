@@ -15,6 +15,7 @@ import (
 
 	"bast/internal/cli"
 	azurecloud "bast/internal/cloud/azure"
+	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/openssh"
 	"bast/internal/paths"
 	"bast/internal/telemetry"
@@ -63,6 +64,16 @@ func main() {
 }
 
 func run(args []string) error {
+	if upstashcloud.IsAskPassRequest() {
+		if term.IsTerminal(os.Stdout.Fd()) {
+			return errors.New("upstash askpass refused: stdout is a terminal")
+		}
+		p, err := paths.Default()
+		if err != nil {
+			return err
+		}
+		return upstashcloud.PrintAPIKey(os.Stdout, p.UpstashAPIKey)
+	}
 	if len(args) > 0 && args[0] == "__azure-bastion-proxy" {
 		options, err := azurecloud.ParseProxyOptions(args[1:])
 		if err != nil {

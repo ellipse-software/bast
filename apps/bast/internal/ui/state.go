@@ -11,6 +11,7 @@ import (
 	"bast/internal/cloud"
 	boxcloud "bast/internal/cloud/box"
 	cloudsync "bast/internal/cloud/sync"
+	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/platform"
@@ -902,6 +903,9 @@ func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
 	if kind == cloud.Box {
 		return boxcloud.HostLooksStopped(host.Resolved.HostName, meta.Tags)
 	}
+	if kind == cloud.Upstash {
+		return upstashcloud.HostLooksStopped(meta.Tags)
+	}
 	return false
 }
 func hostIdentity(h sshconfig.Host) string {
@@ -914,6 +918,9 @@ func hostIdentity(h sshconfig.Host) string {
 func hostAuthSummary(h sshconfig.Host) string {
 	if !h.Synced {
 		return hostIdentity(h)
+	}
+	if passwordOnly(h.Resolved) {
+		return "password only"
 	}
 	if len(h.Resolved.IdentityFiles) > 0 {
 		return h.Resolved.IdentityFiles[0]
@@ -941,6 +948,12 @@ func hostStatusLine(h sshconfig.Host, meta metadata.Host) string {
 			parts = append(parts, "Box stopped")
 		} else {
 			parts = append(parts, "Box synced")
+		}
+	case h.Synced && h.SyncSource == "upstash":
+		if hostLooksStopped(h, meta) {
+			parts = append(parts, "Upstash paused")
+		} else {
+			parts = append(parts, "Upstash synced")
 		}
 	case h.Synced:
 		parts = append(parts, h.SyncSource+" synced")

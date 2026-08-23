@@ -6,6 +6,8 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- Upstash Box sync and lifecycle: create, pause, resume, fork, and delete through the Box API. The API key is stored in `~/.config/bast/upstash-box-api-key` and used as the SSH password.
+
 ### Changed
 
 - Unlinked Vault tab shows a first-run seal instead of a two-line stub.

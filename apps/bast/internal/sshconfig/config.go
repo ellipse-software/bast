@@ -58,15 +58,16 @@ type HostInput struct {
 }
 
 type Manager struct {
-	Home            string
-	MainConfig      string
-	ManagedDir      string
-	ManagedConfig   string
-	ManagedKeys     string
-	SyncGCPConfig   string
-	SyncAWSConfig   string
-	SyncAzureConfig string
-	SyncBoxConfig   string
+	Home              string
+	MainConfig        string
+	ManagedDir        string
+	ManagedConfig     string
+	ManagedKeys       string
+	SyncGCPConfig     string
+	SyncAWSConfig     string
+	SyncAzureConfig   string
+	SyncBoxConfig     string
+	SyncUpstashConfig string
 }
 
 type SyncHostInput struct {
@@ -81,6 +82,7 @@ type SyncHostInput struct {
 	IdentitiesOnly  bool
 	ProxyCommand    string
 	ExtraOptions    []string
+	PasswordOnly    bool
 }
 
 func (m Manager) Discover() ([]Host, error) {

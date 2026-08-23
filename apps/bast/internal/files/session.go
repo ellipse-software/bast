@@ -26,12 +26,28 @@ type Session struct {
 // OpenSession starts ssh -s sftp for alias using the given OpenSSH client.
 // If ctx is cancelled before the handshake finishes, the SSH process is killed.
 func OpenSession(ctx context.Context, openSSH openssh.Client, alias string) (*Session, error) {
+	return OpenSessionPrepared(ctx, openSSH, alias, nil)
+}
+
+// OpenSessionPrepared starts ssh -s sftp. prepare may swap BatchMode off and set askpass env.
+func OpenSessionPrepared(ctx context.Context, openSSH openssh.Client, alias string, prepare func(*exec.Cmd) error) (*Session, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	cmd, err := openSSH.SFTPCommand(alias)
+	var cmd *exec.Cmd
+	var err error
+	if prepare != nil {
+		cmd, err = openSSH.SFTPCommandInteractive(alias)
+	} else {
+		cmd, err = openSSH.SFTPCommand(alias)
+	}
 	if err != nil {
 		return nil, err
+	}
+	if prepare != nil {
+		if err := prepare(cmd); err != nil {
+			return nil, err
+		}
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

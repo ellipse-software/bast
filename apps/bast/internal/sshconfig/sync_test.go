@@ -205,6 +205,27 @@ func TestRenderSyncBlockIdentitiesOnlyOnlyWhenConfident(t *testing.T) {
 	}
 }
 
+func TestRenderSyncBlockPasswordOnly(t *testing.T) {
+	block := string(RenderSyncBlock(SyncHostInput{
+		Alias: "upstash_dev", SyncSource: "upstash", SyncID: "current-wasp-05510",
+		HostName: "us-east-1.box.upstash.com", User: "current-wasp-05510",
+		PasswordOnly: true, ExtraOptions: []string{"StrictHostKeyChecking accept-new"},
+	}))
+	for _, want := range []string{
+		"PubkeyAuthentication no",
+		"PasswordAuthentication yes",
+		"PreferredAuthentications keyboard-interactive,password",
+		"StrictHostKeyChecking accept-new",
+	} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("missing %q:\n%s", want, block)
+		}
+	}
+	if strings.Contains(block, "IdentityFile") {
+		t.Fatalf("password-only block should omit IdentityFile:\n%s", block)
+	}
+}
+
 func TestRemoveSyncInclude(t *testing.T) {
 	m := testManager(t)
 	m.SyncGCPConfig = filepath.Join(m.ManagedDir, "sync", "gcp", "config")

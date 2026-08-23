@@ -109,7 +109,7 @@ Run `bast hosts <command> --help`, `bast keys <command> --help`, or `bast sync <
 
 ## Cloud sync
 
-The Vault tab (`3`) syncs Bast-managed hosts and keys between machines. The Sync tab (`4`) and `bast sync` commands import read-only hosts from [GCP](https://bast.sh/docs/features/gcp), [AWS](https://bast.sh/docs/features/aws), [Azure](https://bast.sh/docs/features/azure), and [box.ascii.dev](https://bast.sh/docs/features/box). Each provider guide covers prerequisites, authentication, and the changes Bast will and will not make. Box also supports create, stop, resume, and fork through `bast box` and the TUI. Files is tab `5`.
+The Vault tab (`3`) syncs Bast-managed hosts and keys between machines. The Sync tab (`4`) and `bast sync` commands import read-only hosts from [GCP](https://bast.sh/docs/features/gcp), [AWS](https://bast.sh/docs/features/aws), [Azure](https://bast.sh/docs/features/azure), [box.ascii.dev](https://bast.sh/docs/features/box), and [Upstash Box](https://bast.sh/docs/features/upstash). Each provider guide covers prerequisites, authentication, and the changes Bast will and will not make. ASCII Box and Upstash Box also support create, stop/pause, resume, and fork. Files is tab `5`.
 
 ## Vault
 
@@ -137,6 +137,7 @@ See [AI agents](https://bast.sh/docs/reference/agents) for project-local install
 - AWS CLI v2 for AWS cloud sync
 - Azure CLI 2.62+ for Azure cloud sync
 - ASCII Box CLI (`box`) for [box.ascii.dev](https://box.ascii.dev/) sync
+- An Upstash Box API key for [Upstash Box](https://upstash.com/docs/box/overall/quickstart) sync
 - `curl`, `tar`, and `shasum` or `sha256sum` for the macOS/Linux installer
 - PowerShell 5.1+ for the Windows installer
 - Go 1.26+ to build from source

@@ -8,39 +8,44 @@ import (
 )
 
 type Paths struct {
-	Home            string
-	SSHDir          string
-	MainConfig      string
-	ManagedDir      string
-	ManagedConfig   string
-	ManagedKeys     string
-	SyncDir         string
-	SyncGCPConfig   string
-	SyncAWSConfig   string
-	SyncAzureConfig string
-	SyncBoxConfig   string
-	AzureDir        string
-	StateFile       string
+	Home              string
+	SSHDir            string
+	MainConfig        string
+	ManagedDir        string
+	ManagedConfig     string
+	ManagedKeys       string
+	SyncDir           string
+	SyncGCPConfig     string
+	SyncAWSConfig     string
+	SyncAzureConfig   string
+	SyncBoxConfig     string
+	SyncUpstashConfig string
+	AzureDir          string
+	StateFile         string
+	UpstashAPIKey     string
 }
 
 func ForHome(home string) Paths {
 	sshDir := filepath.Join(home, ".ssh")
 	managedDir := filepath.Join(sshDir, "bast")
 	syncDir := filepath.Join(managedDir, "sync")
+	configDir := filepath.Join(home, ".config", "bast")
 	return Paths{
-		Home:            home,
-		SSHDir:          sshDir,
-		MainConfig:      filepath.Join(sshDir, "config"),
-		ManagedDir:      managedDir,
-		ManagedConfig:   filepath.Join(managedDir, "config"),
-		ManagedKeys:     filepath.Join(managedDir, "keys"),
-		SyncDir:         syncDir,
-		SyncGCPConfig:   filepath.Join(syncDir, "gcp", "config"),
-		SyncAWSConfig:   filepath.Join(syncDir, "aws", "config"),
-		SyncAzureConfig: filepath.Join(syncDir, "azure", "config"),
-		SyncBoxConfig:   filepath.Join(syncDir, "box", "config"),
-		AzureDir:        filepath.Join(managedDir, "azure"),
-		StateFile:       filepath.Join(home, ".config", "bast", "state.json"),
+		Home:              home,
+		SSHDir:            sshDir,
+		MainConfig:        filepath.Join(sshDir, "config"),
+		ManagedDir:        managedDir,
+		ManagedConfig:     filepath.Join(managedDir, "config"),
+		ManagedKeys:       filepath.Join(managedDir, "keys"),
+		SyncDir:           syncDir,
+		SyncGCPConfig:     filepath.Join(syncDir, "gcp", "config"),
+		SyncAWSConfig:     filepath.Join(syncDir, "aws", "config"),
+		SyncAzureConfig:   filepath.Join(syncDir, "azure", "config"),
+		SyncBoxConfig:     filepath.Join(syncDir, "box", "config"),
+		SyncUpstashConfig: filepath.Join(syncDir, "upstash", "config"),
+		AzureDir:          filepath.Join(managedDir, "azure"),
+		StateFile:         filepath.Join(configDir, "state.json"),
+		UpstashAPIKey:     filepath.Join(configDir, "upstash-box-api-key"),
 	}
 }
 

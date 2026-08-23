@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	boxcloud "bast/internal/cloud/box"
+	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/files"
 	"bast/internal/openssh"
 	"bast/internal/sshconfig"
@@ -135,7 +137,7 @@ const cloudPrepareTimeout = 90 * time.Second
 const boxPrepareTimeout = 5 * time.Minute
 
 func prepareTimeoutForHost(host sshconfig.Host) time.Duration {
-	if host.Synced && host.SyncSource == "box" {
+	if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash") {
 		return boxPrepareTimeout
 	}
 	return cloudPrepareTimeout
@@ -166,7 +168,16 @@ func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
 		if err := ctx.Err(); err != nil {
 			return filesConnectMsg{pane: index, gen: gen, alias: alias, err: err}
 		}
-		session, err := files.OpenSession(ctx, openSSH, alias)
+		var session *files.Session
+		var err error
+		if host.Synced && host.SyncSource == "upstash" {
+			session, err = files.OpenSessionPrepared(ctx, openSSH, alias, func(cmd *exec.Cmd) error {
+				upstashcloud.PrepareSSH(cmd, "")
+				return nil
+			})
+		} else {
+			session, err = files.OpenSession(ctx, openSSH, alias)
+		}
 		if err != nil {
 			return filesConnectMsg{pane: index, gen: gen, alias: alias, err: err}
 		}
@@ -207,6 +218,19 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 				_, _ = m.syncer.SyncBox(ctx)
 			}
 			return m.syncer.EnsureBoxAccess(ctx, host, status)
+		}
+	case "upstash":
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Resuming Upstash box…")
+				}
+				if err := m.syncer.Upstash.Resume(ctx, host.SyncID); err != nil {
+					return err
+				}
+				_, _ = m.syncer.SyncUpstash(ctx)
+			}
+			return m.syncer.EnsureUpstashAccess(ctx, host, status)
 		}
 	}
 	if ensure == nil {
@@ -598,6 +622,9 @@ func (m *App) filesOpenShell() (tea.Model, tea.Cmd) {
 	if err != nil {
 		m.setError(err)
 		return m, nil
+	}
+	if host.Synced && host.SyncSource == "upstash" {
+		upstashcloud.PrepareSSH(cmd, m.syncer.BastExecutable)
 	}
 	prepare := m.filesPrepareFn(host)
 	telemetry.Track("files_shell", m.version)

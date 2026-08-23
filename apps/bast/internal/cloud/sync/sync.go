@@ -16,6 +16,7 @@ import (
 	azurecloud "bast/internal/cloud/azure"
 	boxcloud "bast/internal/cloud/box"
 	"bast/internal/cloud/gcp"
+	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/metadata"
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
@@ -34,6 +35,7 @@ type Engine struct {
 	awsMu          stdsync.Mutex
 	azureMu        stdsync.Mutex
 	boxMu          stdsync.Mutex
+	upstashMu      stdsync.Mutex
 	Paths          paths.Paths
 	Config         sshconfig.Manager
 	Store          *metadata.Store
@@ -41,6 +43,7 @@ type Engine struct {
 	AWS            *awscloud.Client
 	Azure          *azurecloud.Client
 	Box            *boxcloud.Client
+	Upstash        *upstashcloud.Client
 	BastExecutable string
 	Discover       func(ctx context.Context) ([]sshconfig.Host, error)
 
@@ -62,7 +65,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
 		SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig,
-		SyncBoxConfig: p.SyncBoxConfig,
+		SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig,
 	}
 	return &Engine{
 		Paths:          p,
@@ -72,6 +75,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		AWS:            awscloud.New(),
 		Azure:          azurecloud.New(),
 		Box:            boxcloud.New(),
+		Upstash:        upstashcloud.New(p.UpstashAPIKey),
 		BastExecutable: stableExecutablePath(),
 		Discover: func(ctx context.Context) ([]sshconfig.Host, error) {
 			return cfg.Discover()
@@ -965,6 +969,7 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	awsIntegration := e.Store.AWS()
 	azureIntegration := e.Store.Azure()
 	boxIntegration := e.Store.Box()
+	upstashIntegration := e.Store.Upstash()
 	status := Status{
 		GCP: GCPStatus{
 			Enabled:           integration.Enabled,
@@ -995,10 +1000,15 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			LastSyncAt: boxIntegration.LastSyncAt, LastSyncError: boxIntegration.LastSyncError,
 			LastInstanceCount: boxIntegration.LastInstanceCount,
 		},
+		Upstash: UpstashStatus{
+			Enabled: upstashIntegration.Enabled, AutoSync: upstashIntegration.AutoSync, Disabled: upstashIntegration.Disabled,
+			LastSyncAt: upstashIntegration.LastSyncAt, LastSyncError: upstashIntegration.LastSyncError,
+			LastInstanceCount: upstashIntegration.LastInstanceCount, HasKey: e.Upstash.HasKey(),
+		},
 	}
 
 	var probes stdsync.WaitGroup
-	probes.Add(4)
+	probes.Add(5)
 	go func() {
 		defer probes.Done()
 		if err := e.GCP.CheckAvailable(ctx); err != nil {
@@ -1065,15 +1075,29 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 		}
 		status.Box.Plan = account.Plan
 	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Upstash.Account(ctx)
+		if err != nil {
+			status.Upstash.Error = err.Error()
+			return
+		}
+		status.Upstash.Authenticated = account.Authenticated
+		status.Upstash.HasKey = e.Upstash.HasKey()
+		if account.Error != "" && !account.Authenticated {
+			status.Upstash.Error = account.Error
+		}
+	}()
 	probes.Wait()
 	return status, nil
 }
 
 type Status struct {
-	GCP   GCPStatus   `json:"gcp"`
-	AWS   AWSStatus   `json:"aws"`
-	Azure AzureStatus `json:"azure"`
-	Box   BoxStatus   `json:"box"`
+	GCP     GCPStatus     `json:"gcp"`
+	AWS     AWSStatus     `json:"aws"`
+	Azure   AzureStatus   `json:"azure"`
+	Box     BoxStatus     `json:"box"`
+	Upstash UpstashStatus `json:"upstash"`
 }
 
 type GCPStatus struct {
@@ -1128,6 +1152,18 @@ type BoxStatus struct {
 	LastSyncError     string     `json:"lastSyncError,omitempty"`
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 	BoxCLIError       string     `json:"boxCliError,omitempty"`
+}
+
+type UpstashStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	HasKey            bool       `json:"hasKey,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Error             string     `json:"error,omitempty"`
 }
 
 func IsSyncedGroup(group string) bool {
