@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 
 type Section = "hosts" | "keys" | "vault" | "sync" | "files";
 type SyncProvider = "" | "gcp" | "aws" | "azure" | "box";
@@ -23,7 +23,9 @@ type HostItem = {
   synced?: "gcp" | "aws" | "azure";
   destination: string;
   summary: string;
-  rows: DetailRow[];
+  access?: DetailRow[];
+  about?: DetailRow[];
+  promote?: boolean;
 };
 
 type KeyItem = {
@@ -51,7 +53,6 @@ type SyncMenuItem = {
   detail?: string;
   description?: string;
   disabled?: boolean;
-  action?: "open-gcp" | "open-aws" | "open-azure" | "open-box";
 };
 
 type HostGroupNode = {
@@ -73,10 +74,9 @@ const hostTree: HostGroupNode[] = [
         favorite: true,
         destination: "deploy@api.prod.example.com",
         summary: "Bast managed · known host",
-        rows: [
-          { label: "Source", value: "~/.ssh/bast/config:12" },
-          { label: "Key", value: "~/.ssh/bast/keys/work" },
-          { label: "Meta", value: "prod · web, api" },
+        access: [{ label: "Auth", value: "~/.ssh/bast/keys/work" }],
+        about: [
+          { label: "Tags", value: "web, api" },
           { label: "Used", value: "2026-07-26 14:02 (18)" },
         ],
       },
@@ -84,11 +84,8 @@ const hostTree: HostGroupNode[] = [
         name: "bastion",
         destination: "ops@bastion.prod.example.com",
         summary: "Bast managed · known host",
-        rows: [
-          { label: "Source", value: "~/.ssh/bast/config:28" },
-          { label: "Key", value: "~/.ssh/bast/keys/work" },
-          { label: "Meta", value: "prod · jump" },
-        ],
+        access: [{ label: "Auth", value: "~/.ssh/bast/keys/work" }],
+        about: [{ label: "Tags", value: "jump" }],
       },
     ],
   },
@@ -107,12 +104,11 @@ const hostTree: HostGroupNode[] = [
             synced: "gcp",
             destination: "ubuntu@34.123.45.67",
             summary: "GCP synced · known host",
-            rows: [
-              { label: "Source", value: "~/.ssh/bast/sync/gcp/config:1" },
+            access: [
+              { label: "Auth", value: "~/.ssh/bast/keys/work" },
               { label: "SSH name", value: "gcp_demo_web-01" },
-              { label: "Auth", value: "ubuntu · ~/.ssh/bast/keys/work" },
-              { label: "Used", value: "2026-07-26 13:40 (4)" },
             ],
+            about: [{ label: "Used", value: "2026-07-26 13:40 (4)" }],
           },
           {
             name: "gpu-training",
@@ -120,14 +116,13 @@ const hostTree: HostGroupNode[] = [
             synced: "gcp",
             destination: "gpu-training",
             summary: "GCP synced · known host",
-            rows: [
-              { label: "Source", value: "~/.ssh/bast/sync/gcp/config:14" },
-              { label: "SSH name", value: "gcp_demo_gpu-training" },
+            access: [
               {
                 label: "Auth",
                 value: "oslogin_user · ~/.ssh/google_compute_engine",
               },
               { label: "Jump", value: "IAP tunnel" },
+              { label: "SSH name", value: "gcp_demo_gpu-training" },
             ],
           },
         ],
@@ -149,10 +144,12 @@ const hostTree: HostGroupNode[] = [
             synced: "aws",
             destination: "ec2-user@10.20.1.14",
             summary: "AWS synced · known host",
-            rows: [
-              { label: "Source", value: "~/.ssh/bast/sync/aws/config:1" },
-              { label: "SSH name", value: "aws_production_us-east-1_i-0123456789abcdef0" },
+            access: [
               { label: "Jump", value: "EC2 Instance Connect Endpoint" },
+              {
+                label: "SSH name",
+                value: "aws_production_us-east-1_i-0123456789abcdef0",
+              },
             ],
           },
         ],
@@ -174,10 +171,9 @@ const hostTree: HostGroupNode[] = [
             synced: "azure",
             destination: "azureuser@10.30.2.8",
             summary: "Azure synced · known host",
-            rows: [
-              { label: "Source", value: "~/.ssh/bast/sync/azure/config:1" },
-              { label: "SSH name", value: "azure_Production_apps_api-01" },
+            access: [
               { label: "Jump", value: "Azure Bastion tunnel" },
+              { label: "SSH name", value: "azure_Production_apps_api-01" },
             ],
           },
         ],
@@ -200,10 +196,8 @@ const ungroupedHosts: HostItem[] = [
     name: "github.com",
     destination: "git@github.com",
     summary: "external · known host",
-    rows: [
-      { label: "Source", value: "~/.ssh/config:92" },
-      { label: "Key", value: "~/.ssh/id_ed25519_github" },
-    ],
+    access: [{ label: "Auth", value: "~/.ssh/id_ed25519_github" }],
+    promote: true,
   },
 ];
 
@@ -240,38 +234,43 @@ const keys: KeyItem[] = [
   },
 ];
 
-const syncProviders: SyncMenuItem[] = [
+type SyncTile = {
+  id: Exclude<SyncProvider, "">;
+  title: string;
+  googleCloud?: boolean;
+  detail: string;
+  description: string;
+};
+
+const syncTiles: SyncTile[] = [
   {
-    label: "GCP",
+    id: "gcp",
+    title: "Google Cloud",
+    googleCloud: true,
     detail: "2 · 2026-07-26 13:55",
     description: "Import Compute Engine VMs into Bast",
-    action: "open-gcp",
   },
   {
-    label: "AWS",
+    id: "aws",
+    title: "Amazon EC2",
     detail: "4 · 2026-07-27 18:20",
     description: "Import EC2 instances into Bast",
-    action: "open-aws",
   },
   {
-    label: "Azure",
+    id: "azure",
+    title: "Microsoft Azure",
     detail: "3 · 2026-07-28 10:12",
     description: "Import Azure VMs into Bast",
-    action: "open-azure",
   },
   {
-    label: "Box",
+    id: "box",
+    title: "Box",
     detail: "2 running",
     description: "Import ASCII Box sandboxes into Bast",
-    action: "open-box",
   },
 ];
 
-const syncVaultActions: SyncMenuItem[] = [
-  {
-    label: "Sync now",
-    description: "Keep this machine and the vault in sync",
-  },
+const vaultMenu: SyncMenuItem[] = [
   {
     label: "Rotate passphrase",
     description: "Requires the current passphrase",
@@ -280,86 +279,73 @@ const syncVaultActions: SyncMenuItem[] = [
     label: "Reset passphrase",
     description: "Overwrites the remote vault with this machine",
   },
+  {
+    label: "API base URL",
+    description: "Vault server for this machine (self-hosted or bast.sh)",
+  },
   { label: "Log out" },
 ];
 
-const vaultStatusRows: DetailRow[] = [
-  { label: "Status", value: "linked" },
-  { label: "Email", value: "you@example.com" },
-  { label: "Session", value: "unlocked" },
-  { label: "Revision", value: "a1b2c3d4e5f6" },
-  { label: "Last sync", value: "13:55:02" },
-];
-
-const syncGcpActions: SyncMenuItem[] = [
-  { label: "Sync now" },
-  { label: "Disconnect" },
-  { label: "Disable auto-sync" },
-  { label: "Default SSH user" },
-  { label: "Project filter" },
-  { label: "Add service account key" },
-  { label: "Refresh status" },
-];
-
-const gcpStatusRows: DetailRow[] = [
-  { label: "Status", value: "enabled" },
-  { label: "Accounts", value: "you@example.com" },
-  { label: "Last sync", value: "2026-07-26 13:55 · 2" },
-  { label: "Auto-sync", value: "on" },
-  { label: "SSH user", value: "none" },
-  { label: "Projects", value: "all" },
-];
-
-const syncProviderActions: Record<Exclude<SyncProvider, "">, SyncMenuItem[]> = {
-  gcp: syncGcpActions,
-  aws: [
-    { label: "Sync now" },
-    { label: "Disconnect" },
-    { label: "Enable auto-sync" },
-    { label: "Default SSH user" },
-    { label: "Profile filter" },
-    { label: "Region filter" },
-    { label: "Refresh status" },
-  ],
-  azure: [
-    { label: "Sync now" },
-    { label: "Disconnect" },
-    { label: "Enable auto-sync" },
-    { label: "Default SSH user" },
-    { label: "Subscription filter" },
-    { label: "Resource group filter" },
-    { label: "Refresh status" },
-  ],
-  box: [
-    { label: "Sync now" },
-    { label: "New box" },
-    { label: "Disconnect" },
-    { label: "Refresh status" },
-  ],
+type ProviderPage = {
+  identity: string[];
+  chips: string[];
+  config: SyncMenuItem[];
 };
 
-const syncProviderStatus: Record<Exclude<SyncProvider, "">, DetailRow[]> = {
-  gcp: gcpStatusRows,
-  aws: [
-    { label: "Status", value: "enabled" },
-    { label: "Profiles", value: "default, production" },
-    { label: "Last sync", value: "2026-07-27 18:20 · 4" },
-    { label: "Auto-sync", value: "off" },
-    { label: "Regions", value: "all enabled" },
-  ],
-  azure: [
-    { label: "Status", value: "enabled" },
-    { label: "Subscriptions", value: "Production" },
-    { label: "Last sync", value: "2026-07-28 10:12 · 3" },
-    { label: "Auto-sync", value: "off" },
-    { label: "Resource groups", value: "all" },
-  ],
-  box: [
-    { label: "Status", value: "enabled" },
-    { label: "Account", value: "ted" },
-    { label: "Last sync", value: "2026-07-28 11:02 · 2" },
-    { label: "Auto-sync", value: "on" },
-  ],
+const providerPages: Record<Exclude<SyncProvider, "">, ProviderPage> = {
+  gcp: {
+    identity: [
+      "enabled · 2 · 2026-07-26 13:55",
+      "you@example.com · auto-sync on",
+    ],
+    chips: ["Sync"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Disable auto-sync" },
+      { label: "Default SSH user" },
+      { label: "Project filter" },
+      { label: "Add service account key" },
+      { label: "Refresh status" },
+    ],
+  },
+  aws: {
+    identity: [
+      "enabled · 4 · 2026-07-27 18:20",
+      "default, production · auto-sync off",
+    ],
+    chips: ["Sync"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Enable auto-sync" },
+      { label: "Default SSH user" },
+      { label: "Profile filter" },
+      { label: "Region filter" },
+      { label: "Refresh status" },
+    ],
+  },
+  azure: {
+    identity: [
+      "enabled · 3 · 2026-07-28 10:12",
+      "Production · auto-sync off",
+    ],
+    chips: ["Sync"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Enable auto-sync" },
+      { label: "Default SSH user" },
+      { label: "Subscription filter" },
+      { label: "Resource group filter" },
+      { label: "Refresh status" },
+    ],
+  },
+  box: {
+    identity: ["enabled · 2 running", "ted · auto-sync on"],
+    chips: ["Sync", "New box"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Refresh status" },
+    ],
+  },
 };
 
 const localFiles: FileEntry[] = [
@@ -469,36 +455,6 @@ const remoteFiles: FileEntry[] = [
 const localTone = "#94A3B8";
 const remoteTone = "#14B8A6";
 
-function providerForAction(
-  action: SyncMenuItem["action"],
-): Exclude<SyncProvider, ""> | null {
-  switch (action) {
-    case "open-gcp":
-      return "gcp";
-    case "open-aws":
-      return "aws";
-    case "open-azure":
-      return "azure";
-    case "open-box":
-      return "box";
-    default:
-      return null;
-  }
-}
-
-function syncProviderTitle(provider: Exclude<SyncProvider, "">): string {
-  switch (provider) {
-    case "gcp":
-      return "GCP";
-    case "aws":
-      return "AWS";
-    case "azure":
-      return "Azure";
-    case "box":
-      return "box.ascii.dev";
-  }
-}
-
 const panelGrid = "grid h-full min-h-0 grid-cols-[38%_1fr]";
 
 const bleedX =
@@ -572,6 +528,7 @@ export function TuiDemo() {
   const [keyCursor, setKeyCursor] = useState(0);
   const [syncProvider, setSyncProvider] = useState<SyncProvider>("");
   const [syncCursor, setSyncCursor] = useState(0);
+  const [vaultCursor, setVaultCursor] = useState(-1);
   const [filesFocus, setFilesFocus] = useState<0 | 1>(0);
   const [localCursor, setLocalCursor] = useState(2);
   const [remoteCursor, setRemoteCursor] = useState(0);
@@ -586,13 +543,12 @@ export function TuiDemo() {
   const selectedHostRow = hostRows[safeHostCursor];
   const selectedKey = keys[Math.min(keyCursor, keys.length - 1)];
 
-  const syncItems =
-    section === "vault"
-      ? syncVaultActions
-      : syncProvider
-        ? syncProviderActions[syncProvider]
-        : syncProviders;
-  const safeSyncCursor = Math.min(syncCursor, Math.max(0, syncItems.length - 1));
+  const providerPage = syncProvider ? providerPages[syncProvider] : null;
+  const syncItemCount = providerPage
+    ? providerPage.chips.length + providerPage.config.length
+    : syncTiles.length;
+  const safeSyncCursor = Math.min(syncCursor, Math.max(0, syncItemCount - 1));
+  const safeVaultCursor = Math.min(vaultCursor, vaultMenu.length - 1);
   const safeLocalCursor = Math.min(
     localCursor,
     Math.max(0, localFiles.length - 1),
@@ -604,9 +560,12 @@ export function TuiDemo() {
 
   const switchSection = useCallback((next: Section) => {
     setSection(next);
-    if (next === "sync" || next === "vault") {
+    if (next === "sync") {
       setSyncProvider("");
       setSyncCursor(0);
+    }
+    if (next === "vault") {
+      setVaultCursor(-1);
     }
   }, []);
 
@@ -632,18 +591,27 @@ export function TuiDemo() {
   const moveSync = useCallback(
     (delta: number) => {
       setSyncCursor((current) => {
-        let next = current;
-        for (let step = 0; step < syncItems.length; step += 1) {
-          next = Math.max(0, Math.min(syncItems.length - 1, next + delta));
-          if (!syncItems[next]?.disabled) {
-            return next;
-          }
+        if (!providerPage) {
+          return Math.max(0, Math.min(syncItemCount - 1, current + delta));
         }
-        return current;
+        const chipCount = providerPage.chips.length;
+        if (delta > 0 && current < chipCount) {
+          return Math.min(syncItemCount - 1, chipCount);
+        }
+        if (delta < 0 && current === chipCount) {
+          return 0;
+        }
+        return Math.max(0, Math.min(syncItemCount - 1, current + delta));
       });
     },
-    [syncItems],
+    [providerPage, syncItemCount],
   );
+
+  const moveVault = useCallback((delta: number) => {
+    setVaultCursor((current) =>
+      Math.max(-1, Math.min(vaultMenu.length - 1, current + delta)),
+    );
+  }, []);
 
   const moveFiles = useCallback(
     (delta: number) => {
@@ -676,14 +644,12 @@ export function TuiDemo() {
   }, [filesFocus, safeLocalCursor]);
 
   const activateSync = useCallback(() => {
-    const item = syncItems[safeSyncCursor];
-    if (!item || item.disabled) return;
-    const provider = providerForAction(item.action);
-    if (provider) {
-      setSyncProvider(provider);
-      setSyncCursor(0);
-    }
-  }, [safeSyncCursor, syncItems]);
+    if (syncProvider) return;
+    const tile = syncTiles[safeSyncCursor];
+    if (!tile) return;
+    setSyncProvider(tile.id);
+    setSyncCursor(0);
+  }, [safeSyncCursor, syncProvider]);
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
@@ -703,6 +669,7 @@ export function TuiDemo() {
           if (section === "hosts") moveHosts(1);
           else if (section === "keys") moveKeys(1);
           else if (section === "files") moveFiles(1);
+          else if (section === "vault") moveVault(1);
           else moveSync(1);
           break;
         case "k":
@@ -711,7 +678,28 @@ export function TuiDemo() {
           if (section === "hosts") moveHosts(-1);
           else if (section === "keys") moveKeys(-1);
           else if (section === "files") moveFiles(-1);
+          else if (section === "vault") moveVault(-1);
           else moveSync(-1);
+          break;
+        case "h":
+        case "ArrowLeft":
+          if (section === "sync" && !syncProvider) {
+            event.preventDefault();
+            moveSync(-1);
+          } else if (section === "sync" && providerPage && safeSyncCursor > 0 && safeSyncCursor < providerPage.chips.length) {
+            event.preventDefault();
+            moveSync(-1);
+          }
+          break;
+        case "l":
+        case "ArrowRight":
+          if (section === "sync" && !syncProvider) {
+            event.preventDefault();
+            moveSync(1);
+          } else if (section === "sync" && providerPage && safeSyncCursor < providerPage.chips.length - 1) {
+            event.preventDefault();
+            moveSync(1);
+          }
           break;
         case "1":
           event.preventDefault();
@@ -761,9 +749,6 @@ export function TuiDemo() {
             event.preventDefault();
             setSyncProvider("");
             setSyncCursor(0);
-          } else if (section === "vault") {
-            event.preventDefault();
-            switchSection("hosts");
           } else if (section === "files" && filesInfo) {
             event.preventDefault();
             setFilesInfo(false);
@@ -782,6 +767,9 @@ export function TuiDemo() {
       moveHosts,
       moveKeys,
       moveSync,
+      moveVault,
+      providerPage,
+      safeSyncCursor,
       section,
       selectedHostRow,
       switchSection,
@@ -800,9 +788,11 @@ export function TuiDemo() {
           ? filesInfo
             ? "j/k next • i/esc close"
             : "tab pane • ␣ mark • i info • p chmod • ? help"
-          : syncProvider
-            ? "↵ action • esc providers • r refresh • ? help"
-            : "hjkl move • ↵ open • 1 hosts • 3 vault • 5 files • ? help";
+          : section === "vault"
+            ? "↵ action • 4 sync • ? help"
+            : syncProvider
+              ? "↵ action • esc providers • r refresh • ? help"
+              : "hjkl move • ↵ open • 1 hosts • 3 vault • 5 files • ? help";
 
   const footerHintMobile =
     section === "hosts"
@@ -813,7 +803,9 @@ export function TuiDemo() {
           ? filesInfo
             ? "i/esc close • 1/2/3/4/5 tabs"
             : "tap pane • i info • 1/2/3/4/5 tabs"
-          : "tap provider • 1/2/3/4/5 tabs";
+          : section === "vault"
+            ? "tap action • 1/2/3/4/5 tabs"
+            : "tap provider • 1/2/3/4/5 tabs";
 
   return (
     <div
@@ -867,29 +859,29 @@ export function TuiDemo() {
       </header>
 
       {section === "vault" ? (
-        <SyncPanel
-          provider="vault"
-          items={syncVaultActions}
-          cursor={safeSyncCursor}
-          onSelect={setSyncCursor}
-          onBack={() => switchSection("hosts")}
-          footerDesktop="↵ action • 4 sync • ? help"
-          footerMobile="tap action • 1/2/3/4/5 tabs"
+        <VaultPanel
+          cursor={safeVaultCursor}
+          onSelectChip={() => setVaultCursor(-1)}
+          onSelectMenu={setVaultCursor}
+          footerDesktop={footerHintDesktop}
+          footerMobile={footerHintMobile}
         />
       ) : section === "sync" ? (
         <SyncPanel
           provider={syncProvider}
-          items={syncItems}
           cursor={safeSyncCursor}
-          onSelect={(index) => {
-            setSyncCursor(index);
-            const item = syncItems[index];
-            const provider = providerForAction(item?.action);
-            if (provider) {
-              setSyncProvider(provider);
-              setSyncCursor(0);
+          onSelectTile={(index) => {
+            if (index === safeSyncCursor) {
+              const tile = syncTiles[index];
+              if (tile) {
+                setSyncProvider(tile.id);
+                setSyncCursor(0);
+              }
+              return;
             }
+            setSyncCursor(index);
           }}
+          onSelectIndex={setSyncCursor}
           onBack={() => {
             setSyncProvider("");
             setSyncCursor(0);
@@ -1013,7 +1005,7 @@ function TabButton({
 }: {
   active: boolean;
   onClick: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button
@@ -1298,7 +1290,15 @@ function HostList({
                 }`}
               >
                 {indicator}{" "}
-                {row.googleCloud ? <GoogleCloudLabel /> : row.label}{" "}
+                {row.googleCloud ? (
+                  <GoogleCloudLabel />
+                ) : row.label === "Amazon EC2" ? (
+                  <span className="font-bold text-[#FF9900]">Amazon EC2</span>
+                ) : row.label === "Microsoft Azure" ? (
+                  <span className="font-bold text-[#0078D4]">Microsoft Azure</span>
+                ) : (
+                  row.label
+                )}{" "}
                 <span className="font-normal text-muted">({row.count})</span>
               </button>
             </li>
@@ -1365,6 +1365,17 @@ function KeyList({
   );
 }
 
+function groupPrimaryAction(row: Extract<HostListRow, { kind: "group" }>): string | null {
+  switch (row.id) {
+    case "Google Cloud":
+    case "Amazon EC2":
+    case "Microsoft Azure":
+      return "Sync now";
+    default:
+      return null;
+  }
+}
+
 function HostDetailPane({
   row,
   collapsed,
@@ -1377,18 +1388,28 @@ function HostDetailPane({
   if (!row) return null;
   if (row.kind === "group") {
     const state = collapsed[row.id] ? "collapsed" : "expanded";
+    const action = groupPrimaryAction(row);
     const hint = row.synced
-      ? "Press ␣ to collapse or expand · cloud sync group (read-only)"
-      : "Press ␣ to collapse or expand · e to rename";
+      ? "␣ collapse · cloud sync (read-only)"
+      : "␣ collapse · e rename";
     return (
       <>
         <p className="truncate font-bold text-accent">
           {row.googleCloud ? <GoogleCloudLabel /> : row.label}
         </p>
+        {action ? (
+          <div className="py-[1lh]">
+            <ActionChip label={action} active />
+          </div>
+        ) : null}
         <p className="truncate text-muted">
           {row.count} servers · {state}
         </p>
-        <p className={`truncate ${compact ? "mt-1.5" : "mt-2"}`}>{hint}</p>
+        {action ? null : (
+          <p className={`truncate text-muted ${compact ? "mt-1.5" : "mt-2"}`}>
+            {hint}
+          </p>
+        )}
       </>
     );
   }
@@ -1402,20 +1423,60 @@ function HostDetail({
   host: HostItem;
   compact?: boolean;
 }) {
+  const sectionGap = compact ? "mt-1.5" : "mt-2";
   return (
     <>
       <p className="min-w-0 truncate font-bold text-accent">{host.name}</p>
-      <p className="w-fit bg-accent px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-white sm:text-xs">
-        {" Connect "}
-      </p>
+      <div className="py-[1lh]">
+        <ActionChip label="Connect" active />
+      </div>
       <p className="truncate">{host.destination}</p>
       <p className="truncate text-muted">{host.summary}</p>
-      <div className={`space-y-0.5 ${compact ? "mt-1.5" : "mt-2"}`}>
-        {host.rows.map((row) => (
-          <DetailLine key={row.label} {...row} compact={compact} />
-        ))}
-      </div>
+      {host.access && host.access.length > 0 ? (
+        <div className={`space-y-0.5 ${sectionGap}`}>
+          <p className="text-muted">Access</p>
+          {host.access.map((row) => (
+            <DetailLine key={row.label} {...row} compact={compact} />
+          ))}
+        </div>
+      ) : null}
+      {host.about && host.about.length > 0 ? (
+        <div className={`space-y-0.5 ${sectionGap}`}>
+          <p className="text-muted">About</p>
+          {host.about.map((row) => (
+            <DetailLine key={row.label} {...row} compact={compact} />
+          ))}
+        </div>
+      ) : null}
+      {host.promote ? (
+        <p className={`font-bold text-accent ${sectionGap}`}>
+          [p] Promote to Bast managed
+        </p>
+      ) : null}
     </>
+  );
+}
+
+function ActionChip({
+  label,
+  active = false,
+  onClick,
+}: {
+  label: string;
+  active?: boolean;
+  onClick?: () => void;
+}) {
+  const className = `w-fit border-0 px-1.5 py-0.5 text-[10px] font-bold tracking-wide sm:text-xs ${
+    active ? "bg-accent text-white" : "bg-transparent text-foreground"
+  } ${onClick ? "cursor-pointer" : ""}`;
+  const text = ` ${label} `;
+  if (!onClick) {
+    return <span className={className}>{text}</span>;
+  }
+  return (
+    <button type="button" onClick={onClick} className={className}>
+      {text}
+    </button>
   );
 }
 
@@ -1445,83 +1506,19 @@ function KeyDetail({
   );
 }
 
-function SyncPanel({
-  provider,
-  items,
-  cursor,
-  onSelect,
-  onBack,
+function DemoPane({
+  children,
   footerDesktop,
   footerMobile,
 }: {
-  provider: SyncProvider | "vault";
-  items: SyncMenuItem[];
-  cursor: number;
-  onSelect: (index: number) => void;
-  onBack: () => void;
+  children: ReactNode;
   footerDesktop: string;
   footerMobile: string;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className={`h-px shrink-0 bg-border ${bleedMargin}`} />
-      <div className="min-h-0 flex-1 overflow-hidden pt-1.5">
-        {provider === "" ? null : (
-          <>
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <p className="font-bold text-accent">
-                {provider === "vault" ? "Vault" : syncProviderTitle(provider)}
-              </p>
-              <button
-                type="button"
-                onClick={onBack}
-                className="cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-muted hover:text-foreground"
-              >
-                esc
-              </button>
-            </div>
-            <div className="mb-3 space-y-0.5">
-              {(provider === "vault"
-                ? vaultStatusRows
-                : syncProviderStatus[provider]
-              ).map((row) => (
-                <DetailLine key={row.label} {...row} />
-              ))}
-            </div>
-          </>
-        )}
-        <ul role="listbox" aria-label="sync" className="max-w-md">
-          {items.map((item, index) => {
-            const isSelected = index === cursor && !item.disabled;
-            return (
-              <li key={item.label} role="option" aria-selected={isSelected}>
-                <button
-                  type="button"
-                  disabled={item.disabled}
-                  onClick={() => onSelect(index)}
-                  className={`flex w-full items-baseline gap-4 border-0 py-0.5 text-left font-[inherit] transition-colors ${
-                    item.disabled
-                      ? "cursor-default bg-transparent text-muted"
-                      : isSelected
-                        ? "cursor-pointer bg-highlight font-bold text-foreground"
-                        : "cursor-pointer bg-transparent text-foreground hover:bg-highlight/70"
-                  }`}
-                >
-                  <span className="shrink-0 pl-2">{item.label}</span>
-                  {item.detail ? (
-                    <span className="min-w-0 flex-1 truncate text-right">
-                      {item.detail}
-                    </span>
-                  ) : null}
-                </button>
-                {isSelected && item.description ? (
-                  <p className="pl-4 text-muted">{item.description}</p>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      </div>
+      <div className="min-h-0 flex-1 overflow-hidden pt-1.5">{children}</div>
       <footer className="mt-2 hidden shrink-0 truncate text-right text-[10px] text-muted sm:text-xs md:block md:text-sm">
         {footerDesktop}
       </footer>
@@ -1530,6 +1527,282 @@ function SyncPanel({
       </footer>
     </div>
   );
+}
+
+function SyncPanel({
+  provider,
+  cursor,
+  onSelectTile,
+  onSelectIndex,
+  onBack,
+  footerDesktop,
+  footerMobile,
+}: {
+  provider: SyncProvider;
+  cursor: number;
+  onSelectTile: (index: number) => void;
+  onSelectIndex: (index: number) => void;
+  onBack: () => void;
+  footerDesktop: string;
+  footerMobile: string;
+}) {
+  const page = provider ? providerPages[provider] : null;
+  const selectedTile = syncTiles[cursor];
+  return (
+    <DemoPane footerDesktop={footerDesktop} footerMobile={footerMobile}>
+      {page && provider ? (
+        <ProviderPage
+          provider={provider}
+          page={page}
+          cursor={cursor}
+          onSelect={onSelectIndex}
+          onBack={onBack}
+        />
+      ) : (
+        <>
+          <div className="grid min-w-0 grid-cols-1 gap-x-2 gap-y-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            {syncTiles.map((tile, index) => (
+              <SyncTileButton
+                key={tile.id}
+                tile={tile}
+                selected={index === cursor}
+                onClick={() => onSelectTile(index)}
+              />
+            ))}
+          </div>
+          {selectedTile ? (
+            <p className="mt-2 truncate pl-2 text-muted">
+              {selectedTile.description}
+            </p>
+          ) : null}
+        </>
+      )}
+    </DemoPane>
+  );
+}
+
+function BoxRule({
+  start,
+  end,
+  className,
+}: {
+  start: string;
+  end: string;
+  className: string;
+}) {
+  return (
+    <span className={`flex min-w-0 ${className}`} aria-hidden>
+      <span className="shrink-0">{start}</span>
+      <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">
+        {"─".repeat(64)}
+      </span>
+      <span className="shrink-0">{end}</span>
+    </span>
+  );
+}
+
+function SyncTileButton({
+  tile,
+  selected,
+  onClick,
+}: {
+  tile: SyncTile;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  const edge = selected ? "text-accent" : "text-muted";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full min-w-0 cursor-pointer flex-col border-0 bg-transparent p-0 text-left font-[inherit]"
+    >
+      <BoxRule start="┌" end="┐" className={edge} />
+      <span className="flex min-w-0">
+        <span className={`shrink-0 ${edge}`}>│</span>
+        <span className="min-w-0 flex-1 truncate px-1 font-bold">
+          <ProviderTitle provider={tile.id} />
+        </span>
+        <span className={`shrink-0 ${edge}`}>│</span>
+      </span>
+      <span className="flex min-w-0">
+        <span className={`shrink-0 ${edge}`}>│</span>
+        <span className="min-w-0 flex-1 truncate px-1 text-muted">
+          {tile.detail}
+        </span>
+        <span className={`shrink-0 ${edge}`}>│</span>
+      </span>
+      <BoxRule start="└" end="┘" className={edge} />
+    </button>
+  );
+}
+
+function ProviderPage({
+  provider,
+  page,
+  cursor,
+  onSelect,
+  onBack,
+}: {
+  provider: Exclude<SyncProvider, "">;
+  page: ProviderPage;
+  cursor: number;
+  onSelect: (index: number) => void;
+  onBack: () => void;
+}) {
+  const chipCount = page.chips.length;
+  return (
+    <>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="truncate font-bold">
+          <ProviderTitle provider={provider} />
+        </p>
+        <button
+          type="button"
+          onClick={onBack}
+          className="cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-muted hover:text-foreground"
+        >
+          esc
+        </button>
+      </div>
+      <div className="mb-1 space-y-0.5">
+        {page.identity.map((line) => (
+          <IdentityLine key={line} line={line} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-4 py-[1lh]">
+        {page.chips.map((label, index) => (
+          <ActionChip
+            key={label}
+            label={label}
+            active={cursor === index}
+            onClick={() => onSelect(index)}
+          />
+        ))}
+      </div>
+      <ul role="listbox" aria-label="sync config" className="max-w-md">
+        {page.config.map((item, index) => {
+          const itemIndex = chipCount + index;
+          return (
+            <MenuRow
+              key={item.label}
+              item={item}
+              selected={cursor === itemIndex}
+              onSelect={() => onSelect(itemIndex)}
+            />
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
+function VaultPanel({
+  cursor,
+  onSelectChip,
+  onSelectMenu,
+  footerDesktop,
+  footerMobile,
+}: {
+  cursor: number;
+  onSelectChip: () => void;
+  onSelectMenu: (index: number) => void;
+  footerDesktop: string;
+  footerMobile: string;
+}) {
+  return (
+    <DemoPane footerDesktop={footerDesktop} footerMobile={footerMobile}>
+      <p className="font-bold text-accent">Vault</p>
+      <p className="truncate">you@example.com</p>
+      <p className="truncate">
+        <span className="text-[#10B981]">unlocked</span>
+        <span className="text-muted"> · 13:55:02 · a1b2c3d4</span>
+      </p>
+      <div className="py-[1lh]">
+        <ActionChip
+          label="Sync"
+          active={cursor < 0}
+          onClick={onSelectChip}
+        />
+      </div>
+      <ul role="listbox" aria-label="vault" className="max-w-md">
+        {vaultMenu.map((item, index) => (
+          <MenuRow
+            key={item.label}
+            item={item}
+            selected={cursor === index}
+            onSelect={() => onSelectMenu(index)}
+          />
+        ))}
+      </ul>
+    </DemoPane>
+  );
+}
+
+function MenuRow({
+  item,
+  selected,
+  onSelect,
+}: {
+  item: SyncMenuItem;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <li role="option" aria-selected={selected}>
+      <button
+        type="button"
+        disabled={item.disabled}
+        onClick={onSelect}
+        className={`flex w-full items-baseline gap-4 border-0 py-0.5 text-left font-[inherit] transition-colors ${
+          item.disabled
+            ? "cursor-default bg-transparent text-muted"
+            : selected
+              ? "cursor-pointer bg-highlight font-bold text-foreground"
+              : "cursor-pointer bg-transparent text-foreground hover:bg-highlight/70"
+        }`}
+      >
+        <span className="shrink-0 pl-2">{item.label}</span>
+        {item.detail ? (
+          <span className="min-w-0 flex-1 truncate text-right">
+            {item.detail}
+          </span>
+        ) : null}
+      </button>
+      {selected && item.description ? (
+        <p className="pl-4 text-muted">{item.description}</p>
+      ) : null}
+    </li>
+  );
+}
+
+function ProviderTitle({
+  provider,
+}: {
+  provider: Exclude<SyncProvider, "">;
+}) {
+  switch (provider) {
+    case "gcp":
+      return <GoogleCloudLabel />;
+    case "aws":
+      return <span className="font-bold text-[#FF9900]">Amazon EC2</span>;
+    case "azure":
+      return <span className="font-bold text-[#0078D4]">Microsoft Azure</span>;
+    case "box":
+      return <span className="font-bold text-foreground">Box</span>;
+  }
+}
+
+function IdentityLine({ line }: { line: string }) {
+  if (line.startsWith("enabled")) {
+    return (
+      <p className="truncate">
+        <span className="text-[#10B981]">enabled</span>
+        <span className="text-muted">{line.slice("enabled".length)}</span>
+      </p>
+    );
+  }
+  return <p className="truncate text-muted">{line}</p>;
 }
 
 function GoogleCloudLabel() {

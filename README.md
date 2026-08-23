@@ -11,7 +11,7 @@
 
 **The fast way into the servers you use every day.**
 
-Browse SSH hosts, manage keys, and connect from the terminal.
+Browse SSH hosts, transfer files over SFTP, sync cloud VMs, manage keys, and connect from the terminal.
 
 [Home](https://bast.sh) · [Docs](https://bast.sh/docs) · [Releases](https://github.com/ellipse-software/bast/releases) · [Contributing](./CONTRIBUTING.md) · [Security](./SECURITY.md)
 
@@ -28,151 +28,69 @@ Browse SSH hosts, manage keys, and connect from the terminal.
 
 ## Install
 
-**macOS and Linux:**
+<details>
+<summary>macOS</summary>
 
 ```sh
 curl -fsSL https://bast.sh/install | sh
 ```
 
-This installs `bast` to `~/.local/bin` by default. See [Installation](https://bast.sh/docs/install) for custom locations, updates, and other options.
-
-**Windows 11 (PowerShell):**
-
-```powershell
-irm https://bast.sh/install.ps1 | iex
-```
-
-**Homebrew:**
+Or with Homebrew:
 
 ```sh
 brew install ellipse-software/tap/bast
 ```
 
-### Nightly
+</details>
+
+<details>
+<summary>Linux</summary>
 
 ```sh
-curl -fsSL https://bast.sh/install-nightly | sh
+curl -fsSL https://bast.sh/install | sh
 ```
+
+Or with Homebrew:
 
 ```sh
-brew install ellipse-software/tap/bast-nightly
+brew install ellipse-software/tap/bast
 ```
 
-On Windows 11:
+</details>
+
+<details>
+<summary>Windows 11</summary>
 
 ```powershell
-irm https://bast.sh/install-nightly.ps1 | iex
+irm https://bast.sh/install.ps1 | iex
 ```
 
-See [Installation](https://bast.sh/docs/install#nightly-channel) for nightly channel behavior.
+Requires the Windows OpenSSH Client (`ssh`, `ssh-keygen`, `ssh-add`).
 
-### From Source
+</details>
 
-```sh
-git clone https://github.com/ellipse-software/bast.git
-cd bast/apps/bast
-go build -trimpath -o bast .
-```
+Then run `bast`. Nightly builds, custom install paths, and building from source are in the [installation guide](https://bast.sh/docs/install).
 
-Put the binary on your `PATH`, then run `bast`.
-
-## Quick start
+## Usage
 
 ```sh
-bast                    # open the host picker
-bast update             # update (script installs only)
+bast                    # host picker
 bast production         # connect by label
-bast "Production web"   # labels with spaces work too
-bast hosts list         # list hosts without the TUI
-bast keys list          # list keys without the TUI
+bast hosts list         # list hosts
+bast keys list          # list keys
 ```
 
-Press `?` in the TUI for keybindings. See the [documentation](https://bast.sh/docs) for setup and feature guides.
-
-## CLI
-
-Bast also provides commands for managing hosts and keys without opening the TUI.
-
-```sh
-bast hosts list --sort group
-bast hosts add "Production web" --hostname prod.example.com --user deploy
-bast hosts edit Production_web --notes "Primary app server"
-bast hosts delete Production_web
-
-bast keys generate work --algorithm ed25519
-bast keys import work --private ~/.ssh/id_ed25519
-bast keys install work --host production
-bast keys delete work
-```
-
-Run `bast hosts <command> --help`, `bast keys <command> --help`, or `bast sync <command> --help` for available flags. The [command-line guide](https://bast.sh/docs/features/cli) covers automation, JSON output, prompts, and edit behavior.
-
-## Cloud sync
-
-The Vault tab (`3`) syncs Bast-managed hosts and keys between machines. The Sync tab (`4`) and `bast sync` commands import read-only hosts from [GCP](https://bast.sh/docs/features/gcp), [AWS](https://bast.sh/docs/features/aws), [Azure](https://bast.sh/docs/features/azure), and [box.ascii.dev](https://bast.sh/docs/features/box). Each provider guide covers prerequisites, authentication, and the changes Bast will and will not make. Box also supports create, stop, resume, and fork through `bast box` and the TUI. Files is tab `5`.
-
-## Vault
-
-[Vault](https://bast.sh/docs/features/vault) syncs Bast-managed hosts and keys between machines with end-to-end encryption (`bast vault login`). Cloud VM inventory still re-syncs per machine via provider CLIs.
-
-## What Bast does
-
-Bast reads your existing OpenSSH configuration, adds organization and key management, discovers hosts from shell history, transfers files over SFTP, and launches the system `ssh` binary for connections. OpenSSH remains the source of truth. Start with the [documentation](https://bast.sh/docs), or read about [host management](https://bast.sh/docs/features/host-management), [Files](https://bast.sh/docs/features/files), [history import](https://bast.sh/docs/features/history-import), and [SSH keys](https://bast.sh/docs/features/keys).
+Press `?` in the TUI for keybindings. [Documentation](https://bast.sh/docs) covers hosts, keys, Vault, cloud sync, Files, and the CLI.
 
 ## Agent skill
-
-Teach Cursor, Claude Code, Codex, and other agents how to use Bast:
 
 ```sh
 npx skills add ellipse-software/bast -g -y
 ```
 
-See [AI agents](https://bast.sh/docs/reference/agents) for project-local install and curl fallbacks. The skill source is [`skills/bast/SKILL.md`](./skills/bast/SKILL.md).
-
-## Requirements
-
-- macOS, Linux, or Windows 11 (x64 or ARM64). WSL uses the Linux build.
-- OpenSSH (`ssh`, `ssh-keygen`, `ssh-add`)
-- Google Cloud SDK (`gcloud`) for GCP cloud sync
-- AWS CLI v2 for AWS cloud sync
-- Azure CLI 2.62+ for Azure cloud sync
-- ASCII Box CLI (`box`) for [box.ascii.dev](https://box.ascii.dev/) sync
-- `curl`, `tar`, and `shasum` or `sha256sum` for the macOS/Linux installer
-- PowerShell 5.1+ for the Windows installer
-- Go 1.26+ to build from source
-- A Nerd Font is detected automatically in WezTerm, Kitty, iTerm2, Alacritty, Ghostty, Warp, and Windows Terminal for cloud icons; use `BAST_NERD_FONT=1` or `BAST_NERD_FONT=0` to override detection
-
-## Keyboard shortcuts
-
-Press `?` in Bast to see contextual keybindings, or use the [keyboard shortcut reference](https://bast.sh/docs/features/shortcuts).
-
-## Files
-
-The Files tab (`5` in the TUI) is a dual-pane local/remote browser over OpenSSH SFTP. See [Files](https://bast.sh/docs/features/files).
-
-For paths Bast writes under `~/.ssh`, see [Files and storage](https://bast.sh/docs/reference/files). Back up `~/.ssh` before trying unreleased builds on a real config, and never paste private keys into issues.
-
-## Telemetry
-
-Anonymous usage telemetry is on by default. Opt out with:
-
-```sh
-export BAST_NO_TELEMETRY=1
-```
-
-This also disables optional error reports. See [Telemetry and error reports](https://bast.sh/docs/reference/telemetry) for what is collected and when consent is requested.
+See [AI agents](https://bast.sh/docs/reference/agents).
 
 ## Development
-
-From the repository root:
-
-```sh
-bun install
-bun run check
-bun run build
-```
-
-Run `bun run dev` for the website. The Go CLI is in [`apps/bast`](apps/bast), and the Next.js site is in [`apps/web`](apps/web).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md).
 
