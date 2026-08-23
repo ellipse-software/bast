@@ -4,6 +4,8 @@ export const llmsTxtUrl = `${siteUrl}/llms.txt`;
 export const llmsFullUrl = `${siteUrl}/llms-full.txt`;
 export const skillUrl = `${siteUrl}/bast.skill.md`;
 export const installSkillUrl = `${siteUrl}/install-skill.sh`;
+export const openApiUrl = `${siteUrl}/openapi.json`;
+export const sitemapUrl = `${siteUrl}/sitemap.xml`;
 export const skillsRepo = "ellipse-software/bast";
 
 /** Preferred install via Vercel Skills CLI (npx skills). */

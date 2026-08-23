@@ -1,7 +1,13 @@
 import Link from "next/link";
 
 import { MarketingBreadcrumb } from "@/components/marketing-shell";
-import { company, privacyPath, termsPath } from "@/lib/company";
+import {
+  aboutPath,
+  company,
+  contactPath,
+  privacyPath,
+  termsPath,
+} from "@/lib/company";
 import { createPageMetadata } from "@/lib/metadata";
 
 export const metadata = createPageMetadata({
@@ -22,6 +28,22 @@ export default function LegalIndexPage() {
         as {company.tradingName}.
       </p>
       <ul className="divide-y divide-border border-y border-border text-sm">
+        <li>
+          <Link
+            href={aboutPath}
+            className="block py-4 font-medium tracking-tight transition-colors hover:text-muted"
+          >
+            About
+          </Link>
+        </li>
+        <li>
+          <Link
+            href={contactPath}
+            className="block py-4 font-medium tracking-tight transition-colors hover:text-muted"
+          >
+            Contact
+          </Link>
+        </li>
         <li>
           <Link
             href={privacyPath}

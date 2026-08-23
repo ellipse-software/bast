@@ -29,6 +29,16 @@ const config = {
 	async headers() {
 		return [
 			{
+				source: "/:path*",
+				headers: [
+					{
+						key: "Vary",
+						value:
+							"Accept, Accept-Encoding, rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+					},
+				],
+			},
+			{
 				source: "/install.ps1",
 				headers: [
 					{

@@ -3,7 +3,15 @@ import type { MetadataRoute } from "next";
 import { comparisonSlugs } from "@/lib/comparisons";
 import { guideNavItems } from "@/lib/marketing";
 import { source } from "@/lib/source";
-import { llmsFullUrl, llmsTxtUrl, skillUrl, siteUrl } from "@/lib/site";
+import {
+  aboutPath,
+  cliPath,
+  contactPath,
+  developersPath,
+  legalPrivacyPath,
+  privacyPath,
+} from "@/lib/company";
+import { llmsFullUrl, llmsTxtUrl, openApiUrl, skillUrl, siteUrl } from "@/lib/site";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const docPages = source.getPages().map((page) => ({
@@ -51,19 +59,49 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.7,
     },
     {
+      url: `${siteUrl}${aboutPath}`,
+      changeFrequency: "yearly",
+      priority: 0.6,
+    },
+    {
+      url: `${siteUrl}${contactPath}`,
+      changeFrequency: "yearly",
+      priority: 0.6,
+    },
+    {
+      url: `${siteUrl}${cliPath}`,
+      changeFrequency: "monthly",
+      priority: 0.8,
+    },
+    {
+      url: `${siteUrl}${developersPath}`,
+      changeFrequency: "monthly",
+      priority: 0.8,
+    },
+    {
       url: `${siteUrl}/legal`,
       changeFrequency: "yearly",
       priority: 0.4,
     },
     {
-      url: `${siteUrl}/legal/privacy`,
+      url: `${siteUrl}${privacyPath}`,
       changeFrequency: "yearly",
       priority: 0.4,
+    },
+    {
+      url: `${siteUrl}${legalPrivacyPath}`,
+      changeFrequency: "yearly",
+      priority: 0.3,
     },
     {
       url: `${siteUrl}/legal/terms`,
       changeFrequency: "yearly",
       priority: 0.4,
+    },
+    {
+      url: openApiUrl,
+      changeFrequency: "monthly",
+      priority: 0.7,
     },
     ...comparisonPages,
     ...guidePages,

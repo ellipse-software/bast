@@ -33,7 +33,7 @@ export default async function FeaturesPage() {
     <MarketingShell version={version}>
       <MarketingBreadcrumb label="Features" />
       <h1 className="mb-4 text-3xl font-medium tracking-tight sm:text-4xl">
-        Features
+        Bast.sh features
       </h1>
       <p className="mb-10 max-w-2xl text-base leading-relaxed text-muted sm:text-lg">
         Bast stays in the terminal and keeps OpenSSH in charge. These guides

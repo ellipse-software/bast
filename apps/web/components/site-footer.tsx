@@ -10,7 +10,9 @@ import {
   type AggregateStatus,
 } from "@/lib/betterstack";
 import {
+  aboutPath,
   company,
+  contactPath,
   privacyPath,
   termsPath,
   trademarkNotice,
@@ -21,7 +23,7 @@ import {
   comparisonNavItems,
   guideNavItems,
 } from "@/lib/marketing";
-import { llmsFullUrl, llmsTxtUrl, skillUrl } from "@/lib/site";
+import { llmsFullUrl, llmsTxtUrl, openApiUrl, skillUrl } from "@/lib/site";
 
 const linkClass =
   "text-sm text-muted transition-colors hover:text-foreground";
@@ -149,8 +151,9 @@ export async function SiteFooter() {
             <FooterLink href="/changelog">Changelog</FooterLink>
             <FooterLink href="/status">Status</FooterLink>
             <FooterLink href="/docs/install">Install</FooterLink>
-            <FooterLink href="/docs/features/cli">CLI</FooterLink>
+            <FooterLink href="/cli">CLI</FooterLink>
             <FooterLink href="/docs/features/vault">Vault</FooterLink>
+            <FooterLink href="/developers">Developers</FooterLink>
           </FooterColumn>
 
           <FooterColumn title="Resources">
@@ -165,6 +168,7 @@ export async function SiteFooter() {
             </FooterLink>
             <FooterLink href={llmsTxtUrl}>llms.txt</FooterLink>
             <FooterLink href={llmsFullUrl}>llms-full.txt</FooterLink>
+            <FooterLink href={openApiUrl}>OpenAPI</FooterLink>
             <FooterLink href={skillUrl}>Agent skill</FooterLink>
           </FooterColumn>
         </div>
@@ -198,6 +202,24 @@ export async function SiteFooter() {
                   aria-hidden
                 />
                 {footerStatusLabel(status.aggregate)}
+              </Link>
+              <span aria-hidden className="text-border">
+                ·
+              </span>
+              <Link
+                href={aboutPath}
+                className="transition-colors hover:text-foreground"
+              >
+                About
+              </Link>
+              <span aria-hidden className="text-border">
+                ·
+              </span>
+              <Link
+                href={contactPath}
+                className="transition-colors hover:text-foreground"
+              >
+                Contact
               </Link>
               <span aria-hidden className="text-border">
                 ·

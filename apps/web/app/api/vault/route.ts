@@ -1,10 +1,23 @@
+import { jsonError } from "@/lib/api-error";
 import { resolveBearer } from "@/lib/auth";
 import { r2Configured } from "@/lib/r2";
 import { redisConfigured } from "@/lib/redis";
 import { getVaultMeta, MAX_VAULT_BYTES, readVault, writeVault } from "@/lib/vault-store";
 
 function unauthorized() {
-  return Response.json({ error: "unauthorized" }, { status: 401 });
+  return jsonError(401, {
+    code: "unauthorized",
+    message: "A valid Bearer token is required.",
+    hint: "POST /api/auth/otp/start, then POST /api/auth/otp/verify, and send Authorization: Bearer <token>.",
+  });
+}
+
+function vaultUnconfigured() {
+  return jsonError(503, {
+    code: "vault_unconfigured",
+    message: "Vault storage is not configured on this origin.",
+    hint: "Self-host with Upstash Redis and Cloudflare R2, or use https://bast.sh. See https://bast.sh/docs/reference/self-hosting.",
+  });
 }
 
 function stripETag(value: string | null): string | null {
@@ -18,7 +31,7 @@ function noStoreHeaders(extra: Record<string, string> = {}) {
 
 export async function GET(request: Request) {
   if (!redisConfigured() || !r2Configured()) {
-    return Response.json({ error: "vault storage is not configured" }, { status: 503 });
+    return vaultUnconfigured();
   }
   const session = await resolveBearer(request.headers.get("authorization"));
   if (!session) return unauthorized();
@@ -27,7 +40,15 @@ export async function GET(request: Request) {
     const ifNoneMatch = stripETag(request.headers.get("if-none-match"));
     const meta = await getVaultMeta(session.userId);
     if (!meta) {
-      return new Response(null, { status: 404, headers: noStoreHeaders() });
+      return jsonError(
+        404,
+        {
+          code: "vault_not_found",
+          message: "No vault exists for this account yet.",
+          hint: "PUT /api/vault with Authorization and no If-Match to create the first revision.",
+        },
+        noStoreHeaders(),
+      );
     }
     if (ifNoneMatch && ifNoneMatch === meta.revision) {
       return new Response(null, {
@@ -40,7 +61,15 @@ export async function GET(request: Request) {
     }
     const vault = await readVault(session.userId);
     if (!vault) {
-      return new Response(null, { status: 404, headers: noStoreHeaders() });
+      return jsonError(
+        404,
+        {
+          code: "vault_not_found",
+          message: "No vault exists for this account yet.",
+          hint: "PUT /api/vault with Authorization and no If-Match to create the first revision.",
+        },
+        noStoreHeaders(),
+      );
     }
     return new Response(Buffer.from(vault.body), {
       status: 200,
@@ -52,26 +81,36 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("vault read failed", error);
-    return Response.json({ error: "read failed" }, { status: 500 });
+    return jsonError(500, {
+      code: "vault_read_failed",
+      message: "The vault could not be read.",
+      hint: "Retry the GET. If it persists, check https://bast.sh/status and https://bast.sh/api/health/vault.",
+    });
   }
 }
 
 export async function PUT(request: Request) {
   if (!redisConfigured() || !r2Configured()) {
-    return Response.json({ error: "vault storage is not configured" }, { status: 503 });
+    return vaultUnconfigured();
   }
   const session = await resolveBearer(request.headers.get("authorization"));
   if (!session) return unauthorized();
 
+  const tooLarge = {
+    code: "vault_too_large",
+    message: "Vault payload exceeds the 1 MiB limit.",
+    hint: "Shrink the vault blob. Bast Vault rejects bodies larger than 1048576 bytes.",
+  };
+
   const contentLength = Number(request.headers.get("content-length") || "0");
   if (contentLength > MAX_VAULT_BYTES) {
-    return Response.json({ error: "vault payload exceeds 1 MiB limit" }, { status: 400 });
+    return jsonError(400, tooLarge);
   }
 
   const ifMatch = stripETag(request.headers.get("if-match"));
   const buf = new Uint8Array(await request.arrayBuffer());
   if (buf.byteLength > MAX_VAULT_BYTES) {
-    return Response.json({ error: "vault payload exceeds 1 MiB limit" }, { status: 400 });
+    return jsonError(400, tooLarge);
   }
   try {
     const meta = await writeVault(session.userId, buf, ifMatch);
@@ -94,9 +133,20 @@ export async function PUT(request: Request) {
     const known = error && typeof error === "object" && "status" in error ? Number(error.status) : 0;
     if (known >= 400 && known < 500) {
       const message = error instanceof Error ? error.message : "write failed";
-      return Response.json({ error: message }, { status: known });
+      return jsonError(known, {
+        code: known === 412 ? "precondition_failed" : "vault_write_rejected",
+        message,
+        hint:
+          known === 412
+            ? "GET /api/vault, merge, and PUT again with the current If-Match revision."
+            : "Check the payload size and If-Match header. See https://bast.sh/openapi.json.",
+      });
     }
     console.error("vault write failed", error);
-    return Response.json({ error: "write failed" }, { status: 500 });
+    return jsonError(500, {
+      code: "vault_write_failed",
+      message: "The vault could not be written.",
+      hint: "Retry the PUT. If it persists, check https://bast.sh/status and https://bast.sh/api/health/vault.",
+    });
   }
 }

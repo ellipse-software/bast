@@ -1,3 +1,4 @@
+import { jsonError } from "@/lib/api-error";
 import { captureTelemetry } from "@/lib/posthog";
 import { parseTelemetryPayload } from "@/lib/telemetry";
 
@@ -16,12 +17,20 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return new Response(null, { status: 400 });
+    return jsonError(400, {
+      code: "invalid_json",
+      message: "Request body is not valid JSON.",
+      hint: "POST application/json matching the TelemetryPayload schema in https://bast.sh/openapi.json.",
+    });
   }
 
   const payload = parseTelemetryPayload(body);
   if (!payload) {
-    return new Response(null, { status: 400 });
+    return jsonError(400, {
+      code: "invalid_payload",
+      message: "The telemetry payload was missing or invalid.",
+      hint: "Send event, version, os (darwin|linux), arch (arm64|amd64), and source (installer|cli). See https://bast.sh/openapi.json.",
+    });
   }
 
   await captureTelemetry(payload, getCountryFromRequest(request));

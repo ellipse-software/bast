@@ -4,9 +4,11 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { useId, useState, type ReactNode } from "react";
 
-const faqs: { question: string; answer: ReactNode }[] = [
+const faqs: { question: string; answer: ReactNode; answerText: string }[] = [
   {
     question: "Does Bast replace OpenSSH?",
+    answerText:
+      "No. Bast launches the ssh binary already on your machine and reads your existing ~/.ssh/config. It adds a managed Include for hosts you create in Bast. Your config stays the source of truth.",
     answer: (
       <>
         No. Bast launches the <code className="text-foreground">ssh</code> binary
@@ -26,6 +28,8 @@ const faqs: { question: string; answer: ReactNode }[] = [
   },
   {
     question: "Does Bast work on Windows?",
+    answerText:
+      "Yes. Bast runs natively on Windows 11 with Windows OpenSSH, including Windows Terminal, PowerShell, and Command Prompt. It also runs inside WSL as a Linux application. Native Windows and WSL use separate home directories and SSH configuration.",
     answer: (
       <>
         Yes. Bast runs natively on Windows 11 with Windows OpenSSH, including
@@ -37,6 +41,8 @@ const faqs: { question: string; answer: ReactNode }[] = [
   },
   {
     question: "Where are hosts and keys stored?",
+    answerText:
+      "Connection settings stay in OpenSSH config. Bast-managed hosts live under ~/.ssh/bast/, keys under ~/.ssh/bast/keys/, and metadata (groups, tags, notes) in ~/.config/bast/state.json.",
     answer: (
       <>
         Connection settings stay in OpenSSH config. Bast-managed hosts live under{" "}
@@ -57,6 +63,8 @@ const faqs: { question: string; answer: ReactNode }[] = [
   },
   {
     question: "Is Bast vault end-to-end encrypted?",
+    answerText:
+      "Yes. Vault encrypts Bast-managed hosts, keys, and metadata on your machine before anything is uploaded. Bast servers only store ciphertext. The passphrase never leaves your device.",
     answer: (
       <>
         Yes. Vault encrypts Bast-managed hosts, keys, and metadata on your
@@ -74,6 +82,8 @@ const faqs: { question: string; answer: ReactNode }[] = [
   },
   {
     question: "How is Bast different from Termius?",
+    answerText:
+      "Termius is a GUI client with its own host database and account sync. Bast stays in the terminal, speaks native OpenSSH, and keeps hosts in ~/.ssh/config. Pick Bast when you want a faster picker without leaving your SSH setup behind.",
     answer: (
       <>
         Termius is a GUI client with its own host database and account sync.
@@ -93,6 +103,8 @@ const faqs: { question: string; answer: ReactNode }[] = [
   },
   {
     question: "Can I automate Bast or use it with AI agents?",
+    answerText:
+      "Yes. Prefer bast --json for scripts, and install the agent skill with npx skills add ellipse-software/bast -g -y.",
     answer: (
       <>
         Yes. Prefer <code className="text-foreground">bast --json</code> for
@@ -254,6 +266,14 @@ export function Faq() {
           Short answers to the questions people ask before installing.
         </p>
       </div>
+      <dl className="sr-only">
+        {faqs.map((item) => (
+          <div key={item.question}>
+            <dt>{item.question}</dt>
+            <dd>{item.answerText}</dd>
+          </div>
+        ))}
+      </dl>
 
       <div className="bg-border p-px">
         <div className="divide-y divide-border bg-background">

@@ -2,7 +2,9 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { RootProvider } from "fumadocs-ui/provider/next";
 
+import { JsonLd } from "@/components/json-ld";
 import { SponsorDialogProvider } from "@/components/sponsor-dialog-context";
+import { identityGraphJsonLd } from "@/lib/json-ld";
 import {
   defaultDescription,
   ogImage,
@@ -35,11 +37,14 @@ export const metadata: Metadata = {
     },
   },
   keywords: [
+    "Bast.sh",
+    "Bast CLI",
     "SSH client",
     "SSH key manager",
     "SSH host manager",
     "terminal",
     "developer tools",
+    "ellipse Software",
   ],
   alternates: {
     canonical: "/",
@@ -88,6 +93,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col bg-background text-foreground">
+        <JsonLd data={identityGraphJsonLd()} />
         <RootProvider
           theme={{
             forcedTheme: "dark",

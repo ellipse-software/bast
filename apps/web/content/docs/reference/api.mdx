@@ -1,0 +1,56 @@
+---
+title: HTTP API
+description: Bast.sh OpenAPI spec, JSON errors, Vault auth, and how agents should call the hosted API versus the CLI.
+---
+
+Bast.sh has two automation surfaces. Do not mix them up.
+
+- **CLI** (`bast --json`): hosts, keys, cloud sync, local OpenSSH config. This is what agents should use for SSH work. See [Command line](/docs/features/cli) and [Bast.sh CLI](/cli).
+- **HTTP API** (`https://bast.sh`): Vault ciphertext, email OTP, health, docs search, and optional telemetry. OpenAPI: [https://bast.sh/openapi.json](https://bast.sh/openapi.json). Index: [developer resources](/developers).
+
+## OpenAPI
+
+```bash
+curl -fsSL https://bast.sh/openapi.json
+```
+
+Every operation has a unique `operationId`, a description, typed parameters, and response schemas. Use that file for function calling. The spec is also linked from [llms.txt](https://bast.sh/llms.txt).
+
+## JSON errors
+
+Error responses are JSON:
+
+```json
+{
+  "error": "A valid Bearer token is required.",
+  "code": "unauthorized",
+  "message": "A valid Bearer token is required.",
+  "hint": "POST /api/auth/otp/start, then POST /api/auth/otp/verify, and send Authorization: Bearer <token>."
+}
+```
+
+`error` and `message` carry the same human-readable text (`error` keeps older CLI clients working). `code` is stable. `hint` says what to do next. Unknown `/api/*` paths return HTTP 404 with this shape, not an HTML app shell.
+
+## Vault
+
+Hosted Vault is optional encrypted sync for Bast-managed hosts and keys. The CLI encrypts on the device. The server stores an opaque blob.
+
+1. `POST /api/auth/otp/start` with `{ "email": "...", "acceptTerms": true }`
+2. `POST /api/auth/otp/verify` with `{ "email": "...", "code": "123456" }`
+3. `GET` / `PUT /api/vault` with `Authorization: Bearer <token>`
+
+`acceptTerms` is required on bast.sh. First `PUT` has no `If-Match`. Later writes send `If-Match` with the current revision. Maximum body 1 MiB. Missing vault is `404` with `code: vault_not_found`.
+
+## Health
+
+- `GET /api/health` — marketing app
+- `GET /api/health/docs` — docs source
+- `GET /api/health/vault` — Redis and R2
+
+## Markdown pages
+
+Send `Accept: text/markdown` on Bast.sh URLs. HTML pages return Markdown from the same path, with `Content-Type: text/markdown; charset=utf-8` and `Vary: Accept`. Missing paths stay HTTP 404 and include recovery links to this spec, [llms.txt](https://bast.sh/llms.txt), and the [sitemap](https://bast.sh/sitemap.xml).
+
+## When not to use the HTTP API
+
+Do not use these endpoints to list SSH hosts or manage keys. That is local CLI work. Stripe's webhook is not a public agent API.

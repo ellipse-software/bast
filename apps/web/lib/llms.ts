@@ -1,6 +1,7 @@
 import { llms, type InferPageType } from "fumadocs-core/source";
 
 import { getLatestBastVersion } from "@/lib/github";
+import { getLlmsPreamble } from "@/lib/llms-preamble";
 import { defaultDescription } from "@/lib/metadata";
 import {
   preWindowsInstallDescription,
@@ -42,6 +43,8 @@ function absolutizeLinks(content: string): string {
   return content.replace(/\]\(\//g, `](${siteUrl}/`);
 }
 
+export { getLlmsPreamble } from "@/lib/llms-preamble";
+
 export async function getLlmsIndex(): Promise<string> {
   const index = llms(source, {
     renderName(node, ctx) {
@@ -56,23 +59,7 @@ export async function getLlmsIndex(): Promise<string> {
     },
   }).index();
 
-  const preamble = `# Bast.sh
-
-> ${defaultDescription} Docs for humans and AI agents. Use \`--json\` for scriptable CLI output. OpenSSH stays the source of truth.
-
-## Agent resources
-
-- [Agent skill & docs for AI](${siteUrl}/docs/reference/agents): Install for Cursor, Claude Code, and Codex
-- [Skill (npx)](https://github.com/ellipse-software/bast/tree/master/skills/bast): \`npx skills add ellipse-software/bast -g -y\`
-- [Skill file](${siteUrl}/bast.skill.md): curl fallback \`curl -fsSL ${siteUrl}/install-skill | sh\`
-- [Full docs dump](${siteUrl}/llms-full.txt): All documentation in one file
-- [GitHub (bast CLI)](https://github.com/ellipse-software/bast): Source code and releases
-
-## Documentation
-
-`;
-
-  let content = `${preamble}${index.replace(/^# Documentation\n\n/, "")}`;
+  let content = `${getLlmsPreamble()}${index.replace(/^# Documentation\n\n/, "")}`;
   if (!supportsWindowsRelease(await getLatestBastVersion())) {
     const installDescription = source.getPage(["install"])?.data.description;
     if (installDescription) {
@@ -89,8 +76,9 @@ export async function getLlmsFull(): Promise<string> {
 
 > ${defaultDescription}
 
+When to use Bast.sh, the CLI, and the hosted API: ${siteUrl}/llms.txt
+OpenAPI: ${siteUrl}/openapi.json
 Agent skill: npx skills add ellipse-software/bast -g -y (file: ${siteUrl}/bast.skill.md)
-Docs index: ${siteUrl}/llms.txt
 
 ---
 

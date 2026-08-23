@@ -11,6 +11,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { Testimonials } from "@/components/testimonials";
 import { getLatestBastVersion } from "@/lib/github";
+import { homeHeadline, homeLead, homeSecondary } from "@/lib/home";
 import { pageMaxWidthClass } from "@/lib/layout";
 import { winget } from "@/flags";
 
@@ -29,9 +30,10 @@ export default async function Home() {
         >
           <header className="mb-12 flex w-full flex-col items-center text-center sm:mb-10">
             <h1 className="mb-8 w-full max-w-3xl sm:mb-10">
+              <span className="sr-only">{homeHeadline}</span>
               <Image
                 src="/bast-long-word.svg"
-                alt="Bast.sh"
+                alt=""
                 width={961}
                 height={140}
                 unoptimized
@@ -41,9 +43,9 @@ export default async function Home() {
               />
             </h1>
             <p className="max-w-lg text-base leading-relaxed text-muted sm:text-base md:text-lg">
-              Browse SSH hosts, transfer files over SFTP, sync cloud VMs, manage
-              keys, and connect from the terminal.
+              {homeLead}
             </p>
+            <p className="sr-only">{homeSecondary}</p>
           </header>
 
           <section className="mb-16 flex w-full flex-col items-center sm:mb-14">

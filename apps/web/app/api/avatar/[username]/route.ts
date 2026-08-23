@@ -1,5 +1,6 @@
 import { after } from "next/server";
 
+import { jsonError } from "@/lib/api-error";
 import {
   avatarIsStale,
   getAvatar,
@@ -31,7 +32,11 @@ export async function GET(
   const { username } = await context.params;
   const handle = normalizeXHandle(username);
   if (!handle) {
-    return new Response(null, { status: 400 });
+    return jsonError(400, {
+      code: "invalid_username",
+      message: "Username is not a valid X handle.",
+      hint: "Use a 1–15 character alphanumeric or underscore handle, without @.",
+    });
   }
 
   const avatar = await getAvatar(handle);
