@@ -6,6 +6,10 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+## v0.9.3 - 2026-08-23
+
+### Added
+
 - Linux packages for apt, dnf, pacman, and apk: `.deb`, `.rpm`, `.apk`, and Arch packages on GitHub releases, plus a signed repository at https://packages.bast.sh.
 
 ### Fixed
