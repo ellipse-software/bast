@@ -106,6 +106,7 @@ func resolveBoxBin() string {
 
 func defaultRunner(ctx context.Context, args []string, env []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Env = append(os.Environ(), env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -127,11 +128,28 @@ func (c *Client) bin() string {
 	return "box"
 }
 
+const boxCLIProbeTimeout = 20 * time.Second
+
+func boundBoxCmd(ctx context.Context, args []string) (context.Context, context.CancelFunc) {
+	cmd := ""
+	if len(args) > 0 {
+		cmd = args[0]
+	}
+	switch cmd {
+	case "info", "list", "status", "--version":
+		return context.WithTimeout(ctx, boxCLIProbeTimeout)
+	default:
+		return ctx, func() {}
+	}
+}
+
 func (c *Client) runRaw(ctx context.Context, args ...string) ([]byte, error) {
 	run := c.Run
 	if run == nil {
 		run = defaultRunner
 	}
+	ctx, cancel := boundBoxCmd(ctx, args)
+	defer cancel()
 	full := append([]string{c.bin()}, args...)
 	return run(ctx, full, nil)
 }
@@ -370,8 +388,6 @@ func IsStoppedState(state string) bool {
 }
 
 // IsTerminalStoppedState is true only when stop/archive has finished.
-// Archiving/stopping still counts as "stopped-looking" for UI, but WaitStopped
-// must not return early or a following sync can miss the box in list filters.
 func IsTerminalStoppedState(state string) bool {
 	return normalizeState(state) == "stopped"
 }

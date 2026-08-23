@@ -7,6 +7,7 @@ import (
 
 	"bast/internal/cloud"
 	"bast/internal/cloud/sync"
+	"bast/internal/sshconfig"
 )
 
 // browseFooterHint returns contextual key chords for the current browse mode.
@@ -69,16 +70,7 @@ func (m *App) hostsFooterParts() []string {
 	}
 	if host, ok := m.selectedHost(); ok {
 		if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash") {
-			parts := []string{"enter connect", "o stop", "n fork"}
-			if host.SyncSource == "upstash" {
-				parts = append(parts, "d delete")
-			}
-			if m.hostLooksStopped(host) {
-				parts = []string{"enter connect", "r resume", "n fork"}
-				if host.SyncSource == "upstash" {
-					parts = append(parts, "d delete")
-				}
-			}
+			parts := m.sandboxHostFooterParts(host)
 			if !m.isMobileLayout() {
 				parts = append(parts, "F files")
 			}
@@ -156,9 +148,28 @@ func (m *App) syncFooterParts() []string {
 			}
 			return []string{"␣ " + label, "esc back", "?"}
 		}
+		if m.hostHasCapability(row.host, func(c cloud.Capabilities) bool {
+			return c.Stop || c.Start || c.Fork || c.Delete
+		}) {
+			return append(m.sandboxHostFooterParts(row.host), "esc back", "?")
+		}
 		return []string{"enter connect", "esc back", "?"}
 	}
 	return []string{"enter", "esc back", "?"}
+}
+
+func (m *App) sandboxHostFooterParts(host sshconfig.Host) []string {
+	parts := []string{"enter connect", "o stop", "n fork"}
+	if host.SyncSource == "upstash" {
+		parts = append(parts, "d delete")
+	}
+	if m.hostLooksStopped(host) {
+		parts = []string{"enter connect", "r resume", "n fork"}
+		if host.SyncSource == "upstash" {
+			parts = append(parts, "d delete")
+		}
+	}
+	return parts
 }
 
 func splitFooterHint(hint string) []string {

@@ -263,71 +263,78 @@ func (m *App) syncMenuItems() []syncMenuItem {
 }
 
 func (m *App) syncGCPCmd() tea.Cmd {
+	opGen := m.providerOpGen("gcp")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		result, err := m.syncer.SyncGCP(ctx)
-		return syncDoneMsg{provider: "gcp", result: result, err: err}
+		return syncDoneMsg{provider: "gcp", result: result, err: err, opGen: opGen}
 	}
 }
 
 func (m *App) syncAWSCmd() tea.Cmd {
+	opGen := m.providerOpGen("aws")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		result, err := m.syncer.SyncAWS(ctx)
-		return syncDoneMsg{provider: "aws", result: result, err: err}
+		return syncDoneMsg{provider: "aws", result: result, err: err, opGen: opGen}
 	}
 }
 
 func (m *App) syncAzureCmd() tea.Cmd {
+	opGen := m.providerOpGen("azure")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		result, err := m.syncer.SyncAzure(ctx)
-		return syncDoneMsg{provider: "azure", result: result, err: err}
+		return syncDoneMsg{provider: "azure", result: result, err: err, opGen: opGen}
 	}
 }
 
 func (m *App) syncUpstashCmd() tea.Cmd {
+	opGen := m.providerOpGen("upstash")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		result, err := m.syncer.SyncUpstash(ctx)
-		return syncDoneMsg{provider: "upstash", result: result, err: err}
+		return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
 	}
 }
 
 func (m *App) autoConnectUpstashCmd() tea.Cmd {
+	opGen := m.providerOpGen("upstash")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		result, ran, err := m.syncer.MaybeAutoConnectUpstash(ctx)
 		if !ran {
-			return syncDoneMsg{provider: "upstash", result: result, err: nil, skipped: true}
+			return syncDoneMsg{provider: "upstash", result: result, err: nil, skipped: true, opGen: opGen}
 		}
-		return syncDoneMsg{provider: "upstash", result: result, err: err}
+		return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
 	}
 }
 
 func (m *App) syncBoxCmd() tea.Cmd {
+	opGen := m.providerOpGen("box")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		result, err := m.syncer.SyncBox(ctx)
-		return syncDoneMsg{provider: "box", result: result, err: err}
+		return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
 	}
 }
 
 func (m *App) autoConnectBoxCmd() tea.Cmd {
+	opGen := m.providerOpGen("box")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		result, ran, err := m.syncer.MaybeAutoConnectBox(ctx)
 		if !ran {
-			return syncDoneMsg{provider: "box", result: result, err: nil, skipped: true}
+			return syncDoneMsg{provider: "box", result: result, err: nil, skipped: true, opGen: opGen}
 		}
-		return syncDoneMsg{provider: "box", result: result, err: err}
+		return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
 	}
 }
 
@@ -359,60 +366,65 @@ func (m *App) enterSyncSection() tea.Cmd {
 }
 
 func (m *App) disableGCPCmd() tea.Cmd {
+	opGen := m.providerOpGen("gcp")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		err := m.syncer.DisableGCP(ctx)
 		if err != nil {
-			return syncDoneMsg{provider: "gcp", err: err}
+			return syncDoneMsg{provider: "gcp", err: err, opGen: opGen}
 		}
-		return syncDoneMsg{provider: "gcp", result: sync.Result{Provider: "gcp", Count: 0, SyncedAt: time.Now().UTC(), Error: "disabled"}}
+		return syncDoneMsg{provider: "gcp", result: sync.Result{Provider: "gcp", Count: 0, SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
 func (m *App) disableAWSCmd() tea.Cmd {
+	opGen := m.providerOpGen("aws")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		err := m.syncer.DisableAWS(ctx)
 		if err != nil {
-			return syncDoneMsg{provider: "aws", err: err}
+			return syncDoneMsg{provider: "aws", err: err, opGen: opGen}
 		}
-		return syncDoneMsg{provider: "aws", result: sync.Result{Provider: "aws", SyncedAt: time.Now().UTC(), Error: "disabled"}}
+		return syncDoneMsg{provider: "aws", result: sync.Result{Provider: "aws", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
 func (m *App) disableAzureCmd() tea.Cmd {
+	opGen := m.providerOpGen("azure")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		err := m.syncer.DisableAzure(ctx)
 		if err != nil {
-			return syncDoneMsg{provider: "azure", err: err}
+			return syncDoneMsg{provider: "azure", err: err, opGen: opGen}
 		}
-		return syncDoneMsg{provider: "azure", result: sync.Result{Provider: "azure", SyncedAt: time.Now().UTC(), Error: "disabled"}}
+		return syncDoneMsg{provider: "azure", result: sync.Result{Provider: "azure", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
 func (m *App) disableUpstashCmd() tea.Cmd {
+	opGen := m.providerOpGen("upstash")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := m.syncer.DisableUpstash(ctx); err != nil {
-			return syncDoneMsg{provider: "upstash", err: err}
+			return syncDoneMsg{provider: "upstash", err: err, opGen: opGen}
 		}
-		return syncDoneMsg{provider: "upstash", result: sync.Result{Provider: "upstash", SyncedAt: time.Now().UTC(), Error: "disabled"}}
+		return syncDoneMsg{provider: "upstash", result: sync.Result{Provider: "upstash", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
 func (m *App) disableBoxCmd() tea.Cmd {
+	opGen := m.providerOpGen("box")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := m.syncer.DisableBox(ctx); err != nil {
-			return syncDoneMsg{provider: "box", err: err}
+			return syncDoneMsg{provider: "box", err: err, opGen: opGen}
 		}
-		return syncDoneMsg{provider: "box", result: sync.Result{Provider: "box", SyncedAt: time.Now().UTC(), Error: "disabled"}}
+		return syncDoneMsg{provider: "box", result: sync.Result{Provider: "box", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
@@ -710,6 +722,23 @@ func (m *App) providerNavCounts() (life, inv, config int) {
 	return len(l), len(m.providerInventoryRows()), len(c)
 }
 
+func (m *App) providerSelectedHost() (sshconfig.Host, bool) {
+	if m.syncProvider == "" {
+		return sshconfig.Host{}, false
+	}
+	life, _ := m.providerActionLayout()
+	inv := m.providerInventoryRows()
+	idx := m.syncCursor - len(life)
+	if idx < 0 || idx >= len(inv) {
+		return sshconfig.Host{}, false
+	}
+	row := inv[idx]
+	if row.header || row.host.Alias == "" {
+		return sshconfig.Host{}, false
+	}
+	return row.host, true
+}
+
 func (m *App) renderProviderIdentity(s styleSet, provider string) string {
 	detail := m.providerDetail(provider)
 	kind := cloud.Kind(provider)
@@ -984,18 +1013,34 @@ func (m *App) updateProviderKeys(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "r":
+		if host, ok := m.providerSelectedHost(); ok {
+			if cmd := m.resumeSyncedHost(host, false); cmd != nil {
+				return m, cmd
+			}
+		}
 		return m, m.syncStatusCmd()
 	case "s":
 		if m.anySyncing() || len(life) == 0 {
 			return m, nil
 		}
 		return m.runSyncAction(life[0].action)
+	case "o":
+		if host, ok := m.providerSelectedHost(); ok {
+			return m.stopSyncedHost(host)
+		}
+	case "d":
+		if host, ok := m.providerSelectedHost(); ok && m.deleteSyncedHost(host) {
+			return m, nil
+		}
 	case "n":
 		if m.anySyncing() {
 			return m, nil
 		}
+		if host, ok := m.providerSelectedHost(); ok {
+			return m.forkSyncedHost(host)
+		}
 		for _, item := range life {
-			if item.action == "box_new" {
+			if item.action == "box_new" || item.action == "upstash_new" {
 				return m.runSyncAction(item.action)
 			}
 		}
@@ -1220,7 +1265,7 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 	}
 	switch action {
 	case "sync", "enable":
-		m.syncingProviders[m.syncProvider] = true
+		m.beginProviderOp(m.syncProvider)
 		switch m.syncProvider {
 		case "aws":
 			return m, tea.Batch(m.syncAWSCmd(), m.setNotice("Syncing AWS…"))
@@ -1260,7 +1305,7 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.syncGCPCmd(), m.setNotice("Syncing GCP…"))
 	case "disable":
-		m.syncingProviders[m.syncProvider] = true
+		m.beginProviderOp(m.syncProvider)
 		if m.syncProvider == "aws" {
 			return m, m.disableAWSCmd()
 		}
@@ -1454,10 +1499,10 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		noAutoStop := truthyForm(values["No auto-stop"])
 		noEnv := truthyForm(values["No env"])
 		m.form = nil
-		if m.syncingProviders == nil {
-			m.syncingProviders = map[string]bool{}
+		if m.syncingProviders["box"] {
+			return m.setNotice("Box operation already in progress")
 		}
-		m.syncingProviders["box"] = true
+		opGen := m.beginProviderOp("box")
 		if m.section == syncSection {
 			m.beginSyncBusy("Creating box…")
 		} else {
@@ -1470,9 +1515,9 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 				Type: boxType, NoAutoStop: noAutoStop, NoEnv: noEnv,
 			})
 			if err != nil {
-				return syncDoneMsg{provider: "box", result: result, err: err}
+				return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
 			}
-			return syncDoneMsg{provider: "box", result: result, err: nil, focusAlias: alias}
+			return syncDoneMsg{provider: "box", result: result, err: nil, focusAlias: alias, opGen: opGen}
 		}
 	case "sync_azure_user":
 		azure := m.metadata.Azure()
@@ -1594,16 +1639,16 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		syncID := strings.TrimSpace(values["SyncID"])
 		m.form = nil
-		if m.syncingProviders == nil {
-			m.syncingProviders = map[string]bool{}
+		if m.syncingProviders["box"] {
+			return m.setNotice("Box operation already in progress")
 		}
-		m.syncingProviders["box"] = true
+		opGen := m.beginProviderOp("box")
 		m.syncActivity = "stopping…"
 		return func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
 			result, err := m.syncer.StopBox(ctx, syncID)
-			return syncDoneMsg{provider: "box", result: result, err: err}
+			return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
 		}
 	case "box_fork":
 		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
@@ -1614,18 +1659,18 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		syncID := strings.TrimSpace(values["SyncID"])
 		m.form = nil
-		if m.syncingProviders == nil {
-			m.syncingProviders = map[string]bool{}
+		if m.syncingProviders["box"] {
+			return m.setNotice("Box operation already in progress")
 		}
-		m.syncingProviders["box"] = true
+		opGen := m.beginProviderOp("box")
 		return tea.Batch(m.setNotice("Forking box…"), func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 			result, alias, err := m.syncer.ForkBox(ctx, syncID, boxcloud.ForkOpts{})
 			if err != nil {
-				return syncDoneMsg{provider: "box", result: result, err: err}
+				return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
 			}
-			return syncDoneMsg{provider: "box", result: result, focusAlias: alias}
+			return syncDoneMsg{provider: "box", result: result, focusAlias: alias, opGen: opGen}
 		})
 	case "upstash_key":
 		key := strings.TrimSpace(values["API key"])
@@ -1636,16 +1681,16 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			return nil
 		}
 		m.form = nil
-		if m.syncingProviders == nil {
-			m.syncingProviders = map[string]bool{}
+		if m.syncingProviders["upstash"] {
+			return m.setNotice("Upstash operation already in progress")
 		}
-		m.syncingProviders["upstash"] = true
+		opGen := m.beginProviderOp("upstash")
 		m.beginSyncBusy("Connecting Upstash…")
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
 			result, err := m.syncer.SaveUpstashKey(ctx, key)
-			return syncDoneMsg{provider: "upstash", result: result, err: err}
+			return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
 		}
 	case "upstash_new":
 		runtime := strings.ToLower(strings.TrimSpace(values["Runtime"]))
@@ -1657,10 +1702,10 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			size = "small"
 		}
 		m.form = nil
-		if m.syncingProviders == nil {
-			m.syncingProviders = map[string]bool{}
+		if m.syncingProviders["upstash"] {
+			return m.setNotice("Upstash operation already in progress")
 		}
-		m.syncingProviders["upstash"] = true
+		opGen := m.beginProviderOp("upstash")
 		if m.section == syncSection {
 			m.beginSyncBusy("Creating Upstash box…")
 		} else {
@@ -1673,9 +1718,9 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 				Name: values["Name"], Runtime: runtime, Size: size, KeepAlive: truthyForm(values["Keep alive"]),
 			})
 			if err != nil {
-				return syncDoneMsg{provider: "upstash", result: result, err: err}
+				return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
 			}
-			return syncDoneMsg{provider: "upstash", result: result, err: nil, focusAlias: alias}
+			return syncDoneMsg{provider: "upstash", result: result, err: nil, focusAlias: alias, opGen: opGen}
 		}
 	case "upstash_stop":
 		if strings.TrimSpace(values["Type pause to confirm"]) != "pause" {
@@ -1686,16 +1731,16 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		syncID := strings.TrimSpace(values["SyncID"])
 		m.form = nil
-		if m.syncingProviders == nil {
-			m.syncingProviders = map[string]bool{}
+		if m.syncingProviders["upstash"] {
+			return m.setNotice("Upstash operation already in progress")
 		}
-		m.syncingProviders["upstash"] = true
+		opGen := m.beginProviderOp("upstash")
 		m.syncActivity = "pausing…"
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 			defer cancel()
 			result, err := m.syncer.StopUpstash(ctx, syncID)
-			return syncDoneMsg{provider: "upstash", result: result, err: err}
+			return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
 		}
 	case "upstash_fork":
 		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
@@ -1706,18 +1751,18 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		syncID := strings.TrimSpace(values["SyncID"])
 		m.form = nil
-		if m.syncingProviders == nil {
-			m.syncingProviders = map[string]bool{}
+		if m.syncingProviders["upstash"] {
+			return m.setNotice("Upstash operation already in progress")
 		}
-		m.syncingProviders["upstash"] = true
+		opGen := m.beginProviderOp("upstash")
 		return tea.Batch(m.setNotice("Forking Upstash box…"), func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 			defer cancel()
 			result, alias, err := m.syncer.ForkUpstash(ctx, syncID)
 			if err != nil {
-				return syncDoneMsg{provider: "upstash", result: result, err: err}
+				return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
 			}
-			return syncDoneMsg{provider: "upstash", result: result, focusAlias: alias}
+			return syncDoneMsg{provider: "upstash", result: result, focusAlias: alias, opGen: opGen}
 		})
 	case "upstash_delete":
 		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
@@ -1728,16 +1773,16 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		syncID := strings.TrimSpace(values["SyncID"])
 		m.form = nil
-		if m.syncingProviders == nil {
-			m.syncingProviders = map[string]bool{}
+		if m.syncingProviders["upstash"] {
+			return m.setNotice("Upstash operation already in progress")
 		}
-		m.syncingProviders["upstash"] = true
+		opGen := m.beginProviderOp("upstash")
 		m.syncActivity = "deleting…"
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
 			result, err := m.syncer.DeleteUpstash(ctx, syncID)
-			return syncDoneMsg{provider: "upstash", result: result, err: err}
+			return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
 		}
 	}
 	return nil

@@ -554,7 +554,10 @@ func (e *Engine) SyncBox(ctx context.Context) (Result, error) {
 		return Result{}, err
 	}
 	defer e.boxMu.Unlock()
+	return e.syncBoxLocked(ctx)
+}
 
+func (e *Engine) syncBoxLocked(ctx context.Context) (Result, error) {
 	discovery, err := e.Box.Discover(ctx, boxcloud.DiscoverConfig{})
 	now := time.Now().UTC()
 	if err != nil {
@@ -664,6 +667,10 @@ func (e *Engine) SyncBox(ctx context.Context) (Result, error) {
 }
 
 func (e *Engine) MaybeAutoConnectBox(ctx context.Context) (Result, bool, error) {
+	if err := lockCtx(ctx, &e.boxMu); err != nil {
+		return Result{}, false, err
+	}
+	defer e.boxMu.Unlock()
 	integration := e.Store.Box()
 	if integration.Disabled {
 		return Result{}, false, nil
@@ -673,7 +680,7 @@ func (e *Engine) MaybeAutoConnectBox(ctx context.Context) (Result, bool, error) 
 		return Result{}, false, nil
 	}
 	if integration.Enabled && integration.AutoSync {
-		result, syncErr := e.SyncBox(ctx)
+		result, syncErr := e.syncBoxLocked(ctx)
 		return result, true, syncErr
 	}
 	integration.Enabled = true
@@ -682,16 +689,20 @@ func (e *Engine) MaybeAutoConnectBox(ctx context.Context) (Result, bool, error) 
 	if err := e.Store.SetBox(integration); err != nil {
 		return Result{}, false, err
 	}
-	result, syncErr := e.SyncBox(ctx)
+	result, syncErr := e.syncBoxLocked(ctx)
 	return result, true, syncErr
 }
 
 func (e *Engine) NewBox(ctx context.Context, opts boxcloud.NewOpts) (Result, string, error) {
+	if err := lockCtx(ctx, &e.boxMu); err != nil {
+		return Result{}, "", err
+	}
+	defer e.boxMu.Unlock()
 	id, err := e.Box.New(ctx, opts)
 	if err != nil && id == "" {
 		return Result{}, "", err
 	}
-	result, syncErr := e.SyncBox(ctx)
+	result, syncErr := e.syncBoxLocked(ctx)
 	alias := e.AliasForBoxSyncID(ctx, id)
 	if err != nil {
 		return result, alias, err
@@ -700,11 +711,15 @@ func (e *Engine) NewBox(ctx context.Context, opts boxcloud.NewOpts) (Result, str
 }
 
 func (e *Engine) ForkBox(ctx context.Context, syncID string, opts boxcloud.ForkOpts) (Result, string, error) {
+	if err := lockCtx(ctx, &e.boxMu); err != nil {
+		return Result{}, "", err
+	}
+	defer e.boxMu.Unlock()
 	id, err := e.Box.Fork(ctx, syncID, opts)
 	if err != nil && id == "" {
 		return Result{}, "", err
 	}
-	result, syncErr := e.SyncBox(ctx)
+	result, syncErr := e.syncBoxLocked(ctx)
 	alias := e.AliasForBoxSyncID(ctx, id)
 	if err != nil {
 		return result, alias, err
@@ -713,17 +728,25 @@ func (e *Engine) ForkBox(ctx context.Context, syncID string, opts boxcloud.ForkO
 }
 
 func (e *Engine) StopBox(ctx context.Context, syncID string) (Result, error) {
+	if err := lockCtx(ctx, &e.boxMu); err != nil {
+		return Result{}, err
+	}
+	defer e.boxMu.Unlock()
 	if err := e.Box.Stop(ctx, syncID); err != nil {
 		return Result{}, err
 	}
-	return e.SyncBox(ctx)
+	return e.syncBoxLocked(ctx)
 }
 
 func (e *Engine) ResumeBox(ctx context.Context, syncID string, opts boxcloud.ResumeOpts) (Result, error) {
+	if err := lockCtx(ctx, &e.boxMu); err != nil {
+		return Result{}, err
+	}
+	defer e.boxMu.Unlock()
 	if err := e.Box.Resume(ctx, syncID, opts); err != nil {
 		return Result{}, err
 	}
-	return e.SyncBox(ctx)
+	return e.syncBoxLocked(ctx)
 }
 
 func (e *Engine) ResolveBoxSyncID(ctx context.Context, hostOrID string) (string, error) {

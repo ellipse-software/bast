@@ -24,7 +24,7 @@ func (m *App) resumeSelectedBox(host sshconfig.Host, thenConnect bool) tea.Cmd {
 	if strings.TrimSpace(host.SyncID) == "" {
 		return m.setNotice("Box sync id missing; sync Box first")
 	}
-	m.syncingProviders["box"] = true
+	opGen := m.beginProviderOp("box")
 	m.syncActivity = "resuming…"
 	if thenConnect {
 		m.boxConnectAfter = host.Alias
@@ -35,7 +35,7 @@ func (m *App) resumeSelectedBox(host sshconfig.Host, thenConnect bool) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		result, err := m.syncer.ResumeBox(ctx, host.SyncID, boxcloud.ResumeOpts{})
-		return syncDoneMsg{provider: "box", result: result, err: err}
+		return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
 	}
 }
 

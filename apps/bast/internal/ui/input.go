@@ -439,12 +439,10 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m.updateVaultKeys(key)
 		}
 		if m.section == hostsSection {
-			if host, ok := m.selectedHost(); ok && m.hostLooksStopped(host) &&
-				m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Start }) {
-				if host.SyncSource == "upstash" {
-					return m, m.resumeSelectedUpstash(host, false)
+			if host, ok := m.selectedHost(); ok {
+				if cmd := m.resumeSyncedHost(host, false); cmd != nil {
+					return m, cmd
 				}
-				return m, m.resumeSelectedBox(host, false)
 			}
 		}
 		m.loading = true
@@ -510,12 +508,14 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.openGroupAssignmentForm()
 		}
 	case "d":
-		if m.section == syncSection || m.section == vaultSection {
+		if m.section == vaultSection {
 			return m, nil
 		}
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.section == hostsSection {
-			if host, ok := m.selectedHost(); ok && m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Delete }) {
-				m.openUpstashDeleteForm(host)
+			if host, ok := m.selectedHost(); ok && m.deleteSyncedHost(host) {
 				return m, nil
 			}
 			m.openDeleteHostForm()
@@ -564,20 +564,12 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.openKnownHostForm()
 		}
 	case "o":
+		if m.section == syncSection {
+			return m.updateSyncKeys(key)
+		}
 		if m.section == hostsSection {
-			if host, ok := m.selectedHost(); ok && m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Stop }) {
-				if m.syncingProviders[host.SyncSource] {
-					return m, m.setNotice("Operation already in progress")
-				}
-				if m.hostLooksStopped(host) {
-					return m, m.setNotice("Already stopped")
-				}
-				if host.SyncSource == "upstash" {
-					m.openUpstashStopForm(host)
-				} else {
-					m.openBoxStopForm(host)
-				}
-				return m, nil
+			if host, ok := m.selectedHost(); ok {
+				return m.stopSyncedHost(host)
 			}
 		}
 	case "n":
@@ -588,16 +580,8 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if kind, ok := m.selectedProviderRoot(); ok && cloud.CapabilitiesFor(kind).Create {
 				return m.runProviderGroupCreate(kind)
 			}
-			if host, ok := m.selectedHost(); ok && m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Fork }) {
-				if m.syncingProviders[host.SyncSource] {
-					return m, m.setNotice("Operation already in progress")
-				}
-				if host.SyncSource == "upstash" {
-					m.openUpstashForkForm(host)
-				} else {
-					m.openBoxForkForm(host)
-				}
-				return m, nil
+			if host, ok := m.selectedHost(); ok {
+				return m.forkSyncedHost(host)
 			}
 		}
 	case "f":

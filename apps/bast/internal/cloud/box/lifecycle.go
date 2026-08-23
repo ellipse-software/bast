@@ -192,7 +192,7 @@ func (c *Client) Stop(ctx context.Context, id string) error {
 	if _, err := parseActionID(out, "stop"); err != nil && !errors.Is(err, errMissingActionID) {
 		return err
 	}
-	return c.WaitStopped(ctx, id, 5*time.Minute)
+	return c.WaitStopped(ctx, id, 90*time.Second)
 }
 
 func (c *Client) Resume(ctx context.Context, id string, opts ResumeOpts) error {
@@ -310,7 +310,10 @@ func (c *Client) WaitStopped(ctx context.Context, id string, timeout time.Durati
 		if err == nil {
 			lastErr = nil
 			lastState = info.State
-			if IsTerminalStoppedState(info.State) {
+			// Discover lists stopping/archiving boxes, so the follow-up sync
+			// still sees the host. Waiting for a finished snapshot can take
+			// many minutes and looks like a stuck sync.
+			if IsStoppedState(info.State) {
 				return nil
 			}
 			if info.State == "error" {

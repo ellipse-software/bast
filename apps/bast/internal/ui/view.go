@@ -144,15 +144,6 @@ type frameStyleCache struct {
 
 var (
 	frameStylesCached frameStyleCache
-	managedLabelCache struct {
-		ready    bool
-		nerdFont bool
-		google   string
-		amazon   string
-		azure    string
-		box      string
-		upstash  string
-	}
 )
 
 func (m *App) styles() styleSet {
@@ -245,7 +236,6 @@ func (m *App) renderHosts(s styleSet) string {
 		rowWidth -= mobileScrollbarWidth
 	}
 	selectedRow := s.selected.Width(rowWidth)
-	selectedBrandRow := selectedRow.UnsetForeground()
 	mutedRow := s.muted.Width(rowWidth)
 	activeRow := s.active.Width(rowWidth)
 	plainRow := s.plain.Width(rowWidth)
@@ -298,35 +288,59 @@ func (m *App) renderHosts(s styleSet) string {
 					name = name[slash+1:]
 				}
 			}
-			count := s.muted.Render(fmt.Sprintf("(%d)", row.count))
-			errorIcon := ""
-			if row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boxErr, upstashErr) {
-				errorIcon = s.error.Render("⚠")
-			}
-			prefix := indent + indicator + " "
-			reservedWidth := lipgloss.Width(prefix) + 1 + lipgloss.Width(count) + lipgloss.Width(managedGroupIcon(name, m.nerdFont))
-			if errorIcon != "" {
-				reservedWidth += 1 + lipgloss.Width(errorIcon)
+			showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boxErr, upstashErr)
+			rawPrefix := indent + indicator + " "
+			reservedWidth := lipgloss.Width(rawPrefix) + 1 + lipgloss.Width(fmt.Sprintf("(%d)", row.count)) + lipgloss.Width(managedGroupIcon(name, m.nerdFont))
+			if showError {
+				reservedWidth += 1 + lipgloss.Width("⚠")
 			}
 			name = truncate(name, max(2, rowWidth-reservedWidth))
 			accent, branded := providerBrandStyle(row)
 			nameStyle := s.active
 			if branded {
 				nameStyle = accent
-				prefix = accent.Render(prefix)
+			}
+			selected := i == m.cursor
+			selectedBg := s.selected.GetBackground()
+			if selected {
+				nameStyle = nameStyle.Background(selectedBg)
+			}
+			prefix := rawPrefix
+			if branded {
+				prefix = nameStyle.Render(rawPrefix)
 			}
 			namePart := renderManagedGroupName(name, nameStyle, m.nerdFont)
 			if branded && !cloud.IsProviderRoot(row.group) {
-				namePart = accent.Render(name)
+				namePart = nameStyle.Render(name)
 			}
-			line := prefix + namePart + " " + count
-			if errorIcon != "" {
-				line += strings.Repeat(" ", max(1, rowWidth-lipgloss.Width(line)-lipgloss.Width(errorIcon))) + errorIcon
+			countStyle := s.muted
+			if selected {
+				countStyle = s.muted.Background(selectedBg)
+			}
+			count := countStyle.Render(fmt.Sprintf("(%d)", row.count))
+			gap := " "
+			if selected {
+				gap = lipgloss.NewStyle().Background(selectedBg).Render(" ")
+			}
+			line := prefix + namePart + gap + count
+			if showError {
+				warnPad := strings.Repeat(" ", max(1, rowWidth-lipgloss.Width(line)-lipgloss.Width("⚠")))
+				warn := "⚠"
+				if selected {
+					warnPad = lipgloss.NewStyle().Background(selectedBg).Render(warnPad)
+					warn = s.error.Background(selectedBg).Render("⚠")
+				} else {
+					warn = s.error.Render("⚠")
+				}
+				line += warnPad + warn
 			}
 			switch {
-			case i == m.cursor && branded:
-				line = selectedBrandRow.Render(line)
-			case i == m.cursor:
+			case selected && branded:
+				pad := max(0, rowWidth-lipgloss.Width(line))
+				if pad > 0 {
+					line += lipgloss.NewStyle().Background(selectedBg).Render(strings.Repeat(" ", pad))
+				}
+			case selected:
 				line = selectedRow.Render(line)
 			case branded:
 				line = plainRow.Render(line)
@@ -519,69 +533,52 @@ func (m *App) renderProviderGroupDetail(s styleSet, row hostRow, kind cloud.Kind
 	return b.String()
 }
 
-func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool) string {
-	labels := managedProviderLabels(nerdFont)
-	switch {
-	case name == "Amazon EC2" || strings.HasPrefix(name, "Amazon EC2/"):
-		return labels.amazon + restStyle.Render(strings.TrimPrefix(name, "Amazon EC2"))
-	case name == "Google Cloud" || strings.HasPrefix(name, "Google Cloud/"):
-		return labels.google + restStyle.Render(strings.TrimPrefix(name, "Google Cloud"))
-	case name == "Microsoft Azure" || strings.HasPrefix(name, "Microsoft Azure/"):
-		return labels.azure + restStyle.Render(strings.TrimPrefix(name, "Microsoft Azure"))
-	case name == "Box" || strings.HasPrefix(name, "Box/"):
-		return labels.box + restStyle.Render(strings.TrimPrefix(name, "Box"))
-	case name == "Upstash" || strings.HasPrefix(name, "Upstash/"):
-		return labels.upstash + restStyle.Render(strings.TrimPrefix(name, "Upstash"))
-	default:
-		return name
-	}
+func styleHasBackground(st lipgloss.Style) bool {
+	_, none := st.GetBackground().(lipgloss.NoColor)
+	return !none
 }
 
-func managedProviderLabels(nerdFont bool) (labels struct{ google, amazon, azure, box, upstash string }) {
-	if managedLabelCache.ready && managedLabelCache.nerdFont == nerdFont {
-		return struct{ google, amazon, azure, box, upstash string }{
-			google:  managedLabelCache.google,
-			amazon:  managedLabelCache.amazon,
-			azure:   managedLabelCache.azure,
-			box:     managedLabelCache.box,
-			upstash: managedLabelCache.upstash,
+func brandText(fg, text string, rest lipgloss.Style) string {
+	st := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(fg))
+	if styleHasBackground(rest) {
+		st = st.Background(rest.GetBackground())
+	}
+	return st.Render(text)
+}
+
+func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool) string {
+	icon := func(group string) string {
+		return managedGroupIcon(group, nerdFont)
+	}
+	suffix := func(root, branded string) string {
+		rest := strings.TrimPrefix(name, root)
+		if rest == "" {
+			return branded
 		}
+		return branded + restStyle.Render(rest)
 	}
-	amazonName := managedGroupIcon("Amazon EC2", nerdFont) + "Amazon EC2"
-	amazon := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render(amazonName)
-
-	colors := []string{"#4285F4", "#EA4335", "#FBBC05", "#4285F4", "#34A853", "#EA4335"}
-	var google strings.Builder
-	if icon := managedGroupIcon("Google Cloud", nerdFont); icon != "" {
-		google.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4")).Render(icon))
-	}
-	for i, letter := range "Google" {
-		google.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colors[i])).Render(string(letter)))
-	}
-	google.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(" Cloud"))
-
-	azureName := managedGroupIcon("Microsoft Azure", nerdFont) + "Microsoft Azure"
-	azure := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0078D4")).Render(azureName)
-
-	boxName := managedGroupIcon("Box", nerdFont) + "Box"
-	box := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render(boxName)
-
-	upstashName := managedGroupIcon("Upstash", nerdFont) + "Upstash"
-	upstash := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00E9A3")).Render(upstashName)
-
-	managedLabelCache.ready = true
-	managedLabelCache.nerdFont = nerdFont
-	managedLabelCache.google = google.String()
-	managedLabelCache.amazon = amazon
-	managedLabelCache.azure = azure
-	managedLabelCache.box = box
-	managedLabelCache.upstash = upstash
-	return struct{ google, amazon, azure, box, upstash string }{
-		google:  managedLabelCache.google,
-		amazon:  managedLabelCache.amazon,
-		azure:   managedLabelCache.azure,
-		box:     managedLabelCache.box,
-		upstash: managedLabelCache.upstash,
+	switch {
+	case name == "Amazon EC2" || strings.HasPrefix(name, "Amazon EC2/"):
+		return suffix("Amazon EC2", brandText("#FF9900", icon("Amazon EC2")+"Amazon EC2", restStyle))
+	case name == "Google Cloud" || strings.HasPrefix(name, "Google Cloud/"):
+		colors := []string{"#4285F4", "#EA4335", "#FBBC05", "#4285F4", "#34A853", "#EA4335"}
+		var b strings.Builder
+		if ic := icon("Google Cloud"); ic != "" {
+			b.WriteString(brandText("#4285F4", ic, restStyle))
+		}
+		for i, letter := range "Google" {
+			b.WriteString(brandText(colors[i], string(letter), restStyle))
+		}
+		b.WriteString(brandText("#FFFFFF", " Cloud", restStyle))
+		return suffix("Google Cloud", b.String())
+	case name == "Microsoft Azure" || strings.HasPrefix(name, "Microsoft Azure/"):
+		return suffix("Microsoft Azure", brandText("#0078D4", icon("Microsoft Azure")+"Microsoft Azure", restStyle))
+	case name == "Box" || strings.HasPrefix(name, "Box/"):
+		return suffix("Box", brandText("#FFFFFF", icon("Box")+"Box", restStyle))
+	case name == "Upstash" || strings.HasPrefix(name, "Upstash/"):
+		return suffix("Upstash", brandText("#00E9A3", icon("Upstash")+"Upstash", restStyle))
+	default:
+		return name
 	}
 }
 
@@ -1025,7 +1022,8 @@ func helpSections() []helpSection {
 				{"F", "Open Files for host"},
 				{"h", "Hide or show selected"},
 				{".", "Toggle hidden and stopped hosts"},
-				{"n", "New VM on a provider group"},
+				{"n", "Fork sandbox, or new VM on a provider group"},
+				{"o", "Stop or pause sandbox"},
 				{"s", "Sync provider group, or cycle sort"},
 				{"K", "Remove known-host entry"},
 			},
@@ -1058,8 +1056,11 @@ func helpSections() []helpSection {
 				{"󰌑", "Open provider, run action, or connect"},
 				{"␣", "Collapse or expand status group"},
 				{"s", "Sync"},
+				{"n", "New box, or fork selected sandbox"},
+				{"o", "Stop or pause selected sandbox"},
+				{"d", "Delete selected Upstash box"},
 				{"Esc", "Back"},
-				{"r", "Refresh status"},
+				{"r", "Resume selected sandbox, or refresh status"},
 			},
 		},
 		{

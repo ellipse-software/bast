@@ -34,7 +34,7 @@ func (m *App) resumeSelectedUpstash(host sshconfig.Host, thenConnect bool) tea.C
 	if strings.TrimSpace(host.SyncID) == "" {
 		return m.setNotice("Upstash sync id missing; sync first")
 	}
-	m.syncingProviders["upstash"] = true
+	opGen := m.beginProviderOp("upstash")
 	m.syncActivity = "resuming…"
 	if thenConnect {
 		m.boxConnectAfter = host.Alias
@@ -45,7 +45,7 @@ func (m *App) resumeSelectedUpstash(host sshconfig.Host, thenConnect bool) tea.C
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 		defer cancel()
 		result, err := m.syncer.ResumeUpstash(ctx, host.SyncID)
-		return syncDoneMsg{provider: "upstash", result: result, err: err}
+		return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
 	}
 }
 

@@ -84,6 +84,7 @@ type syncDoneMsg struct {
 	err        error
 	skipped    bool
 	focusAlias string // when set, jump to Hosts with this alias selected
+	opGen      uint64
 }
 
 type syncStatusMsg struct {
@@ -185,6 +186,7 @@ type App struct {
 	enriching           bool
 	autoSyncStarted     bool
 	syncingProviders    map[string]bool
+	syncOpGen           map[string]uint64
 	status              string
 	statusError         bool
 	statusID            uint64
@@ -251,6 +253,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		version:          version,
 		collapsedGroups:  collapsedGroupsFromPrefs(store.Preferences().CollapsedGroups),
 		syncingProviders: map[string]bool{},
+		syncOpGen:        map[string]uint64{},
 	}
 	app.hostMeta, app.hostMetaRevision = store.HostsSnapshot()
 	app.historySuggestions = store.HistoryImport().Pending
@@ -267,6 +270,32 @@ func (m *App) providerSyncing(provider string) bool {
 
 func (m *App) anySyncing() bool {
 	return len(m.syncingProviders) > 0
+}
+
+func (m *App) beginProviderOp(provider string) uint64 {
+	if m.syncingProviders == nil {
+		m.syncingProviders = map[string]bool{}
+	}
+	if m.syncOpGen == nil {
+		m.syncOpGen = map[string]uint64{}
+	}
+	m.syncOpGen[provider]++
+	m.syncingProviders[provider] = true
+	return m.syncOpGen[provider]
+}
+
+func (m *App) providerOpGen(provider string) uint64 {
+	if m.syncOpGen == nil {
+		return 0
+	}
+	return m.syncOpGen[provider]
+}
+
+func (m *App) staleProviderOp(msg syncDoneMsg) bool {
+	if msg.opGen == 0 {
+		return false
+	}
+	return m.providerOpGen(msg.provider) != msg.opGen
 }
 
 func (m *App) syncCompletionNotice(provider string, count int) string {
@@ -323,32 +352,32 @@ func (m *App) autoSyncCmds() tea.Cmd {
 	}
 	var autoSyncCmds []tea.Cmd
 	if m.metadata.GCP().Enabled && m.metadata.GCP().AutoSync && !m.syncingProviders["gcp"] {
-		m.syncingProviders["gcp"] = true
+		m.beginProviderOp("gcp")
 		autoSyncCmds = append(autoSyncCmds, m.syncGCPCmd())
 	}
 	if m.metadata.AWS().Enabled && m.metadata.AWS().AutoSync && !m.syncingProviders["aws"] {
-		m.syncingProviders["aws"] = true
+		m.beginProviderOp("aws")
 		autoSyncCmds = append(autoSyncCmds, m.syncAWSCmd())
 	}
 	if m.metadata.Azure().Enabled && m.metadata.Azure().AutoSync && !m.syncingProviders["azure"] {
-		m.syncingProviders["azure"] = true
+		m.beginProviderOp("azure")
 		autoSyncCmds = append(autoSyncCmds, m.syncAzureCmd())
 	}
 	if box := m.metadata.Box(); !box.Disabled && !m.syncingProviders["box"] {
 		if box.Enabled && box.AutoSync {
-			m.syncingProviders["box"] = true
+			m.beginProviderOp("box")
 			autoSyncCmds = append(autoSyncCmds, m.syncBoxCmd())
 		} else if !box.Enabled {
-			m.syncingProviders["box"] = true
+			m.beginProviderOp("box")
 			autoSyncCmds = append(autoSyncCmds, m.autoConnectBoxCmd())
 		}
 	}
 	if upstash := m.metadata.Upstash(); !upstash.Disabled && !m.syncingProviders["upstash"] {
 		if upstash.Enabled && upstash.AutoSync {
-			m.syncingProviders["upstash"] = true
+			m.beginProviderOp("upstash")
 			autoSyncCmds = append(autoSyncCmds, m.syncUpstashCmd())
 		} else if !upstash.Enabled && m.upstashHasKey() {
-			m.syncingProviders["upstash"] = true
+			m.beginProviderOp("upstash")
 			autoSyncCmds = append(autoSyncCmds, m.autoConnectUpstashCmd())
 		}
 	}
@@ -504,6 +533,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.setNotice("Report sent")
 	case syncDoneMsg:
+		if m.staleProviderOp(msg) {
+			return m, nil
+		}
 		delete(m.syncingProviders, msg.provider)
 		m.clearSyncBusy()
 		m.syncActivity = ""

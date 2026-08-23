@@ -94,6 +94,67 @@ func (m *App) hostHasCapability(host sshconfig.Host, check func(cloud.Capabiliti
 	return check(cloud.CapabilitiesFor(kind))
 }
 
+func (m *App) stopSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
+	if !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Stop }) {
+		return m, nil
+	}
+	if m.syncingProviders[host.SyncSource] {
+		return m, m.setNotice("Operation already in progress")
+	}
+	if m.hostLooksStopped(host) {
+		return m, m.setNotice("Already stopped")
+	}
+	switch host.SyncSource {
+	case "upstash":
+		m.openUpstashStopForm(host)
+	case "box":
+		m.openBoxStopForm(host)
+	default:
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *App) forkSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
+	if !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Fork }) {
+		return m, nil
+	}
+	if m.syncingProviders[host.SyncSource] {
+		return m, m.setNotice("Operation already in progress")
+	}
+	switch host.SyncSource {
+	case "upstash":
+		m.openUpstashForkForm(host)
+	case "box":
+		m.openBoxForkForm(host)
+	default:
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *App) deleteSyncedHost(host sshconfig.Host) bool {
+	if !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Delete }) {
+		return false
+	}
+	m.openUpstashDeleteForm(host)
+	return true
+}
+
+func (m *App) resumeSyncedHost(host sshconfig.Host, thenConnect bool) tea.Cmd {
+	if !m.hostLooksStopped(host) || !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Start }) {
+		return nil
+	}
+	switch host.SyncSource {
+	case "upstash":
+		return m.resumeSelectedUpstash(host, thenConnect)
+	case "box":
+		return m.resumeSelectedBox(host, thenConnect)
+	default:
+		return nil
+	}
+}
+
 func (m *App) runProviderGroupPrimary(kind cloud.Kind) (tea.Model, tea.Cmd) {
 	if cloud.CapabilitiesFor(kind).Create {
 		return m.runProviderGroupCreate(kind)

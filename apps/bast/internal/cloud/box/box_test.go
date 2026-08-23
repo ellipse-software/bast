@@ -114,6 +114,50 @@ func TestParseNewJSONLReturnsIDWithError(t *testing.T) {
 	}
 }
 
+func TestWaitStoppedReturnsWhenStopping(t *testing.T) {
+	infoCalls := 0
+	client := &Client{
+		PollInterval: time.Millisecond,
+		Run: func(_ context.Context, args []string, _ []string) ([]byte, error) {
+			cmd := strings.Join(args, " ")
+			switch {
+			case strings.Contains(cmd, " stop "):
+				return []byte(`{"ok":true,"id":"bx_archive1"}`), nil
+			case strings.Contains(cmd, " info "):
+				infoCalls++
+				return []byte(`{"box":{"id":"bx_archive1","name":"snap","state":"archiving"}}`), nil
+			default:
+				return nil, fmt.Errorf("unexpected %s", cmd)
+			}
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := client.Stop(ctx, "bx_archive1"); err != nil {
+		t.Fatal(err)
+	}
+	if infoCalls < 1 {
+		t.Fatal("expected WaitStopped to poll info")
+	}
+}
+
+func TestWaitStoppedTimesOutIfStillRunning(t *testing.T) {
+	client := &Client{
+		PollInterval: time.Millisecond,
+		Run: func(_ context.Context, args []string, _ []string) ([]byte, error) {
+			cmd := strings.Join(args, " ")
+			if strings.Contains(cmd, "info") {
+				return []byte(`{"box":{"id":"bx_run","name":"live","state":"idle","ip":"203.0.113.10"}}`), nil
+			}
+			return nil, fmt.Errorf("unexpected %s", cmd)
+		},
+	}
+	err := client.WaitStopped(context.Background(), "bx_run", 20*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestStopSurfacesRejectedResponse(t *testing.T) {
 	client := &Client{
 		PollInterval: time.Millisecond,

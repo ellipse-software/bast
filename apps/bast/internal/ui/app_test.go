@@ -140,6 +140,18 @@ func selectHostAlias(t *testing.T, m *App, alias string) {
 	t.Fatalf("host %q not found", alias)
 }
 
+func selectProviderHost(t *testing.T, m *App, alias string) {
+	t.Helper()
+	life, _ := m.providerActionLayout()
+	for i, row := range m.providerInventoryRows() {
+		if !row.header && row.host.Alias == alias {
+			m.syncCursor = len(life) + i
+			return
+		}
+	}
+	t.Fatalf("provider host %q not found", alias)
+}
+
 func TestNumberedNavigationAndSearch(t *testing.T) {
 	m := testApp(t)
 	m.section = hostsSection
@@ -2675,6 +2687,50 @@ func TestUpstashGroupNameUsesBrandColor(t *testing.T) {
 	}
 }
 
+func TestManagedGroupNameCopiesRestBackground(t *testing.T) {
+	rest := lipgloss.NewStyle().Background(lipgloss.Color("#1F2937"))
+	rendered := renderManagedGroupName("Upstash", rest, false)
+	want := brandText("#00E9A3", "Upstash", rest)
+	if rendered != want {
+		t.Fatalf("got %q want %q", rendered, want)
+	}
+	if !strings.Contains(rendered, "48;2;31;41;55") {
+		t.Fatalf("expected rest background under Upstash brand text: %q", rendered)
+	}
+	icon := managedGroupIcon("Upstash", true)
+	withIcon := renderManagedGroupName("Upstash", rest, true)
+	if !strings.Contains(withIcon, brandText("#00E9A3", icon+"Upstash", rest)) {
+		t.Fatalf("expected rest background under Upstash icon: %q", withIcon)
+	}
+}
+
+func TestSelectedProviderGroupKeepsBackgroundUnderBrand(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "upstash_dev", Synced: true, SyncSource: "upstash",
+		Resolved: sshconfig.Resolved{HostName: "dev.upstash.io", User: "root"},
+	}}
+	if err := m.metadata.SetHost("upstash_dev", metadata.Host{Label: "dev", Group: "Upstash"}); err != nil {
+		t.Fatal(err)
+	}
+	m.sortHosts()
+	m.cursor = 0
+	s := m.styles()
+	body := m.renderHosts(s)
+	want := brandText("#00E9A3", "Upstash", s.selected)
+	if !strings.Contains(body, want) {
+		t.Fatalf("selected Upstash label missing selected background:\nwant %q\n%s", want, body)
+	}
+
+	m.nerdFont = true
+	body = m.renderHosts(s)
+	icon := managedGroupIcon("Upstash", true)
+	want = brandText("#00E9A3", icon+"Upstash", s.selected)
+	if !strings.Contains(body, want) {
+		t.Fatalf("selected Upstash icon missing selected background:\nwant %q\n%s", want, body)
+	}
+}
+
 func TestSyncTileSelectedBorderUsesProviderColor(t *testing.T) {
 	m := testApp(t)
 	gcp := syncMenuItem{label: "GCP", detail: "disabled", provider: "gcp"}
@@ -2717,6 +2773,12 @@ func TestProviderGroupRowsUseBrandColor(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.sortHosts()
+	for i, row := range m.hostListRows() {
+		if row.header && row.group == "Work" {
+			m.cursor = i
+			break
+		}
+	}
 	body := m.renderHosts(m.styles())
 	blue := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
 	if !strings.Contains(body, blue.Render("▾ ")) {
@@ -3197,7 +3259,7 @@ func TestProviderInventoryGroupsByStatus(t *testing.T) {
 	if m.syncCursor != 2 {
 		t.Fatalf("j should focus running host, cursor=%d", m.syncCursor)
 	}
-	if got := m.browseFooterHint(80); !strings.Contains(got, "enter connect") {
+	if got := m.browseFooterHint(80); !strings.Contains(got, "enter connect") || !strings.Contains(got, "o stop") || !strings.Contains(got, "n fork") {
 		t.Fatalf("host footer = %q", got)
 	}
 	m.updateSyncKeys("j")
@@ -3217,6 +3279,93 @@ func TestProviderInventoryGroupsByStatus(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected resume command")
+	}
+}
+
+func TestProviderInventorySandboxLifecycle(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "box"
+	m.syncStatus.Box.Authenticated = true
+	m.hosts = []sshconfig.Host{
+		{Alias: "box_run", Synced: true, SyncSource: "box", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"}},
+		{Alias: "box_stop", Synced: true, SyncSource: "box", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"}},
+	}
+	if err := m.metadata.SetHost("box_run", metadata.Host{Label: "alpha-box", Group: "Box", Tags: []string{"state:running", "snapshot"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("box_stop", metadata.Host{Label: "idle-box", Group: "Box", Tags: []string{"state:stopped", "snapshot"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.toggleProviderInv(invGroupStopped)
+
+	selectProviderHost(t, m, "box_run")
+	_, _ = m.updateKeys(press("o"))
+	if m.form == nil || m.form.action != "box_stop" {
+		t.Fatalf("o on running inventory host should stop, got %#v", m.form)
+	}
+	m.form = nil
+	_, _ = m.updateKeys(press("n"))
+	if m.form == nil || m.form.action != "box_fork" {
+		t.Fatalf("n on running inventory host should fork, got %#v", m.form)
+	}
+
+	m.form = nil
+	m.syncCursor = 0
+	_, _ = m.updateKeys(press("n"))
+	if m.form == nil || m.form.action != "box_new" {
+		t.Fatalf("n on chips should still create a box, got %#v", m.form)
+	}
+
+	m.form = nil
+	selectProviderHost(t, m, "box_stop")
+	footer := m.browseFooterHint(80)
+	if !strings.Contains(footer, "r resume") || strings.Contains(footer, "o stop") {
+		t.Fatalf("stopped inventory footer = %q", footer)
+	}
+	_, cmd := m.updateKeys(press("r"))
+	if cmd == nil {
+		t.Fatal("r on stopped inventory host should resume")
+	}
+	if m.boxConnectAfter != "" {
+		t.Fatalf("r should resume without connecting, after=%q", m.boxConnectAfter)
+	}
+	if m.syncActivity != "resuming…" {
+		t.Fatalf("resume activity = %q", m.syncActivity)
+	}
+
+	m.syncingProviders = map[string]bool{}
+	m.syncActivity = ""
+	m.syncProvider = "upstash"
+	m.syncStatus.Upstash.HasKey = true
+	m.hosts = []sshconfig.Host{{
+		Alias: "upstash_dev", Synced: true, SyncSource: "upstash", SyncID: "current-wasp-05510",
+		Resolved: sshconfig.Resolved{HostName: "us-east-1.box.upstash.com", User: "root"},
+	}}
+	if err := m.metadata.SetHost("upstash_dev", metadata.Host{Label: "dev", Group: "Upstash", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	selectProviderHost(t, m, "upstash_dev")
+	_, _ = m.updateKeys(press("o"))
+	if m.form == nil || m.form.action != "upstash_stop" {
+		t.Fatalf("o on upstash inventory host should pause, got %#v", m.form)
+	}
+	m.form = nil
+	_, _ = m.updateKeys(press("n"))
+	if m.form == nil || m.form.action != "upstash_fork" {
+		t.Fatalf("n on upstash inventory host should fork, got %#v", m.form)
+	}
+	m.form = nil
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "upstash_delete" {
+		t.Fatalf("d on upstash inventory host should delete, got %#v", m.form)
+	}
+
+	m.form = nil
+	m.syncCursor = 0
+	_, _ = m.updateKeys(press("n"))
+	if m.form == nil || m.form.action != "upstash_new" {
+		t.Fatalf("n on upstash chips should create a box, got %#v", m.form)
 	}
 }
 
@@ -3680,6 +3829,27 @@ func TestBoxAutoConnectRunsWhenNotEnabled(t *testing.T) {
 	}
 	if !m.syncingProviders["box"] {
 		t.Fatal("Box should be marked syncing for auto-connect")
+	}
+}
+
+func TestStaleBoxSyncDoneDoesNotClearNewerOp(t *testing.T) {
+	m := testApp(t)
+	old := m.beginProviderOp("box")
+	m.syncActivity = "stopping…"
+	newer := m.beginProviderOp("box")
+	if newer == old {
+		t.Fatal("expected a new op generation")
+	}
+	m.Update(syncDoneMsg{provider: "box", opGen: old})
+	if !m.syncingProviders["box"] {
+		t.Fatal("stale completion cleared an in-flight box op")
+	}
+	if m.syncActivity != "stopping…" {
+		t.Fatalf("stale completion cleared activity: %q", m.syncActivity)
+	}
+	m.Update(syncDoneMsg{provider: "box", opGen: newer})
+	if m.syncingProviders["box"] {
+		t.Fatal("current completion should clear the box op")
 	}
 }
 
