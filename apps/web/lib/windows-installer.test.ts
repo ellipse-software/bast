@@ -21,4 +21,12 @@ describe("Windows installer", () => {
     expect(installer).toContain('Write-Success "Authenticode signature verified"');
     expect(installer).toContain("BAST_NO_TELEMETRY=1");
   });
+
+  test("installs PowerShell completions on install and when already current", () => {
+    expect(installer).toContain("Install-BastCompletions");
+    expect(installer).toContain("BAST_NO_COMPLETIONS");
+    expect(installer).toContain("# >>> bast completions >>>");
+    expect(installer).toContain("Enabled shell completions");
+    expect(installer).toContain("Install-BastCompletions $destination");
+  });
 });

@@ -52,6 +52,16 @@ Windows 11 PowerShell:
 irm https://bast.sh/install.ps1 | iex
 ```
 
+## Shell completions
+
+The script installers and Homebrew enable tab completion. Open a new terminal after install. Opt out with `BAST_NO_COMPLETIONS=1`.
+
+```sh
+source <(bast completion bash)   # also: zsh, fish, powershell, elvish, nushell
+```
+
+Docs: https://bast.sh/docs/reference/completions
+
 ## Automation rules
 
 Always use `--json` for scripts. It disables prompts. Pair with explicit flags and `--yes` for destructive actions.

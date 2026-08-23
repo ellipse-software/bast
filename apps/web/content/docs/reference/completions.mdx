@@ -1,0 +1,75 @@
+---
+title: Shell completions
+description: Tab-complete Bast commands, flags, hosts, and keys in bash, zsh, fish, PowerShell, Elvish, and Nushell.
+---
+
+Tab completes commands, flags, host aliases and labels, and key names. `bast <label>` is included: the first token completes both commands and hosts.
+
+The installers enable this for you. Open a new terminal after install, type `bast`, and press Tab.
+
+| Install | What happens |
+| --- | --- |
+| `curl \| sh` / `bast update` | Writes scripts under `~/.local/share/bast/completions` and adds a marked block to your shell startup file (`.zshrc`, `.bashrc`, or `.bash_profile`). Fish gets `~/.config/fish/completions/bast.fish` with no rc edit. Elvish, Nushell, and `pwsh` are hooked if those shells are already present. |
+| Windows `install.ps1` | Writes `completions\bast.ps1` next to `bast.exe` and adds a marked block to your PowerShell 5.1 and PowerShell 7 profiles. |
+| Homebrew | bash, zsh, and fish completions are generated at `brew install` time. |
+| WinGet | Portable zip. Use `bast completion powershell` if Tab does not work. |
+
+Skip installer hooks with `BAST_NO_COMPLETIONS=1`. Re-running the installer is idempotent: it refreshes the scripts and replaces the marked block instead of stacking copies.
+
+The marked block looks like:
+
+```bash
+# >>> bast completions >>>
+. "$HOME/.local/share/bast/completions/bast.bash"
+# <<< bast completions <<<
+```
+
+Removing the completion files is enough to disable Tab. The block becomes a no-op if the file is gone.
+
+## Manual setup
+
+Needed for source builds, WinGet, or a shell the installer did not detect:
+
+```bash
+# bash
+source <(bast completion bash)
+
+# zsh
+source <(bast completion zsh)
+
+# fish
+bast completion fish | source
+```
+
+```powershell
+# PowerShell
+bast completion powershell | Out-String | Invoke-Expression
+```
+
+```bash
+# elvish
+eval (bast completion elvish | slurp)
+```
+
+```nushell
+# nushell
+mkdir ~/.config/nushell/completions
+bast completion nushell | save -f ~/.config/nushell/completions/bast.nu
+source ~/.config/nushell/completions/bast.nu
+```
+
+`pwsh` is accepted as an alias for `powershell`. `nu` is accepted for `nushell`.
+
+## What Tab completes
+
+- Commands and subcommands (`hosts show`, `sync disable`, `vault login`)
+- Global flags (`--json`, `--no-input`, `--help`) in any position
+- Flag names and enum values (`--sort`, `--algorithm`, `--runtime`, `--mode`)
+- Host aliases and labels, including `bast <label>` and `bast connect`
+- Key names
+- Box and Upstash hosts or sync IDs on lifecycle commands
+- Native file and directory paths for `--identity`, `--private`, `--directory`, and `--key-file`
+
+Hidden hosts are omitted except on `hosts show-hidden` / `unhide`. Completions read SSH config and Bast metadata only. They do not run `ssh -G` or prompt.
+
+See `bast completion --help` for the same setup commands from the CLI.

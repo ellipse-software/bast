@@ -74,6 +74,89 @@ function Add-UserPath([string]$Directory) {
     }
 }
 
+function Update-BastCompletionBlock([string]$Path, [string]$Block) {
+    $begin = "# >>> bast completions >>>"
+    $end = "# <<< bast completions <<<"
+    $directory = Split-Path -Parent $Path
+    if ($directory -and -not (Test-Path -LiteralPath $directory)) {
+        New-Item -ItemType Directory -Force $directory | Out-Null
+    }
+    $existing = ""
+    if (Test-Path -LiteralPath $Path) {
+        $existing = Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue
+        if ($null -eq $existing) {
+            $existing = ""
+        }
+        $pattern = "(?s)\r?\n?" + [regex]::Escape($begin) + ".*?" + [regex]::Escape($end) + "\r?\n?"
+        $existing = [regex]::Replace($existing, $pattern, "`n").TrimEnd()
+        if ($existing) {
+            $existing += "`r`n`r`n"
+        }
+    }
+    Set-Content -LiteralPath $Path -Value ($existing + $Block.TrimEnd() + "`r`n") -Encoding UTF8
+}
+
+function Install-BastCompletions([string]$Binary) {
+    if ($env:BAST_NO_COMPLETIONS) {
+        return
+    }
+    if (-not $Binary -or -not (Test-Path -LiteralPath $Binary)) {
+        return
+    }
+
+    $script = $null
+    try {
+        $script = & $Binary completion powershell 2>$null | Out-String
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($script)) {
+            return
+        }
+    } catch {
+        return
+    }
+
+    Write-Step "Enabling shell completions..."
+    $completionDir = Join-Path $installDirectory "completions"
+    New-Item -ItemType Directory -Force $completionDir | Out-Null
+    $ps1Path = Join-Path $completionDir "bast.ps1"
+    Set-Content -LiteralPath $ps1Path -Value $script.TrimEnd() -Encoding UTF8
+
+    $escaped = $ps1Path.Replace("'", "''")
+    $block = @"
+# >>> bast completions >>>
+if (Test-Path -LiteralPath '$escaped') {
+  . '$escaped'
+}
+# <<< bast completions <<<
+"@
+
+    $documents = [Environment]::GetFolderPath("MyDocuments")
+    $profiles = @(
+        (Join-Path $documents "WindowsPowerShell\Microsoft.PowerShell_profile.ps1"),
+        (Join-Path $documents "PowerShell\Microsoft.PowerShell_profile.ps1")
+    )
+    if ($PROFILE -and ($profiles -notcontains $PROFILE)) {
+        $profiles += $PROFILE
+    }
+    foreach ($profilePath in $profiles) {
+        if ($profilePath) {
+            Update-BastCompletionBlock $profilePath $block
+        }
+    }
+
+    try {
+        . $ps1Path
+    } catch {
+        # The current session may not allow Register-ArgumentCompleter.
+    }
+
+    if ((Get-ExecutionPolicy) -eq "Restricted") {
+        Write-Info "PowerShell execution policy is Restricted. Tab completion loads after Set-ExecutionPolicy -Scope CurrentUser RemoteSigned."
+    }
+
+    Write-Success "Enabled shell completions"
+    Write-Info "Open a new PowerShell window, then press Tab after bast."
+}
+
 function Install-StagedBinary(
     [string]$Source,
     [string]$Destination,
@@ -179,6 +262,7 @@ if ((Test-Path $destination) -and (Test-Path $receipt)) {
     $installedVersion = (& $destination --version 2>$null) -join "`n"
     if ($installedReceipt -eq $InstallerUrl -and $installedVersion -match [regex]::Escape($version)) {
         Add-UserPath $installDirectory
+        Install-BastCompletions $destination
         Write-Host ""
         Write-Success "Bast $version is already up to date."
         Write-RunHint
@@ -267,6 +351,7 @@ try {
         $arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$helperPath`" `"$helperConfigPath`""
         Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -WindowStyle Hidden
         Add-UserPath $installDirectory
+        Install-BastCompletions $staged
         Write-Success "Bast $version will finish installing after this process exits."
         Write-RunHint
         $temporaryDirectory = $null
@@ -275,6 +360,7 @@ try {
         Install-StagedBinary $staged $destination $receipt $version $temporaryDirectory
         $temporaryDirectory = $null
         Add-UserPath $installDirectory
+        Install-BastCompletions $destination
         if ($wasInstalled) {
             Write-Success "Updated Bast to $version."
             Send-Telemetry "update" $version $goArchitecture

@@ -6,6 +6,8 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- Shell completions via `bast completion` for bash, zsh, fish, PowerShell, Elvish, and Nushell. Tab completes commands, flags, hosts, and keys. The script installers enable this automatically (opt out with `BAST_NO_COMPLETIONS=1`). Homebrew generates bash, zsh, and fish completions on install.
+
 ### Fixed
 
 - Box stop returns once the box is stopping instead of waiting minutes for the snapshot to finish, and a late sync result can no longer clear a newer in-flight Box operation.

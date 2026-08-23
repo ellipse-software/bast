@@ -82,6 +82,7 @@ class BastNightly < Formula
 
   def install
     bin.install "bast"
+    generate_completions_from_executable(bin/"bast", "completion", shells: [:bash, :zsh, :fish])
   end
 
   test do
