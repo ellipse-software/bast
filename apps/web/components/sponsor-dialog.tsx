@@ -27,6 +27,7 @@ import {
   SPONSOR_MIN_USD,
   SPONSOR_MESSAGE_MAX,
   SPONSOR_PRESETS_USD,
+  type SponsorInterval,
 } from "@/lib/sponsors";
 import { sponsorCheckoutAppearance } from "@/lib/stripe-appearance";
 
@@ -64,6 +65,7 @@ export function SponsorDialog({
   const [step, setStep] = useState<Step>("amount");
   const [preset, setPreset] = useState<number | "custom">(25);
   const [customUsd, setCustomUsd] = useState("25");
+  const [interval, setInterval] = useState<SponsorInterval>("once");
   const [handle, setHandle] = useState("");
   const [message, setMessage] = useState("");
   const [anonymous, setAnonymous] = useState(false);
@@ -91,6 +93,7 @@ export function SponsorDialog({
     if (open && !dialog.open) {
       setError(null);
       setAnonymous(false);
+      setInterval("once");
       setStep(resumeSessionId ? "verify" : "amount");
       dialog.showModal();
     }
@@ -121,6 +124,7 @@ export function SponsorDialog({
   const fetchClientSecret = useCallback(async () => {
     const result = await startSponsorCheckout({
       amountUsd,
+      interval,
       handle,
       message,
       anonymous,
@@ -132,7 +136,7 @@ export function SponsorDialog({
       throw new Error(result.error);
     }
     return result.clientSecret;
-  }, [amountUsd, handle, message, anonymous]);
+  }, [amountUsd, interval, handle, message, anonymous]);
 
   return (
     <dialog
@@ -176,6 +180,8 @@ export function SponsorDialog({
             setStep("pay");
           }}
         >
+          <IntervalSwitch value={interval} onChange={setInterval} />
+
           <fieldset>
             <legend className="mb-2 text-sm text-muted">Amount</legend>
             <div className="flex flex-wrap gap-2">
@@ -297,8 +303,9 @@ export function SponsorDialog({
 
       {step === "pay" ? (
         <SponsorPayStep
-          key={`${amountUsd}-${handle}-${message}-${anonymous}`}
+          key={`${amountUsd}-${interval}-${handle}-${message}-${anonymous}`}
           amountUsd={amountUsd}
+          interval={interval}
           fetchClientSecret={fetchClientSecret}
           onBack={() => {
             setStep("amount");
@@ -329,11 +336,13 @@ export function SponsorDialog({
 
 function SponsorPayStep({
   amountUsd,
+  interval,
   fetchClientSecret,
   onBack,
   onComplete,
 }: {
   amountUsd: number;
+  interval: SponsorInterval;
   fetchClientSecret: () => Promise<string>;
   onBack: () => void;
   onComplete: () => void;
@@ -359,6 +368,7 @@ function SponsorPayStep({
       <CheckoutElementsProvider stripe={stripePromise} options={options}>
         <SponsorCheckoutForm
           amountUsd={amountUsd}
+          interval={interval}
           onBack={onBack}
           onComplete={onComplete}
         />
@@ -369,10 +379,12 @@ function SponsorPayStep({
 
 function SponsorCheckoutForm({
   amountUsd,
+  interval,
   onBack,
   onComplete,
 }: {
   amountUsd: number;
+  interval: SponsorInterval;
   onBack: () => void;
   onComplete: () => void;
 }) {
@@ -386,7 +398,10 @@ function SponsorCheckoutForm({
   if (checkoutState.type === "loading") {
     return (
       <div className="flex flex-col gap-4">
-        <PayHeader amountLabel={formatUsd(amountUsd)} onBack={onBack} />
+        <PayHeader
+          amountLabel={formatSponsorPayAmount(formatUsd(amountUsd), interval)}
+          onBack={onBack}
+        />
         <CheckoutSpinner />
       </div>
     );
@@ -395,14 +410,20 @@ function SponsorCheckoutForm({
   if (checkoutState.type === "error") {
     return (
       <>
-        <PayHeader amountLabel={formatUsd(amountUsd)} onBack={onBack} />
+        <PayHeader
+          amountLabel={formatSponsorPayAmount(formatUsd(amountUsd), interval)}
+          onBack={onBack}
+        />
         <p className="text-sm text-red-400">{checkoutState.error.message}</p>
       </>
     );
   }
 
   const { checkout } = checkoutState;
-  const amountLabel = checkout.total.total.amount || formatUsd(amountUsd);
+  const amountLabel = formatSponsorPayAmount(
+    checkout.total.total.amount || formatUsd(amountUsd),
+    interval,
+  );
   const showCurrencySelector = Boolean(checkout.currencyOptions?.length);
 
   return (
@@ -457,7 +478,7 @@ function SponsorCheckoutForm({
             disabled={submitting || !checkout.canConfirm}
             className={primaryButtonClass}
           >
-            Sponsor
+            {interval === "month" ? "Sponsor monthly" : "Sponsor"}
           </button>
         </div>
         {elementsReady ? null : (
@@ -497,6 +518,62 @@ function CheckoutSpinner({ className }: { className?: string }) {
           strokeLinecap="square"
         />
       </svg>
+    </div>
+  );
+}
+
+function formatSponsorPayAmount(label: string, interval: SponsorInterval) {
+  if (interval !== "month" || label.endsWith("/mo")) {
+    return label;
+  }
+  return `${label}/mo`;
+}
+
+function IntervalSwitch({
+  value,
+  onChange,
+}: {
+  value: SponsorInterval;
+  onChange: (next: SponsorInterval) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Sponsorship frequency"
+      className="relative border border-border p-0.5"
+    >
+      <div className="relative grid grid-cols-2">
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute inset-y-0 w-1/2 bg-highlight transition-transform duration-200 ease-out motion-reduce:transition-none ${
+            value === "month" ? "translate-x-full" : "translate-x-0"
+          }`}
+        />
+        {(
+          [
+            ["once", "One time"],
+            ["month", "Monthly"],
+          ] as const
+        ).map(([id, label]) => {
+          const selected = value === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => onChange(id)}
+              className={`relative z-10 px-3 py-1.5 text-sm ${
+                selected
+                  ? "text-foreground"
+                  : "text-muted hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

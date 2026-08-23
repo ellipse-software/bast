@@ -128,15 +128,16 @@ export default function TermsPage() {
       <LegalSection id="sponsorships" title="5. Sponsorships">
         <p>
           Sponsorship payments on bast.sh are voluntary contributions to support
-          development. Unless we state otherwise at checkout, they do not buy a
-          subscription, extra Vault capacity, an SLA, or a licence beyond the
-          MIT Licence.
+          development. They do not buy extra Vault capacity, an SLA, or a
+          licence beyond the MIT Licence. You can give once or monthly. Monthly
+          sponsorships renew until you cancel.
         </p>
         <p>
           Payments are processed by Stripe. Amounts are in US dollars. The
           charge may appear as Bast or {company.legalName}. We do not store full
-          card numbers. Sponsorships are non-refundable except where law
-          requires otherwise.
+          card numbers. One-time sponsorships are non-refundable except where
+          law requires otherwise. Cancel a monthly sponsorship from the receipt
+          Stripe sends you, or by contacting us.
         </p>
       </LegalSection>
 

@@ -97,10 +97,10 @@ export default function PrivacyPage() {
           3.3 Sponsorships
         </h3>
         <p>
-          If you sponsor Bast we process the amount, optional X username, optional
-          message, and whether you asked to remain anonymous. Card and bank
-          details are collected by Stripe. We do not store full payment card
-          numbers.
+          If you sponsor Bast we process the amount, whether it is one-time or
+          monthly, optional X username, optional message, and whether you asked
+          to remain anonymous. Card and bank details are collected by Stripe. We
+          do not store full payment card numbers.
         </p>
 
         <h3 className="text-sm font-medium tracking-tight text-foreground">
