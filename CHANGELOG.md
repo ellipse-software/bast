@@ -4,6 +4,8 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ## Unreleased
 
+## v0.9.1 - 2026-08-23
+
 ### Added
 
 - Sync tab (`4`) for AWS, GCP, Azure, and box.ascii.dev, separate from Vault.
