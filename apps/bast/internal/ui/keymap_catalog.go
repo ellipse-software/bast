@@ -193,9 +193,9 @@ func buildCatalog() []Binding {
 		bind(ActionFilesRemote, []string{"R"}, ScopeFiles, "Pane remote", "").noHelp(),
 		bind(ActionNone, nil, ScopeFiles, "Pane local / remote", "").chord("L  R").helpOnly(),
 		bind(ActionFilesParent, []string{"h", "backspace", "ctrl+h"}, ScopeFiles, "Parent", "").noHelp(),
-		bind(ActionFilesEnter, []string{"l"}, ScopeFiles, "Enter", "").noHelp(),
+		bind(ActionFilesOpenDir, []string{"l"}, ScopeFiles, "Enter", "").noHelp(),
 		bind(ActionNone, nil, ScopeFiles, "Parent / enter", "").chord("h  l").helpOnly(),
-		bind(ActionFilesEnter, []string{"enter"}, ScopeFiles, "Enter dir or connect host", ""),
+		bind(ActionFilesEnter, []string{"enter"}, ScopeFiles, "Enter dir, preview file, or connect host", ""),
 		bind(ActionNone, nil, ScopeFiles, "Move / top / bottom", "").chord("j k  g G").helpOnly(),
 		bind(ActionFilesJump, []string{"f"}, ScopeFiles, "Fuzzy jump", "jump"),
 		bind(ActionFilesPath, []string{"/"}, ScopeFiles, "Path jump or host search", ""),
@@ -208,6 +208,7 @@ func buildCatalog() []Binding {
 		bind(ActionFilesMkdir, []string{"a"}, ScopeFiles, "New directory", ""),
 		bind(ActionFilesRename, []string{"r"}, ScopeFiles, "Rename", ""),
 		bind(ActionFilesInfo, []string{"i"}, ScopeFiles, "File info", ""),
+		bind(ActionFilesPreview, []string{"o"}, ScopeFiles, "Preview file", ""),
 		bind(ActionFilesChmod, []string{"p"}, ScopeFiles, "Permissions (chmod)", ""),
 		bind(ActionFilesShell, []string{"t"}, ScopeFiles, "Shell in directory", ""),
 		bind(ActionFilesHidden, []string{"."}, ScopeFiles, "Toggle hidden files", ""),
@@ -451,7 +452,7 @@ func filesFooterBrowse(m *App) bool {
 	if m.section != filesSection || !m.files.ready {
 		return false
 	}
-	if m.files.chmod.active || m.files.info || m.files.transfer.active || m.files.jump.active {
+	if m.files.chmod.active || m.files.info || m.files.preview.active || m.files.transfer.active || m.files.jump.active {
 		return false
 	}
 	pane := m.filesFocusedPane()
@@ -462,7 +463,7 @@ func filesFooterPickHost(m *App) bool {
 	if m.section != filesSection || !m.files.ready {
 		return false
 	}
-	if m.files.chmod.active || m.files.info || m.files.transfer.active || m.files.jump.active {
+	if m.files.chmod.active || m.files.info || m.files.preview.active || m.files.transfer.active || m.files.jump.active {
 		return false
 	}
 	pane := m.filesFocusedPane()

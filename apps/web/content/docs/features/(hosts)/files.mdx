@@ -61,12 +61,25 @@ Copy and move always target the **other** pane’s current directory.
 | `a` | Create directory |
 | `r` | Rename |
 | `i` | File info (name, type, size, mode) |
+| `o` | Preview the cursor file (text, JSON, PDF) |
 | `p` | Change permissions (chmod) on local or remote items |
 | `esc` / `x` | Cancel an in-progress transfer |
 
 ### File info
 
 Press `i` on the cursor row. The focused pane shows name, type, size, mode (octal and symbolic), and modified time. `j`/`k` move to the next or previous item while info stays open. `p` jumps into the permissions editor. `i` or `Esc` closes.
+
+### Preview
+
+Press `o`, or Enter on a file. A floating panel shows the contents. Text and JSON are shown as text (JSON is indented). PDFs show extracted text, not rendered pages. Images and binaries show type and size only.
+
+| Key | Action |
+| --- | --- |
+| `j` / `k` | Scroll |
+| `[` / `]` | Previous / next file |
+| `o` / `Esc` / `q` | Close |
+
+`l` still enters directories only. Space still marks. Preview reads a prefix of text files (512 KB) and will not download PDFs larger than 8 MB.
 
 ### Permissions
 
@@ -98,7 +111,6 @@ Deferred for later:
 - Directory sync / mirror
 - Trash / undo
 - chown UI
-- Inline previews
 - Shared ControlMaster connections
 
 ## Native OpenSSH
