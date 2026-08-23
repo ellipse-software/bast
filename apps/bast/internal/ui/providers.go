@@ -27,6 +27,8 @@ func (m *App) providerEnabled(kind cloud.Kind) bool {
 		return m.metadata.Azure().Enabled
 	case cloud.Box:
 		return m.metadata.Box().Enabled
+	case cloud.Upstash:
+		return m.metadata.Upstash().Enabled
 	default:
 		return false
 	}
@@ -65,7 +67,7 @@ func (m *App) providerGroupStats(group string) (running, stopped int) {
 
 func (m *App) providerGroupPrimaryAction(kind cloud.Kind) string {
 	if cloud.CapabilitiesFor(kind).Create {
-		if kind == cloud.Box {
+		if kind == cloud.Box || kind == cloud.Upstash {
 			return " New box "
 		}
 		return " New "
@@ -100,14 +102,26 @@ func (m *App) runProviderGroupPrimary(kind cloud.Kind) (tea.Model, tea.Cmd) {
 }
 
 func (m *App) runProviderGroupCreate(kind cloud.Kind) (tea.Model, tea.Cmd) {
-	if kind != cloud.Box {
+	switch kind {
+	case cloud.Box:
+		if m.syncingProviders["box"] {
+			return m, m.setNotice("Box operation already in progress")
+		}
+		m.openBoxNewForm()
+		return m, nil
+	case cloud.Upstash:
+		if m.syncingProviders["upstash"] {
+			return m, m.setNotice("Upstash operation already in progress")
+		}
+		if !m.upstashHasKey() {
+			m.openUpstashKeyForm()
+			return m, nil
+		}
+		m.openUpstashNewForm()
+		return m, nil
+	default:
 		return m, m.setNotice("Create is not available for this provider yet")
 	}
-	if m.syncingProviders["box"] {
-		return m, m.setNotice("Box operation already in progress")
-	}
-	m.openBoxNewForm()
-	return m, nil
 }
 
 func (m *App) syncProviderFromHosts(kind cloud.Kind) (tea.Model, tea.Cmd) {

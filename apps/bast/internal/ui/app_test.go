@@ -1976,10 +1976,10 @@ func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 		t.Fatalf("mobile grid cols = %d", m.syncGridCols())
 	}
 	body := m.renderSync(m.styles())
-	if strings.Count(body, "┌") != 4 {
+	if strings.Count(body, "┌") != 5 {
 		t.Fatalf("mobile should keep one boxed tile per provider:\n%s", body)
 	}
-	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") {
+	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") || !strings.Contains(body, "Upstash") {
 		t.Fatalf("mobile grid body:\n%s", body)
 	}
 }
@@ -2663,6 +2663,93 @@ func TestBoxGroupNameIsWhite(t *testing.T) {
 	}
 }
 
+func TestUpstashGroupNameUsesBrandColor(t *testing.T) {
+	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	rendered := renderManagedGroupName("Upstash/dev", restStyle, false)
+	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00E9A3")).Render("Upstash")
+	if !strings.HasPrefix(rendered, provider) {
+		t.Fatalf("Upstash brand colour was not applied uniformly: %q", rendered)
+	}
+	if !strings.Contains(rendered, restStyle.Render("/dev")) {
+		t.Fatalf("Upstash group path did not retain the normal style: %q", rendered)
+	}
+}
+
+func TestSyncTileSelectedBorderUsesProviderColor(t *testing.T) {
+	m := testApp(t)
+	gcp := syncMenuItem{label: "GCP", detail: "disabled", provider: "gcp"}
+	selected := m.renderSyncTile(m.styles(), 0, gcp, 24)
+	plain := m.renderSyncTile(m.styles(), 1, gcp, 24)
+	if !strings.Contains(selected, "38;2;66;133;244") {
+		t.Fatalf("selected GCP tile should use Google blue border:\n%q", selected)
+	}
+	if strings.Contains(selected, "38;2;139;92;246") {
+		t.Fatalf("selected GCP tile still uses purple:\n%q", selected)
+	}
+	if !strings.Contains(plain, "38;2;107;114;128") {
+		t.Fatalf("unselected GCP tile should stay muted:\n%q", plain)
+	}
+
+	awsSel := m.renderSyncTile(m.styles(), 0, syncMenuItem{provider: "aws"}, 24)
+	if !strings.Contains(awsSel, "38;2;255;153;0") {
+		t.Fatalf("selected AWS tile should use orange border:\n%q", awsSel)
+	}
+
+	upSel := m.renderSyncTile(m.styles(), 0, syncMenuItem{provider: "upstash"}, 24)
+	if !strings.Contains(upSel, "38;2;0;233;163") {
+		t.Fatalf("selected Upstash tile should use green border:\n%q", upSel)
+	}
+}
+
+func TestProviderGroupRowsUseBrandColor(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{
+		{
+			Alias: "gcp_demo_web", Synced: true, SyncSource: "gcp",
+			Resolved: sshconfig.Resolved{HostName: "web", User: "ubuntu"},
+		},
+		{Alias: "alpha"},
+	}
+	if err := m.metadata.SetHost("gcp_demo_web", metadata.Host{Label: "web", Group: "Google Cloud/Demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	m.sortHosts()
+	body := m.renderHosts(m.styles())
+	blue := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
+	if !strings.Contains(body, blue.Render("▾ ")) {
+		t.Fatalf("provider root arrow should be brand colour:\n%s", body)
+	}
+	if !strings.Contains(body, blue.Render("  ▾ ")) {
+		t.Fatalf("nested provider group arrow should be brand colour:\n%s", body)
+	}
+	if !strings.Contains(body, blue.Render("Demo")) {
+		t.Fatalf("nested provider group name should be brand colour:\n%s", body)
+	}
+	if strings.Contains(body, blue.Render("      web")) || strings.Contains(body, blue.Render("web")) {
+		t.Fatalf("host name in the list should not use brand colour:\n%s", body)
+	}
+	if !strings.Contains(body, "web") {
+		t.Fatalf("host name missing from list:\n%s", body)
+	}
+	if !strings.Contains(body, "▾ Work") {
+		t.Fatalf("user group should stay unbranded:\n%s", body)
+	}
+	var gcpHost sshconfig.Host
+	for _, host := range m.hosts {
+		if host.Alias == "gcp_demo_web" {
+			gcpHost = host
+			break
+		}
+	}
+	detail := m.renderHostDetail(m.styles(), gcpHost, 50)
+	if !strings.Contains(detail, blue.Render("web")) {
+		t.Fatalf("host title in the detail pane should use brand colour:\n%s", detail)
+	}
+}
+
 func TestBoxCreateBusyThenSelectsHost(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
@@ -2976,6 +3063,46 @@ func TestBoxProviderLifecycleRow(t *testing.T) {
 	m.updateSyncKeys("enter")
 	if m.form == nil || m.form.action != "box_new" {
 		t.Fatalf("enter on New box should open form, got %#v", m.form)
+	}
+}
+
+func TestUpstashProviderLifecycleRow(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "upstash"
+	m.syncCursor = 0
+	m.syncStatus.Upstash.HasKey = true
+	body := m.renderSync(m.styles())
+	if !strings.Contains(body, "New box") {
+		t.Fatalf("upstash page should offer New box:\n%s", body)
+	}
+	if !strings.Contains(body, "API key") {
+		t.Fatalf("upstash page should offer API key:\n%s", body)
+	}
+	m.updateSyncKeys("l")
+	if m.syncCursor != 1 {
+		t.Fatalf("l should move to New box, cursor=%d", m.syncCursor)
+	}
+	m.updateSyncKeys("enter")
+	if m.form == nil || m.form.action != "upstash_new" {
+		t.Fatalf("enter on New box should open form, got %#v", m.form)
+	}
+}
+
+func TestUpstashDeleteUsesRemoteConfirm(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "upstash_dev", Synced: true, SyncSource: "upstash", SyncID: "current-wasp-05510",
+		Resolved: sshconfig.Resolved{HostName: "us-east-1.box.upstash.com", User: "current-wasp-05510"},
+	}}
+	if err := m.metadata.SetHost("upstash_dev", metadata.Host{Label: "dev", Group: "Upstash", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.section = hostsSection
+	selectHostAlias(t, m, "upstash_dev")
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "upstash_delete" {
+		t.Fatalf("d on upstash host should confirm remote delete, got %#v", m.form)
 	}
 }
 
@@ -3627,7 +3754,7 @@ func TestFavoriteAndHiddenAllowedForNonBoxSyncedHosts(t *testing.T) {
 	if m.metadata.Host("box_sunny").Favorite {
 		t.Fatal("Box host should not toggle favorite")
 	}
-	if !strings.Contains(m.status, "Box hosts are read-only") {
+	if !strings.Contains(m.status, "Synced sandbox hosts are read-only") {
 		t.Fatalf("box favorite status = %q", m.status)
 	}
 	m.status = ""
@@ -3635,7 +3762,7 @@ func TestFavoriteAndHiddenAllowedForNonBoxSyncedHosts(t *testing.T) {
 	if m.metadata.Host("box_sunny").Hidden {
 		t.Fatal("Box host should not toggle hidden")
 	}
-	if !strings.Contains(m.status, "Box hosts are read-only") {
+	if !strings.Contains(m.status, "Synced sandbox hosts are read-only") {
 		t.Fatalf("box hidden status = %q", m.status)
 	}
 }

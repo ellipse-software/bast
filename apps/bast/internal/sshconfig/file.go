@@ -80,6 +80,17 @@ func RenderSyncBlock(input SyncHostInput) []byte {
 	for _, option := range input.ExtraOptions {
 		fmt.Fprintf(&b, "    %s\n", option)
 	}
+	if input.PasswordOnly {
+		if !HasDirective(input.ExtraOptions, "PubkeyAuthentication") {
+			b.WriteString("    PubkeyAuthentication no\n")
+		}
+		if !HasDirective(input.ExtraOptions, "PasswordAuthentication") {
+			b.WriteString("    PasswordAuthentication yes\n")
+		}
+		if !HasDirective(input.ExtraOptions, "PreferredAuthentications") {
+			b.WriteString("    PreferredAuthentications keyboard-interactive,password\n")
+		}
+	}
 	b.WriteString(syncMarkerEnd + "\n")
 	return []byte(b.String())
 }
@@ -187,6 +198,16 @@ func LoadSyncHosts(path string) ([]SyncHostInput, error) {
 				}
 			case "identitiesonly":
 				input.IdentitiesOnly = len(parts) > 1 && strings.EqualFold(parts[1], "yes")
+			case "pubkeyauthentication":
+				if len(parts) > 1 && (strings.EqualFold(parts[1], "no") || strings.EqualFold(parts[1], "false")) {
+					input.PasswordOnly = true
+				}
+				input.ExtraOptions = append(input.ExtraOptions, trimmed)
+			case "passwordauthentication":
+				if len(parts) > 1 && (strings.EqualFold(parts[1], "yes") || strings.EqualFold(parts[1], "true")) {
+					input.PasswordOnly = true
+				}
+				input.ExtraOptions = append(input.ExtraOptions, trimmed)
 			case "proxycommand":
 				if idx := strings.IndexFunc(trimmed, func(r rune) bool { return r == ' ' || r == '\t' }); idx >= 0 {
 					input.ProxyCommand = strings.TrimSpace(trimmed[idx+1:])

@@ -101,11 +101,21 @@ type BoxIntegration struct {
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 }
 
+type UpstashIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
 type Integrations struct {
-	GCP   *GCPIntegration   `json:"gcp,omitempty"`
-	AWS   *AWSIntegration   `json:"aws,omitempty"`
-	Azure *AzureIntegration `json:"azure,omitempty"`
-	Box   *BoxIntegration   `json:"box,omitempty"`
+	GCP     *GCPIntegration     `json:"gcp,omitempty"`
+	AWS     *AWSIntegration     `json:"aws,omitempty"`
+	Azure   *AzureIntegration   `json:"azure,omitempty"`
+	Box     *BoxIntegration     `json:"box,omitempty"`
+	Upstash *UpstashIntegration `json:"upstash,omitempty"`
 }
 
 type State struct {
@@ -586,6 +596,33 @@ func (s *Store) SetBox(box BoxIntegration) error {
 	return nil
 }
 
+func (s *Store) Upstash() UpstashIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Upstash == nil {
+		return UpstashIntegration{}
+	}
+	return cloneUpstash(*s.state.Integrations.Upstash)
+}
+
+func (s *Store) SetUpstash(upstash UpstashIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Upstash
+	if !upstash.Enabled && !upstash.AutoSync && !upstash.Disabled && upstash.LastSyncAt == nil &&
+		upstash.LastSyncError == "" && upstash.LastInstanceCount == 0 {
+		s.state.Integrations.Upstash = nil
+	} else {
+		copy := cloneUpstash(upstash)
+		s.state.Integrations.Upstash = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Upstash = previous
+		return err
+	}
+	return nil
+}
+
 func cloneHost(host Host) Host {
 	host.Tags = append([]string(nil), host.Tags...)
 	if host.LastUsedAt != nil {
@@ -663,6 +700,14 @@ func cloneBox(box BoxIntegration) BoxIntegration {
 	return box
 }
 
+func cloneUpstash(upstash UpstashIntegration) UpstashIntegration {
+	if upstash.LastSyncAt != nil {
+		lastSyncAt := *upstash.LastSyncAt
+		upstash.LastSyncAt = &lastSyncAt
+	}
+	return upstash
+}
+
 func cloneIntegrations(integrations Integrations) Integrations {
 	out := Integrations{}
 	if integrations.GCP != nil {
@@ -680,6 +725,10 @@ func cloneIntegrations(integrations Integrations) Integrations {
 	if integrations.Box != nil {
 		box := cloneBox(*integrations.Box)
 		out.Box = &box
+	}
+	if integrations.Upstash != nil {
+		upstash := cloneUpstash(*integrations.Upstash)
+		out.Upstash = &upstash
 	}
 	return out
 }

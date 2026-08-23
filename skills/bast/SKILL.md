@@ -17,8 +17,9 @@ Docs: https://bast.sh/llms.txt
 - User wants to browse, search, or organize SSH hosts from the terminal
 - User needs to generate, import, export, or install SSH keys
 - User wants quick connect: `bast <label>` or `bast "Production web"`
-- User wants to import cloud VMs (`bast sync gcp|aws|azure|box`) and connect with local keys
+- User wants to import cloud VMs (`bast sync gcp|aws|azure|box|upstash`) and connect with local keys
 - User already has the ASCII Box CLI installed and logged in (Bast auto-connects Box)
+- User has an Upstash Box API key (Bast stores it locally and uses it for API + SSH)
 - User SSHs from a phone or narrow terminal: the TUI switches to a stacked mobile layout below 60 columns (tap Connect)
 - Automation/scripts need host or key management with stable JSON output
 
@@ -104,14 +105,16 @@ bast sync gcp
 bast sync aws
 bast sync azure
 bast sync box
+bast sync upstash
 bast sync status
 bast sync disable gcp
 bast sync disable box
+bast sync disable upstash
 ```
 
-Requires the matching cloud CLI on `PATH` (`gcloud`, `aws`, `az`, or `box`) and an authenticated account. Synced hosts are read-only; disconnect via Sync to remove them.
+GCP, AWS, Azure, and ASCII Box require the matching CLI on `PATH` (`gcloud`, `aws`, `az`, or `box`) and an authenticated account. Upstash Box uses a stored API key (`bast upstash key` or `UPSTASH_BOX_API_KEY`), not a CLI. Synced hosts are read-only; disconnect via Sync to remove them.
 
-If the Box CLI is already installed and logged in, Bast auto-connects on TUI start and `bast sync status` (unless you previously ran `bast sync disable box`).
+If the Box CLI is already installed and logged in, Bast auto-connects on TUI start and `bast sync status` (unless you previously ran `bast sync disable box`). The same auto-connect applies to Upstash when a key file is present (unless `bast sync disable upstash`).
 
 On GCP connect, Bast prefers a local key already authorized on the VM. If none matches, it ensures `~/.ssh/google_compute_engine`, publishes it when needed, and may wait for the guest agent.
 
@@ -126,11 +129,24 @@ bast box resume <host|id> [--type small|default|large] [--no-env]
 
 In the TUI, the Box group offers `n` to create and `s` to sync. Stopped boxes are hidden until `.`. Box hosts support Enter to connect (resume first if stopped), `r` resume, `o` stop, and `n` fork. SSH user is always `user` with `~/.ssh/ascii_box_ed25519`. Docs: https://bast.sh/docs/features/box
 
+## Upstash Box lifecycle
+
+```sh
+bast upstash key [--key-file path]
+bast upstash new [--name name] [--runtime node|python|golang|ruby|rust] [--size small|medium|large] [--keep-alive]
+bast upstash fork <host|id>
+bast upstash stop <host|id>
+bast upstash resume <host|id>
+bast upstash delete <host|id> [--yes]
+```
+
+SSH user is the box id at `us-east-1.box.upstash.com`. Bast feeds the stored API key as the SSH password. Key file: `~/.config/bast/upstash-box-api-key`. Docs: https://bast.sh/docs/features/upstash
+
 ## Files (SFTP)
 
 TUI Files tab (`5`) is a dual-pane local/remote browser over OpenSSH SFTP. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
 
-TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Box). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`.
+TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Box/Upstash). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`.
 
 ## File layout
 
@@ -141,6 +157,7 @@ TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is en
 | `~/.ssh/bast/keys/` | Generated/imported keys (private keys mode 0600) |
 | `~/.ssh/google_compute_engine` | Fallback GCP identity (created on demand) |
 | `~/.config/bast/state.json` | Metadata: groups, tags, colors, notes, favorites, usage stats, sync settings |
+| `~/.config/bast/upstash-box-api-key` | Upstash Box API key (mode 0600; not vaulted) |
 | `~/.ssh/config` | Gets `Include ~/.ssh/bast/config` on first run |
 
 Connection settings (hostname, user, port, identity files) live in SSH config. Bast metadata (groups, tags, notes) lives in `state.json`.

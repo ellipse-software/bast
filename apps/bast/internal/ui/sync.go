@@ -13,6 +13,7 @@ import (
 	"bast/internal/cloud"
 	boxcloud "bast/internal/cloud/box"
 	"bast/internal/cloud/sync"
+	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/sshconfig"
 )
 
@@ -62,7 +63,7 @@ func (m *App) syncProviders() []syncMenuItem {
 	for _, d := range cloud.Descriptors() {
 		detail := m.providerDetail(string(d.Kind))
 		text := "disabled"
-		if d.Kind == cloud.Box {
+		if d.Kind == cloud.Box || d.Kind == cloud.Upstash {
 			running, stopped := m.providerGroupStats(d.GroupRoot)
 			if !detail.enabled && running+stopped == 0 {
 				text = "disabled"
@@ -177,6 +178,24 @@ func (m *App) providerDetail(provider string) providerDetail {
 			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
+	case "upstash":
+		integration := m.metadata.Upstash()
+		status := m.syncStatus.Upstash
+		accountLabel, accountValue := "Account", "no API key"
+		if status.Error != "" {
+			accountLabel, accountValue = "API", status.Error
+		} else if status.Authenticated {
+			accountValue = "authenticated"
+		} else if status.HasKey || m.upstashHasKey() {
+			accountValue = "key stored"
+		} else if integration.Disabled {
+			accountValue = "disabled"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		if integration.Disabled {
+			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
 	default:
 		return providerDetail{}
 	}
@@ -193,6 +212,12 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 	caps := cloud.CapabilitiesFor(cloud.Kind(provider))
 	if caps.Create && provider == "box" && m.syncStatus.Box.Authenticated {
 		life = append(life, syncMenuItem{label: "New box", action: "box_new"})
+	}
+	if caps.Create && provider == "upstash" && m.upstashHasKey() {
+		life = append(life, syncMenuItem{label: "New box", action: "upstash_new"})
+	}
+	if provider == "upstash" {
+		life = append(life, syncMenuItem{label: "API key", action: "upstash_key"})
 	}
 	if detail.enabled {
 		config = append(config, syncMenuItem{label: "Disconnect", action: "disable"})
@@ -261,6 +286,27 @@ func (m *App) syncAzureCmd() tea.Cmd {
 		defer cancel()
 		result, err := m.syncer.SyncAzure(ctx)
 		return syncDoneMsg{provider: "azure", result: result, err: err}
+	}
+}
+
+func (m *App) syncUpstashCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncUpstash(ctx)
+		return syncDoneMsg{provider: "upstash", result: result, err: err}
+	}
+}
+
+func (m *App) autoConnectUpstashCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, ran, err := m.syncer.MaybeAutoConnectUpstash(ctx)
+		if !ran {
+			return syncDoneMsg{provider: "upstash", result: result, err: nil, skipped: true}
+		}
+		return syncDoneMsg{provider: "upstash", result: result, err: err}
 	}
 }
 
@@ -348,6 +394,17 @@ func (m *App) disableAzureCmd() tea.Cmd {
 	}
 }
 
+func (m *App) disableUpstashCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableUpstash(ctx); err != nil {
+			return syncDoneMsg{provider: "upstash", err: err}
+		}
+		return syncDoneMsg{provider: "upstash", result: sync.Result{Provider: "upstash", SyncedAt: time.Now().UTC(), Error: "disabled"}}
+	}
+}
+
 func (m *App) disableBoxCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -424,7 +481,11 @@ func (m *App) renderSyncTile(s styleSet, index int, item syncMenuItem, width int
 	detail := s.muted.Render(detailText)
 	border := s.muted
 	if index == m.syncCursor {
-		border = s.active
+		if color, ok := providerBrandColor(cloud.Kind(item.provider)); ok {
+			border = lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+		} else {
+			border = s.active
+		}
 	}
 	top := border.Render("┌" + strings.Repeat("─", inner) + "┐")
 	bot := border.Render("└" + strings.Repeat("─", inner) + "┘")
@@ -661,8 +722,12 @@ func (m *App) renderProviderIdentity(s styleSet, provider string) string {
 		stateStyle = s.success
 	}
 	facts := make([]string, 0, 4)
-	if kind == cloud.Box {
-		running, stopped := m.providerGroupStats("Box")
+	if kind == cloud.Box || kind == cloud.Upstash {
+		group := "Box"
+		if d, ok := cloud.DescriptorForKind(kind); ok {
+			group = d.GroupRoot
+		}
+		running, stopped := m.providerGroupStats(group)
 		facts = append(facts, fmt.Sprintf("%d running", running))
 		if stopped > 0 {
 			facts = append(facts, fmt.Sprintf("%d stopped", stopped))
@@ -683,7 +748,7 @@ func (m *App) renderProviderIdentity(s styleSet, provider string) string {
 	var errBit string
 	for _, row := range detail.status {
 		switch row.label {
-		case "gcloud", "aws", "az", "box":
+		case "gcloud", "aws", "az", "box", "API":
 			errBit = row.value
 		default:
 			if row.value != "" && row.value != "none" && row.value != "not logged in" {
@@ -1174,6 +1239,24 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Batch(m.syncBoxCmd(), m.setNotice("Syncing Box…"))
+		case "upstash":
+			if action == "enable" && !m.upstashHasKey() {
+				delete(m.syncingProviders, "upstash")
+				m.openUpstashKeyForm()
+				return m, nil
+			}
+			upstash := m.metadata.Upstash()
+			upstash.Disabled = false
+			upstash.Enabled = true
+			if action == "enable" {
+				upstash.AutoSync = true
+			}
+			if err := m.metadata.SetUpstash(upstash); err != nil {
+				delete(m.syncingProviders, "upstash")
+				m.setError(err)
+				return m, nil
+			}
+			return m, tea.Batch(m.syncUpstashCmd(), m.setNotice("Syncing Upstash…"))
 		}
 		return m, tea.Batch(m.syncGCPCmd(), m.setNotice("Syncing GCP…"))
 	case "disable":
@@ -1187,9 +1270,18 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "box" {
 			return m, m.disableBoxCmd()
 		}
+		if m.syncProvider == "upstash" {
+			return m, m.disableUpstashCmd()
+		}
 		return m, m.disableGCPCmd()
 	case "box_new":
 		m.openBoxNewForm()
+		return m, nil
+	case "upstash_new":
+		m.openUpstashNewForm()
+		return m, nil
+	case "upstash_key":
+		m.openUpstashKeyForm()
 		return m, nil
 	case "auto_on":
 		if m.syncProvider == "aws" {
@@ -1215,6 +1307,16 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			box.AutoSync = true
 			box.Disabled = false
 			if err := m.metadata.SetBox(box); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "upstash" {
+			upstash := m.metadata.Upstash()
+			upstash.AutoSync = true
+			upstash.Disabled = false
+			if err := m.metadata.SetUpstash(upstash); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1255,6 +1357,15 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync disabled")
 		}
+		if m.syncProvider == "upstash" {
+			upstash := m.metadata.Upstash()
+			upstash.AutoSync = false
+			if err := m.metadata.SetUpstash(upstash); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
 		gcp := m.metadata.GCP()
 		gcp.AutoSync = false
 		if err := m.metadata.SetGCP(gcp); err != nil {
@@ -1277,6 +1388,9 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		}
 		if m.syncProvider == "box" {
 			return m, m.setNotice("Box SSH user is always user")
+		}
+		if m.syncProvider == "upstash" {
+			return m, m.setNotice("Upstash SSH user is the box id")
 		}
 		m.openForm("Default GCP SSH user", "sync_gcp_user", []field{
 			{label: "SSH user", description: "Blank uses OS Login or instance metadata when available", value: m.metadata.GCP().DefaultSSHUser, optional: true, placeholder: "ubuntu"},
@@ -1513,6 +1627,118 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			}
 			return syncDoneMsg{provider: "box", result: result, focusAlias: alias}
 		})
+	case "upstash_key":
+		key := strings.TrimSpace(values["API key"])
+		if key == "" {
+			if m.form != nil {
+				m.form.validationError = "API key is required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders == nil {
+			m.syncingProviders = map[string]bool{}
+		}
+		m.syncingProviders["upstash"] = true
+		m.beginSyncBusy("Connecting Upstash…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.SaveUpstashKey(ctx, key)
+			return syncDoneMsg{provider: "upstash", result: result, err: err}
+		}
+	case "upstash_new":
+		runtime := strings.ToLower(strings.TrimSpace(values["Runtime"]))
+		if runtime == "" {
+			runtime = "node"
+		}
+		size := strings.ToLower(strings.TrimSpace(values["Size"]))
+		if size == "" {
+			size = "small"
+		}
+		m.form = nil
+		if m.syncingProviders == nil {
+			m.syncingProviders = map[string]bool{}
+		}
+		m.syncingProviders["upstash"] = true
+		if m.section == syncSection {
+			m.beginSyncBusy("Creating Upstash box…")
+		} else {
+			m.syncActivity = "creating…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.NewUpstash(ctx, upstashcloud.CreateOpts{
+				Name: values["Name"], Runtime: runtime, Size: size, KeepAlive: truthyForm(values["Keep alive"]),
+			})
+			if err != nil {
+				return syncDoneMsg{provider: "upstash", result: result, err: err}
+			}
+			return syncDoneMsg{provider: "upstash", result: result, err: nil, focusAlias: alias}
+		}
+	case "upstash_stop":
+		if strings.TrimSpace(values["Type pause to confirm"]) != "pause" {
+			if m.form != nil {
+				m.form.validationError = "type pause to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders == nil {
+			m.syncingProviders = map[string]bool{}
+		}
+		m.syncingProviders["upstash"] = true
+		m.syncActivity = "pausing…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopUpstash(ctx, syncID)
+			return syncDoneMsg{provider: "upstash", result: result, err: err}
+		}
+	case "upstash_fork":
+		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
+			if m.form != nil {
+				m.form.validationError = "type fork to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders == nil {
+			m.syncingProviders = map[string]bool{}
+		}
+		m.syncingProviders["upstash"] = true
+		return tea.Batch(m.setNotice("Forking Upstash box…"), func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.ForkUpstash(ctx, syncID)
+			if err != nil {
+				return syncDoneMsg{provider: "upstash", result: result, err: err}
+			}
+			return syncDoneMsg{provider: "upstash", result: result, focusAlias: alias}
+		})
+	case "upstash_delete":
+		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
+			if m.form != nil {
+				m.form.validationError = "type delete to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders == nil {
+			m.syncingProviders = map[string]bool{}
+		}
+		m.syncingProviders["upstash"] = true
+		m.syncActivity = "deleting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteUpstash(ctx, syncID)
+			return syncDoneMsg{provider: "upstash", result: result, err: err}
+		}
 	}
 	return nil
 }

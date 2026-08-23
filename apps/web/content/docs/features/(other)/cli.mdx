@@ -61,12 +61,23 @@ bast sync gcp
 bast sync aws
 bast sync azure
 bast sync box
+bast sync upstash
 bast sync status
 bast sync disable gcp
 bast sync disable box
+bast sync disable upstash
 ```
 
-Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), or [box.ascii.dev](/docs/features/box) for provider setup.
+Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [box.ascii.dev](/docs/features/box), or [Upstash Box](/docs/features/upstash) for provider setup.
+
+```bash
+bast upstash new [--name name] [--runtime node] [--size small] [--keep-alive]
+bast upstash fork <host|id>
+bast upstash stop <host|id>
+bast upstash resume <host|id>
+bast upstash delete <host|id> [--yes]
+bast upstash key [--key-file path]
+```
 
 ## JSON mode
 

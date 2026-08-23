@@ -107,3 +107,30 @@ func TestBoxIntegrationRoundTrip(t *testing.T) {
 		t.Fatalf("disabled box = %+v", reopened.Box())
 	}
 }
+
+func TestUpstashIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetUpstash(UpstashIntegration{
+		Enabled: true, AutoSync: true, LastInstanceCount: 3,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reopened.Upstash()
+	if !got.Enabled || !got.AutoSync || got.LastInstanceCount != 3 {
+		t.Fatalf("upstash = %+v", got)
+	}
+	if err := reopened.SetUpstash(UpstashIntegration{Disabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !reopened.Upstash().Disabled || reopened.Upstash().Enabled {
+		t.Fatalf("disabled upstash = %+v", reopened.Upstash())
+	}
+}

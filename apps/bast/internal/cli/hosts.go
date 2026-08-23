@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"bast/internal/cloud/sync"
+	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/connectbanner"
 	"bast/internal/metadata"
 	"bast/internal/sshconfig"
@@ -743,6 +744,16 @@ func (r *Runner) connect(args []string) error {
 			return fail("box_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "upstash" && host.SyncID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if err := engine.EnsureUpstashAccess(ctx, sshconfig.Host{
+			Alias: host.Alias, Synced: host.Synced, SyncSource: host.SyncSource, SyncID: host.SyncID,
+		}, connectbanner.Status(r.Out)); err != nil {
+			return fail("upstash_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
 	}
 	if err := r.store.RecordUse(host.Alias); err != nil {
 		return err
@@ -750,6 +761,9 @@ func (r *Runner) connect(args []string) error {
 	cmd, err := r.OpenSSH.SSHCommand(host.Alias)
 	if err != nil {
 		return err
+	}
+	if host.Synced && host.SyncSource == "upstash" {
+		upstashcloud.PrepareSSH(cmd, "")
 	}
 	telemetry.Track("connect", r.Version)
 	return r.runProcess(cmd, false)

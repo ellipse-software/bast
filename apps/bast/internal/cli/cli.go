@@ -38,6 +38,7 @@ Usage:
   bast keys <command>          Manage SSH keys
   bast sync <command>          Sync cloud VMs into Bast
   bast box <command>           Create and manage ASCII Box sandboxes
+  bast upstash <command>       Create and manage Upstash Box sandboxes
   bast vault <command>         Sync Bast-managed config via encrypted vault
 
 Host commands:
@@ -49,10 +50,13 @@ Key commands:
   public, copy, delete
 
 Sync commands:
-  gcp, aws, azure, box, status, disable
+  gcp, aws, azure, box, upstash, status, disable
 
 Box commands:
   new, fork, stop, resume
+
+Upstash commands:
+  new, fork, stop, resume, delete, key
 
 Vault commands:
   login, status, push, pull, logout, passphrase
@@ -62,7 +66,7 @@ Global options:
   --no-input                  Never prompt for missing input
 
 Run "bast hosts <command> --help", "bast keys <command> --help", "bast sync <command> --help",
-"bast box <command> --help", or "bast vault <command> --help" for details.
+"bast box <command> --help", "bast upstash <command> --help", or "bast vault <command> --help" for details.
 `
 
 func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
@@ -108,7 +112,7 @@ func fail(code, message string) error { return &commandError{code: code, message
 func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writer) (*Runner, error) {
 	return &Runner{
 		Paths: p, OpenSSH: client, Version: "dev", In: in, Out: out, Err: errOut,
-		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig},
+		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig},
 		keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
 		reader:  bufio.NewReader(in),
 	}, nil
@@ -116,7 +120,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "connect", "hosts", "keys", "sync", "box", "vault":
+	case "tui", "update", "connect", "hosts", "keys", "sync", "box", "upstash", "vault":
 		return true
 	}
 	return false
@@ -170,6 +174,8 @@ func (r *Runner) Run(args []string) error {
 				err = r.sync(args[1:])
 			case "box":
 				err = r.boxCmd(args[1:])
+			case "upstash":
+				err = r.upstashCmd(args[1:])
 			case "vault":
 				err = r.vault(args[1:])
 			default:
@@ -253,14 +259,22 @@ Commands: list, show, generate, import, promote, comment, export, install,
 		"sync aws":         "Usage: bast sync aws",
 		"sync azure":       "Usage: bast sync azure",
 		"sync box":         "Usage: bast sync box",
+		"sync upstash":     "Usage: bast sync upstash",
 		"sync status":      "Usage: bast sync status",
-		"sync disable":     "Usage: bast sync disable <gcp|aws|azure|box>",
-		"sync --help":      "Usage: bast sync <gcp|aws|azure|box|status|disable>",
+		"sync disable":     "Usage: bast sync disable <gcp|aws|azure|box|upstash>",
+		"sync --help":      "Usage: bast sync <gcp|aws|azure|box|upstash|status|disable>",
 		"box --help":       "Usage: bast box <new|fork|stop|resume>",
 		"box new":          "Usage: bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
 		"box fork":         "Usage: bast box fork <host|id> [--type small|default|large] [--no-env]",
 		"box stop":         "Usage: bast box stop <host|id>",
 		"box resume":       "Usage: bast box resume <host|id> [--type small|default|large] [--no-env]",
+		"upstash --help":   "Usage: bast upstash <new|fork|stop|resume|delete|key>",
+		"upstash new":      "Usage: bast upstash new [--name name] [--runtime node|python|golang|ruby|rust] [--size small|medium|large] [--keep-alive]",
+		"upstash fork":     "Usage: bast upstash fork <host|id>",
+		"upstash stop":     "Usage: bast upstash stop <host|id>",
+		"upstash resume":   "Usage: bast upstash resume <host|id>",
+		"upstash delete":   "Usage: bast upstash delete <host|id> [--yes]",
+		"upstash key":      "Usage: bast upstash key [--key-file path]",
 		"vault --help":     "Usage: bast vault <login|status|push|pull|logout|passphrase>",
 		"vault login":      "Usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]",
 		"vault status":     "Usage: bast vault status",

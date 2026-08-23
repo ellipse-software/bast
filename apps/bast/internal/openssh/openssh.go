@@ -118,9 +118,25 @@ func (c Client) SFTPCommand(alias string) (*exec.Cmd, error) {
 	if err := validateAlias(alias); err != nil {
 		return nil, err
 	}
-	// -s treats the remote command as a subsystem name (sftp). BatchMode avoids
-	// passphrase/host-key prompts that cannot interrupt the Bast TUI.
-	cmd := exec.Command(c.SSH, "-o", "BatchMode=yes", "-s", "--", alias, "sftp")
+	return c.sftpCommand(alias, true)
+}
+
+// SFTPCommandInteractive starts SFTP without BatchMode so password askpass can run.
+func (c Client) SFTPCommandInteractive(alias string) (*exec.Cmd, error) {
+	if err := validateAlias(alias); err != nil {
+		return nil, err
+	}
+	return c.sftpCommand(alias, false)
+}
+
+func (c Client) sftpCommand(alias string, batch bool) (*exec.Cmd, error) {
+	args := make([]string, 0, 8)
+	if batch {
+		// BatchMode avoids passphrase/host-key prompts that cannot interrupt the Bast TUI.
+		args = append(args, "-o", "BatchMode=yes")
+	}
+	args = append(args, "-s", "--", alias, "sftp")
+	cmd := exec.Command(c.SSH, args...)
 	return cmd, nil
 }
 
