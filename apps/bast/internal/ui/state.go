@@ -12,6 +12,7 @@ import (
 	boxcloud "bast/internal/cloud/box"
 	cloudsync "bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
+	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/platform"
@@ -905,6 +906,9 @@ func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
 	}
 	if kind == cloud.Upstash {
 		return upstashcloud.HostLooksStopped(meta.Tags)
+	}
+	if kind == cloud.Vercel {
+		return vercelcloud.HostLooksStopped(meta.Tags)
 	}
 	return false
 }

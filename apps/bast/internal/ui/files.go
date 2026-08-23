@@ -155,6 +155,9 @@ func (m *App) enterFilesSection() tea.Cmd {
 }
 
 func (m *App) openFilesForHost(host sshconfig.Host) tea.Cmd {
+	if host.Synced && host.SyncSource == "vercel" {
+		return m.setNotice("Vercel Sandboxes are not OpenSSH; SFTP is unavailable")
+	}
 	m.initFilesState()
 	m.section = filesSection
 	m.search = ""

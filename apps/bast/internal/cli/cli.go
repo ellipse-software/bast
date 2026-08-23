@@ -42,6 +42,7 @@ Usage:
   bast sync <command>          Sync cloud VMs into Bast
   bast box <command>           Create and manage ASCII Box sandboxes
   bast upstash <command>       Create and manage Upstash Box sandboxes
+  bast vercel <command>        Create and manage Vercel Sandboxes
   bast vault <command>         Sync Bast-managed config via encrypted vault
   bast completion <shell>      Print a shell completion script
 
@@ -54,13 +55,16 @@ Key commands:
   public, copy, delete
 
 Sync commands:
-  gcp, aws, azure, box, upstash, status, disable
+  gcp, aws, azure, box, upstash, vercel, status, disable
 
 Box commands:
   new, fork, stop, resume
 
 Upstash commands:
   new, fork, stop, resume, delete, key
+
+Vercel commands:
+  new, fork, stop, resume, delete, token
 
 Vault commands:
   login, status, push, pull, logout, passphrase
@@ -71,7 +75,7 @@ Global options:
 
 Run "bast doctor --help", "bast hosts <command> --help", "bast keys <command> --help",
 "bast sync <command> --help", "bast box <command> --help", "bast upstash <command> --help",
-"bast vault <command> --help", or "bast completion --help" for details.
+"bast vercel <command> --help", "bast vault <command> --help", or "bast completion --help" for details.
 `
 
 func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
@@ -121,7 +125,7 @@ func fail(code, message string) error { return &commandError{code: code, message
 func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writer) (*Runner, error) {
 	return &Runner{
 		Paths: p, OpenSSH: client, Version: "dev", In: in, Out: out, Err: errOut,
-		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig},
+		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig},
 		keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
 		reader:  bufio.NewReader(in),
 	}, nil
@@ -129,7 +133,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "doctor", "connect", "hosts", "keys", "sync", "box", "upstash", "vault", "completion", "__complete":
+	case "tui", "update", "doctor", "connect", "hosts", "keys", "sync", "box", "upstash", "vercel", "vault", "completion", "__complete":
 		return true
 	}
 	return false
@@ -193,6 +197,8 @@ func (r *Runner) Run(args []string) error {
 				err = r.boxCmd(args[1:])
 			case "upstash":
 				err = r.upstashCmd(args[1:])
+			case "vercel":
+				err = r.vercelCmd(args[1:])
 			case "vault":
 				err = r.vault(args[1:])
 			default:
@@ -286,9 +292,10 @@ Commands: list, show, generate, import, promote, comment, export, install,
 		"sync azure":        "Usage: bast sync azure",
 		"sync box":          "Usage: bast sync box",
 		"sync upstash":      "Usage: bast sync upstash",
+		"sync vercel":       "Usage: bast sync vercel",
 		"sync status":       "Usage: bast sync status",
-		"sync disable":      "Usage: bast sync disable <gcp|aws|azure|box|upstash>",
-		"sync --help":       "Usage: bast sync <gcp|aws|azure|box|upstash|status|disable>",
+		"sync disable":      "Usage: bast sync disable <gcp|aws|azure|box|upstash|vercel>",
+		"sync --help":       "Usage: bast sync <gcp|aws|azure|box|upstash|vercel|status|disable>",
 		"box --help":        "Usage: bast box <new|fork|stop|resume>",
 		"box new":           "Usage: bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
 		"box fork":          "Usage: bast box fork <host|id> [--type small|default|large] [--no-env]",
@@ -301,6 +308,13 @@ Commands: list, show, generate, import, promote, comment, export, install,
 		"upstash resume":    "Usage: bast upstash resume <host|id>",
 		"upstash delete":    "Usage: bast upstash delete <host|id> [--yes]",
 		"upstash key":       "Usage: bast upstash key [--key-file path]",
+		"vercel --help":     "Usage: bast vercel <new|fork|stop|resume|delete|token>",
+		"vercel new":        "Usage: bast vercel new [--name name] [--vcpus 1|2|4] [--timeout 15m|1h|5h] [--ephemeral]",
+		"vercel fork":       "Usage: bast vercel fork <host|id> [--name name]",
+		"vercel stop":       "Usage: bast vercel stop <host|id>",
+		"vercel resume":     "Usage: bast vercel resume <host|id>",
+		"vercel delete":     "Usage: bast vercel delete <host|id> [--yes]",
+		"vercel token":      "Usage: bast vercel token [--token-file path] [--team team_id] [--project project_id]",
 		"vault --help":      "Usage: bast vault <login|status|push|pull|logout|passphrase>",
 		"vault login":       "Usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]",
 		"vault status":      "Usage: bast vault status",

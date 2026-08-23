@@ -419,12 +419,20 @@ func (m *App) prepareSSH(cmd *exec.Cmd, host sshconfig.Host) {
 }
 
 func (m *App) startSSH(host sshconfig.Host, prepare func(func(string)) error) (tea.Model, tea.Cmd) {
-	cmd, err := m.openSSH.SSHCommand(host.Alias)
+	var cmd *exec.Cmd
+	var err error
+	if host.Synced && host.SyncSource == "vercel" {
+		cmd, err = m.vercelShellCmd(host)
+	} else {
+		cmd, err = m.openSSH.SSHCommand(host.Alias)
+		if err == nil {
+			m.prepareSSH(cmd, host)
+		}
+	}
 	if err != nil {
 		m.setError(err)
 		return m, nil
 	}
-	m.prepareSSH(cmd, host)
 	if prepare == nil {
 		if err := m.metadata.RecordUse(host.Alias); err != nil {
 			m.setError(err)

@@ -134,3 +134,30 @@ func TestUpstashIntegrationRoundTrip(t *testing.T) {
 		t.Fatalf("disabled upstash = %+v", reopened.Upstash())
 	}
 }
+
+func TestVercelIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetVercel(VercelIntegration{
+		Enabled: true, AutoSync: true, TeamID: "team_1", ProjectID: "prj_1", LastInstanceCount: 4,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reopened.Vercel()
+	if !got.Enabled || !got.AutoSync || got.TeamID != "team_1" || got.ProjectID != "prj_1" || got.LastInstanceCount != 4 {
+		t.Fatalf("vercel = %+v", got)
+	}
+	if err := reopened.SetVercel(VercelIntegration{Disabled: true, TeamID: "team_1", ProjectID: "prj_1"}); err != nil {
+		t.Fatal(err)
+	}
+	if !reopened.Vercel().Disabled || reopened.Vercel().Enabled {
+		t.Fatalf("disabled vercel = %+v", reopened.Vercel())
+	}
+}

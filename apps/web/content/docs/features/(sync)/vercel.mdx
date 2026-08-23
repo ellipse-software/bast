@@ -1,0 +1,105 @@
+---
+title: Vercel Sandbox
+description: Import Vercel Sandboxes into Bast and manage create, stop, resume, fork, and delete through the REST API.
+---
+
+The **Sync** tab (`4`) imports [Vercel Sandboxes](https://vercel.com/docs/sandbox) into Bast. Synced sandboxes show up in the host picker under **Vercel**. Bast talks to Vercel over the Sandbox REST API. There is no extra CLI to install for create, stop, resume, fork, or delete.
+
+Connect is **not** OpenSSH. Vercel Sandboxes expose a WebSocket PTY, not an SSH daemon. Enter in Bast (or `bast connect`) opens that shell. `ssh vercel_foo` and SFTP will not work.
+
+## Requirements
+
+- A Vercel [access token](https://vercel.com/account/settings/tokens)
+- The team ID (`team_…`)
+- The project ID or name (`prj_…`)
+- Network access to `https://api.vercel.com`
+
+Hobby sandboxes time out after 45 minutes. Pro/Enterprise can run up to 5 hours while connected.
+
+## Connect Vercel
+
+1. Open Bast and press `4` for Sync.
+2. Select **Vercel Sandbox** and press Enter.
+3. Choose **Connect**. Paste the token, team ID, and project ID.
+
+Bast writes the token to `~/.config/bast/vercel-token` (mode `0600`). Team and project stay in `state.json`. The token is not stored in SSH config or Vault. Disconnect leaves the token file in place.
+
+You can also set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID`. The first successful sync copies the token into the local file.
+
+CLI:
+
+```bash
+bast vercel token --team team_xxx --project prj_xxx
+bast vercel token --token-file path --team team_xxx --project prj_xxx
+bast sync vercel
+bast sync status
+bast sync disable vercel
+```
+
+If a token, team, and project are already stored, Bast **auto-connects** on TUI start and `bast sync status`, unless you previously chose **Disconnect**.
+
+## What gets created
+
+Each sandbox becomes a picker host under:
+
+```
+~/.ssh/bast/sync/vercel/config
+```
+
+```
+Host vercel_dev
+    HostName vercel.sandbox.invalid
+```
+
+That hostname is a sentinel so the host appears in Bast. It is not a reachable SSH target. Connection settings, group, and label are owned by sync.
+
+Stopped sandboxes stay in the **Vercel** group and are hidden from the host list until you press `.`.
+
+## Lifecycle
+
+| Action | What Vercel does |
+| --- | --- |
+| New | `POST /v2/sandboxes` with runtime `node24`, vCPUs, timeout, optional name. Persistent by default |
+| Stop (`o` / `bast vercel stop`) | Stops the current session and snapshots the filesystem |
+| Resume (`r` / Enter on a stopped sandbox) | Starts a new session from the snapshot, then opens the shell |
+| Fork (`n`) | Creates a new named sandbox from the current snapshot |
+| Delete (`d`) | Destroys the named sandbox. Snapshots remain on Vercel |
+
+Create options: vCPUs `1` / `2` / `4` (2 GB RAM each), timeout `15m` / `1h` / `5h`, optional name, persistent (default on).
+
+## Host keys (Hosts tab)
+
+With the **Vercel** group selected:
+
+| Key | Action |
+| --- | --- |
+| `n` | Create a new sandbox |
+| `s` | Sync now |
+| `.` | Show stopped sandboxes |
+
+With a Vercel host selected:
+
+| Key | Action |
+| --- | --- |
+| Enter | Connect (resume first if stopped) |
+| `r` | Resume only (when stopped) |
+| `o` | Stop (when running; confirms with `stop`) |
+| `n` | Fork (confirms with `fork`) |
+| `d` | Delete the remote sandbox (confirms with `delete`) |
+
+Files (`F`) is unavailable. Vercel Sandboxes are not OpenSSH, so SFTP does not apply.
+
+## CLI
+
+```bash
+bast vercel new [--name name] [--vcpus 1|2|4] [--timeout 15m|1h|5h] [--ephemeral]
+bast vercel fork <host|id> [--name name]
+bast vercel stop <host|id>
+bast vercel resume <host|id>
+bast vercel delete <host|id> [--yes]
+bast connect vercel_dev
+```
+
+## Re-sync and cleanup
+
+Press `r` on the Sync tab (or `bast sync vercel`) after you create, stop, or delete sandboxes outside Bast. Disconnecting Vercel removes the generated sync config. The token file stays until you delete `~/.config/bast/vercel-token`.

@@ -6,6 +6,7 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- Vercel Sandbox sync and lifecycle: create, stop, resume, fork, and delete through the REST API. Connect uses a WebSocket PTY (`bast connect`), not OpenSSH. The access token is stored in `~/.config/bast/vercel-token`.
 - Host passwords can be stored in Bast and entered on connect. Authentication leads with a key/password picker; User sits on the host hub next to hostname.
 - Files tab preview: press `o` or Enter on a file for a floating peek at text, JSON, and PDF contents.
 - First TUI launch with no hosts shows a skippable start chooser (add, history, Vault, Sync). Machines that already have SSH hosts skip it. `BAST_NO_ONBOARDING=1` disables it. About (`v`) replays it with `o`.

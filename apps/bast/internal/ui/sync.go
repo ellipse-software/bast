@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	boxcloud "bast/internal/cloud/box"
 	"bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
+	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/sshconfig"
 )
 
@@ -63,7 +65,7 @@ func (m *App) syncProviders() []syncMenuItem {
 	for _, d := range cloud.Descriptors() {
 		detail := m.providerDetail(string(d.Kind))
 		text := "disabled"
-		if d.Kind == cloud.Box || d.Kind == cloud.Upstash {
+		if d.Kind == cloud.Box || d.Kind == cloud.Upstash || d.Kind == cloud.Vercel {
 			running, stopped := m.providerGroupStats(d.GroupRoot)
 			if !detail.enabled && running+stopped == 0 {
 				text = "disabled"
@@ -178,6 +180,30 @@ func (m *App) providerDetail(provider string) providerDetail {
 			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
+	case "vercel":
+		integration := m.metadata.Vercel()
+		status := m.syncStatus.Vercel
+		accountLabel, accountValue := "Account", "no access token"
+		if status.Error != "" {
+			accountLabel, accountValue = "API", status.Error
+		} else if status.Authenticated {
+			accountValue = "authenticated"
+		} else if status.HasToken || m.vercelHasToken() {
+			accountValue = "token stored"
+		} else if integration.Disabled {
+			accountValue = "disabled"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		if integration.TeamID != "" {
+			statusRows = append(statusRows, providerRow{"Team", integration.TeamID})
+		}
+		if integration.ProjectID != "" {
+			statusRows = append(statusRows, providerRow{"Project", integration.ProjectID})
+		}
+		if integration.Disabled {
+			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
 	case "upstash":
 		integration := m.metadata.Upstash()
 		status := m.syncStatus.Upstash
@@ -216,8 +242,14 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 	if caps.Create && provider == "upstash" && m.upstashHasKey() {
 		life = append(life, syncMenuItem{label: "New box", action: "upstash_new"})
 	}
+	if caps.Create && provider == "vercel" && m.vercelReady() {
+		life = append(life, syncMenuItem{label: "New sandbox", action: "vercel_new"})
+	}
 	if provider == "upstash" {
 		life = append(life, syncMenuItem{label: "API key", action: "upstash_key"})
+	}
+	if provider == "vercel" {
+		life = append(life, syncMenuItem{label: "Token", action: "vercel_token"})
 	}
 	if detail.enabled {
 		config = append(config, syncMenuItem{label: "Disconnect", action: "disable"})
@@ -299,6 +331,29 @@ func (m *App) syncUpstashCmd() tea.Cmd {
 		defer cancel()
 		result, err := m.syncer.SyncUpstash(ctx)
 		return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) syncVercelCmd() tea.Cmd {
+	opGen := m.providerOpGen("vercel")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncVercel(ctx)
+		return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) autoConnectVercelCmd() tea.Cmd {
+	opGen := m.providerOpGen("vercel")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, ran, err := m.syncer.MaybeAutoConnectVercel(ctx)
+		if !ran {
+			return syncDoneMsg{provider: "vercel", result: result, err: nil, skipped: true, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
 	}
 }
 
@@ -413,6 +468,18 @@ func (m *App) disableUpstashCmd() tea.Cmd {
 			return syncDoneMsg{provider: "upstash", err: err, opGen: opGen}
 		}
 		return syncDoneMsg{provider: "upstash", result: sync.Result{Provider: "upstash", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableVercelCmd() tea.Cmd {
+	opGen := m.providerOpGen("vercel")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableVercel(ctx); err != nil {
+			return syncDoneMsg{provider: "vercel", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "vercel", result: sync.Result{Provider: "vercel", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
@@ -751,7 +818,7 @@ func (m *App) renderProviderIdentity(s styleSet, provider string) string {
 		stateStyle = s.success
 	}
 	facts := make([]string, 0, 4)
-	if kind == cloud.Box || kind == cloud.Upstash {
+	if kind == cloud.Box || kind == cloud.Upstash || kind == cloud.Vercel {
 		group := "Box"
 		if d, ok := cloud.DescriptorForKind(kind); ok {
 			group = d.GroupRoot
@@ -1040,7 +1107,7 @@ func (m *App) updateProviderKeys(key string) (tea.Model, tea.Cmd) {
 			return m.forkSyncedHost(host)
 		}
 		for _, item := range life {
-			if item.action == "box_new" || item.action == "upstash_new" {
+			if item.action == "box_new" || item.action == "upstash_new" || item.action == "vercel_new" {
 				return m.runSyncAction(item.action)
 			}
 		}
@@ -1284,6 +1351,24 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Batch(m.syncBoxCmd(), m.setNotice("Syncing Box…"))
+		case "vercel":
+			if action == "enable" && !m.vercelReady() {
+				delete(m.syncingProviders, "vercel")
+				m.openVercelTokenForm()
+				return m, nil
+			}
+			vercel := m.metadata.Vercel()
+			vercel.Disabled = false
+			vercel.Enabled = true
+			if action == "enable" {
+				vercel.AutoSync = true
+			}
+			if err := m.metadata.SetVercel(vercel); err != nil {
+				delete(m.syncingProviders, "vercel")
+				m.setError(err)
+				return m, nil
+			}
+			return m, tea.Batch(m.syncVercelCmd(), m.setNotice("Syncing Vercel…"))
 		case "upstash":
 			if action == "enable" && !m.upstashHasKey() {
 				delete(m.syncingProviders, "upstash")
@@ -1318,12 +1403,21 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "upstash" {
 			return m, m.disableUpstashCmd()
 		}
+		if m.syncProvider == "vercel" {
+			return m, m.disableVercelCmd()
+		}
 		return m, m.disableGCPCmd()
 	case "box_new":
 		m.openBoxNewForm()
 		return m, nil
 	case "upstash_new":
 		m.openUpstashNewForm()
+		return m, nil
+	case "vercel_new":
+		m.openVercelNewForm()
+		return m, nil
+	case "vercel_token":
+		m.openVercelTokenForm()
 		return m, nil
 	case "upstash_key":
 		m.openUpstashKeyForm()
@@ -1362,6 +1456,16 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			upstash.AutoSync = true
 			upstash.Disabled = false
 			if err := m.metadata.SetUpstash(upstash); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "vercel" {
+			vercel := m.metadata.Vercel()
+			vercel.AutoSync = true
+			vercel.Disabled = false
+			if err := m.metadata.SetVercel(vercel); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1406,6 +1510,15 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			upstash := m.metadata.Upstash()
 			upstash.AutoSync = false
 			if err := m.metadata.SetUpstash(upstash); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
+		if m.syncProvider == "vercel" {
+			vercel := m.metadata.Vercel()
+			vercel.AutoSync = false
+			if err := m.metadata.SetVercel(vercel); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1783,6 +1896,120 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			defer cancel()
 			result, err := m.syncer.DeleteUpstash(ctx, syncID)
 			return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
+		}
+	case "vercel_token":
+		token := strings.TrimSpace(values["Access token"])
+		teamID := strings.TrimSpace(values["Team ID"])
+		projectID := strings.TrimSpace(values["Project ID"])
+		if token == "" || teamID == "" || projectID == "" {
+			if m.form != nil {
+				m.form.validationError = "token, team, and project are required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		m.beginSyncBusy("Connecting Vercel…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.SaveVercelToken(ctx, token, teamID, projectID)
+			return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+		}
+	case "vercel_new":
+		vcpus, _ := strconv.Atoi(strings.TrimSpace(values["vCPUs"]))
+		if err := vercelcloud.ValidateVCPUs(vcpus); err != nil {
+			vcpus = 2
+		}
+		timeout, err := vercelcloud.ParseTimeoutFlag(values["Timeout"])
+		if err != nil {
+			timeout = time.Hour
+		}
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		if m.section == syncSection {
+			m.beginSyncBusy("Creating Vercel sandbox…")
+		} else {
+			m.syncActivity = "creating…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.NewVercel(ctx, vercelcloud.CreateOpts{
+				Name: values["Name"], VCPUs: vcpus, Timeout: timeout, Persistent: truthyForm(values["Persistent"]),
+			})
+			if err != nil {
+				return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "vercel", result: result, err: nil, focusAlias: alias, opGen: opGen}
+		}
+	case "vercel_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		m.syncActivity = "stopping…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopVercel(ctx, syncID)
+			return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+		}
+	case "vercel_fork":
+		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
+			if m.form != nil {
+				m.form.validationError = "type fork to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		return tea.Batch(m.setNotice("Forking Vercel sandbox…"), func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.ForkVercel(ctx, syncID, "")
+			if err != nil {
+				return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "vercel", result: result, focusAlias: alias, opGen: opGen}
+		})
+	case "vercel_delete":
+		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
+			if m.form != nil {
+				m.form.validationError = "type delete to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		m.syncActivity = "deleting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteVercel(ctx, syncID)
+			return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
 		}
 	}
 	return nil

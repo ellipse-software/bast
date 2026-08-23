@@ -75,13 +75,15 @@ bast sync aws
 bast sync azure
 bast sync box
 bast sync upstash
+bast sync vercel
 bast sync status
 bast sync disable gcp
 bast sync disable box
 bast sync disable upstash
+bast sync disable vercel
 ```
 
-Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [box.ascii.dev](/docs/features/box), or [Upstash Box](/docs/features/upstash) for provider setup.
+Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [box.ascii.dev](/docs/features/box), [Upstash Box](/docs/features/upstash), or [Vercel Sandbox](/docs/features/vercel) for provider setup.
 
 ```bash
 bast upstash new [--name name] [--runtime node] [--size small] [--keep-alive]
@@ -90,6 +92,15 @@ bast upstash stop <host|id>
 bast upstash resume <host|id>
 bast upstash delete <host|id> [--yes]
 bast upstash key [--key-file path]
+```
+
+```bash
+bast vercel token [--token-file path] [--team team_id] [--project project_id]
+bast vercel new [--name name] [--vcpus 1|2|4] [--timeout 15m|1h|5h] [--ephemeral]
+bast vercel fork <host|id> [--name name]
+bast vercel stop <host|id>
+bast vercel resume <host|id>
+bast vercel delete <host|id> [--yes]
 ```
 
 ## JSON mode

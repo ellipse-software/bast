@@ -2051,10 +2051,10 @@ func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 		t.Fatalf("mobile grid cols = %d", m.syncGridCols())
 	}
 	body := m.renderSync(m.styles())
-	if strings.Count(body, "┌") != 5 {
+	if strings.Count(body, "┌") != 6 {
 		t.Fatalf("mobile should keep one boxed tile per provider:\n%s", body)
 	}
-	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") || !strings.Contains(body, "Upstash") {
+	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") || !strings.Contains(body, "Upstash") || !strings.Contains(body, "Vercel") {
 		t.Fatalf("mobile grid body:\n%s", body)
 	}
 }
@@ -2822,6 +2822,18 @@ func TestBoxGroupNameIsWhite(t *testing.T) {
 	}
 }
 
+func TestVercelGroupNameIsWhiteTriangle(t *testing.T) {
+	rendered := renderManagedGroupName("Vercel", lipgloss.NewStyle(), false)
+	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Vercel")
+	if rendered != provider {
+		t.Fatalf("Vercel brand colour was not applied: %q", rendered)
+	}
+	withIcon := renderManagedGroupName("Vercel", lipgloss.NewStyle(), true)
+	if !strings.Contains(withIcon, "\u25b2") {
+		t.Fatalf("Vercel triangle icon missing: %q", withIcon)
+	}
+}
+
 func TestUpstashGroupNameUsesBrandColor(t *testing.T) {
 	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	rendered := renderManagedGroupName("Upstash/dev", restStyle, false)
@@ -2901,6 +2913,11 @@ func TestSyncTileSelectedBorderUsesProviderColor(t *testing.T) {
 	upSel := m.renderSyncTile(m.styles(), 0, syncMenuItem{provider: "upstash"}, 24)
 	if !strings.Contains(upSel, "38;2;0;233;163") {
 		t.Fatalf("selected Upstash tile should use green border:\n%q", upSel)
+	}
+
+	vercelSel := m.renderSyncTile(m.styles(), 0, syncMenuItem{provider: "vercel"}, 24)
+	if !strings.Contains(vercelSel, "38;2;255;255;255") {
+		t.Fatalf("selected Vercel tile should use white border:\n%q", vercelSel)
 	}
 }
 
@@ -3315,6 +3332,61 @@ func TestUpstashDeleteUsesRemoteConfirm(t *testing.T) {
 	}
 }
 
+func TestVercelProviderLifecycleRow(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vercel"
+	m.syncCursor = 0
+	m.syncStatus.Vercel.HasToken = true
+	if err := m.metadata.SetVercel(metadata.VercelIntegration{TeamID: "team_1", ProjectID: "prj_1"}); err != nil {
+		t.Fatal(err)
+	}
+	body := m.renderSync(m.styles())
+	if !strings.Contains(body, "New sandbox") {
+		t.Fatalf("vercel page should offer New sandbox:\n%s", body)
+	}
+	if !strings.Contains(body, "Token") {
+		t.Fatalf("vercel page should offer Token:\n%s", body)
+	}
+	m.updateSyncKeys("l")
+	if m.syncCursor != 1 {
+		t.Fatalf("l should move to New sandbox, cursor=%d", m.syncCursor)
+	}
+	m.updateSyncKeys("enter")
+	if m.form == nil || m.form.action != "vercel_new" {
+		t.Fatalf("enter on New sandbox should open form, got %#v", m.form)
+	}
+}
+
+func TestVercelFilesUnavailable(t *testing.T) {
+	m := testApp(t)
+	host := sshconfig.Host{Alias: "vercel_dev", Synced: true, SyncSource: "vercel", SyncID: "prj_1/dev"}
+	cmd := m.openFilesForHost(host)
+	if m.section == filesSection {
+		t.Fatal("Vercel Files should stay on Hosts")
+	}
+	if cmd == nil {
+		t.Fatal("expected SFTP unavailable notice")
+	}
+}
+
+func TestVercelDeleteUsesRemoteConfirm(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "vercel_dev", Synced: true, SyncSource: "vercel", SyncID: "prj_1/dev",
+		Resolved: sshconfig.Resolved{HostName: "vercel.sandbox.invalid"},
+	}}
+	if err := m.metadata.SetHost("vercel_dev", metadata.Host{Label: "dev", Group: "Vercel", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.section = hostsSection
+	selectHostAlias(t, m, "vercel_dev")
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "vercel_delete" {
+		t.Fatalf("d on vercel host should confirm remote delete, got %#v", m.form)
+	}
+}
+
 func TestProviderPageJMovesToConfig(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
@@ -3513,6 +3585,37 @@ func TestProviderInventorySandboxLifecycle(t *testing.T) {
 	_, _ = m.updateKeys(press("n"))
 	if m.form == nil || m.form.action != "upstash_new" {
 		t.Fatalf("n on upstash chips should create a box, got %#v", m.form)
+	}
+
+	m.form = nil
+	m.syncingProviders = map[string]bool{}
+	m.syncActivity = ""
+	m.syncProvider = "vercel"
+	m.syncStatus.Vercel.HasToken = true
+	if err := m.metadata.SetVercel(metadata.VercelIntegration{TeamID: "team_1", ProjectID: "prj_1"}); err != nil {
+		t.Fatal(err)
+	}
+	m.hosts = []sshconfig.Host{{
+		Alias: "vercel_dev", Synced: true, SyncSource: "vercel", SyncID: "prj_1/dev",
+		Resolved: sshconfig.Resolved{HostName: "vercel.sandbox.invalid"},
+	}}
+	if err := m.metadata.SetHost("vercel_dev", metadata.Host{Label: "dev", Group: "Vercel", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	selectProviderHost(t, m, "vercel_dev")
+	_, _ = m.updateKeys(press("o"))
+	if m.form == nil || m.form.action != "vercel_stop" {
+		t.Fatalf("o on vercel inventory host should stop, got %#v", m.form)
+	}
+	m.form = nil
+	_, _ = m.updateKeys(press("n"))
+	if m.form == nil || m.form.action != "vercel_fork" {
+		t.Fatalf("n on vercel inventory host should fork, got %#v", m.form)
+	}
+	m.form = nil
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "vercel_delete" {
+		t.Fatalf("d on vercel inventory host should delete, got %#v", m.form)
 	}
 }
 

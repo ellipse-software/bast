@@ -264,6 +264,14 @@ func TestInvocationAndCommandHelp(t *testing.T) {
 	if err != nil || errOut != "" || out != "Usage: bast sync gcp\n" {
 		t.Fatalf("sync gcp help output=%q stderr=%q err=%v", out, errOut, err)
 	}
+	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "sync", "vercel", "--help")
+	if err != nil || errOut != "" || out != "Usage: bast sync vercel\n" {
+		t.Fatalf("sync vercel help output=%q stderr=%q err=%v", out, errOut, err)
+	}
+	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "vercel", "--help")
+	if err != nil || errOut != "" || !strings.Contains(out, "Usage: bast vercel") {
+		t.Fatalf("vercel help output=%q stderr=%q err=%v", out, errOut, err)
+	}
 }
 
 func TestHostAddRejectsDeepGroupPaths(t *testing.T) {

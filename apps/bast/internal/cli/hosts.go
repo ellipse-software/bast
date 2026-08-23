@@ -4,10 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	"bast/internal/cloud/sync"
+	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/connectbanner"
 	"bast/internal/hostpass"
 	"bast/internal/metadata"
@@ -815,15 +818,39 @@ func (r *Runner) connect(args []string) error {
 			return fail("upstash_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "vercel" && host.SyncID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if err := engine.EnsureVercelAccess(ctx, sshconfig.Host{
+			Alias: host.Alias, Synced: host.Synced, SyncSource: host.SyncSource, SyncID: host.SyncID,
+		}, connectbanner.Status(r.Out)); err != nil {
+			return fail("vercel_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
 	}
 	if err := r.store.RecordUse(host.Alias); err != nil {
 		return err
 	}
-	cmd, err := r.OpenSSH.SSHCommand(host.Alias)
-	if err != nil {
-		return err
+	var cmd *exec.Cmd
+	if host.Synced && host.SyncSource == "vercel" {
+		_, name, err := vercelcloud.ParseSyncID(host.SyncID)
+		if err != nil {
+			return fail("vercel_access", err.Error())
+		}
+		integration := r.store.Vercel()
+		cmd = vercelcloud.ShellCommand(os.Args[0], name, integration.ProjectID, integration.TeamID)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		var err error
+		cmd, err = r.OpenSSH.SSHCommand(host.Alias)
+		if err != nil {
+			return err
+		}
+		r.prepareSSH(cmd, host.raw)
 	}
-	r.prepareSSH(cmd, host.raw)
 	telemetry.Track("connect", r.Version)
 	return r.runProcess(cmd, false)
 }

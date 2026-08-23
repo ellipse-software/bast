@@ -17,7 +17,9 @@ import (
 	"bast/internal/cli"
 	azurecloud "bast/internal/cloud/azure"
 	upstashcloud "bast/internal/cloud/upstash"
+	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/hostpass"
+	"bast/internal/metadata"
 	"bast/internal/openssh"
 	"bast/internal/paths"
 	"bast/internal/telemetry"
@@ -93,6 +95,31 @@ func run(args []string) error {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 		return azurecloud.RunBastionProxy(ctx, options, os.Stdin, os.Stdout, os.Stderr)
+	}
+	if len(args) > 0 && args[0] == "__vercel-sandbox-shell" {
+		options, err := vercelcloud.ParseShellOptions(args[1:])
+		if err != nil {
+			return err
+		}
+		p, err := paths.Default()
+		if err != nil {
+			return err
+		}
+		client := vercelcloud.New(p.VercelToken)
+		if store, storeErr := metadata.Open(p.StateFile); storeErr == nil {
+			integration := store.Vercel()
+			if options.TeamID == "" {
+				options.TeamID = integration.TeamID
+			}
+			if options.ProjectID == "" {
+				options.ProjectID = integration.ProjectID
+			}
+		}
+		client.TeamID = options.TeamID
+		client.ProjectID = options.ProjectID
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		return vercelcloud.RunShell(ctx, client, options, os.Stdin, os.Stdout, os.Stderr)
 	}
 	jsonOutput := false
 	for _, arg := range args {
