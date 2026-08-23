@@ -6,6 +6,10 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+### Changed
+
+- Keys tab: `g` generates a key, `a` adds the selected key to a server. The in-app `?` overlay, footer hints, and detail chips share one keymap.
+
 ### Fixed
 
 - Box stop returns once the box is stopping instead of waiting minutes for the snapshot to finish, and a late sync result can no longer clear a newer in-flight Box operation.

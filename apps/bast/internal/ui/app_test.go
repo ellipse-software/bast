@@ -1586,7 +1586,7 @@ func TestSelectedPublicKeyCanOpenServerPickerFromKeyOrMouse(t *testing.T) {
 	m.keys = []keymodel.Key{{Name: "work", PublicPath: filepath.Join(m.paths.ManagedKeys, "work.pub")}}
 	m.hosts[0].Resolved = sshconfig.Resolved{HostName: "alpha.example", User: "deploy", Port: "22"}
 
-	m.Update(press("u"))
+	m.Update(press("a"))
 	if m.form == nil || m.form.action != "key_install" || len(m.form.fields[1].options) != 2 {
 		t.Fatalf("server picker was not opened: %+v", m.form)
 	}
@@ -2286,10 +2286,9 @@ func TestHelpScreenIsSpacedAndScrollable(t *testing.T) {
 	}
 	rendered := m.render()
 	for _, text := range []string{
-		"Keyboard shortcuts",
-		"Navigation",
 		"Hosts",
-		"Move selection",
+		"Add host",
+		"Move",
 		"↑/↓ scroll",
 		"? / Esc / ⌫ close",
 	} {
@@ -2363,7 +2362,7 @@ func TestEmptyHostListInvitesFirstHost(t *testing.T) {
 	m := testApp(t)
 	m.hosts = nil
 	view := m.renderHosts(m.styles())
-	if !strings.Contains(view, "No hosts yet") || !strings.Contains(view, "Press a to add your first destination") {
+	if !strings.Contains(view, "No hosts yet") || !strings.Contains(view, "[a] Add host") {
 		t.Fatalf("empty host state is not helpful:\n%s", view)
 	}
 }
@@ -2394,7 +2393,7 @@ func TestDetailsAreCompactAndOmitEmptyMetadata(t *testing.T) {
 	if strings.Contains(key, "Name") || strings.Contains(key, "Public") || strings.Contains(key, "Used by") {
 		t.Fatalf("key details contain redundant or empty fields:\n%s", key)
 	}
-	if !strings.Contains(key, keyInstallAction) {
+	if !strings.Contains(key, m.keyInstallChip()) {
 		t.Fatalf("key details do not show the server action:\n%s", key)
 	}
 	if lipgloss.Height(key) > 8 {
@@ -2972,7 +2971,7 @@ func TestBoxResumeActionsAreStateAware(t *testing.T) {
 	}
 
 	selectHost("box_live")
-	footer := strings.Join(m.hostsFooterParts(), " · ")
+	footer := m.browseFooterHint(80)
 	if strings.Contains(footer, "resume") || !strings.Contains(footer, "o stop") {
 		t.Fatalf("running footer = %q", footer)
 	}
@@ -2990,7 +2989,7 @@ func TestBoxResumeActionsAreStateAware(t *testing.T) {
 	}
 
 	selectHost("box_idle")
-	footer = strings.Join(m.hostsFooterParts(), " · ")
+	footer = m.browseFooterHint(80)
 	if !strings.Contains(footer, "enter connect") || !strings.Contains(footer, "r resume") || strings.Contains(footer, "o stop") {
 		t.Fatalf("stopped footer = %q", footer)
 	}
