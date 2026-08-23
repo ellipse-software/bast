@@ -6,6 +6,12 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- Script installers accept `BAST_VERSION` (stable) and `BAST_NIGHTLY_VERSION` (nightly) to install a specific GitHub release.
+
+### Changed
+
+- Homebrew formulae compile Bast from source instead of installing prebuilt release archives.
+
 ### Fixed
 
 - Box stop returns once the box is stopping instead of waiting minutes for the snapshot to finish, and a late sync result can no longer clear a newer in-flight Box operation.

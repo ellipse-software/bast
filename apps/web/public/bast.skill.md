@@ -38,6 +38,7 @@ Installer:
 
 ```sh
 curl -fsSL https://bast.sh/install | sh
+curl -fsSL https://bast.sh/install | BAST_VERSION=v0.9.1 sh
 ```
 
 Homebrew:

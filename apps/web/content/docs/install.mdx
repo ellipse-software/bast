@@ -7,7 +7,7 @@ Choose the installation method for your operating system.
 
 ## Installer script (recommended)
 
-Downloads the latest build for your architecture, verifies the SHA-256 checksum, and installs to `~/.local/bin` by default. Run the same command again to update. It skips the download when you are already on the latest version.
+Downloads the latest build for your architecture, verifies the SHA-256 checksum, and installs to `~/.local/bin` by default. Run the same command again to update. It skips the download when you are already on the requested version.
 
 ```bash
 curl -fsSL https://bast.sh/install | sh
@@ -15,12 +15,30 @@ curl -fsSL https://bast.sh/install | sh
 
 Set `BAST_INSTALL_DIR` to install somewhere else.
 
+Pin a GitHub release. Put the version on `sh`, not on `curl`, so the installer sees it:
+
+```bash
+curl -fsSL https://bast.sh/install | BAST_VERSION=v0.9.1 sh
+```
+
+`bast update` still installs the latest stable build. Re-run the pinned command to stay on that version.
+
 Make sure the install directory is on your `PATH`, then run `bast`.
 
 ## Homebrew
 
+Compiles from source using Homebrew's Go toolchain. Homebrew installs the current formula only.
+
 ```bash
 brew install ellipse-software/tap/bast
+```
+
+An older formula revision can be copied into a personal tap with `brew extract`:
+
+```bash
+brew tap-new "$USER/bast-old"
+brew extract --version=0.9.1 ellipse-software/tap/bast "$USER/bast-old"
+brew install "$USER/bast-old/bast@0.9.1"
 ```
 
 <WindowsReleaseOnly>
@@ -34,6 +52,13 @@ irm https://bast.sh/install.ps1 | iex
 ```
 
 Set `BAST_INSTALL_DIR` before running the installer to choose another location.
+
+Pin a release in the same PowerShell session. Windows builds start at v0.9.0:
+
+```powershell
+$env:BAST_VERSION = "v0.9.1"
+irm https://bast.sh/install.ps1 | iex
+```
 
 Bast requires the Windows OpenSSH Client commands `ssh`, `ssh-keygen`, and `ssh-add` on `PATH`. Install OpenSSH Client from Windows Optional Features if those commands are unavailable.
 
@@ -65,9 +90,20 @@ Windows 11:
 irm https://bast.sh/install-nightly.ps1 | iex
 ```
 
+```powershell
+$env:BAST_NIGHTLY_VERSION = "nightly.20260819.208d070"
+irm https://bast.sh/install-nightly.ps1 | iex
+```
+
 </WindowsReleaseOnly>
 
-Run the same commands again to update. Use `bast update` for script installs on either channel.
+Pin a specific nightly tag:
+
+```bash
+curl -fsSL https://bast.sh/install-nightly | BAST_NIGHTLY_VERSION=nightly.20260819.208d070 sh
+```
+
+Run the same commands again to update. Use `bast update` for script installs on either channel. That always moves to the latest build on the channel, including after a pinned install.
 
 ## From source
 
@@ -81,7 +117,7 @@ go build -trimpath -o bast .
 
 ## Installer requirements
 
-The macOS/Linux script needs `curl`, `tar`, and `shasum` or `sha256sum`.
+The macOS/Linux script needs `curl`, `grep`, `tar`, and `shasum` or `sha256sum`.
 
 <WindowsReleaseOnly>
 

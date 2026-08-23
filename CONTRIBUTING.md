@@ -36,7 +36,7 @@ Never include real hostnames, private keys, fingerprints, or production SSH conf
 
 Every CLI change pushed to `master` publishes a rolling nightly pre-release via `.github/workflows/nightly.yml`. Tagged releases (`v*`) are stable and use `.github/workflows/release.yml` instead.
 
-Nightly builds use version strings like `nightly.YYYYMMDD.<sha>`, update the rolling GitHub release tagged `nightly`, and bump the `bast-nightly` Homebrew formula in `ellipse-software/homebrew-tap`.
+Nightly builds use version strings like `nightly.YYYYMMDD.<sha>`, update the rolling GitHub release tagged `nightly`, and bump the `bast-nightly` Homebrew formula in `ellipse-software/homebrew-tap`. Both formulae compile from source: the tagged GitHub archive for `bast`, and the nightly commit for `bast-nightly`. `Formula/bast.rb` can be copied into `homebrew/core` after dropping the tap-only `conflicts_with "bast-nightly"` line.
 
 Stable and nightly installs are mutually exclusive at the same path. Script installs use separate receipts (`https://bast.sh/install` vs `https://bast.sh/install-nightly`); running either installer uninstalls the other channel first (including a Homebrew install of the other formula). The Homebrew formulae also declare `conflicts_with` each other.
 
