@@ -13,7 +13,7 @@ concurrency:
 jobs:
   validate:
     name: Validate
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     outputs:
       version: ${{ steps.version.outputs.value }}
@@ -41,7 +41,7 @@ jobs:
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     defaults:
       run:
@@ -104,7 +104,7 @@ jobs:
   build-windows:
     name: Build windows/${{ matrix.goarch }}
     needs: validate
-    runs-on: windows-latest
+    runs-on: blacksmith-4vcpu-windows-2025
     environment: artifact-signing
     timeout-minutes: 15
     permissions:
@@ -184,7 +184,7 @@ jobs:
   release:
     name: Publish nightly release
     needs: [build, build-windows]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     permissions:
       contents: write
@@ -241,7 +241,7 @@ jobs:
   bump-homebrew:
     name: Bump Homebrew nightly formula
     needs: release
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
