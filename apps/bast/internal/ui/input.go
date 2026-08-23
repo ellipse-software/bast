@@ -76,7 +76,36 @@ func (c *connectionProcess) SetStderr(output io.Writer) {
 
 func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
-	if mouse.Button != tea.MouseLeft || m.help || m.credits || (m.statusError && m.status != "") {
+	if mouse.Button != tea.MouseLeft {
+		return m, nil
+	}
+	if m.onboarding {
+		if mouse.Y == 0 {
+			if sec, ok := tabAtX(mouse.X); ok {
+				event := "onboarding_skip"
+				switch sec {
+				case hostsSection:
+					event = "onboarding_continue"
+				case vaultSection:
+					event = "onboarding_vault"
+				case syncSection:
+					event = "onboarding_sync"
+				}
+				return m.afterOnboarding(event, func() tea.Cmd {
+					return m.switchToSection(sec)
+				})
+			}
+		}
+		return m, nil
+	}
+	if m.credits {
+		x, y, width := m.creditsSponsorBounds()
+		if width > 0 && mouse.Y == y && mouse.X >= x && mouse.X < x+width {
+			return m.openSponsor()
+		}
+		return m, nil
+	}
+	if m.help || (m.statusError && m.status != "") {
 		return m, nil
 	}
 	m.scrollbarDragging = false
@@ -204,7 +233,7 @@ func (m *App) updateMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
-	if m.credits || m.form != nil {
+	if m.credits || m.onboarding || m.form != nil {
 		return m, nil
 	}
 	if m.help {
@@ -293,6 +322,10 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.credits, m.help, m.helpOffset = false, true, 0
 		} else if key == "q" {
 			return m, tea.Quit
+		} else if key == "o" {
+			m.replayOnboarding()
+		} else if key == "s" || key == "enter" {
+			return m.openSponsor()
 		} else if key == "v" || key == "esc" || key == "backspace" || key == "ctrl+h" {
 			m.credits = false
 		}

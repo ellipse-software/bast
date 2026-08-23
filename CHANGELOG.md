@@ -6,6 +6,13 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- First TUI launch with no hosts shows a skippable start chooser (add, history, Vault, Sync). Machines that already have SSH hosts skip it. `BAST_NO_ONBOARDING=1` disables it. About (`v`) replays it with `o`.
+- About includes a Sponsor chip that opens https://bast.sh/sponsor.
+
+### Changed
+
+- Empty Hosts and Keys tabs use the same first-run seal as Vault, without narrating keybindings.
+
 ### Fixed
 
 - Box stop returns once the box is stopping instead of waiting minutes for the snapshot to finish, and a late sync result can no longer clear a newer in-flight Box operation.

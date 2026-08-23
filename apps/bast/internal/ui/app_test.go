@@ -170,11 +170,12 @@ func TestNumberedNavigationAndSearch(t *testing.T) {
 
 func TestCtrlCQuitsFromEveryBastContext(t *testing.T) {
 	contexts := map[string]func(*App){
-		"root":   func(*App) {},
-		"help":   func(m *App) { m.help = true },
-		"about":  func(m *App) { m.credits = true },
-		"search": func(m *App) { m.search = "\x00query" },
-		"error":  func(m *App) { m.status, m.statusError = "failed", true },
+		"root":       func(*App) {},
+		"help":       func(m *App) { m.help = true },
+		"about":      func(m *App) { m.credits = true },
+		"onboarding": func(m *App) { m.onboarding = true },
+		"search":     func(m *App) { m.search = "\x00query" },
+		"error":      func(m *App) { m.status, m.statusError = "failed", true },
 		"host form": func(m *App) {
 			m.openAddHostForm()
 		},
@@ -193,11 +194,12 @@ func TestCtrlCQuitsFromEveryBastContext(t *testing.T) {
 }
 
 func TestQQuitsOutsideTextInput(t *testing.T) {
-	for _, context := range []string{"root", "help", "about"} {
+	for _, context := range []string{"root", "help", "about", "onboarding"} {
 		t.Run(context, func(t *testing.T) {
 			m := testApp(t)
 			m.help = context == "help"
 			m.credits = context == "about"
+			m.onboarding = context == "onboarding"
 			_, cmd := m.Update(press("q"))
 			requireQuit(t, cmd)
 		})
@@ -2257,6 +2259,9 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 		"github.com/ellipse-software/bast",
 		"MIT License",
 		"v1.2.3",
+		"Sponsor",
+		"s sponsor",
+		"o intro",
 		"v / Esc / ⌫ close",
 	} {
 		if !strings.Contains(rendered, text) {
@@ -2274,6 +2279,42 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
 	if m.credits {
 		t.Fatal("Esc did not close the credits screen")
+	}
+}
+
+func TestCreditsSponsorOpensBastSponsorPage(t *testing.T) {
+	var opened string
+	prev := openBrowser
+	openBrowser = func(raw string) error {
+		opened = raw
+		return nil
+	}
+	t.Cleanup(func() { openBrowser = prev })
+
+	m := testApp(t)
+	m.Update(press("v"))
+	if !m.credits {
+		t.Fatal("v should open about")
+	}
+	m.Update(press("s"))
+	if opened != sponsorURL || !m.credits {
+		t.Fatalf("s should open %s from about, opened=%q credits=%v", sponsorURL, opened, m.credits)
+	}
+
+	opened = ""
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if opened != sponsorURL {
+		t.Fatalf("enter should open sponsor, opened=%q", opened)
+	}
+
+	opened = ""
+	x, y, width := m.creditsSponsorBounds()
+	if width == 0 {
+		t.Fatal("sponsor chip bounds missing")
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x, Y: y, Button: tea.MouseLeft}))
+	if opened != sponsorURL {
+		t.Fatalf("click should open sponsor at (%d,%d), opened=%q", x, y, opened)
 	}
 }
 
@@ -2363,8 +2404,11 @@ func TestEmptyHostListInvitesFirstHost(t *testing.T) {
 	m := testApp(t)
 	m.hosts = nil
 	view := m.renderHosts(m.styles())
-	if !strings.Contains(view, "No hosts yet") || !strings.Contains(view, "Press a to add your first destination") {
+	if !strings.Contains(view, "No hosts yet") || !strings.Contains(view, "Your SSH map is empty.") {
 		t.Fatalf("empty host state is not helpful:\n%s", view)
+	}
+	if strings.Contains(view, "Press") {
+		t.Fatalf("empty hosts should not narrate the key:\n%s", view)
 	}
 }
 
