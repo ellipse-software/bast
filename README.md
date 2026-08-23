@@ -50,6 +50,14 @@ brew install ellipse-software/tap/bast
 curl -fsSL https://bast.sh/install | sh
 ```
 
+Package managers (adds the Bast repo, then installs):
+
+```sh
+curl -fsSL https://packages.bast.sh/setup.sh | sudo sh
+```
+
+After the repo is configured: `sudo apt install bast`, `sudo dnf install bast`, `sudo pacman -S bast`, or `sudo apk add bast`. Arch users can also `yay -S bast-bin` from the AUR.
+
 Or with Homebrew:
 
 ```sh

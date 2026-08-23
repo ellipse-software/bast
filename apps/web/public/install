@@ -183,6 +183,18 @@ if [ -n "${BAST_NIGHTLY_VERSION:-}" ]; then
   fail "BAST_NIGHTLY_VERSION is for https://bast.sh/install-nightly; set BAST_VERSION instead"
 fi
 
+refuse_system_package_conflict() {
+  if [ -n "${BAST_INSTALL_DIR:-}" ]; then
+    return 0
+  fi
+  if [ ! -x /usr/bin/bast ]; then
+    return 0
+  fi
+  fail "Bast is already installed at /usr/bin/bast (likely a package). Uninstall that copy first, or set BAST_INSTALL_DIR to install a separate user copy."
+}
+
+refuse_system_package_conflict
+
 if [ -n "${BAST_VERSION:-}" ]; then
   version="$BAST_VERSION"
   case "$version" in

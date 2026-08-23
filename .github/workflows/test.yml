@@ -94,6 +94,8 @@ jobs:
         run: bash .github/scripts/bump-homebrew-tap.test.sh
       - name: Test changelog notes
         run: bash .github/scripts/changelog.test.sh
+      - name: Test Linux packager
+        run: bash .github/scripts/package-linux.test.sh
       - run: bun install --frozen-lockfile
       - run: bun test apps/web
       - run: bun run lint:web

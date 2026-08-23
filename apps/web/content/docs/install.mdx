@@ -25,6 +25,37 @@ curl -fsSL https://bast.sh/install | BAST_VERSION=v0.9.1 sh
 
 Make sure the install directory is on your `PATH`, then run `bast`.
 
+## Linux packages
+
+Adds the signed Bast repository at [packages.bast.sh](https://packages.bast.sh) and installs `bast` into `/usr/bin`. Updates come from your package manager, not `bast update`.
+
+```bash
+curl -fsSL https://packages.bast.sh/setup.sh | sudo sh
+```
+
+Pass `apt`, `dnf`, `zypper`, `pacman`, or `apk` if you do not want distro detection:
+
+```bash
+curl -fsSL https://packages.bast.sh/setup.sh | sudo sh -s -- apt
+```
+
+Once the repo is configured:
+
+```bash
+sudo apt install bast
+sudo dnf install bast
+sudo pacman -S bast
+sudo apk add bast
+```
+
+Arch users can also install the community AUR package:
+
+```bash
+yay -S bast-bin
+```
+
+Debian/Ubuntu `.deb` and Fedora/RHEL `.rpm` files are also attached to each [GitHub release](https://github.com/ellipse-software/bast/releases) if you prefer `dpkg -i` / `rpm -i` without adding the repo.
+
 ## Homebrew
 
 Compiles from source using Homebrew's Go toolchain. Homebrew installs the current formula only.
@@ -127,4 +158,4 @@ The Windows installer needs PowerShell 5.1 or later.
 
 ## After install
 
-Run `bast` to open the host picker. Run `bast update` to update copies installed via the script (see [Updates](/docs/reference/updates)).
+Run `bast` to open the host picker. Run `bast update` to update copies installed via the script. Package-managed copies update with `apt`, `dnf`, `pacman`, or `apk` (see [Updates](/docs/reference/updates)).
