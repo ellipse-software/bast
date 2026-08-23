@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -177,7 +178,7 @@ func RunShell(ctx context.Context, client *Client, options ShellOptions, in io.R
 	if cwd == "" {
 		cwd = strings.TrimSpace(info.Session.CWD)
 	}
-	start, err := EncodeStartFrame("/bin/bash", nil, []string{"TERM=xterm-256color"}, cwd, cols, rows)
+	start, err := EncodeStartFrame("/bin/bash", []string{"-i"}, []string{"TERM=xterm-256color"}, cwd, cols, rows)
 	if err != nil {
 		return err
 	}
@@ -197,11 +198,21 @@ func RunShell(ctx context.Context, client *Client, options ShellOptions, in io.R
 	errCh := make(chan error, 2)
 	go func() {
 		buf := make([]byte, 32*1024)
+		state := stdinAfterNL
 		for {
 			n, readErr := in.Read(buf)
 			if n > 0 {
-				if writeErr := writeMessage(websocket.BinaryMessage, buf[:n]); writeErr != nil {
-					errCh <- writeErr
+				forward, disconnect, next := processStdinBytes(state, buf[:n])
+				state = next
+				if len(forward) > 0 {
+					if writeErr := writeMessage(websocket.BinaryMessage, forward); writeErr != nil {
+						errCh <- writeErr
+						return
+					}
+				}
+				if disconnect {
+					_ = writeMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+					errCh <- errLocalDisconnect
 					return
 				}
 			}
@@ -217,14 +228,9 @@ func RunShell(ctx context.Context, client *Client, options ShellOptions, in io.R
 		}
 	}()
 	go func() {
-		exitCode := 0
 		for {
 			messageType, data, readErr := conn.ReadMessage()
 			if readErr != nil {
-				if websocket.IsCloseError(readErr, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-					errCh <- exitError{code: exitCode}
-					return
-				}
 				errCh <- readErr
 				return
 			}
@@ -237,10 +243,8 @@ func RunShell(ctx context.Context, client *Client, options ShellOptions, in io.R
 			case websocket.TextMessage:
 				var frame controlFrame
 				if json.Unmarshal(data, &frame) == nil && frame.Type == "exit" {
-					if frame.Code != nil {
-						exitCode = *frame.Code
-					}
-					continue
+					errCh <- nil
+					return
 				}
 				if _, writeErr := out.Write(data); writeErr != nil {
 					errCh <- writeErr
@@ -255,20 +259,78 @@ func RunShell(ctx context.Context, client *Client, options ShellOptions, in io.R
 	case <-ctx.Done():
 		return ctx.Err()
 	case err := <-errCh:
-		var exit exitError
-		if errors.As(err, &exit) {
-			if exit.code == 0 {
-				return nil
-			}
-			return fmt.Errorf("sandbox exited with status %d", exit.code)
+		if isSessionClose(err) {
+			return nil
 		}
 		return err
 	}
 }
 
-type exitError struct{ code int }
+var errLocalDisconnect = errors.New("local disconnect")
 
-func (e exitError) Error() string { return fmt.Sprintf("exit %d", e.code) }
+type stdinEscapeState int
+
+const (
+	stdinAfterNL stdinEscapeState = iota
+	stdinNormal
+	stdinTilde
+)
+
+// processStdinBytes applies OpenSSH's newline-then-~. local disconnect.
+func processStdinBytes(state stdinEscapeState, input []byte) (forward []byte, disconnect bool, next stdinEscapeState) {
+	next = state
+	for _, b := range input {
+		switch next {
+		case stdinAfterNL:
+			if b == '~' {
+				next = stdinTilde
+				continue
+			}
+			forward = append(forward, b)
+			if b != '\r' && b != '\n' {
+				next = stdinNormal
+			}
+		case stdinTilde:
+			if b == '.' {
+				return forward, true, next
+			}
+			forward = append(forward, '~')
+			if b == '~' {
+				next = stdinNormal
+				continue
+			}
+			forward = append(forward, b)
+			if b == '\r' || b == '\n' {
+				next = stdinAfterNL
+			} else {
+				next = stdinNormal
+			}
+		default:
+			forward = append(forward, b)
+			if b == '\r' || b == '\n' {
+				next = stdinAfterNL
+			}
+		}
+	}
+	return forward, false, next
+}
+
+func isSessionClose(err error) bool {
+	if err == nil || errors.Is(err, errLocalDisconnect) {
+		return true
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.Is(err, websocket.ErrCloseSent) {
+		return true
+	}
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "websocket: close") ||
+		strings.Contains(msg, "use of closed network connection") ||
+		strings.Contains(msg, "broken pipe")
+}
 
 func extendTimeoutLoop(ctx context.Context, client *Client, sessionID string) {
 	deadline := time.Now().Add(maxConnectedFor)

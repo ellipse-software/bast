@@ -3,6 +3,7 @@ package vercel
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func testClient(t *testing.T, handler http.HandlerFunc) *Client {
@@ -261,6 +264,40 @@ func TestStartAndResizeFrames(t *testing.T) {
 		if !strings.Contains(got, "token=tok") {
 			t.Fatalf("url = %s", got)
 		}
+	}
+}
+
+func TestProcessStdinEscapeDisconnects(t *testing.T) {
+	forward, disconnect, next := processStdinBytes(stdinAfterNL, []byte("~."))
+	if !disconnect || len(forward) != 0 {
+		t.Fatalf("start ~. forward=%q disconnect=%t next=%v", forward, disconnect, next)
+	}
+	forward, disconnect, next = processStdinBytes(stdinNormal, []byte("ls\r~."))
+	if !disconnect || string(forward) != "ls\r" {
+		t.Fatalf("enter ~. forward=%q disconnect=%t", forward, disconnect)
+	}
+	forward, disconnect, next = processStdinBytes(stdinAfterNL, []byte("~x"))
+	if disconnect || string(forward) != "~x" || next != stdinNormal {
+		t.Fatalf("~x forward=%q disconnect=%t next=%v", forward, disconnect, next)
+	}
+	forward, disconnect, next = processStdinBytes(stdinAfterNL, []byte("~~."))
+	if disconnect || string(forward) != "~." {
+		t.Fatalf("~~. should send a tilde then a dot, forward=%q disconnect=%t", forward, disconnect)
+	}
+}
+
+func TestIsSessionClose(t *testing.T) {
+	if !isSessionClose(nil) || !isSessionClose(errLocalDisconnect) || !isSessionClose(io.EOF) {
+		t.Fatal("expected clean closes")
+	}
+	if !isSessionClose(&websocket.CloseError{Code: websocket.CloseAbnormalClosure, Text: "unexpected EOF"}) {
+		t.Fatal("expected websocket close")
+	}
+	if !isSessionClose(fmt.Errorf("websocket: close 1005 (no status)")) {
+		t.Fatal("expected close 1005")
+	}
+	if isSessionClose(fmt.Errorf("vercel sandbox start: boom")) {
+		t.Fatal("start errors must still surface")
 	}
 }
 
