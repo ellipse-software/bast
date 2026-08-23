@@ -175,6 +175,18 @@ receipt_path="$install_path.install-receipt"
 info "Install location: ${install_path}"
 blank
 
+refuse_system_package_conflict() {
+  if [ -n "${BAST_INSTALL_DIR:-}" ]; then
+    return 0
+  fi
+  if [ ! -x /usr/bin/bast ]; then
+    return 0
+  fi
+  fail "Bast is already installed at /usr/bin/bast (likely a package). Uninstall that copy first, or set BAST_INSTALL_DIR to install a separate user copy."
+}
+
+refuse_system_package_conflict
+
 prepare_channel_switch
 
 step "Checking for the latest release..."

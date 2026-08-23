@@ -6,6 +6,8 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- Linux packages for apt, dnf, pacman, and apk: `.deb`, `.rpm`, `.apk`, and Arch packages on GitHub releases, plus a signed repository at https://packages.bast.sh.
+
 ### Fixed
 
 - Box stop returns once the box is stopping instead of waiting minutes for the snapshot to finish, and a late sync result can no longer clear a newer in-flight Box operation.
