@@ -573,6 +573,8 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool
 		return suffix("Google Cloud", b.String())
 	case name == "Microsoft Azure" || strings.HasPrefix(name, "Microsoft Azure/"):
 		return suffix("Microsoft Azure", brandText("#0078D4", icon("Microsoft Azure")+"Microsoft Azure", restStyle))
+	case name == "DigitalOcean" || strings.HasPrefix(name, "DigitalOcean/"):
+		return suffix("DigitalOcean", brandText("#0080FF", icon("DigitalOcean")+"DigitalOcean", restStyle))
 	case name == "Box" || strings.HasPrefix(name, "Box/"):
 		return suffix("Box", brandText("#FFFFFF", icon("Box")+"Box", restStyle))
 	case name == "Upstash" || strings.HasPrefix(name, "Upstash/"):
@@ -1056,9 +1058,9 @@ func helpSections() []helpSection {
 				{"󰌑", "Open provider, run action, or connect"},
 				{"␣", "Collapse or expand status group"},
 				{"s", "Sync"},
-				{"n", "New box, or fork selected sandbox"},
+				{"n", "New VM, or fork selected sandbox"},
 				{"o", "Stop or pause selected sandbox"},
-				{"d", "Delete selected Upstash box"},
+				{"d", "Delete selected Droplet or Upstash box"},
 				{"Esc", "Back"},
 				{"r", "Resume selected sandbox, or refresh status"},
 			},

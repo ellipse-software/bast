@@ -681,11 +681,8 @@ func (m *App) connectSelected() (tea.Model, tea.Cmd) {
 }
 
 func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
-	if host.Synced && host.SyncSource == "box" && m.hostLooksStopped(host) {
-		return m, m.resumeSelectedBox(host, true)
-	}
-	if host.Synced && host.SyncSource == "upstash" && m.hostLooksStopped(host) {
-		return m, m.resumeSelectedUpstash(host, true)
+	if cmd := m.resumeSyncedHost(host, true); cmd != nil {
+		return m, cmd
 	}
 	if host.Synced && host.SyncID != "" && m.syncer != nil {
 		var ensure func(context.Context, sshconfig.Host, func(string)) error
@@ -696,6 +693,8 @@ func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 			ensure = m.syncer.EnsureAWSAccess
 		case "azure":
 			ensure = m.syncer.EnsureAzureAccess
+		case "digitalocean":
+			ensure = m.syncer.EnsureDigitalOceanAccess
 		case "box":
 			ensure = m.syncer.EnsureBoxAccess
 		case "upstash":

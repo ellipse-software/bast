@@ -1988,7 +1988,7 @@ func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 		t.Fatalf("mobile grid cols = %d", m.syncGridCols())
 	}
 	body := m.renderSync(m.styles())
-	if strings.Count(body, "┌") != 5 {
+	if strings.Count(body, "┌") != 6 {
 		t.Fatalf("mobile should keep one boxed tile per provider:\n%s", body)
 	}
 	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") || !strings.Contains(body, "Upstash") {
@@ -2667,6 +2667,18 @@ func TestMicrosoftAzureGroupNameUsesOneBrandColor(t *testing.T) {
 	}
 }
 
+func TestDigitalOceanGroupNameUsesOneBrandColor(t *testing.T) {
+	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	rendered := renderManagedGroupName("DigitalOcean/default/nyc3", restStyle, false)
+	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0080FF")).Render("DigitalOcean")
+	if !strings.HasPrefix(rendered, provider) {
+		t.Fatalf("DigitalOcean brand colour was not applied uniformly: %q", rendered)
+	}
+	if !strings.Contains(rendered, restStyle.Render("/default/nyc3")) {
+		t.Fatalf("DigitalOcean group path did not retain the normal style: %q", rendered)
+	}
+}
+
 func TestBoxGroupNameIsWhite(t *testing.T) {
 	rendered := renderManagedGroupName("Box", lipgloss.NewStyle(), false)
 	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Box")
@@ -3040,7 +3052,8 @@ func TestSyncTabRenders(t *testing.T) {
 		t.Fatalf("sync grid should not include Vault:\n%s", body)
 	}
 	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Amazon EC2") ||
-		!strings.Contains(body, "Microsoft Azure") || !strings.Contains(body, "Box") {
+		!strings.Contains(body, "Microsoft Azure") || !strings.Contains(body, "DigitalOcean") ||
+		!strings.Contains(body, "Box") {
 		t.Fatalf("sync grid body:\n%s", body)
 	}
 	if strings.Contains(body, "Sync now") {
@@ -3056,7 +3069,7 @@ func TestSyncTabRenders(t *testing.T) {
 	}
 	m.updateSyncKeys("j")
 	if m.syncCursor != 3 {
-		t.Fatalf("j should move to Box tile, cursor=%d", m.syncCursor)
+		t.Fatalf("j should move to DigitalOcean tile, cursor=%d", m.syncCursor)
 	}
 	m.updateSyncKeys("h")
 	if m.syncCursor != 2 {
@@ -3957,16 +3970,82 @@ func TestTabKeysOpenVaultSyncFiles(t *testing.T) {
 	}
 }
 
-func TestProviderGroupShowsCreate(t *testing.T) {
+func TestEmptyEnabledProviderGroupIsHidden(t *testing.T) {
 	m := testApp(t)
 	m.hosts = nil
 	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
+	if err := m.metadata.SetDigitalOcean(metadata.DigitalOceanIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	rows := m.hostRows()
+	for _, row := range rows {
+		if row.header && (row.group == "Box" || row.group == "DigitalOcean" || strings.HasPrefix(row.group, "Box/") || strings.HasPrefix(row.group, "DigitalOcean/")) {
+			t.Fatalf("empty provider group should stay out of Hosts: %+v", row)
+		}
+	}
+}
+
+func TestHiddenProviderGroupAppearsWhenShowingHidden(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{
+		{Alias: "do_web", Synced: true, SyncSource: "digitalocean", SyncID: "do:acct:1"},
+		{Alias: "box_idle", Synced: true, SyncSource: "box", SyncID: "bx_idle01", Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"}},
+	}
+	if err := m.metadata.SetHost("do_web", metadata.Host{Label: "web", Group: "DigitalOcean/default/nyc3", Hidden: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, row := range m.hostRows() {
+		if row.group == "DigitalOcean" || strings.HasPrefix(row.group, "DigitalOcean/") || row.group == "Box" {
+			t.Fatalf("inactive provider group should be hidden until .: %+v", row)
+		}
+	}
+
+	m.showHidden = true
+	var sawDigitalOcean, sawBox bool
+	for _, row := range m.hostRows() {
+		if row.header && row.group == "DigitalOcean" {
+			sawDigitalOcean = true
+		}
+		if !row.header && row.host.Alias == "do_web" {
+			if row.group != "DigitalOcean/default/nyc3" {
+				t.Fatalf("hidden DigitalOcean host group = %q", row.group)
+			}
+			sawDigitalOcean = true
+		}
+		if row.header && row.group == "Box" {
+			sawBox = true
+		}
+		if !row.header && row.host.Alias == "box_idle" {
+			sawBox = true
+		}
+	}
+	if !sawDigitalOcean || !sawBox {
+		t.Fatalf(". should reveal inactive provider groups, digitalocean=%v box=%v rows=%+v", sawDigitalOcean, sawBox, m.hostRows())
+	}
+}
+
+func TestProviderGroupShowsCreate(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "box_sunny", Synced: true, SyncSource: "box",
+		Resolved: sshconfig.Resolved{HostName: "1.2.3.4", User: "user"},
+	}}
+	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("box_sunny", metadata.Host{Label: "sunny", Group: "Box"}); err != nil {
+		t.Fatal(err)
+	}
 	m.collapsedGroups = map[string]bool{}
 	rows := m.hostRows()
 	if len(rows) == 0 || !rows[0].header || rows[0].group != "Box" {
-		t.Fatalf("expected injected Box group, rows=%+v", rows)
+		t.Fatalf("expected Box group after a running host exists, rows=%+v", rows)
 	}
 	m.cursor = 0
 	detail := m.renderGroupDetail(m.styles(), rows[0], 60)
@@ -3987,5 +4066,147 @@ func TestProviderGroupShowsCreate(t *testing.T) {
 	}
 	if len(m.form.fields) < 3 || len(m.form.fields[0].options) != 3 || m.form.fields[0].selected != 1 {
 		t.Fatalf("new box form should offer constrained type options, got %#v", m.form.fields)
+	}
+}
+
+func TestDigitalOceanProviderLifecycleRow(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "digitalocean"
+	m.syncCursor = 0
+	body := m.renderSync(m.styles())
+	if !strings.Contains(body, "New droplet") {
+		t.Fatalf("digitalocean page should offer New droplet:\n%s", body)
+	}
+	m.updateSyncKeys("l")
+	if m.syncCursor != 1 {
+		t.Fatalf("l should move to New droplet, cursor=%d", m.syncCursor)
+	}
+	m.updateSyncKeys("enter")
+	if m.form == nil || m.form.action != "digitalocean_new" {
+		t.Fatalf("enter on New droplet should open form, got %#v", m.form)
+	}
+}
+
+func TestDigitalOceanDeleteUsesRemoteConfirm(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "do_web", Synced: true, SyncSource: "digitalocean", SyncID: "do:acct-1:10",
+		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "root"},
+	}}
+	if err := m.metadata.SetHost("do_web", metadata.Host{Label: "web", Group: "DigitalOcean/default/nyc3", Tags: []string{"state:active"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.section = hostsSection
+	selectHostAlias(t, m, "do_web")
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "digitalocean_delete" {
+		t.Fatalf("d on digitalocean host should confirm remote delete, got %#v", m.form)
+	}
+}
+
+func TestStoppedDigitalOceanHostIsHidden(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "do_web", Synced: true, SyncSource: "digitalocean", SyncID: "do:acct-1:10",
+		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "root"},
+	}}
+	if err := m.metadata.SetHost("do_web", metadata.Host{Label: "web", Group: "DigitalOcean/default/nyc3", Tags: []string{"state:off"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range m.hostRows() {
+		if !row.header && row.host.Alias == "do_web" {
+			t.Fatal("powered-off droplet should be hidden until .")
+		}
+	}
+	m.showHidden = true
+	var found bool
+	for _, row := range m.hostRows() {
+		if !row.header && row.host.Alias == "do_web" {
+			found = true
+			if !m.hostLooksStopped(row.host) {
+				t.Fatal("powered-off droplet should look stopped")
+			}
+		}
+	}
+	if !found {
+		t.Fatal(". should reveal powered-off droplet")
+	}
+}
+
+func TestDigitalOceanProviderGroupShowsCreate(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "do_web", Synced: true, SyncSource: "digitalocean", SyncID: "do:acct-1:10",
+		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "root"},
+	}}
+	if err := m.metadata.SetHost("do_web", metadata.Host{Label: "web", Group: "DigitalOcean/default/nyc3"}); err != nil {
+		t.Fatal(err)
+	}
+	m.collapsedGroups = map[string]bool{}
+	rows := m.hostRows()
+	if len(rows) == 0 || !rows[0].header || rows[0].group != "DigitalOcean" {
+		t.Fatalf("expected DigitalOcean group, rows=%+v", rows)
+	}
+	m.cursor = 0
+	detail := m.renderGroupDetail(m.styles(), rows[0], 60)
+	if !strings.Contains(detail, "New droplet") {
+		t.Fatalf("DigitalOcean group should offer New droplet:\n%s", detail)
+	}
+	_, _ = m.updateKeys(press("n"))
+	if m.form == nil || m.form.action != "digitalocean_new" {
+		t.Fatalf("n on DigitalOcean group should open new form, got %#v", m.form)
+	}
+}
+
+func TestDigitalOceanInventoryLifecycle(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "digitalocean"
+	m.hosts = []sshconfig.Host{
+		{Alias: "do_run", Synced: true, SyncSource: "digitalocean", SyncID: "do:acct-1:10", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "root"}},
+		{Alias: "do_off", Synced: true, SyncSource: "digitalocean", SyncID: "do:acct-1:11", Resolved: sshconfig.Resolved{HostName: "203.0.113.11", User: "root"}},
+	}
+	if err := m.metadata.SetHost("do_run", metadata.Host{Label: "web", Group: "DigitalOcean/default/nyc3", Tags: []string{"state:active"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("do_off", metadata.Host{Label: "db", Group: "DigitalOcean/default/nyc3", Tags: []string{"state:off"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.toggleProviderInv(invGroupStopped)
+	selectProviderHost(t, m, "do_run")
+	_, _ = m.updateKeys(press("o"))
+	if m.form == nil || m.form.action != "digitalocean_stop" {
+		t.Fatalf("o on running droplet should stop, got %#v", m.form)
+	}
+	m.form = nil
+	_, _ = m.updateKeys(press("n"))
+	if m.form == nil || m.form.action != "digitalocean_fork" {
+		t.Fatalf("n on running droplet should fork, got %#v", m.form)
+	}
+	m.form = nil
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "digitalocean_delete" {
+		t.Fatalf("d on running droplet should delete, got %#v", m.form)
+	}
+	m.form = nil
+	selectProviderHost(t, m, "do_off")
+	footer := m.browseFooterHint(80)
+	if !strings.Contains(footer, "r resume") || strings.Contains(footer, "o stop") {
+		t.Fatalf("stopped droplet footer = %q", footer)
+	}
+	_, cmd := m.updateKeys(press("r"))
+	if cmd == nil {
+		t.Fatal("r on stopped droplet should resume")
+	}
+	if m.boxConnectAfter != "" {
+		t.Fatalf("r should resume without connecting, after=%q", m.boxConnectAfter)
+	}
+	m.syncingProviders = map[string]bool{}
+	m.syncActivity = ""
+	m.syncCursor = 0
+	_, _ = m.updateKeys(press("n"))
+	if m.form == nil || m.form.action != "digitalocean_new" {
+		t.Fatalf("n on chips should create a droplet, got %#v", m.form)
 	}
 }

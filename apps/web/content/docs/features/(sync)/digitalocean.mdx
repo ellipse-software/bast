@@ -1,0 +1,205 @@
+---
+title: DigitalOcean
+description: Import DigitalOcean Droplets into Bast and manage create, power off, power on, fork, and delete through doctl.
+---
+
+The **Sync** tab (`4`) imports Linux Droplets into Bast. Synced hosts remain ordinary OpenSSH entries, while their connection details, label, and group stay owned by DigitalOcean sync.
+
+Bast uses the native **doctl** CLI on your machine. It does not store DigitalOcean tokens or use a separate cloud agent. Discovery, create, power, snapshot, and SSH key matching run through the doctl auth contexts you already use.
+
+Bast supports **GCP**, **AWS**, **Azure**, **DigitalOcean**, and **box.ascii.dev** through each provider's native CLI, and **Upstash Box** through its API.
+
+## Requirements
+
+- `doctl` on your `PATH`
+- At least one authenticated doctl context (`doctl auth init`)
+- API token access to list and manage Droplets and account SSH keys
+- A Linux Droplet with a public IPv4 or IPv6 address on port 22
+- At least one SSH key on the DigitalOcean account (`doctl compute ssh-key list`)
+- A local private key that matches an account SSH key, or an ssh-agent identity that the Droplet already trusts
+
+Windows Droplets are skipped. Private-only Droplets (no public IP) are skipped; DigitalOcean has no SSH bastion product that Bast can wrap. Powered-off Droplets stay in inventory and are hidden until you press `.`.
+
+## Install and authenticate doctl
+
+Install doctl using the [official DigitalOcean instructions](https://docs.digitalocean.com/reference/doctl/how-to/install/), then verify it:
+
+```bash
+doctl version
+```
+
+Authenticate a context:
+
+```bash
+doctl auth init
+```
+
+For another team or account:
+
+```bash
+doctl auth init --context work
+doctl auth list
+```
+
+Check the identity behind a context:
+
+```bash
+doctl account get --context default
+doctl compute droplet list --context default
+```
+
+`default`, `work`, and similar names are doctl auth contexts. Bast uses them as the second level of the managed host group.
+
+## Connect DigitalOcean
+
+1. Open Bast and press `4` for Sync.
+2. Select **DigitalOcean** and press Enter.
+3. Choose **Connect** or **Sync now**.
+
+By default Bast scans every configured context. Use **Context filter** or **Region filter** before syncing when an account is large or a context should stay out of Bast.
+
+Discovery fails closed. If a selected context cannot be scanned, Bast reports an incomplete discovery and keeps that context's previous synced inventory instead of deleting hosts from a partial result.
+
+## What gets created
+
+Each Droplet becomes an SSH host under:
+
+```text
+~/.ssh/bast/sync/digitalocean/config
+```
+
+The host picker groups Droplets by the doctl context and region used to discover them:
+
+```text
+DigitalOcean / <context> / <region>
+  droplet-name
+```
+
+For example:
+
+```text
+DigitalOcean / default / nyc3
+  web-01
+```
+
+Detail shows **DigitalOcean synced**, or **DigitalOcean stopped** when the Droplet is powered off. Connection settings, group, and label are read-only. Favoriting and hiding still work. Bast uses the Droplet name as the label.
+
+The DigitalOcean provider page on Sync (`4`) lists those Droplets in collapsible **Running** and **Stopped** groups. Enter connects (power on first if the Droplet is off).
+
+## Lifecycle
+
+| Action | What DigitalOcean does |
+| --- | --- |
+| New | `doctl compute droplet create` with region, size, image, and every account SSH key |
+| Stop (`o` / `bast digitalocean stop`) | `power-off`. Disk still bills until you delete the Droplet |
+| Resume (`r` / Enter on a powered-off Droplet) | `power-on`, then SSH |
+| Fork (`n`) | Snapshot, then create a new Droplet from that snapshot |
+| Delete (`d`) | Destroys the Droplet. Snapshots remain |
+
+Create defaults: region `nyc3`, size `s-1vcpu-1gb`, image `ubuntu-24-04-x64`. Create fails if the account has no SSH keys.
+
+Power-off does not pause DigitalOcean billing. Delete the Droplet when you want the disk charge to stop.
+
+## Host keys (Hosts tab)
+
+With the **DigitalOcean** group selected:
+
+| Key | Action |
+| --- | --- |
+| `n` | Create a new Droplet |
+| `s` | Sync now |
+| `.` | Show powered-off Droplets |
+
+With a DigitalOcean host selected:
+
+| Key | Action |
+| --- | --- |
+| Enter | Connect (power on first if off) |
+| `r` | Resume only (when off) |
+| `o` | Power off (when running; confirms with `stop`) |
+| `n` | Fork (confirms with `fork`) |
+| `d` | Delete the Droplet (confirms with `delete`) |
+| `F` | Open Files (SFTP) |
+
+## How Bast connects
+
+On connect (TUI Enter or `bast connect` / `bast <label>`), Bast confirms the Droplet, powers it on when it is off, refreshes its public address, prepares SSH authentication, then launches your system `ssh`.
+
+| Situation | Behavior |
+| --- | --- |
+| Public IPv4 | Direct OpenSSH connection |
+| Public IPv6 only | Direct OpenSSH connection to the IPv6 address |
+| Private address only | Not imported |
+| Powered off | Resume first, then connect |
+| Account SSH key matches a local private key | Uses that key with `IdentitiesOnly yes` |
+| No matching local key | Leaves identity unset so ssh-agent and default `~/.ssh` identities can authenticate |
+
+DigitalOcean embeds selected account SSH keys into **root** at Droplet creation. Those keys cannot be added or removed on an existing Droplet through the API. Bast does not modify Droplets, publish keys, or wrap `doctl compute ssh`.
+
+Bast matches account keys from `doctl compute ssh-key list` against `.pub` files under:
+
+```text
+~/.ssh/bast/keys
+~/.ssh
+```
+
+The matching private key must exist beside its `.pub` file. If none match, connect still works when the Droplet already trusts a key in your agent.
+
+The default SSH user is `root`. Fedora CoreOS and Flatcar use `core`; FreeBSD uses `freebsd`. Set **Default SSH user** in the DigitalOcean submenu to override.
+
+## DigitalOcean settings
+
+Inside the DigitalOcean submenu:
+
+| Action | Purpose |
+| --- | --- |
+| Sync now | Re-run discovery and refresh SSH config |
+| New droplet | Create a Droplet |
+| Connect / Disconnect | Enable sync, or turn it off and remove generated hosts |
+| Enable / Disable auto-sync | Sync when the TUI opens (off by default) |
+| Default SSH user | Override root / image username inference |
+| Context filter | Comma-separated doctl contexts; blank = all configured |
+| Region filter | Comma-separated region slugs; blank = all |
+| Refresh status | Reload contexts and last-sync information |
+
+Press Esc to return to the provider list.
+
+## CLI
+
+```bash
+bast sync digitalocean
+bast sync do
+bast sync status
+bast sync disable digitalocean
+bast sync digitalocean --json
+bast sync status --json
+
+bast digitalocean new web-01 [--region nyc3] [--size s-1vcpu-1gb] [--image ubuntu-24-04-x64] [--context name]
+bast digitalocean fork <host|id>
+bast digitalocean stop <host|id>
+bast digitalocean resume <host|id>
+bast digitalocean delete <host|id> [--yes]
+bast do new web-01
+
+bast connect do_default_nyc3_web-01
+```
+
+`bast do` is an alias for `bast digitalocean`.
+
+## Re-sync and cleanup
+
+Press `r` on the Sync tab (or run `bast sync digitalocean`) after creating, deleting, rebuilding, or renaming Droplets outside Bast. Disconnecting DigitalOcean removes the generated sync config and its Include line. It does not affect Bast-managed hosts, Droplets, firewalls, snapshots, or doctl credentials.
+
+Bast does not assign reserved IPs, change firewalls, or read `~/.config/doctl/config.yaml`.
+
+## Troubleshooting
+
+| Error or missing host | Check |
+| --- | --- |
+| No DigitalOcean contexts | Run `doctl auth init`, then `doctl auth list` |
+| Authentication failure | Re-run `doctl auth init --context <name>` with a token that can list Droplets |
+| Incomplete DigitalOcean discovery | Confirm every selected context can call `doctl compute droplet list` |
+| Private Droplet missing | Give it a public IPv4 or IPv6 address; Bast does not tunnel VPC-only Droplets |
+| SSH user could not authenticate | Set **Default SSH user** if the image is not root, and confirm a trusted key is in `~/.ssh` or ssh-agent |
+| no SSH keys on this DigitalOcean account | Import a key with `doctl compute ssh-key import` before creating |
+| Powered-off Droplet | Press `.` to show it, then Enter or `r` to power it on |

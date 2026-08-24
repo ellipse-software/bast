@@ -194,6 +194,18 @@ func TestInvocationAndCommandHelp(t *testing.T) {
 	if err != nil || errOut != "" || out != "Usage: bast sync azure\n" {
 		t.Fatalf("sync azure help output=%q stderr=%q err=%v", out, errOut, err)
 	}
+	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "sync", "digitalocean", "--help")
+	if err != nil || errOut != "" || out != "Usage: bast sync digitalocean\n" {
+		t.Fatalf("sync digitalocean help output=%q stderr=%q err=%v", out, errOut, err)
+	}
+	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "digitalocean", "--help")
+	if err != nil || errOut != "" || out != "Usage: bast digitalocean <new|fork|stop|resume|delete>\n" {
+		t.Fatalf("digitalocean help output=%q stderr=%q err=%v", out, errOut, err)
+	}
+	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "do", "new", "--help")
+	if err != nil || errOut != "" || !strings.Contains(out, "Usage: bast digitalocean new") {
+		t.Fatalf("do new help output=%q stderr=%q err=%v", out, errOut, err)
+	}
 	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "sync", "gcp", "--help")
 	if err != nil || errOut != "" || out != "Usage: bast sync gcp\n" {
 		t.Fatalf("sync gcp help output=%q stderr=%q err=%v", out, errOut, err)

@@ -69,7 +69,9 @@ func (m *App) hostsFooterParts() []string {
 		return append(parts, "?")
 	}
 	if host, ok := m.selectedHost(); ok {
-		if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash") {
+		if host.Synced && m.hostHasCapability(host, func(c cloud.Capabilities) bool {
+			return c.Stop || c.Start || c.Fork || c.Delete
+		}) {
 			parts := m.sandboxHostFooterParts(host)
 			if !m.isMobileLayout() {
 				parts = append(parts, "F files")
@@ -160,12 +162,13 @@ func (m *App) syncFooterParts() []string {
 
 func (m *App) sandboxHostFooterParts(host sshconfig.Host) []string {
 	parts := []string{"enter connect", "o stop", "n fork"}
-	if host.SyncSource == "upstash" {
+	canDelete := m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Delete })
+	if canDelete {
 		parts = append(parts, "d delete")
 	}
 	if m.hostLooksStopped(host) {
 		parts = []string{"enter connect", "r resume", "n fork"}
-		if host.SyncSource == "upstash" {
+		if canDelete {
 			parts = append(parts, "d delete")
 		}
 	}

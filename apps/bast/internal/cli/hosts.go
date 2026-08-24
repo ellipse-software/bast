@@ -734,6 +734,16 @@ func (r *Runner) connect(args []string) error {
 			return fail("azure_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "digitalocean" && host.SyncID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if err := engine.EnsureDigitalOceanAccess(ctx, sshconfig.Host{
+			Alias: host.Alias, Synced: host.Synced, SyncSource: host.SyncSource, SyncID: host.SyncID,
+		}, connectbanner.Status(r.Out)); err != nil {
+			return fail("digitalocean_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
 	} else if host.Synced && host.SyncSource == "box" && host.SyncID != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()

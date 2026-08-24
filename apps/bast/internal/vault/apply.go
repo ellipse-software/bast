@@ -153,6 +153,17 @@ func applyIntegrations(store *metadata.Store, in VaultIntegrations) error {
 			return err
 		}
 	}
+	if in.DigitalOcean != nil {
+		cur := store.DigitalOcean()
+		cur.Enabled = in.DigitalOcean.Enabled
+		cur.ContextFilter = append([]string(nil), in.DigitalOcean.ContextFilter...)
+		cur.RegionFilter = append([]string(nil), in.DigitalOcean.RegionFilter...)
+		cur.DefaultSSHUser = in.DigitalOcean.DefaultSSHUser
+		cur.AutoSync = in.DigitalOcean.AutoSync
+		if err := store.SetDigitalOcean(cur); err != nil {
+			return err
+		}
+	}
 	if in.Upstash != nil {
 		cur := store.Upstash()
 		cur.Enabled = in.Upstash.Enabled
