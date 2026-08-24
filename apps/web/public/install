@@ -142,10 +142,14 @@ fail() {
   exit 1
 }
 
+is_stable_tag() {
+  printf '%s\n' "$1" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'
+}
+
 print_banner
 print_telemetry_notice
 
-for command_name in curl install mktemp tar; do
+for command_name in curl grep install mktemp tar; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 
@@ -175,6 +179,10 @@ receipt_path="$install_path.install-receipt"
 info "Install location: ${install_path}"
 blank
 
+if [ -n "${BAST_NIGHTLY_VERSION:-}" ]; then
+  fail "BAST_NIGHTLY_VERSION is for https://bast.sh/install-nightly; set BAST_VERSION instead"
+fi
+
 refuse_system_package_conflict() {
   if [ -n "${BAST_INSTALL_DIR:-}" ]; then
     return 0
@@ -187,18 +195,24 @@ refuse_system_package_conflict() {
 
 refuse_system_package_conflict
 
+if [ -n "${BAST_VERSION:-}" ]; then
+  version="$BAST_VERSION"
+  case "$version" in
+  v*) ;;
+  [0-9]*) version="v$version" ;;
+  esac
+  is_stable_tag "$version" || fail "invalid BAST_VERSION: ${BAST_VERSION} (expected vX.Y.Z)"
+  step "Using BAST_VERSION ${version}..."
+  success "Requested version: ${version}"
+else
+  step "Checking for the latest release..."
+  latest_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest")"
+  version="${latest_url##*/}"
+  is_stable_tag "$version" || fail "could not find the latest release"
+  success "Latest release: ${version}"
+fi
+
 prepare_channel_switch
-
-step "Checking for the latest release..."
-latest_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest")"
-version="${latest_url##*/}"
-
-case "$version" in
-v*) ;;
-*) fail "could not find the latest release" ;;
-esac
-
-success "Latest release: ${version}"
 
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/bast.XXXXXX")"
 
@@ -238,8 +252,8 @@ else
 fi
 
 step "Downloading ${archive}..."
-curl -fsSL "$download_url" -o "$temp_dir/$archive"
-curl -fsSL "$download_url.sha256" -o "$temp_dir/$archive.sha256"
+curl -fsSL "$download_url" -o "$temp_dir/$archive" || fail "could not download ${archive}"
+curl -fsSL "$download_url.sha256" -o "$temp_dir/$archive.sha256" || fail "could not download ${archive}.sha256"
 success "Download complete"
 
 step "Verifying SHA-256 checksum..."

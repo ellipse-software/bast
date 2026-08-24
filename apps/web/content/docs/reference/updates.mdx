@@ -37,6 +37,8 @@ This only runs when the bast.sh installer receipt is present beside the executab
 
 The installer downloads the latest release and verifies its checksum. Windows also verifies the Authenticode publisher, then uses a helper process to replace `bast.exe` after the running command exits.
 
+Pinned script installs (`BAST_VERSION` or `BAST_NIGHTLY_VERSION`) use the same receipt, so `bast update` still jumps to the latest build on that channel. Re-run the pinned install command to stay on a specific release.
+
 ## Check manually
 
 Visit [github.com/ellipse-software/bast/releases](https://github.com/ellipse-software/bast/releases) for release notes and download links.

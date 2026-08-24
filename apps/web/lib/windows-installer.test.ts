@@ -21,4 +21,12 @@ describe("Windows installer", () => {
     expect(installer).toContain('Write-Success "Authenticode signature verified"');
     expect(installer).toContain("BAST_NO_TELEMETRY=1");
   });
+
+  test("pins a stable GitHub release with BAST_VERSION", () => {
+    expect(installer).toContain("releases/tags/$version");
+    expect(installer).toContain('Write-Success "Requested version: $version"');
+    expect(installer).toContain(
+      "BAST_NIGHTLY_VERSION is for the nightly installer; set BAST_VERSION instead",
+    );
+  });
 });
