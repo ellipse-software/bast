@@ -60,6 +60,7 @@ Run `bast keys <command> --help` for command-specific usage.
 bast sync gcp
 bast sync aws
 bast sync azure
+bast sync digitalocean
 bast sync box
 bast sync upstash
 bast sync status
@@ -68,9 +69,16 @@ bast sync disable box
 bast sync disable upstash
 ```
 
-Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [box.ascii.dev](/docs/features/box), or [Upstash Box](/docs/features/upstash) for provider setup.
+Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [DigitalOcean](/docs/features/digitalocean), [box.ascii.dev](/docs/features/box), or [Upstash Box](/docs/features/upstash) for provider setup.
 
 ```bash
+bast digitalocean new <name> [--region nyc3] [--size s-1vcpu-1gb] [--image ubuntu-24-04-x64]
+bast digitalocean fork <host|id>
+bast digitalocean stop <host|id>
+bast digitalocean resume <host|id>
+bast digitalocean delete <host|id> [--yes]
+bast do new <name>
+
 bast upstash new [--name name] [--runtime node] [--size small] [--keep-alive]
 bast upstash fork <host|id>
 bast upstash stop <host|id>

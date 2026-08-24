@@ -8,11 +8,12 @@ import (
 type Kind string
 
 const (
-	GCP     Kind = "gcp"
-	AWS     Kind = "aws"
-	Azure   Kind = "azure"
-	Box     Kind = "box"
-	Upstash Kind = "upstash"
+	GCP          Kind = "gcp"
+	AWS          Kind = "aws"
+	Azure        Kind = "azure"
+	DigitalOcean Kind = "digitalocean"
+	Box          Kind = "box"
+	Upstash      Kind = "upstash"
 )
 
 // Descriptor is the stable identity for a cloud provider. UI, grouping, and
@@ -94,6 +95,11 @@ var descriptors = []Descriptor{
 		BrandColor:  "#0078D4", NerdIcon: "\ue754",
 	},
 	{
+		Kind: DigitalOcean, Title: "DigitalOcean", FullTitle: "DigitalOcean", GroupRoot: "DigitalOcean",
+		Description: "Create and import Droplets in Bast",
+		BrandColor:  "#0080FF", NerdIcon: "\ue7ae",
+	},
+	{
 		Kind: Box, Title: "Box", FullTitle: "box.ascii.dev", GroupRoot: "Box",
 		Description: "Import ASCII Box sandboxes into Bast",
 		BrandColor:  "#FFFFFF", NerdIcon: "\uf1b2",
@@ -106,11 +112,12 @@ var descriptors = []Descriptor{
 }
 
 var capabilities = map[Kind]Capabilities{
-	GCP:     {},
-	AWS:     {},
-	Azure:   {},
-	Box:     {Create: true, Stop: true, Start: true, Fork: true},
-	Upstash: {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
+	GCP:          {},
+	AWS:          {},
+	Azure:        {},
+	DigitalOcean: {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
+	Box:          {Create: true, Stop: true, Start: true, Fork: true},
+	Upstash:      {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
 }
 
 func Descriptors() []Descriptor {

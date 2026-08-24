@@ -39,6 +39,7 @@ Usage:
   bast sync <command>          Sync cloud VMs into Bast
   bast box <command>           Create and manage ASCII Box sandboxes
   bast upstash <command>       Create and manage Upstash Box sandboxes
+  bast digitalocean <command>  Create and manage DigitalOcean Droplets
   bast vault <command>         Sync Bast-managed config via encrypted vault
 
 Host commands:
@@ -50,13 +51,16 @@ Key commands:
   public, copy, delete
 
 Sync commands:
-  gcp, aws, azure, box, upstash, status, disable
+  gcp, aws, azure, digitalocean, box, upstash, status, disable
 
 Box commands:
   new, fork, stop, resume
 
 Upstash commands:
   new, fork, stop, resume, delete, key
+
+DigitalOcean commands:
+  new, fork, stop, resume, delete
 
 Vault commands:
   login, status, push, pull, logout, passphrase
@@ -66,7 +70,8 @@ Global options:
   --no-input                  Never prompt for missing input
 
 Run "bast hosts <command> --help", "bast keys <command> --help", "bast sync <command> --help",
-"bast box <command> --help", "bast upstash <command> --help", or "bast vault <command> --help" for details.
+"bast box <command> --help", "bast upstash <command> --help", "bast digitalocean <command> --help",
+or "bast vault <command> --help" for details.
 `
 
 func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
@@ -112,7 +117,7 @@ func fail(code, message string) error { return &commandError{code: code, message
 func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writer) (*Runner, error) {
 	return &Runner{
 		Paths: p, OpenSSH: client, Version: "dev", In: in, Out: out, Err: errOut,
-		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig},
+		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncDigitalOceanConfig: p.SyncDigitalOceanConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig},
 		keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
 		reader:  bufio.NewReader(in),
 	}, nil
@@ -120,7 +125,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "connect", "hosts", "keys", "sync", "box", "upstash", "vault":
+	case "tui", "update", "connect", "hosts", "keys", "sync", "box", "upstash", "digitalocean", "do", "vault":
 		return true
 	}
 	return false
@@ -176,6 +181,8 @@ func (r *Runner) Run(args []string) error {
 				err = r.boxCmd(args[1:])
 			case "upstash":
 				err = r.upstashCmd(args[1:])
+			case "digitalocean", "do":
+				err = r.digitalOceanCmd(args[1:])
 			case "vault":
 				err = r.vault(args[1:])
 			default:
@@ -242,46 +249,60 @@ option to restore a default or remove values.`,
 
 Commands: list, show, generate, import, promote, comment, export, install,
           passphrase, public, copy, delete`,
-		"keys list":        "Usage: bast keys list [--search text]",
-		"keys show":        "Usage: bast keys show <name>",
-		"keys generate":    "Usage: bast keys generate [name] [--algorithm ed25519|rsa] [--no-passphrase]",
-		"keys import":      "Usage: bast keys import [name] --private path|- [--public path|-] [--comment text]",
-		"keys promote":     "Usage: bast keys promote <key> [--name managed-name]",
-		"keys comment":     "Usage: bast keys comment <name> (--comment text|--clear-comment)",
-		"keys export":      "Usage: bast keys export <name> --directory path [--yes]",
-		"keys install":     "Usage: bast keys install <name> --host host",
-		"keys passphrase":  "Usage: bast keys passphrase <name>",
-		"keys public":      "Usage: bast keys public <name>",
-		"keys copy":        "Usage: bast keys copy <name>",
-		"keys delete":      "Usage: bast keys delete <name> [--yes]",
-		"connect --help":   "Usage: bast connect <host>",
-		"sync gcp":         "Usage: bast sync gcp",
-		"sync aws":         "Usage: bast sync aws",
-		"sync azure":       "Usage: bast sync azure",
-		"sync box":         "Usage: bast sync box",
-		"sync upstash":     "Usage: bast sync upstash",
-		"sync status":      "Usage: bast sync status",
-		"sync disable":     "Usage: bast sync disable <gcp|aws|azure|box|upstash>",
-		"sync --help":      "Usage: bast sync <gcp|aws|azure|box|upstash|status|disable>",
-		"box --help":       "Usage: bast box <new|fork|stop|resume>",
-		"box new":          "Usage: bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
-		"box fork":         "Usage: bast box fork <host|id> [--type small|default|large] [--no-env]",
-		"box stop":         "Usage: bast box stop <host|id>",
-		"box resume":       "Usage: bast box resume <host|id> [--type small|default|large] [--no-env]",
-		"upstash --help":   "Usage: bast upstash <new|fork|stop|resume|delete|key>",
-		"upstash new":      "Usage: bast upstash new [--name name] [--runtime node|python|golang|ruby|rust] [--size small|medium|large] [--keep-alive]",
-		"upstash fork":     "Usage: bast upstash fork <host|id>",
-		"upstash stop":     "Usage: bast upstash stop <host|id>",
-		"upstash resume":   "Usage: bast upstash resume <host|id>",
-		"upstash delete":   "Usage: bast upstash delete <host|id> [--yes]",
-		"upstash key":      "Usage: bast upstash key [--key-file path]",
-		"vault --help":     "Usage: bast vault <login|status|push|pull|logout|passphrase>",
-		"vault login":      "Usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]",
-		"vault status":     "Usage: bast vault status",
-		"vault push":       "Usage: bast vault push",
-		"vault pull":       "Usage: bast vault pull [--mode merge|replace_local|replace_remote]",
-		"vault logout":     "Usage: bast vault logout",
-		"vault passphrase": "Usage: bast vault passphrase [--force]",
+		"keys list":           "Usage: bast keys list [--search text]",
+		"keys show":           "Usage: bast keys show <name>",
+		"keys generate":       "Usage: bast keys generate [name] [--algorithm ed25519|rsa] [--no-passphrase]",
+		"keys import":         "Usage: bast keys import [name] --private path|- [--public path|-] [--comment text]",
+		"keys promote":        "Usage: bast keys promote <key> [--name managed-name]",
+		"keys comment":        "Usage: bast keys comment <name> (--comment text|--clear-comment)",
+		"keys export":         "Usage: bast keys export <name> --directory path [--yes]",
+		"keys install":        "Usage: bast keys install <name> --host host",
+		"keys passphrase":     "Usage: bast keys passphrase <name>",
+		"keys public":         "Usage: bast keys public <name>",
+		"keys copy":           "Usage: bast keys copy <name>",
+		"keys delete":         "Usage: bast keys delete <name> [--yes]",
+		"connect --help":      "Usage: bast connect <host>",
+		"sync gcp":            "Usage: bast sync gcp",
+		"sync aws":            "Usage: bast sync aws",
+		"sync azure":          "Usage: bast sync azure",
+		"sync digitalocean":   "Usage: bast sync digitalocean",
+		"sync do":             "Usage: bast sync digitalocean",
+		"sync box":            "Usage: bast sync box",
+		"sync upstash":        "Usage: bast sync upstash",
+		"sync status":         "Usage: bast sync status",
+		"sync disable":        "Usage: bast sync disable <gcp|aws|azure|digitalocean|box|upstash>",
+		"sync --help":         "Usage: bast sync <gcp|aws|azure|digitalocean|box|upstash|status|disable>",
+		"box --help":          "Usage: bast box <new|fork|stop|resume>",
+		"box new":             "Usage: bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
+		"box fork":            "Usage: bast box fork <host|id> [--type small|default|large] [--no-env]",
+		"box stop":            "Usage: bast box stop <host|id>",
+		"box resume":          "Usage: bast box resume <host|id> [--type small|default|large] [--no-env]",
+		"upstash --help":      "Usage: bast upstash <new|fork|stop|resume|delete|key>",
+		"upstash new":         "Usage: bast upstash new [--name name] [--runtime node|python|golang|ruby|rust] [--size small|medium|large] [--keep-alive]",
+		"upstash fork":        "Usage: bast upstash fork <host|id>",
+		"upstash stop":        "Usage: bast upstash stop <host|id>",
+		"upstash resume":      "Usage: bast upstash resume <host|id>",
+		"upstash delete":      "Usage: bast upstash delete <host|id> [--yes]",
+		"upstash key":         "Usage: bast upstash key [--key-file path]",
+		"digitalocean --help": "Usage: bast digitalocean <new|fork|stop|resume|delete>",
+		"do --help":           "Usage: bast digitalocean <new|fork|stop|resume|delete>",
+		"digitalocean new":    "Usage: bast digitalocean new <name> [--region nyc3] [--size s-1vcpu-1gb] [--image ubuntu-24-04-x64] [--context name]",
+		"do new":              "Usage: bast digitalocean new <name> [--region nyc3] [--size s-1vcpu-1gb] [--image ubuntu-24-04-x64] [--context name]",
+		"digitalocean fork":   "Usage: bast digitalocean fork <host|id>",
+		"do fork":             "Usage: bast digitalocean fork <host|id>",
+		"digitalocean stop":   "Usage: bast digitalocean stop <host|id>",
+		"do stop":             "Usage: bast digitalocean stop <host|id>",
+		"digitalocean resume": "Usage: bast digitalocean resume <host|id>",
+		"do resume":           "Usage: bast digitalocean resume <host|id>",
+		"digitalocean delete": "Usage: bast digitalocean delete <host|id> [--yes]",
+		"do delete":           "Usage: bast digitalocean delete <host|id> [--yes]",
+		"vault --help":        "Usage: bast vault <login|status|push|pull|logout|passphrase>",
+		"vault login":         "Usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]",
+		"vault status":        "Usage: bast vault status",
+		"vault push":          "Usage: bast vault push",
+		"vault pull":          "Usage: bast vault pull [--mode merge|replace_local|replace_remote]",
+		"vault logout":        "Usage: bast vault logout",
+		"vault passphrase":    "Usage: bast vault passphrase [--force]",
 	}
 	if value := usage[resource+" "+command]; value != "" {
 		return value

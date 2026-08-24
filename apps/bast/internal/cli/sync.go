@@ -12,7 +12,7 @@ import (
 
 func (r *Runner) sync(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|box|upstash|status|disable>")
+		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|digitalocean|box|upstash|status|disable>")
 		return nil
 	}
 	engine := sync.New(r.Paths, r.store)
@@ -23,6 +23,8 @@ func (r *Runner) sync(args []string) error {
 		return r.syncAWS(engine, args[1:])
 	case "azure":
 		return r.syncAzure(engine, args[1:])
+	case "digitalocean", "do":
+		return r.syncDigitalOcean(engine, args[1:])
 	case "box":
 		return r.syncBox(engine, args[1:])
 	case "upstash":
@@ -99,6 +101,29 @@ func (r *Runner) syncAzure(engine *sync.Engine, args []string) error {
 	}
 	telemetry.Track("sync_azure", r.Version)
 	msg := fmt.Sprintf("Synced %d Azure VMs", result.Count)
+	if result.Error != "" {
+		msg += "\nWarning: " + result.Error
+	}
+	return r.success(result, msg)
+}
+
+func (r *Runner) syncDigitalOcean(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync digitalocean")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync digitalocean")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	result, err := engine.SyncDigitalOcean(ctx)
+	if err != nil {
+		telemetry.Track("sync_digitalocean_fail", r.Version)
+		return fail("sync_failed", err.Error())
+	}
+	telemetry.Track("sync_digitalocean", r.Version)
+	msg := fmt.Sprintf("Synced %d DigitalOcean Droplets", result.Count)
 	if result.Error != "" {
 		msg += "\nWarning: " + result.Error
 	}
@@ -272,6 +297,34 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if azure.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", azure.LastSyncError)
 	}
+	ocean := status.DigitalOcean
+	fmt.Fprintln(r.Out, "DigitalOcean")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", ocean.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", ocean.AutoSync)
+	if ocean.DOCTLError != "" {
+		fmt.Fprintf(r.Out, "  doctl: %s\n", ocean.DOCTLError)
+	} else if len(ocean.Contexts) > 0 {
+		fmt.Fprintf(r.Out, "  Contexts: %s\n", strings.Join(ocean.Contexts, ", "))
+	} else {
+		fmt.Fprintln(r.Out, "  Contexts: none")
+	}
+	if len(ocean.ContextFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Context filter: %s\n", strings.Join(ocean.ContextFilter, ", "))
+	}
+	if len(ocean.RegionFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Region filter: %s\n", strings.Join(ocean.RegionFilter, ", "))
+	}
+	if ocean.DefaultSSHUser != "" {
+		fmt.Fprintf(r.Out, "  Default SSH user: %s\n", ocean.DefaultSSHUser)
+	}
+	if ocean.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d Droplets)\n", ocean.LastSyncAt.Local().Format(time.RFC3339), ocean.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if ocean.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", ocean.LastSyncError)
+	}
 	box := status.Box
 	fmt.Fprintln(r.Out, "Box")
 	fmt.Fprintf(r.Out, "  Enabled: %t\n", box.Enabled)
@@ -334,10 +387,13 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 1 {
-		return usagef("usage: bast sync disable <gcp|aws|azure|box|upstash>")
+		return usagef("usage: bast sync disable <gcp|aws|azure|digitalocean|box|upstash>")
 	}
 	provider := fs.Arg(0)
-	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "box" && provider != "upstash" {
+	if provider == "do" {
+		provider = "digitalocean"
+	}
+	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "digitalocean" && provider != "box" && provider != "upstash" {
 		return usagef("unknown sync provider %q", provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -350,6 +406,8 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		err = engine.DisableAWS(ctx)
 	case "azure":
 		err = engine.DisableAzure(ctx)
+	case "digitalocean":
+		err = engine.DisableDigitalOcean(ctx)
 	case "box":
 		err = engine.DisableBox(ctx)
 	case "upstash":

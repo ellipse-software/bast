@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 
 type Section = "hosts" | "keys" | "vault" | "sync" | "files";
-type SyncProvider = "" | "gcp" | "aws" | "azure" | "box" | "upstash";
+type SyncProvider = "" | "gcp" | "aws" | "azure" | "digitalocean" | "box" | "upstash";
 
 type DetailRow = { label: string; value: string };
 
@@ -20,7 +20,7 @@ type HostItem = {
   name: string;
   alias?: string;
   favorite?: boolean;
-  synced?: "gcp" | "aws" | "azure";
+  synced?: "gcp" | "aws" | "azure" | "digitalocean";
   destination: string;
   summary: string;
   access?: DetailRow[];
@@ -157,6 +157,30 @@ const hostTree: HostGroupNode[] = [
     ],
   },
   {
+    path: "DigitalOcean",
+    label: "DigitalOcean",
+    synced: true,
+    children: [
+      {
+        path: "DigitalOcean/default/nyc3",
+        label: "default / nyc3",
+        hosts: [
+          {
+            name: "web-01",
+            alias: "do_default_nyc3_web-01",
+            synced: "digitalocean",
+            destination: "root@203.0.113.10",
+            summary: "DigitalOcean synced · known host",
+            access: [
+              { label: "Auth", value: "~/.ssh/id_ed25519" },
+              { label: "SSH name", value: "do_default_nyc3_web-01" },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
     path: "Microsoft Azure",
     label: "Microsoft Azure",
     synced: true,
@@ -263,6 +287,12 @@ const syncTiles: SyncTile[] = [
     description: "Import Azure VMs into Bast",
   },
   {
+    id: "digitalocean",
+    title: "DigitalOcean",
+    detail: "2 running",
+    description: "Create and import Droplets in Bast",
+  },
+  {
     id: "box",
     title: "Box",
     detail: "2 running",
@@ -341,6 +371,21 @@ const providerPages: Record<Exclude<SyncProvider, "">, ProviderPage> = {
       { label: "Default SSH user" },
       { label: "Subscription filter" },
       { label: "Resource group filter" },
+      { label: "Refresh status" },
+    ],
+  },
+  digitalocean: {
+    identity: [
+      "enabled · 2 running",
+      "default · auto-sync off",
+    ],
+    chips: ["Sync", "New droplet"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Enable auto-sync" },
+      { label: "Default SSH user" },
+      { label: "Context filter" },
+      { label: "Region filter" },
       { label: "Refresh status" },
     ],
   },
@@ -1311,6 +1356,8 @@ function HostList({
                   <span className="font-bold text-[#FF9900]">Amazon EC2</span>
                 ) : row.label === "Microsoft Azure" ? (
                   <span className="font-bold text-[#0078D4]">Microsoft Azure</span>
+                ) : row.label === "DigitalOcean" ? (
+                  <span className="font-bold text-[#0080FF]">DigitalOcean</span>
                 ) : (
                   row.label
                 )}{" "}
@@ -1385,7 +1432,8 @@ function groupPrimaryAction(row: Extract<HostListRow, { kind: "group" }>): strin
     case "Google Cloud":
     case "Amazon EC2":
     case "Microsoft Azure":
-      return "Sync now";
+    case "DigitalOcean":
+      return "New droplet";
     default:
       return null;
   }
@@ -1803,6 +1851,8 @@ function ProviderTitle({
       return <span className="font-bold text-[#FF9900]">Amazon EC2</span>;
     case "azure":
       return <span className="font-bold text-[#0078D4]">Microsoft Azure</span>;
+    case "digitalocean":
+      return <span className="font-bold text-[#0080FF]">DigitalOcean</span>;
     case "box":
       return <span className="font-bold text-foreground">Box</span>;
     case "upstash":

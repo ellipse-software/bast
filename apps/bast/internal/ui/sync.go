@@ -12,6 +12,7 @@ import (
 
 	"bast/internal/cloud"
 	boxcloud "bast/internal/cloud/box"
+	docloud "bast/internal/cloud/digitalocean"
 	"bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/sshconfig"
@@ -63,7 +64,7 @@ func (m *App) syncProviders() []syncMenuItem {
 	for _, d := range cloud.Descriptors() {
 		detail := m.providerDetail(string(d.Kind))
 		text := "disabled"
-		if d.Kind == cloud.Box || d.Kind == cloud.Upstash {
+		if cloud.CapabilitiesFor(d.Kind).Stop {
 			running, stopped := m.providerGroupStats(d.GroupRoot)
 			if !detail.enabled && running+stopped == 0 {
 				text = "disabled"
@@ -156,6 +157,25 @@ func (m *App) providerDetail(provider string) providerDetail {
 			resourceGroups = strings.Join(integration.ResourceGroupFilter, ", ")
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, statusRows, []providerRow{{"Subscription filter", subscriptions}, {"Resource groups", resourceGroups}}}
+	case "digitalocean":
+		integration := m.metadata.DigitalOcean()
+		status := m.syncStatus.DigitalOcean
+		contextValue := "none"
+		contextLabel := "Contexts"
+		if status.DOCTLError != "" {
+			contextLabel, contextValue = "doctl", status.DOCTLError
+		} else if len(status.Contexts) > 0 {
+			contextValue = strings.Join(status.Contexts, ", ")
+		}
+		contexts := "all"
+		if len(integration.ContextFilter) > 0 {
+			contexts = strings.Join(integration.ContextFilter, ", ")
+		}
+		regions := "all"
+		if len(integration.RegionFilter) > 0 {
+			regions = strings.Join(integration.RegionFilter, ", ")
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, []providerRow{{contextLabel, contextValue}}, []providerRow{{"Context filter", contexts}, {"Regions", regions}}}
 	case "box":
 		integration := m.metadata.Box()
 		status := m.syncStatus.Box
@@ -216,6 +236,9 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 	if caps.Create && provider == "upstash" && m.upstashHasKey() {
 		life = append(life, syncMenuItem{label: "New box", action: "upstash_new"})
 	}
+	if caps.Create && provider == "digitalocean" {
+		life = append(life, syncMenuItem{label: "New droplet", action: "digitalocean_new"})
+	}
 	if provider == "upstash" {
 		life = append(life, syncMenuItem{label: "API key", action: "upstash_key"})
 	}
@@ -248,6 +271,12 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 			syncMenuItem{label: "Default SSH user", action: "user"},
 			syncMenuItem{label: "Subscription filter", action: "subscriptions"},
 			syncMenuItem{label: "Resource group filter", action: "resource_groups"},
+		)
+	case "digitalocean":
+		config = append(config,
+			syncMenuItem{label: "Default SSH user", action: "user"},
+			syncMenuItem{label: "Context filter", action: "contexts"},
+			syncMenuItem{label: "Region filter", action: "do_regions"},
 		)
 	}
 	config = append(config, syncMenuItem{label: "Refresh status", action: "refresh"})
@@ -289,6 +318,16 @@ func (m *App) syncAzureCmd() tea.Cmd {
 		defer cancel()
 		result, err := m.syncer.SyncAzure(ctx)
 		return syncDoneMsg{provider: "azure", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) syncDigitalOceanCmd() tea.Cmd {
+	opGen := m.providerOpGen("digitalocean")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncDigitalOcean(ctx)
+		return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
 	}
 }
 
@@ -401,6 +440,19 @@ func (m *App) disableAzureCmd() tea.Cmd {
 			return syncDoneMsg{provider: "azure", err: err, opGen: opGen}
 		}
 		return syncDoneMsg{provider: "azure", result: sync.Result{Provider: "azure", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableDigitalOceanCmd() tea.Cmd {
+	opGen := m.providerOpGen("digitalocean")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err := m.syncer.DisableDigitalOcean(ctx)
+		if err != nil {
+			return syncDoneMsg{provider: "digitalocean", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "digitalocean", result: sync.Result{Provider: "digitalocean", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
@@ -1040,7 +1092,7 @@ func (m *App) updateProviderKeys(key string) (tea.Model, tea.Cmd) {
 			return m.forkSyncedHost(host)
 		}
 		for _, item := range life {
-			if item.action == "box_new" || item.action == "upstash_new" {
+			if item.action == "box_new" || item.action == "upstash_new" || item.action == "digitalocean_new" {
 				return m.runSyncAction(item.action)
 			}
 		}
@@ -1271,6 +1323,8 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.syncAWSCmd(), m.setNotice("Syncing AWS…"))
 		case "azure":
 			return m, tea.Batch(m.syncAzureCmd(), m.setNotice("Syncing Azure…"))
+		case "digitalocean":
+			return m, tea.Batch(m.syncDigitalOceanCmd(), m.setNotice("Syncing DigitalOcean…"))
 		case "box":
 			box := m.metadata.Box()
 			box.Disabled = false
@@ -1312,6 +1366,9 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "azure" {
 			return m, m.disableAzureCmd()
 		}
+		if m.syncProvider == "digitalocean" {
+			return m, m.disableDigitalOceanCmd()
+		}
 		if m.syncProvider == "box" {
 			return m, m.disableBoxCmd()
 		}
@@ -1324,6 +1381,9 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "upstash_new":
 		m.openUpstashNewForm()
+		return m, nil
+	case "digitalocean_new":
+		m.openDigitalOceanNewForm()
 		return m, nil
 	case "upstash_key":
 		m.openUpstashKeyForm()
@@ -1342,6 +1402,15 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			azure := m.metadata.Azure()
 			azure.AutoSync = true
 			if err := m.metadata.SetAzure(azure); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "digitalocean" {
+			ocean := m.metadata.DigitalOcean()
+			ocean.AutoSync = true
+			if err := m.metadata.SetDigitalOcean(ocean); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1393,6 +1462,15 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync disabled")
 		}
+		if m.syncProvider == "digitalocean" {
+			ocean := m.metadata.DigitalOcean()
+			ocean.AutoSync = false
+			if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
 		if m.syncProvider == "box" {
 			box := m.metadata.Box()
 			box.AutoSync = false
@@ -1431,6 +1509,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			})
 			break
 		}
+		if m.syncProvider == "digitalocean" {
+			m.openForm("Default DigitalOcean SSH user", "sync_digitalocean_user", []field{
+				{label: "SSH user", description: "Blank uses root for most images", value: m.metadata.DigitalOcean().DefaultSSHUser, optional: true, placeholder: "root"},
+			})
+			break
+		}
 		if m.syncProvider == "box" {
 			return m, m.setNotice("Box SSH user is always user")
 		}
@@ -1459,6 +1543,14 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 	case "resource_groups":
 		m.openForm("Azure resource group filter", "sync_azure_resource_groups", []field{
 			{label: "Resource groups", description: "Comma-separated names; blank = all", value: strings.Join(m.metadata.Azure().ResourceGroupFilter, ", "), optional: true, placeholder: "production, staging"},
+		})
+	case "contexts":
+		m.openForm("DigitalOcean context filter", "sync_digitalocean_contexts", []field{
+			{label: "Contexts", description: "Comma-separated doctl auth contexts; blank = all", value: strings.Join(m.metadata.DigitalOcean().ContextFilter, ", "), optional: true, placeholder: "default, work"},
+		})
+	case "do_regions":
+		m.openForm("DigitalOcean region filter", "sync_digitalocean_regions", []field{
+			{label: "Regions", description: "Comma-separated region slugs; blank = all", value: strings.Join(m.metadata.DigitalOcean().RegionFilter, ", "), optional: true, placeholder: "nyc3, sfo3"},
 		})
 	case "sa_add":
 		m.openForm("Add service account key", "sync_gcp_sa_add", []field{
@@ -1546,6 +1638,33 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		m.form = nil
 		return m.setNotice("Azure resource group filter updated")
+	case "sync_digitalocean_user":
+		ocean := m.metadata.DigitalOcean()
+		ocean.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
+		if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default DigitalOcean SSH user updated")
+	case "sync_digitalocean_contexts":
+		ocean := m.metadata.DigitalOcean()
+		ocean.ContextFilter = splitCSV(values["Contexts"])
+		if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("DigitalOcean context filter updated")
+	case "sync_digitalocean_regions":
+		ocean := m.metadata.DigitalOcean()
+		ocean.RegionFilter = splitCSV(values["Regions"])
+		if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("DigitalOcean region filter updated")
 	case "sync_aws_user":
 		aws := m.metadata.AWS()
 		aws.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
@@ -1783,6 +1902,110 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			defer cancel()
 			result, err := m.syncer.DeleteUpstash(ctx, syncID)
 			return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
+		}
+	case "digitalocean_new":
+		name := strings.TrimSpace(values["Name"])
+		if name == "" {
+			if m.form != nil {
+				m.form.validationError = "name is required"
+			}
+			return nil
+		}
+		defaults := docloud.DefaultNewOpts()
+		region := strings.TrimSpace(values["Region"])
+		if region == "" {
+			region = defaults.Region
+		}
+		size := strings.TrimSpace(values["Size"])
+		if size == "" {
+			size = defaults.Size
+		}
+		image := strings.TrimSpace(values["Image"])
+		if image == "" {
+			image = defaults.Image
+		}
+		m.form = nil
+		if m.syncingProviders["digitalocean"] {
+			return m.setNotice("DigitalOcean operation already in progress")
+		}
+		opGen := m.beginProviderOp("digitalocean")
+		if m.section == syncSection {
+			m.beginSyncBusy("Creating droplet…")
+		} else {
+			m.syncActivity = "creating…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.NewDigitalOcean(ctx, docloud.NewOpts{
+				Name: name, Region: region, Size: size, Image: image, Context: values["Context"],
+			})
+			if err != nil {
+				return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "digitalocean", result: result, err: nil, focusAlias: alias, opGen: opGen}
+		}
+	case "digitalocean_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["digitalocean"] {
+			return m.setNotice("DigitalOcean operation already in progress")
+		}
+		opGen := m.beginProviderOp("digitalocean")
+		m.syncActivity = "powering off…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopDigitalOcean(ctx, syncID)
+			return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
+		}
+	case "digitalocean_fork":
+		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
+			if m.form != nil {
+				m.form.validationError = "type fork to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["digitalocean"] {
+			return m.setNotice("DigitalOcean operation already in progress")
+		}
+		opGen := m.beginProviderOp("digitalocean")
+		return tea.Batch(m.setNotice("Forking droplet…"), func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.ForkDigitalOcean(ctx, syncID)
+			if err != nil {
+				return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "digitalocean", result: result, focusAlias: alias, opGen: opGen}
+		})
+	case "digitalocean_delete":
+		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
+			if m.form != nil {
+				m.form.validationError = "type delete to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["digitalocean"] {
+			return m.setNotice("DigitalOcean operation already in progress")
+		}
+		opGen := m.beginProviderOp("digitalocean")
+		m.syncActivity = "deleting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteDigitalOcean(ctx, syncID)
+			return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
 		}
 	}
 	return nil

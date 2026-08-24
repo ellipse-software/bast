@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	awscloud "bast/internal/cloud/aws"
 	azurecloud "bast/internal/cloud/azure"
 	boxcloud "bast/internal/cloud/box"
+	docloud "bast/internal/cloud/digitalocean"
 	"bast/internal/cloud/gcp"
 	"bast/internal/metadata"
 	"bast/internal/paths"
@@ -63,13 +65,14 @@ func TestStatusDoesNotHoldProviderLocksDuringExternalProbes(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("status probe did not start")
 	}
-	if !engine.gcpMu.TryLock() || !engine.awsMu.TryLock() || !engine.azureMu.TryLock() {
+	if !engine.gcpMu.TryLock() || !engine.awsMu.TryLock() || !engine.azureMu.TryLock() || !engine.digitalOceanMu.TryLock() {
 		close(releaseProbe)
 		t.Fatal("status held a provider lock during an external probe")
 	}
 	engine.gcpMu.Unlock()
 	engine.awsMu.Unlock()
 	engine.azureMu.Unlock()
+	engine.digitalOceanMu.Unlock()
 	close(releaseProbe)
 	if err := <-done; err != nil {
 		t.Fatal(err)
@@ -262,6 +265,343 @@ func TestSyncAWSReconcileAndDisablePreservesGCP(t *testing.T) {
 	}
 	if strings.Contains(string(managed), "sync/aws/config") || !strings.Contains(string(managed), "sync/gcp/config") {
 		t.Fatalf("managed config after AWS disable:\n%s", managed)
+	}
+}
+
+func TestSyncDigitalOceanReconcileAndDisablePreservesGCP(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	engine.DigitalOcean.Run = fakeDigitalOceanCLI(t, map[string]any{
+		"id": 3164444, "name": "web", "status": "active",
+		"region":   map[string]string{"slug": "nyc3"},
+		"image":    map[string]string{"distribution": "Ubuntu", "slug": "ubuntu-24-04-x64"},
+		"networks": map[string]any{"v4": []any{map[string]string{"ip_address": "203.0.113.10", "type": "public"}}},
+	})
+	result, err := engine.SyncDigitalOcean(context.Background())
+	if err != nil || result.Count != 1 || result.Provider != docloud.ProviderName {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	hosts := mustDiscoverHosts(t, engine)
+	if len(hosts) != 1 || hosts[0].SyncSource != "digitalocean" {
+		t.Fatalf("hosts = %+v", hosts)
+	}
+	meta := store.Host(hosts[0].Alias)
+	if meta.Group != "DigitalOcean/default/nyc3" || meta.Label != "web" {
+		t.Fatalf("metadata = %+v", meta)
+	}
+	if err := engine.Config.EnsureSyncInclude(p.SyncGCPConfig); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.DisableDigitalOcean(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	managed, err := os.ReadFile(p.ManagedConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(managed), "sync/digitalocean/config") || !strings.Contains(string(managed), "sync/gcp/config") {
+		t.Fatalf("managed config after DigitalOcean disable:\n%s", managed)
+	}
+}
+
+func TestSyncDigitalOceanPreservesFailedContextInventory(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	failWork := false
+	engine.DigitalOcean.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		joined := strings.Join(args[1:], " ")
+		switch {
+		case joined == "version":
+			return []byte("doctl version 1.141.0"), nil
+		case strings.HasPrefix(joined, "auth list"):
+			return []byte(`[{"name":"default","current":true},{"name":"work","current":false}]`), nil
+		case strings.Contains(joined, "account get") && strings.Contains(joined, "--context work"):
+			if failWork {
+				return nil, errors.New("401 unauthorized")
+			}
+			return []byte(`{"uuid":"team-work"}`), nil
+		case strings.Contains(joined, "account get"):
+			return []byte(`{"uuid":"team-default"}`), nil
+		case strings.Contains(joined, "ssh-key list"):
+			return []byte(`[]`), nil
+		case strings.Contains(joined, "droplet list") && strings.Contains(joined, "--context work"):
+			return []byte(`[{"id":2,"name":"api","status":"active","region":{"slug":"sfo3"},"image":{"distribution":"Ubuntu"},"networks":{"v4":[{"ip_address":"203.0.113.20","type":"public"}]}}]`), nil
+		case strings.Contains(joined, "droplet list"):
+			return []byte(`[{"id":1,"name":"web","status":"active","region":{"slug":"nyc3"},"image":{"distribution":"Ubuntu"},"networks":{"v4":[{"ip_address":"203.0.113.10","type":"public"}]}}]`), nil
+		default:
+			t.Fatalf("unexpected doctl args: %v", args)
+			return nil, nil
+		}
+	}
+	first, err := engine.SyncDigitalOcean(context.Background())
+	if err != nil || first.Count != 2 {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	failWork = true
+	second, err := engine.SyncDigitalOcean(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Count != 2 || !strings.Contains(second.Error, "work") {
+		t.Fatalf("second = %+v", second)
+	}
+	hosts := mustDiscoverHosts(t, engine)
+	if len(hosts) != 2 {
+		t.Fatalf("hosts = %+v", hosts)
+	}
+}
+
+func TestSyncDigitalOceanPrunesFilteredRegion(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	engine.DigitalOcean.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		joined := strings.Join(args[1:], " ")
+		switch {
+		case joined == "version":
+			return []byte("doctl version 1.141.0"), nil
+		case strings.HasPrefix(joined, "auth list"):
+			return []byte(`[{"name":"default","current":true}]`), nil
+		case strings.Contains(joined, "account get"):
+			return []byte(`{"uuid":"acct-1"}`), nil
+		case strings.Contains(joined, "ssh-key list"):
+			return []byte(`[]`), nil
+		case strings.Contains(joined, "droplet list"):
+			return []byte(`[
+				{"id":1,"name":"nyc","status":"active","region":{"slug":"nyc3"},"image":{"distribution":"Ubuntu"},"networks":{"v4":[{"ip_address":"203.0.113.10","type":"public"}]}},
+				{"id":2,"name":"sfo","status":"active","region":{"slug":"sfo3"},"image":{"distribution":"Ubuntu"},"networks":{"v4":[{"ip_address":"203.0.113.11","type":"public"}]}}
+			]`), nil
+		default:
+			t.Fatalf("unexpected doctl args: %v", args)
+			return nil, nil
+		}
+	}
+	if _, err := engine.SyncDigitalOcean(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetDigitalOcean(metadata.DigitalOceanIntegration{Enabled: true, RegionFilter: []string{"nyc3"}}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := engine.SyncDigitalOcean(context.Background())
+	if err != nil || result.Count != 1 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	hosts := mustDiscoverHosts(t, engine)
+	if len(hosts) != 1 || hosts[0].Alias != "do_default_nyc3_nyc" {
+		t.Fatalf("hosts = %+v", hosts)
+	}
+}
+
+func TestEnsureDigitalOceanAccessDoesNotBlockBehindGCPSync(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	engine.gcpMu.Lock()
+	defer engine.gcpMu.Unlock()
+
+	started := make(chan struct{})
+	var once sync.Once
+	engine.DigitalOcean.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		once.Do(func() { close(started) })
+		joined := strings.Join(args[1:], " ")
+		switch {
+		case joined == "version":
+			return []byte("doctl version 1.141.0"), nil
+		case strings.HasPrefix(joined, "auth list"):
+			return []byte(`[{"name":"default","current":true}]`), nil
+		case strings.Contains(joined, "account get"):
+			return nil, errors.New("not authenticated")
+		default:
+			return nil, errors.New("unexpected: " + joined)
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- engine.EnsureDigitalOceanAccess(context.Background(), sshconfig.Host{
+			Synced: true, SyncSource: docloud.ProviderName, SyncID: "do:acct-1:1",
+		}, nil)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("EnsureDigitalOceanAccess blocked behind GCP lock")
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected DigitalOcean auth error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("EnsureDigitalOceanAccess did not finish")
+	}
+}
+
+func TestDigitalOceanLifecycleCreateStopResumeForkDelete(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	engine.DigitalOcean.PollInterval = time.Millisecond
+
+	type dropletState struct {
+		id     int
+		name   string
+		status string
+	}
+	droplets := map[int]dropletState{}
+	nextID := 10
+	var snapName string
+	encode := func(item dropletState) []byte {
+		public := "203.0.113.10"
+		if item.id != 10 {
+			public = "203.0.113.20"
+		}
+		body, err := json.Marshal(map[string]any{
+			"id": item.id, "name": item.name, "status": item.status, "size_slug": "s-1vcpu-1gb",
+			"region":   map[string]string{"slug": "nyc3"},
+			"image":    map[string]string{"distribution": "Ubuntu", "slug": "ubuntu-24-04-x64"},
+			"networks": map[string]any{"v4": []any{map[string]string{"ip_address": public, "type": "public"}}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	engine.DigitalOcean.Run = func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		joined := strings.Join(args[1:], " ")
+		switch {
+		case joined == "version":
+			return []byte("doctl version 1.141.0"), nil
+		case strings.HasPrefix(joined, "auth list"):
+			return []byte(`[{"name":"default","current":true}]`), nil
+		case strings.Contains(joined, "account get"):
+			return []byte(`{"uuid":"acct-1","team":{"uuid":"team-1"}}`), nil
+		case strings.Contains(joined, "ssh-key list"):
+			return []byte(`[{"id":9,"name":"laptop","public_key":"ssh-ed25519 AAAA laptop"}]`), nil
+		case strings.Contains(joined, "droplet create"):
+			id := nextID
+			nextID++
+			name := "web"
+			if strings.Contains(joined, "web-fork") {
+				name = "web-fork"
+			}
+			droplets[id] = dropletState{id: id, name: name, status: "active"}
+			return encode(droplets[id]), nil
+		case strings.Contains(joined, "droplet-action power-off"):
+			item := droplets[10]
+			item.status = "off"
+			droplets[10] = item
+			return []byte(`{"status":"completed"}`), nil
+		case strings.Contains(joined, "droplet-action power-on"):
+			item := droplets[10]
+			item.status = "active"
+			droplets[10] = item
+			return []byte(`{"status":"completed"}`), nil
+		case strings.Contains(joined, "droplet-action snapshot"):
+			if i := strings.Index(joined, "--snapshot-name "); i >= 0 {
+				snapName = strings.Fields(joined[i+len("--snapshot-name "):])[0]
+			}
+			return []byte(`{"status":"completed"}`), nil
+		case strings.Contains(joined, "droplet snapshots"):
+			return []byte(fmt.Sprintf(`[{"id":77,"name":%q}]`, snapName)), nil
+		case strings.Contains(joined, "droplet delete"):
+			delete(droplets, 10)
+			return nil, nil
+		case strings.Contains(joined, "droplet get"):
+			return encode(droplets[10]), nil
+		case strings.Contains(joined, "droplet list"):
+			var list []json.RawMessage
+			for _, item := range droplets {
+				list = append(list, encode(item))
+			}
+			body, err := json.Marshal(list)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return body, nil
+		default:
+			t.Fatalf("unexpected doctl args: %v", args)
+			return nil, nil
+		}
+	}
+
+	result, alias, err := engine.NewDigitalOcean(context.Background(), docloud.NewOpts{Name: "web"})
+	if err != nil || alias != "do_default_nyc3_web" || result.Count != 1 {
+		t.Fatalf("New = alias=%q result=%+v err=%v", alias, result, err)
+	}
+	syncID, err := engine.ResolveDigitalOceanSyncID(context.Background(), alias)
+	if err != nil || syncID != "do:team-1:10" {
+		t.Fatalf("Resolve = %q %v", syncID, err)
+	}
+	if _, err := engine.StopDigitalOcean(context.Background(), syncID); err != nil {
+		t.Fatal(err)
+	}
+	hosts := mustDiscoverHosts(t, engine)
+	if len(hosts) != 1 || !docloud.HostLooksStopped(store.Host(hosts[0].Alias).Tags, "") {
+		t.Fatalf("stopped hosts = %+v tags=%v", hosts, store.Host(hosts[0].Alias).Tags)
+	}
+	if _, err := engine.ResumeDigitalOcean(context.Background(), syncID); err != nil {
+		t.Fatal(err)
+	}
+	forkResult, forkAlias, err := engine.ForkDigitalOcean(context.Background(), syncID)
+	if err != nil || forkAlias != "do_default_nyc3_web-fork" || forkResult.Count != 2 {
+		t.Fatalf("Fork = alias=%q result=%+v err=%v", forkAlias, forkResult, err)
+	}
+	if _, err := engine.DeleteDigitalOcean(context.Background(), syncID); err != nil {
+		t.Fatal(err)
+	}
+	hosts = mustDiscoverHosts(t, engine)
+	if len(hosts) != 1 || hosts[0].Alias != forkAlias {
+		t.Fatalf("after delete hosts = %+v", hosts)
+	}
+}
+
+func fakeDigitalOceanCLI(t *testing.T, droplet map[string]any) func(context.Context, []string, []string) ([]byte, error) {
+	t.Helper()
+	body, err := json.Marshal([]any{droplet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return func(ctx context.Context, args []string, env []string) ([]byte, error) {
+		joined := strings.Join(args[1:], " ")
+		switch {
+		case joined == "version":
+			return []byte("doctl version 1.141.0"), nil
+		case strings.HasPrefix(joined, "auth list"):
+			return []byte(`[{"name":"default","current":true}]`), nil
+		case strings.Contains(joined, "account get"):
+			return []byte(`{"uuid":"acct-1","team":{"uuid":"team-1"}}`), nil
+		case strings.Contains(joined, "ssh-key list"):
+			return []byte(`[]`), nil
+		case strings.Contains(joined, "droplet list"), strings.Contains(joined, "droplet get"):
+			return body, nil
+		default:
+			t.Fatalf("unexpected doctl args: %v", args)
+			return nil, nil
+		}
 	}
 }
 
@@ -595,7 +935,8 @@ func TestIsSyncedGroup(t *testing.T) {
 	if !IsSyncedGroup("Google Cloud") || !IsSyncedGroup("Google Cloud/demo") ||
 		!IsSyncedGroup("GCP") || !IsSyncedGroup("GCP/demo") ||
 		!IsSyncedGroup("Amazon EC2") || !IsSyncedGroup("Amazon EC2/default") ||
-		!IsSyncedGroup("AWS/default") || !IsSyncedGroup("Box") || !IsSyncedGroup("Box/Running") ||
+		!IsSyncedGroup("AWS/default") || !IsSyncedGroup("DigitalOcean") ||
+		!IsSyncedGroup("DigitalOcean/default/nyc3") || !IsSyncedGroup("Box") || !IsSyncedGroup("Box/Running") ||
 		IsSyncedGroup("Work") {
 		t.Fatal("IsSyncedGroup mismatch")
 	}

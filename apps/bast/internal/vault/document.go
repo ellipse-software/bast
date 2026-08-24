@@ -49,10 +49,11 @@ type Tombstones struct {
 
 // VaultIntegrations stores sync settings without credentials or last-sync telemetry.
 type VaultIntegrations struct {
-	GCP     *VaultGCPIntegration     `json:"gcp,omitempty"`
-	AWS     *VaultAWSIntegration     `json:"aws,omitempty"`
-	Azure   *VaultAzureIntegration   `json:"azure,omitempty"`
-	Upstash *VaultUpstashIntegration `json:"upstash,omitempty"`
+	GCP          *VaultGCPIntegration          `json:"gcp,omitempty"`
+	AWS          *VaultAWSIntegration          `json:"aws,omitempty"`
+	Azure        *VaultAzureIntegration        `json:"azure,omitempty"`
+	DigitalOcean *VaultDigitalOceanIntegration `json:"digitalocean,omitempty"`
+	Upstash      *VaultUpstashIntegration      `json:"upstash,omitempty"`
 }
 
 type VaultGCPIntegration struct {
@@ -76,6 +77,14 @@ type VaultAzureIntegration struct {
 	ResourceGroupFilter []string `json:"resourceGroupFilter,omitempty"`
 	DefaultSSHUser      string   `json:"defaultSshUser,omitempty"`
 	AutoSync            bool     `json:"autoSync,omitempty"`
+}
+
+type VaultDigitalOceanIntegration struct {
+	Enabled        bool     `json:"enabled"`
+	ContextFilter  []string `json:"contextFilter,omitempty"`
+	RegionFilter   []string `json:"regionFilter,omitempty"`
+	DefaultSSHUser string   `json:"defaultSshUser,omitempty"`
+	AutoSync       bool     `json:"autoSync,omitempty"`
 }
 
 type VaultUpstashIntegration struct {

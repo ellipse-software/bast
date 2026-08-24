@@ -81,6 +81,30 @@ func TestAzureIntegrationRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDigitalOceanIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetDigitalOcean(DigitalOceanIntegration{
+		Enabled: true, AutoSync: true, DefaultSSHUser: "root",
+		ContextFilter: []string{"work"}, RegionFilter: []string{"nyc3"}, LastInstanceCount: 6,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ocean := reopened.DigitalOcean()
+	if !ocean.Enabled || !ocean.AutoSync || ocean.DefaultSSHUser != "root" || ocean.LastInstanceCount != 6 ||
+		len(ocean.ContextFilter) != 1 || ocean.ContextFilter[0] != "work" ||
+		len(ocean.RegionFilter) != 1 || ocean.RegionFilter[0] != "nyc3" {
+		t.Fatalf("digitalocean = %+v", ocean)
+	}
+}
+
 func TestBoxIntegrationRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	store, err := Open(path)

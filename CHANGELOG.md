@@ -6,11 +6,16 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- DigitalOcean Droplet sync and lifecycle through `doctl`: create, power off, power on, fork, and delete. Powered-off Droplets stay in inventory and hide until `.`. Power-off keeps disk billing.
 - Script installers accept `BAST_VERSION` (stable) and `BAST_NIGHTLY_VERSION` (nightly) to install a specific GitHub release.
 
 ### Changed
 
 - Homebrew formulae compile Bast from source instead of installing prebuilt release archives.
+
+### Fixed
+
+- Empty cloud provider groups stay out of Hosts until a visible host exists. Hidden or stopped hosts still bring the group back with `.`.
 
 ## v0.9.3 - 2026-08-23
 

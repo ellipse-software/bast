@@ -204,6 +204,19 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 		ensure = m.syncer.EnsureAWSAccess
 	case "azure":
 		ensure = m.syncer.EnsureAzureAccess
+	case "digitalocean":
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Powering on droplet…")
+				}
+				if err := m.syncer.DigitalOcean.Start(ctx, host.SyncID); err != nil {
+					return err
+				}
+				_, _ = m.syncer.SyncDigitalOcean(ctx)
+			}
+			return m.syncer.EnsureDigitalOceanAccess(ctx, host, status)
+		}
 	case "box":
 		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
 			if m.hostLooksStopped(host) {

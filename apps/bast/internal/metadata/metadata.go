@@ -92,6 +92,17 @@ type AzureIntegration struct {
 	LastInstanceCount   int        `json:"lastInstanceCount,omitempty"`
 }
 
+type DigitalOceanIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	ContextFilter     []string   `json:"contextFilter,omitempty"`
+	RegionFilter      []string   `json:"regionFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
 type BoxIntegration struct {
 	Enabled           bool       `json:"enabled"`
 	AutoSync          bool       `json:"autoSync,omitempty"`
@@ -111,11 +122,12 @@ type UpstashIntegration struct {
 }
 
 type Integrations struct {
-	GCP     *GCPIntegration     `json:"gcp,omitempty"`
-	AWS     *AWSIntegration     `json:"aws,omitempty"`
-	Azure   *AzureIntegration   `json:"azure,omitempty"`
-	Box     *BoxIntegration     `json:"box,omitempty"`
-	Upstash *UpstashIntegration `json:"upstash,omitempty"`
+	GCP          *GCPIntegration          `json:"gcp,omitempty"`
+	AWS          *AWSIntegration          `json:"aws,omitempty"`
+	Azure        *AzureIntegration        `json:"azure,omitempty"`
+	DigitalOcean *DigitalOceanIntegration `json:"digitalocean,omitempty"`
+	Box          *BoxIntegration          `json:"box,omitempty"`
+	Upstash      *UpstashIntegration      `json:"upstash,omitempty"`
 }
 
 type State struct {
@@ -569,6 +581,34 @@ func (s *Store) SetAzure(azure AzureIntegration) error {
 	return nil
 }
 
+func (s *Store) DigitalOcean() DigitalOceanIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.DigitalOcean == nil {
+		return DigitalOceanIntegration{}
+	}
+	return cloneDigitalOcean(*s.state.Integrations.DigitalOcean)
+}
+
+func (s *Store) SetDigitalOcean(ocean DigitalOceanIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.DigitalOcean
+	if !ocean.Enabled && len(ocean.ContextFilter) == 0 && len(ocean.RegionFilter) == 0 &&
+		ocean.DefaultSSHUser == "" && !ocean.AutoSync && ocean.LastSyncAt == nil &&
+		ocean.LastSyncError == "" && ocean.LastInstanceCount == 0 {
+		s.state.Integrations.DigitalOcean = nil
+	} else {
+		copy := cloneDigitalOcean(ocean)
+		s.state.Integrations.DigitalOcean = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.DigitalOcean = previous
+		return err
+	}
+	return nil
+}
+
 func (s *Store) Box() BoxIntegration {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -692,6 +732,16 @@ func cloneAzure(azure AzureIntegration) AzureIntegration {
 	return azure
 }
 
+func cloneDigitalOcean(ocean DigitalOceanIntegration) DigitalOceanIntegration {
+	ocean.ContextFilter = append([]string(nil), ocean.ContextFilter...)
+	ocean.RegionFilter = append([]string(nil), ocean.RegionFilter...)
+	if ocean.LastSyncAt != nil {
+		lastSyncAt := *ocean.LastSyncAt
+		ocean.LastSyncAt = &lastSyncAt
+	}
+	return ocean
+}
+
 func cloneBox(box BoxIntegration) BoxIntegration {
 	if box.LastSyncAt != nil {
 		lastSyncAt := *box.LastSyncAt
@@ -721,6 +771,10 @@ func cloneIntegrations(integrations Integrations) Integrations {
 	if integrations.Azure != nil {
 		azure := cloneAzure(*integrations.Azure)
 		out.Azure = &azure
+	}
+	if integrations.DigitalOcean != nil {
+		ocean := cloneDigitalOcean(*integrations.DigitalOcean)
+		out.DigitalOcean = &ocean
 	}
 	if integrations.Box != nil {
 		box := cloneBox(*integrations.Box)

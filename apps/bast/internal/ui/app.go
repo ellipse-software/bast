@@ -130,7 +130,6 @@ type hostRowsCache struct {
 	search             string
 	showHidden         bool
 	hostSignature      uint64
-	boxEnabled         bool
 	rows               []hostRow
 }
 
@@ -140,7 +139,6 @@ type hostListRowsCache struct {
 	collapseGeneration uint64
 	search             string
 	showHidden         bool
-	boxEnabled         bool
 	hostSignature      uint64
 	historyCollapsed   bool
 	suggestionSig      uint64
@@ -241,7 +239,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncDigitalOceanConfig: p.SyncDigitalOceanConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig,
 		},
 		openSSH:          client,
 		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
@@ -308,12 +306,14 @@ func (m *App) syncCompletionNotice(provider string, count int) string {
 	gcp := m.metadata.GCP()
 	aws := m.metadata.AWS()
 	azure := m.metadata.Azure()
+	ocean := m.metadata.DigitalOcean()
 	box := m.metadata.Box()
 	upstash := m.metadata.Upstash()
 	providers := []providerCount{
 		{id: "gcp", name: "GCP", enabled: gcp.Enabled, count: gcp.LastInstanceCount},
 		{id: "aws", name: "AWS", enabled: aws.Enabled, count: aws.LastInstanceCount},
 		{id: "azure", name: "Azure", enabled: azure.Enabled, count: azure.LastInstanceCount},
+		{id: "digitalocean", name: "DigitalOcean", enabled: ocean.Enabled, count: ocean.LastInstanceCount},
 		{id: "box", name: "Box", enabled: box.Enabled, count: box.LastInstanceCount},
 		{id: "upstash", name: "Upstash", enabled: upstash.Enabled, count: upstash.LastInstanceCount},
 	}
@@ -362,6 +362,10 @@ func (m *App) autoSyncCmds() tea.Cmd {
 	if m.metadata.Azure().Enabled && m.metadata.Azure().AutoSync && !m.syncingProviders["azure"] {
 		m.beginProviderOp("azure")
 		autoSyncCmds = append(autoSyncCmds, m.syncAzureCmd())
+	}
+	if m.metadata.DigitalOcean().Enabled && m.metadata.DigitalOcean().AutoSync && !m.syncingProviders["digitalocean"] {
+		m.beginProviderOp("digitalocean")
+		autoSyncCmds = append(autoSyncCmds, m.syncDigitalOceanCmd())
 	}
 	if box := m.metadata.Box(); !box.Disabled && !m.syncingProviders["box"] {
 		if box.Enabled && box.AutoSync {

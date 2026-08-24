@@ -43,7 +43,7 @@ export const securecrtComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud hosts",
-      bast: "Import via GCP, AWS, Azure, and box.ascii.dev CLIs",
+      bast: "Import via GCP, AWS, Azure, DigitalOcean, and box.ascii.dev CLIs",
       competitor: "Manual or scripted session maintenance",
     },
     {

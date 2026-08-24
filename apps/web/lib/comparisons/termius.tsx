@@ -43,7 +43,7 @@ export const termiusComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud hosts",
-      bast: "Import from GCP, AWS, Azure, and box.ascii.dev via their CLIs",
+      bast: "Import from GCP, AWS, Azure, DigitalOcean, and box.ascii.dev via their CLIs",
       competitor: "Mostly manual host setup",
     },
     {
@@ -129,7 +129,7 @@ export const termiusComparison: ComparisonCaseStudy = {
       title: "Cloud hosts without spreadsheet busywork",
       paragraphs: [
         <>
-          Bast imports live inventory from GCP, AWS, Azure, and box.ascii.dev through each
+          Bast imports live inventory from GCP, AWS, Azure, DigitalOcean, and box.ascii.dev through each
           provider&apos;s CLI. Synced hosts stay read-only and owned by the
           cloud. When an instance disappears upstream, sync removes it locally
           instead of leaving stale GUI bookmarks behind.

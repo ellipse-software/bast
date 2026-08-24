@@ -58,16 +58,17 @@ type HostInput struct {
 }
 
 type Manager struct {
-	Home              string
-	MainConfig        string
-	ManagedDir        string
-	ManagedConfig     string
-	ManagedKeys       string
-	SyncGCPConfig     string
-	SyncAWSConfig     string
-	SyncAzureConfig   string
-	SyncBoxConfig     string
-	SyncUpstashConfig string
+	Home                   string
+	MainConfig             string
+	ManagedDir             string
+	ManagedConfig          string
+	ManagedKeys            string
+	SyncGCPConfig          string
+	SyncAWSConfig          string
+	SyncAzureConfig        string
+	SyncDigitalOceanConfig string
+	SyncBoxConfig          string
+	SyncUpstashConfig      string
 }
 
 type SyncHostInput struct {

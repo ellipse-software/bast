@@ -173,6 +173,15 @@ func packIntegrations(in metadata.Integrations) VaultIntegrations {
 			AutoSync:            in.Azure.AutoSync,
 		}
 	}
+	if in.DigitalOcean != nil {
+		out.DigitalOcean = &VaultDigitalOceanIntegration{
+			Enabled:        in.DigitalOcean.Enabled,
+			ContextFilter:  append([]string(nil), in.DigitalOcean.ContextFilter...),
+			RegionFilter:   append([]string(nil), in.DigitalOcean.RegionFilter...),
+			DefaultSSHUser: in.DigitalOcean.DefaultSSHUser,
+			AutoSync:       in.DigitalOcean.AutoSync,
+		}
+	}
 	if in.Upstash != nil {
 		out.Upstash = &VaultUpstashIntegration{
 			Enabled:  in.Upstash.Enabled,
