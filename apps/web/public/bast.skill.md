@@ -160,7 +160,7 @@ bast hetzner stop <host|id> [--force]
 bast hetzner restart <host|id> [--force]
 ```
 
-In the TUI, powered-off Hetzner servers are hidden until `.`. Enter starts then connects. `o` ACPI-shuts down (still bills). `R` reboots. `--force` is a hard poweroff/reset. Default SSH user is `root` on port 22; sync reuses user/port/identity from an existing local host with the same IP, and probes 2022/2222 when 22 is closed. Tokens: `~/.config/bast/hetzner/tokens/<name>` (not vaulted). One token per Hetzner Cloud project. Prefer private IP for VPN/Cloud Network SSH. Docs: https://bast.sh/docs/features/hetzner
+In the TUI, powered-off Hetzner servers are hidden until `.`. If every server is off, the Hetzner Cloud group is hidden too. Enter starts then connects. `o` ACPI-shuts down (still bills). `R` reboots. `--force` is a hard poweroff/reset. Default SSH user is `root` on port 22; sync reuses user/port/identity from an existing local host with the same IP, and probes 2022/2222 when 22 is closed. Tokens: `~/.config/bast/hetzner/tokens/<name>` (not vaulted). One token per Hetzner Cloud project. Prefer private IP for VPN/Cloud Network SSH. Docs: https://bast.sh/docs/features/hetzner
 
 ## Files (SFTP)
 

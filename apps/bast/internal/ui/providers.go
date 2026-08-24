@@ -40,15 +40,10 @@ func (m *App) shouldInjectProviderRoot(kind cloud.Kind) bool {
 	if _, ok := cloud.DescriptorForKind(kind); !ok {
 		return false
 	}
-	if cloud.CapabilitiesFor(kind).Create && m.providerEnabled(kind) {
-		return true
-	}
-	for _, host := range m.hosts {
-		if host.Synced && host.SyncSource == string(kind) {
-			return true
-		}
-	}
-	return false
+	// Create-capable providers keep an empty group so n can mint a VM.
+	// Hetzner and the hyperscalers only appear when a visible host exists;
+	// stopped-only inventory stays hidden until `.`.
+	return cloud.CapabilitiesFor(kind).Create && m.providerEnabled(kind)
 }
 
 func (m *App) providerGroupStats(group string) (running, stopped int) {

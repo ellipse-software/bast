@@ -2944,6 +2944,71 @@ func TestStoppedBoxHiddenUntilToggled(t *testing.T) {
 	}
 }
 
+func TestHetznerGroupHiddenWhenEveryServerIsOff(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "hetzner_off", Synced: true, SyncSource: "hetzner", SyncID: "hetzner/1",
+		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "root"},
+	}}
+	if err := m.metadata.SetHetzner(metadata.HetznerIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("hetzner_off", metadata.Host{Label: "vpn", Group: "Hetzner Cloud/ted.ac/nbg1", Tags: []string{"state:off"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.collapsedGroups = map[string]bool{}
+
+	for _, row := range m.hostRows() {
+		if strings.HasPrefix(row.group, "Hetzner Cloud") || row.label == "Hetzner Cloud" || (!row.header && row.host.Alias == "hetzner_off") {
+			t.Fatalf("stopped-only Hetzner inventory should hide the group, row=%+v", row)
+		}
+	}
+
+	m.showHidden = true
+	var sawGroup, sawHost bool
+	for _, row := range m.hostRows() {
+		if row.header && strings.HasPrefix(row.group, "Hetzner Cloud") {
+			sawGroup = true
+		}
+		if !row.header && row.host.Alias == "hetzner_off" {
+			sawHost = true
+		}
+	}
+	if !sawGroup || !sawHost {
+		t.Fatalf(". should reveal the Hetzner group and off server, group=%v host=%v", sawGroup, sawHost)
+	}
+
+	m.showHidden = false
+	m.hosts = append(m.hosts, sshconfig.Host{
+		Alias: "hetzner_on", Synced: true, SyncSource: "hetzner", SyncID: "hetzner/2",
+		Resolved: sshconfig.Resolved{HostName: "203.0.113.11", User: "root"},
+	})
+	if err := m.metadata.SetHost("hetzner_on", metadata.Host{Label: "web", Group: "Hetzner Cloud/ted.ac/nbg1", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	sawGroup, sawHost, sawOff := false, false, false
+	for _, row := range m.hostRows() {
+		if row.header && strings.HasPrefix(row.group, "Hetzner Cloud") {
+			sawGroup = true
+		}
+		if row.header {
+			continue
+		}
+		switch row.host.Alias {
+		case "hetzner_on":
+			sawHost = true
+		case "hetzner_off":
+			sawOff = true
+		}
+	}
+	if !sawGroup || !sawHost {
+		t.Fatal("a running server should show the Hetzner group")
+	}
+	if sawOff {
+		t.Fatal("off servers stay hidden while a running one is visible")
+	}
+}
+
 func TestBoxResumeActionsAreStateAware(t *testing.T) {
 	m := testApp(t)
 	running := sshconfig.Host{
