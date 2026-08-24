@@ -179,5 +179,16 @@ func packIntegrations(in metadata.Integrations) VaultIntegrations {
 			AutoSync: in.Upstash.AutoSync,
 		}
 	}
+	if in.Hetzner != nil {
+		out.Hetzner = &VaultHetznerIntegration{
+			Enabled:         in.Hetzner.Enabled,
+			AutoSync:        in.Hetzner.AutoSync,
+			DefaultSSHUser:  in.Hetzner.DefaultSSHUser,
+			DefaultSSHPort:  in.Hetzner.DefaultSSHPort,
+			PreferPrivateIP: in.Hetzner.PreferPrivateIP,
+			ContextFilter:   append([]string(nil), in.Hetzner.ContextFilter...),
+			LocationFilter:  append([]string(nil), in.Hetzner.LocationFilter...),
+		}
+	}
 	return out
 }

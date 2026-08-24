@@ -161,6 +161,19 @@ func applyIntegrations(store *metadata.Store, in VaultIntegrations) error {
 			return err
 		}
 	}
+	if in.Hetzner != nil {
+		cur := store.Hetzner()
+		cur.Enabled = in.Hetzner.Enabled
+		cur.AutoSync = in.Hetzner.AutoSync
+		cur.DefaultSSHUser = in.Hetzner.DefaultSSHUser
+		cur.DefaultSSHPort = in.Hetzner.DefaultSSHPort
+		cur.PreferPrivateIP = in.Hetzner.PreferPrivateIP
+		cur.ContextFilter = append([]string(nil), in.Hetzner.ContextFilter...)
+		cur.LocationFilter = append([]string(nil), in.Hetzner.LocationFilter...)
+		if err := store.SetHetzner(cur); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

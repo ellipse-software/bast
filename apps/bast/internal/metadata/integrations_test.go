@@ -134,3 +134,28 @@ func TestUpstashIntegrationRoundTrip(t *testing.T) {
 		t.Fatalf("disabled upstash = %+v", reopened.Upstash())
 	}
 }
+
+func TestHetznerIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetHetzner(HetznerIntegration{
+		Enabled: true, AutoSync: true, DefaultSSHUser: "root", DefaultSSHPort: "2022", PreferPrivateIP: true,
+		ContextFilter: []string{"prod"}, LocationFilter: []string{"fsn1"}, LastInstanceCount: 6,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reopened.Hetzner()
+	if !got.Enabled || !got.AutoSync || got.DefaultSSHUser != "root" || got.DefaultSSHPort != "2022" ||
+		!got.PreferPrivateIP || got.LastInstanceCount != 6 ||
+		len(got.ContextFilter) != 1 || got.ContextFilter[0] != "prod" ||
+		len(got.LocationFilter) != 1 || got.LocationFilter[0] != "fsn1" {
+		t.Fatalf("hetzner = %+v", got)
+	}
+}

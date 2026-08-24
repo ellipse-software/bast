@@ -21,6 +21,8 @@ func TestKindForGroup(t *testing.T) {
 		{"Box/Running", Box, true},
 		{"Upstash", Upstash, true},
 		{"Upstash/dev", Upstash, true},
+		{"Hetzner Cloud", Hetzner, true},
+		{"Hetzner Cloud/prod/fsn1", Hetzner, true},
 		{"Work", "", false},
 		{"Boxing", "", false},
 		{"", "", false},
@@ -45,6 +47,10 @@ func TestKindForSource(t *testing.T) {
 	if !ok || kind != Upstash {
 		t.Fatalf("KindForSource(upstash) = %q, %t", kind, ok)
 	}
+	kind, ok = KindForSource("hetzner")
+	if !ok || kind != Hetzner {
+		t.Fatalf("KindForSource(hetzner) = %q, %t", kind, ok)
+	}
 	if _, ok := KindForSource("digitalocean"); ok {
 		t.Fatal("unknown source should not match")
 	}
@@ -59,6 +65,10 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 	if !upstash.Create || !upstash.Stop || !upstash.Start || !upstash.Fork || !upstash.Delete {
 		t.Fatalf("upstash caps = %+v", upstash)
 	}
+	hetzner := CapabilitiesFor(Hetzner)
+	if hetzner.Create || !hetzner.Stop || !hetzner.Start || !hetzner.Restart || hetzner.Fork || hetzner.Delete {
+		t.Fatalf("hetzner caps = %+v", hetzner)
+	}
 	for _, kind := range []Kind{GCP, AWS, Azure} {
 		if caps := CapabilitiesFor(kind); caps != (Capabilities{}) {
 			t.Fatalf("%s caps = %+v; want empty", kind, caps)
@@ -67,7 +77,7 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 }
 
 func TestIsProviderRoot(t *testing.T) {
-	if !IsProviderRoot("Box") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") {
+	if !IsProviderRoot("Box") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") || !IsProviderRoot("Hetzner Cloud") {
 		t.Fatal("expected roots to match")
 	}
 	if IsProviderRoot("Google Cloud/demo") || IsProviderRoot("Box/Running") || IsProviderRoot("Work") {
@@ -86,7 +96,7 @@ func TestDescriptorsCoverEveryKind(t *testing.T) {
 		}
 		seen[d.Kind] = true
 	}
-	for _, kind := range []Kind{GCP, AWS, Azure, Box, Upstash} {
+	for _, kind := range []Kind{GCP, AWS, Azure, Box, Upstash, Hetzner} {
 		if !seen[kind] {
 			t.Fatalf("missing descriptor for %s", kind)
 		}

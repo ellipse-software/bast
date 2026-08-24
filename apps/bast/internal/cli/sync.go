@@ -12,7 +12,7 @@ import (
 
 func (r *Runner) sync(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|box|upstash|status|disable>")
+		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|box|upstash|hetzner|status|disable>")
 		return nil
 	}
 	engine := sync.New(r.Paths, r.store)
@@ -27,6 +27,8 @@ func (r *Runner) sync(args []string) error {
 		return r.syncBox(engine, args[1:])
 	case "upstash":
 		return r.syncUpstash(engine, args[1:])
+	case "hetzner":
+		return r.syncHetzner(engine, args[1:])
 	case "status":
 		return r.syncStatus(engine, args[1:])
 	case "disable":
@@ -76,6 +78,29 @@ func (r *Runner) syncUpstash(engine *sync.Engine, args []string) error {
 	}
 	telemetry.Track("sync_upstash", r.Version)
 	msg := fmt.Sprintf("Synced %d Upstash boxes", result.Count)
+	if result.Error != "" {
+		msg += "\nWarning: " + result.Error
+	}
+	return r.success(result, msg)
+}
+
+func (r *Runner) syncHetzner(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync hetzner")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync hetzner")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	result, err := engine.SyncHetzner(ctx)
+	if err != nil {
+		telemetry.Track("sync_hetzner_fail", r.Version)
+		return fail("sync_failed", err.Error())
+	}
+	telemetry.Track("sync_hetzner", r.Version)
+	msg := fmt.Sprintf("Synced %d Hetzner servers", result.Count)
 	if result.Error != "" {
 		msg += "\nWarning: " + result.Error
 	}
@@ -325,6 +350,45 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if upstash.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", upstash.LastSyncError)
 	}
+	hetzner := status.Hetzner
+	fmt.Fprintln(r.Out, "Hetzner")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", hetzner.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", hetzner.AutoSync)
+	if hetzner.Error != "" {
+		fmt.Fprintf(r.Out, "  API: %s\n", hetzner.Error)
+	} else if hetzner.Authenticated {
+		fmt.Fprintln(r.Out, "  Account: authenticated")
+	} else if hetzner.HasToken {
+		fmt.Fprintln(r.Out, "  Account: token stored")
+	} else {
+		fmt.Fprintln(r.Out, "  Account: no API token")
+	}
+	if len(hetzner.Contexts) > 0 {
+		fmt.Fprintf(r.Out, "  Contexts: %s\n", strings.Join(hetzner.Contexts, ", "))
+	}
+	if len(hetzner.ContextFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Context filter: %s\n", strings.Join(hetzner.ContextFilter, ", "))
+	}
+	if len(hetzner.LocationFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Location filter: %s\n", strings.Join(hetzner.LocationFilter, ", "))
+	}
+	if hetzner.DefaultSSHUser != "" {
+		fmt.Fprintf(r.Out, "  Default SSH user: %s\n", hetzner.DefaultSSHUser)
+	}
+	if hetzner.DefaultSSHPort != "" {
+		fmt.Fprintf(r.Out, "  Default SSH port: %s\n", hetzner.DefaultSSHPort)
+	}
+	if hetzner.PreferPrivateIP {
+		fmt.Fprintln(r.Out, "  SSH address: private Cloud Network first")
+	}
+	if hetzner.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d servers)\n", hetzner.LastSyncAt.Local().Format(time.RFC3339), hetzner.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if hetzner.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", hetzner.LastSyncError)
+	}
 	return nil
 }
 
@@ -334,10 +398,10 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 1 {
-		return usagef("usage: bast sync disable <gcp|aws|azure|box|upstash>")
+		return usagef("usage: bast sync disable <gcp|aws|azure|box|upstash|hetzner>")
 	}
 	provider := fs.Arg(0)
-	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "box" && provider != "upstash" {
+	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "box" && provider != "upstash" && provider != "hetzner" {
 		return usagef("unknown sync provider %q", provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -354,6 +418,8 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		err = engine.DisableBox(ctx)
 	case "upstash":
 		err = engine.DisableUpstash(ctx)
+	case "hetzner":
+		err = engine.DisableHetzner(ctx)
 	}
 	if err != nil {
 		return fail("sync_disable", err.Error())

@@ -1,0 +1,124 @@
+---
+title: Hetzner Cloud
+description: Import Hetzner Cloud servers into Bast over the Cloud API, then start, stop, and restart them.
+---
+
+The **Sync** tab (`4`) imports [Hetzner Cloud](https://docs.hetzner.cloud/) servers into Bast. Synced hosts show up in the host picker under **Hetzner Cloud**. Bast talks to Hetzner over the Cloud REST API. There is no `hcloud` CLI to install.
+
+Connection settings, group, and label stay owned by sync. You can start, stop, and restart servers from Bast. Create, rebuild, and delete stay in the Hetzner Console.
+
+## Requirements
+
+- A [Hetzner Cloud API token](https://docs.hetzner.com/cloud/api/getting-started/generating-api-token/) for the project
+- Network access to `https://api.hetzner.cloud/v1`
+- A local private key matching an SSH key attached to the server, or an agent identity the guest already trusts
+
+A **read-only** token is enough to sync and connect. Start, stop, and restart need a **Read & Write** token.
+
+Each token is bound to one Hetzner Cloud project. Add one named token per project. Bast also reads `HCLOUD_TOKEN` and `hcloud` CLI contexts if present.
+
+## Connect Hetzner
+
+1. Open Bast and press `4` for Sync.
+2. Select **Hetzner Cloud** and press Enter.
+3. Choose **Connect** or **Add API token**. Give the token a project name and paste it.
+
+Bast writes each token to `~/.config/bast/hetzner/tokens/<name>` (mode `0600`). Tokens are not stored in SSH config, `state.json`, or Vault. Disconnect leaves the token files in place.
+
+You can also set `HCLOUD_TOKEN`. Bast does not copy that environment variable into a token file.
+
+CLI:
+
+```bash
+bast hetzner key --name prod
+bast hetzner key --name staging --key-file path
+bast hetzner key --remove staging
+bast sync hetzner
+bast sync status
+bast sync disable hetzner
+```
+
+## What gets created
+
+Each server becomes an SSH host under:
+
+```
+~/.ssh/bast/sync/hetzner/config
+```
+
+The host picker groups servers by token context and location:
+
+```
+Hetzner Cloud / <context> / <location>
+  server-name
+```
+
+Powered-off servers stay in the same group and are hidden from the host list until you press `.`. Search still finds them.
+
+Windows images are skipped. Servers with only a private Cloud Network address stay in the list. SSH uses that private IP; you need a VPN or other route into the network.
+
+## How Bast connects
+
+On connect (TUI Enter or `bast connect` / `bast <label>`), Bast confirms the server, refreshes the address, then launches your system `ssh`.
+
+| Situation | Behavior |
+| --- | --- |
+| Public IPv4 | Direct OpenSSH to that address |
+| IPv6 only | Direct OpenSSH to `network::1` |
+| Private Cloud Network only | Direct OpenSSH to the private IP (VPN or private route required) |
+| Public and private, **Prefer private IP** on | Uses the Cloud Network IP |
+| Existing local host with the same IP | Reuses that host's user, port, and identity |
+| SSH on 2022 or 2222, port 22 closed | Writes `Port` after probing on connect, and on later syncs |
+| Label `ssh-port` / `ssh_port` / `bast.ssh-port` | Uses that port |
+| Matching attached SSH key exists locally | Uses that private key with `IdentitiesOnly yes` |
+| Server omits attached keys, project key matches locally | Prefers that key without `IdentitiesOnly` |
+| No matching local key | Connects with user `root` (or **Default SSH user**) and OpenSSH's usual identities |
+| Server is off | Enter starts it, waits until it is running, then SSHes |
+
+Official Hetzner images inject SSH keys for **root** on port 22. Custom images often use another account or port. If you already have a working host for that IP (for example `User ted` and `Port 2022`), sync copies those settings. Otherwise set **Default SSH user** / **Default SSH port**, or label the server `ssh-port=2022`.
+
+Bast cannot publish a new key onto a running Hetzner server. Attach the key in the Hetzner Console at create time, or add it on the guest yourself.
+
+## Power control
+
+Hetzner still bills a Cloud server while it is powered off.
+
+| Action | What Hetzner does |
+| --- | --- |
+| Start (`r` / `bast hetzner start`) | `POST /servers/{id}/actions/poweron` |
+| Stop (`o` / `bast hetzner stop`) | ACPI `shutdown`. `--force` is a hard `poweroff` |
+| Restart (`R` / `bast hetzner restart`) | ACPI `reboot`. `--force` is a hard `reset` |
+
+ACPI success means the signal was sent, not that the guest finished. Bast waits for the server status to become `off` or `running`. If the guest ignores ACPI, use `--force`. Bast never escalates to a hard poweroff on its own.
+
+## Hetzner settings
+
+Inside the Hetzner Cloud submenu:
+
+| Action | Purpose |
+| --- | --- |
+| Sync now | Re-run discovery and refresh SSH config |
+| Connect / Disconnect | Enable sync, or turn it off and remove generated hosts |
+| Enable / Disable auto-sync | Sync when the TUI opens (off by default) |
+| Add API token | Store another project token under `~/.config/bast/hetzner/tokens/<name>` |
+| Remove API token | Delete a stored project token |
+| Prefer private IP | SSH to the Cloud Network address when the server has one (for VPN) |
+| Default SSH user | Override `root` |
+| Default SSH port | Override 22 when the whole project uses another port |
+| Context filter | Comma-separated context names; blank = all tokens |
+| Location filter | Comma-separated locations such as `fsn1`, `nbg1`; blank = all |
+| Refresh status | Reload contexts and last-sync information |
+
+## CLI
+
+```bash
+bast sync hetzner
+bast hetzner start <host|id>
+bast hetzner stop <host|id> [--force]
+bast hetzner restart <host|id> [--force]
+bast connect hetzner_prod_fsn1_web
+```
+
+## Re-sync and cleanup
+
+Press `r` on the Sync tab (or `bast sync hetzner`) after you create or delete servers outside Bast. Disconnecting Hetzner removes the generated sync config. Token files stay until you delete them from `~/.config/bast/hetzner/tokens/`.

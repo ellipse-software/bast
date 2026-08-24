@@ -43,7 +43,7 @@ export const puttyComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud hosts",
-      bast: "Import from GCP, AWS, Azure, and box.ascii.dev via their CLIs",
+      bast: "Import from GCP, AWS, Azure, Hetzner Cloud, and box.ascii.dev",
       competitor: "Not built in",
     },
     {
@@ -122,8 +122,8 @@ export const puttyComparison: ComparisonCaseStudy = {
           connections to system <Code>ssh</Code>.
         </>,
         <>
-          Cloud sync pulls live hosts from GCP, AWS, Azure, and box.ascii.dev through each
-          provider CLI. That is a different job from saving a static PuTTY
+          Cloud sync pulls live hosts from GCP, AWS, Azure, Hetzner Cloud, and box.ascii.dev.
+          That is a different job from saving a static PuTTY
           session for a box you typed in by hand.
         </>,
       ],

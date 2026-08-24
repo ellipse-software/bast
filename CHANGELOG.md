@@ -6,6 +6,8 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- Hetzner Cloud sync over the Cloud API: import servers, match attached SSH keys, then start, ACPI-stop, and restart from the TUI and CLI. Named API tokens (one per project) are stored in `~/.config/bast/hetzner/tokens/` and are never written to SSH config or Vault. Private Cloud Network addresses are used for SSH when there is no public IP, or when Prefer private IP is on. Non-22 SSH ports are detected when 22 is closed, and an existing local host with the same IP supplies user, port, and identity.
+
 ## v0.9.3 - 2026-08-23
 
 ### Added

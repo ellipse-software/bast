@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -596,6 +598,7 @@ func TestIsSyncedGroup(t *testing.T) {
 		!IsSyncedGroup("GCP") || !IsSyncedGroup("GCP/demo") ||
 		!IsSyncedGroup("Amazon EC2") || !IsSyncedGroup("Amazon EC2/default") ||
 		!IsSyncedGroup("AWS/default") || !IsSyncedGroup("Box") || !IsSyncedGroup("Box/Running") ||
+		!IsSyncedGroup("Hetzner Cloud") || !IsSyncedGroup("Hetzner Cloud/prod/fsn1") ||
 		IsSyncedGroup("Work") {
 		t.Fatal("IsSyncedGroup mismatch")
 	}
@@ -780,4 +783,160 @@ func TestResumeBoxReturnsSyncErrorAfterSuccessfulResume(t *testing.T) {
 	if result.Provider != boxcloud.ProviderName {
 		t.Fatalf("provider = %q, want %q so callers can treat resume as succeeded", result.Provider, boxcloud.ProviderName)
 	}
+}
+
+func TestSyncHetznerPreservesFailedContextInventory(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failProd := false
+	emptyDev := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if r.URL.Path == "/ssh_keys" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ssh_keys": []any{}, "meta": map[string]any{"pagination": map[string]any{"page": 1}}})
+			return
+		}
+		if r.URL.Path != "/servers" {
+			http.NotFound(w, r)
+			return
+		}
+		switch token {
+		case "prod-token":
+			if failProd {
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"message": "expired"}})
+				return
+			}
+			writeHetznerServer(w, 1, "prod-web", "running", "203.0.113.10", "fsn1")
+		case "dev-token":
+			if emptyDev {
+				_ = json.NewEncoder(w).Encode(map[string]any{"servers": []any{}, "meta": map[string]any{"pagination": map[string]any{"page": 1}}})
+				return
+			}
+			writeHetznerServer(w, 2, "dev-web", "running", "203.0.113.11", "nbg1")
+		default:
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := filepath.Join(home, "cli.toml")
+	if err := os.WriteFile(cfg, []byte("[contexts.prod]\ntoken = \"prod-token\"\n[contexts.dev]\ntoken = \"dev-token\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	engine.Hetzner.BaseURL = server.URL
+	engine.Hetzner.HTTP = server.Client()
+	engine.Hetzner.ConfigPath = cfg
+	engine.Hetzner.Getenv = func(string) string { return "" }
+	engine.Hetzner.KeyFile = filepath.Join(home, "missing-token")
+
+	first, err := engine.SyncHetzner(context.Background())
+	if err != nil || first.Count != 2 {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	failProd, emptyDev = true, true
+	second, err := engine.SyncHetzner(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Count != 1 || !strings.Contains(second.Error, "prod") {
+		t.Fatalf("second = %+v", second)
+	}
+	hosts := mustDiscoverHosts(t, engine)
+	if len(hosts) != 1 || hosts[0].SyncID != "hetzner/1" {
+		t.Fatalf("hosts = %+v", hosts)
+	}
+	if store.Host("hetzner_dev_nbg1_dev-web").Label != "" {
+		t.Fatal("confirmed context host metadata was not deleted")
+	}
+	if err := engine.DisableHetzner(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if store.Hetzner().Enabled {
+		t.Fatal("Hetzner integration remained enabled")
+	}
+}
+
+func TestSyncHetznerInheritsLocalHostSettings(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/ssh_keys" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ssh_keys": []any{}, "meta": map[string]any{"pagination": map[string]any{"page": 1}}})
+			return
+		}
+		if r.URL.Path != "/servers" {
+			http.NotFound(w, r)
+			return
+		}
+		writeHetznerServer(w, 107849389, "vpn", "running", "168.119.235.95", "nbg1")
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := filepath.Join(home, "cli.toml")
+	if err := os.WriteFile(cfg, []byte("[contexts.prod]\ntoken = \"prod-token\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	engine := New(p, store)
+	engine.Hetzner.BaseURL = server.URL
+	engine.Hetzner.HTTP = server.Client()
+	engine.Hetzner.ConfigPath = cfg
+	engine.Hetzner.Getenv = func(string) string { return "" }
+	engine.Hetzner.KeyFile = filepath.Join(home, "missing-token")
+	engine.Discover = func(context.Context) ([]sshconfig.Host, error) {
+		return []sshconfig.Host{{
+			Alias:   "VPN-EU",
+			Managed: true,
+			Resolved: sshconfig.Resolved{
+				HostName:       "168.119.235.95",
+				User:           "ted",
+				Port:           "2022",
+				IdentityFiles:  []string{"~/.ssh/bast/keys/ted.ac"},
+				IdentitiesOnly: "yes",
+			},
+		}}, nil
+	}
+
+	result, err := engine.SyncHetzner(context.Background())
+	if err != nil || result.Count != 1 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	raw, err := os.ReadFile(p.SyncHetznerConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "User ted") || !strings.Contains(text, "Port 2022") || !strings.Contains(text, "IdentityFile ~/.ssh/bast/keys/ted.ac") {
+		t.Fatalf("missing inherited SSH settings:\n%s", text)
+	}
+	if !strings.Contains(text, "IdentitiesOnly yes") {
+		t.Fatalf("expected IdentitiesOnly:\n%s", text)
+	}
+}
+
+func writeHetznerServer(w http.ResponseWriter, id int, name, status, ip, location string) {
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"servers": []any{
+			map[string]any{
+				"id": id, "name": name, "status": status,
+				"public_net":  map[string]any{"ipv4": map[string]any{"ip": ip, "blocked": false}, "ipv6": nil},
+				"private_net": []any{},
+				"server_type": map[string]any{"name": "cx22"},
+				"datacenter":  map[string]any{"name": location + "-dc", "location": map[string]any{"name": location}},
+				"image":       map[string]any{"name": "ubuntu-24.04", "os_flavor": "ubuntu"},
+				"ssh_keys":    []any{},
+				"labels":      map[string]any{},
+			},
+		},
+		"meta": map[string]any{"pagination": map[string]any{"page": 1, "next_page": nil}},
+	})
 }

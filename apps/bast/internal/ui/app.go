@@ -241,7 +241,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncHetznerConfig: p.SyncHetznerConfig,
 		},
 		openSSH:          client,
 		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
@@ -310,12 +310,14 @@ func (m *App) syncCompletionNotice(provider string, count int) string {
 	azure := m.metadata.Azure()
 	box := m.metadata.Box()
 	upstash := m.metadata.Upstash()
+	hetzner := m.metadata.Hetzner()
 	providers := []providerCount{
 		{id: "gcp", name: "GCP", enabled: gcp.Enabled, count: gcp.LastInstanceCount},
 		{id: "aws", name: "AWS", enabled: aws.Enabled, count: aws.LastInstanceCount},
 		{id: "azure", name: "Azure", enabled: azure.Enabled, count: azure.LastInstanceCount},
 		{id: "box", name: "Box", enabled: box.Enabled, count: box.LastInstanceCount},
 		{id: "upstash", name: "Upstash", enabled: upstash.Enabled, count: upstash.LastInstanceCount},
+		{id: "hetzner", name: "Hetzner", enabled: hetzner.Enabled, count: hetzner.LastInstanceCount},
 	}
 	parts := make([]string, 0, len(providers))
 	for _, item := range providers {
@@ -380,6 +382,10 @@ func (m *App) autoSyncCmds() tea.Cmd {
 			m.beginProviderOp("upstash")
 			autoSyncCmds = append(autoSyncCmds, m.autoConnectUpstashCmd())
 		}
+	}
+	if hetzner := m.metadata.Hetzner(); hetzner.Enabled && hetzner.AutoSync && !m.syncingProviders["hetzner"] {
+		m.beginProviderOp("hetzner")
+		autoSyncCmds = append(autoSyncCmds, m.syncHetznerCmd())
 	}
 	if pull := m.vaultPullCmd(false); pull != nil {
 		autoSyncCmds = append(autoSyncCmds, pull)

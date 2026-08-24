@@ -1988,10 +1988,10 @@ func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 		t.Fatalf("mobile grid cols = %d", m.syncGridCols())
 	}
 	body := m.renderSync(m.styles())
-	if strings.Count(body, "┌") != 5 {
+	if strings.Count(body, "┌") != 6 {
 		t.Fatalf("mobile should keep one boxed tile per provider:\n%s", body)
 	}
-	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") || !strings.Contains(body, "Upstash") {
+	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") || !strings.Contains(body, "Upstash") || !strings.Contains(body, "Hetzner") {
 		t.Fatalf("mobile grid body:\n%s", body)
 	}
 }
@@ -2754,6 +2754,11 @@ func TestSyncTileSelectedBorderUsesProviderColor(t *testing.T) {
 	upSel := m.renderSyncTile(m.styles(), 0, syncMenuItem{provider: "upstash"}, 24)
 	if !strings.Contains(upSel, "38;2;0;233;163") {
 		t.Fatalf("selected Upstash tile should use green border:\n%q", upSel)
+	}
+
+	hetzSel := m.renderSyncTile(m.styles(), 0, syncMenuItem{provider: "hetzner"}, 24)
+	if !strings.Contains(hetzSel, "38;2;213;12;45") {
+		t.Fatalf("selected Hetzner tile should use red border:\n%q", hetzSel)
 	}
 }
 

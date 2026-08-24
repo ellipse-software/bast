@@ -13,6 +13,7 @@ const (
 	Azure   Kind = "azure"
 	Box     Kind = "box"
 	Upstash Kind = "upstash"
+	Hetzner Kind = "hetzner"
 )
 
 // Descriptor is the stable identity for a cloud provider. UI, grouping, and
@@ -29,11 +30,12 @@ type Descriptor struct {
 }
 
 type Capabilities struct {
-	Create bool
-	Stop   bool
-	Start  bool // resume
-	Fork   bool
-	Delete bool
+	Create  bool
+	Stop    bool
+	Start   bool // resume / power on
+	Restart bool
+	Fork    bool
+	Delete  bool
 }
 
 type SSHKey struct {
@@ -103,6 +105,11 @@ var descriptors = []Descriptor{
 		Description: "Import Upstash Box sandboxes into Bast",
 		BrandColor:  "#00E9A3", NerdIcon: "\uf1b2",
 	},
+	{
+		Kind: Hetzner, Title: "Hetzner", FullTitle: "Hetzner Cloud", GroupRoot: "Hetzner Cloud",
+		Description: "Import Hetzner Cloud servers into Bast",
+		BrandColor:  "#D50C2D", NerdIcon: "\uf233",
+	},
 }
 
 var capabilities = map[Kind]Capabilities{
@@ -111,6 +118,7 @@ var capabilities = map[Kind]Capabilities{
 	Azure:   {},
 	Box:     {Create: true, Stop: true, Start: true, Fork: true},
 	Upstash: {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
+	Hetzner: {Stop: true, Start: true, Restart: true},
 }
 
 func Descriptors() []Descriptor {

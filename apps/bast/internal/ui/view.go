@@ -21,6 +21,7 @@ const (
 	headerTabSpacing     = "   "
 	connectAction        = " Connect "
 	resumeAction         = " Resume "
+	startAction          = " Start "
 	addAction            = " Add "
 	connectActionRow     = 2
 	mobileScrollbarWidth = 3
@@ -43,6 +44,9 @@ func (m *App) connectButtonBounds(layout panelLayout) (x, y, width int) {
 
 func (m *App) hostPrimaryAction(host sshconfig.Host) string {
 	if m.hostLooksStopped(host) {
+		if host.SyncSource == "hetzner" {
+			return startAction
+		}
 		return resumeAction
 	}
 	return connectAction
@@ -577,6 +581,8 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool
 		return suffix("Box", brandText("#FFFFFF", icon("Box")+"Box", restStyle))
 	case name == "Upstash" || strings.HasPrefix(name, "Upstash/"):
 		return suffix("Upstash", brandText("#00E9A3", icon("Upstash")+"Upstash", restStyle))
+	case name == "Hetzner Cloud" || strings.HasPrefix(name, "Hetzner Cloud/"):
+		return suffix("Hetzner Cloud", brandText("#D50C2D", icon("Hetzner Cloud")+"Hetzner Cloud", restStyle))
 	default:
 		return name
 	}
@@ -624,9 +630,12 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	meta := m.hostMetadata()[host.Alias]
 	var b strings.Builder
 	label := hostLabel(host, meta)
-	primaryAction := resumeAction
-	if !hostLooksStopped(host, meta) {
-		primaryAction = connectAction
+	primaryAction := connectAction
+	if hostLooksStopped(host, meta) {
+		primaryAction = resumeAction
+		if host.SyncSource == "hetzner" {
+			primaryAction = startAction
+		}
 	}
 	titleStyle := s.active
 	if kind, ok := cloud.KindForSource(host.SyncSource); ok {

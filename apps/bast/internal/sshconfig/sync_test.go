@@ -186,6 +186,28 @@ func TestUpdateSyncHostAuth(t *testing.T) {
 	}
 }
 
+func TestUpdateSyncHostDetailsPort(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config")
+	if err := WriteSyncConfig(path, []SyncHostInput{{
+		Alias: "hetzner_vpn", SyncSource: "hetzner", SyncID: "hetzner/1",
+		HostName: "168.119.235.95", User: "root",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateSyncHostDetails(path, "hetzner_vpn", "168.119.235.95", "ted", "~/.ssh/bast/keys/ted.ac", "", "2022", true); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "User ted") || !strings.Contains(text, "Port 2022") || !strings.Contains(text, "IdentityFile ~/.ssh/bast/keys/ted.ac") {
+		t.Fatalf("details missing:\n%s", text)
+	}
+}
+
 func TestRenderSyncBlockIdentitiesOnlyOnlyWhenConfident(t *testing.T) {
 	soft := string(RenderSyncBlock(SyncHostInput{
 		Alias: "gcp_p_web", SyncSource: "gcp", SyncID: "id",

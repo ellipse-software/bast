@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,7 +64,7 @@ func (m *App) syncProviders() []syncMenuItem {
 	for _, d := range cloud.Descriptors() {
 		detail := m.providerDetail(string(d.Kind))
 		text := "disabled"
-		if d.Kind == cloud.Box || d.Kind == cloud.Upstash {
+		if d.Kind == cloud.Box || d.Kind == cloud.Upstash || cloud.CapabilitiesFor(d.Kind).Stop {
 			running, stopped := m.providerGroupStats(d.GroupRoot)
 			if !detail.enabled && running+stopped == 0 {
 				text = "disabled"
@@ -196,6 +197,38 @@ func (m *App) providerDetail(provider string) providerDetail {
 			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
+	case "hetzner":
+		integration := m.metadata.Hetzner()
+		status := m.syncStatus.Hetzner
+		accountLabel, accountValue := "Account", "no API token"
+		if status.Error != "" {
+			accountLabel, accountValue = "API", status.Error
+		} else if status.Authenticated {
+			accountValue = "authenticated"
+		} else if status.HasToken || m.hetznerHasToken() {
+			accountValue = "token stored"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		if len(status.Contexts) > 0 {
+			statusRows = append(statusRows, providerRow{"Contexts", strings.Join(status.Contexts, ", ")})
+		}
+		contexts := "all"
+		if len(integration.ContextFilter) > 0 {
+			contexts = strings.Join(integration.ContextFilter, ", ")
+		}
+		locations := "all"
+		if len(integration.LocationFilter) > 0 {
+			locations = strings.Join(integration.LocationFilter, ", ")
+		}
+		private := "public first"
+		if integration.PreferPrivateIP {
+			private = "private Cloud Network first"
+		}
+		filters := []providerRow{{"SSH address", private}, {"Context filter", contexts}, {"Locations", locations}}
+		if strings.TrimSpace(integration.DefaultSSHPort) != "" {
+			filters = append([]providerRow{{"SSH port", integration.DefaultSSHPort}}, filters...)
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, statusRows, filters}
 	default:
 		return providerDetail{}
 	}
@@ -218,6 +251,12 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 	}
 	if provider == "upstash" {
 		life = append(life, syncMenuItem{label: "API key", action: "upstash_key"})
+	}
+	if provider == "hetzner" {
+		life = append(life, syncMenuItem{label: "Add API token", action: "hetzner_key"})
+		if m.syncer != nil && m.syncer.Hetzner != nil && len(m.syncer.Hetzner.StoredTokenNames()) > 0 {
+			life = append(life, syncMenuItem{label: "Remove API token", action: "hetzner_key_remove"})
+		}
 	}
 	if detail.enabled {
 		config = append(config, syncMenuItem{label: "Disconnect", action: "disable"})
@@ -248,6 +287,18 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 			syncMenuItem{label: "Default SSH user", action: "user"},
 			syncMenuItem{label: "Subscription filter", action: "subscriptions"},
 			syncMenuItem{label: "Resource group filter", action: "resource_groups"},
+		)
+	case "hetzner":
+		if m.metadata.Hetzner().PreferPrivateIP {
+			config = append(config, syncMenuItem{label: "Use public IP first", action: "prefer_public"})
+		} else {
+			config = append(config, syncMenuItem{label: "Prefer private IP", action: "prefer_private"})
+		}
+		config = append(config,
+			syncMenuItem{label: "Default SSH user", action: "user"},
+			syncMenuItem{label: "Default SSH port", action: "port"},
+			syncMenuItem{label: "Context filter", action: "contexts"},
+			syncMenuItem{label: "Location filter", action: "locations"},
 		)
 	}
 	config = append(config, syncMenuItem{label: "Refresh status", action: "refresh"})
@@ -289,6 +340,16 @@ func (m *App) syncAzureCmd() tea.Cmd {
 		defer cancel()
 		result, err := m.syncer.SyncAzure(ctx)
 		return syncDoneMsg{provider: "azure", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) syncHetznerCmd() tea.Cmd {
+	opGen := m.providerOpGen("hetzner")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncHetzner(ctx)
+		return syncDoneMsg{provider: "hetzner", result: result, err: err, opGen: opGen}
 	}
 }
 
@@ -413,6 +474,18 @@ func (m *App) disableUpstashCmd() tea.Cmd {
 			return syncDoneMsg{provider: "upstash", err: err, opGen: opGen}
 		}
 		return syncDoneMsg{provider: "upstash", result: sync.Result{Provider: "upstash", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableHetznerCmd() tea.Cmd {
+	opGen := m.providerOpGen("hetzner")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableHetzner(ctx); err != nil {
+			return syncDoneMsg{provider: "hetzner", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "hetzner", result: sync.Result{Provider: "hetzner", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
@@ -1012,6 +1085,10 @@ func (m *App) updateProviderKeys(key string) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+	case "R":
+		if host, ok := m.providerSelectedHost(); ok {
+			return m.restartSyncedHost(host)
+		}
 	case "r":
 		if host, ok := m.providerSelectedHost(); ok {
 			if cmd := m.resumeSyncedHost(host, false); cmd != nil {
@@ -1302,6 +1379,13 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Batch(m.syncUpstashCmd(), m.setNotice("Syncing Upstash…"))
+		case "hetzner":
+			if action == "enable" && !m.hetznerHasToken() {
+				delete(m.syncingProviders, "hetzner")
+				m.openHetznerKeyForm()
+				return m, nil
+			}
+			return m, tea.Batch(m.syncHetznerCmd(), m.setNotice("Syncing Hetzner…"))
 		}
 		return m, tea.Batch(m.syncGCPCmd(), m.setNotice("Syncing GCP…"))
 	case "disable":
@@ -1318,6 +1402,9 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "upstash" {
 			return m, m.disableUpstashCmd()
 		}
+		if m.syncProvider == "hetzner" {
+			return m, m.disableHetznerCmd()
+		}
 		return m, m.disableGCPCmd()
 	case "box_new":
 		m.openBoxNewForm()
@@ -1327,6 +1414,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "upstash_key":
 		m.openUpstashKeyForm()
+		return m, nil
+	case "hetzner_key":
+		m.openHetznerKeyForm()
+		return m, nil
+	case "hetzner_key_remove":
+		m.openHetznerKeyRemoveForm()
 		return m, nil
 	case "auto_on":
 		if m.syncProvider == "aws" {
@@ -1362,6 +1455,15 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			upstash.AutoSync = true
 			upstash.Disabled = false
 			if err := m.metadata.SetUpstash(upstash); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "hetzner" {
+			hetzner := m.metadata.Hetzner()
+			hetzner.AutoSync = true
+			if err := m.metadata.SetHetzner(hetzner); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1411,6 +1513,15 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync disabled")
 		}
+		if m.syncProvider == "hetzner" {
+			hetzner := m.metadata.Hetzner()
+			hetzner.AutoSync = false
+			if err := m.metadata.SetHetzner(hetzner); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
 		gcp := m.metadata.GCP()
 		gcp.AutoSync = false
 		if err := m.metadata.SetGCP(gcp); err != nil {
@@ -1418,6 +1529,22 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.setNotice("Auto-sync disabled")
+	case "prefer_private":
+		hetzner := m.metadata.Hetzner()
+		hetzner.PreferPrivateIP = true
+		if err := m.metadata.SetHetzner(hetzner); err != nil {
+			m.setError(err)
+			return m, nil
+		}
+		return m, m.setNotice("SSH will use the Cloud Network IP when one exists")
+	case "prefer_public":
+		hetzner := m.metadata.Hetzner()
+		hetzner.PreferPrivateIP = false
+		if err := m.metadata.SetHetzner(hetzner); err != nil {
+			m.setError(err)
+			return m, nil
+		}
+		return m, m.setNotice("SSH will use the public IP when one exists")
 	case "user":
 		if m.syncProvider == "aws" {
 			m.openForm("Default AWS SSH user", "sync_aws_user", []field{
@@ -1437,8 +1564,21 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "upstash" {
 			return m, m.setNotice("Upstash SSH user is the box id")
 		}
+		if m.syncProvider == "hetzner" {
+			m.openForm("Default Hetzner SSH user", "sync_hetzner_user", []field{
+				{label: "SSH user", description: "Blank uses root for official Hetzner images", value: m.metadata.Hetzner().DefaultSSHUser, optional: true, placeholder: "root"},
+			})
+			break
+		}
 		m.openForm("Default GCP SSH user", "sync_gcp_user", []field{
 			{label: "SSH user", description: "Blank uses OS Login or instance metadata when available", value: m.metadata.GCP().DefaultSSHUser, optional: true, placeholder: "ubuntu"},
+		})
+	case "port":
+		if m.syncProvider != "hetzner" {
+			return m, m.setNotice("Default SSH port is only used for Hetzner")
+		}
+		m.openForm("Default Hetzner SSH port", "sync_hetzner_port", []field{
+			{label: "SSH port", description: "Blank uses 22 unless a host already has a port or sshd is found on 2022/2222", value: m.metadata.Hetzner().DefaultSSHPort, optional: true, placeholder: "22"},
 		})
 	case "projects":
 		m.openForm("GCP project filter", "sync_gcp_projects", []field{
@@ -1459,6 +1599,14 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 	case "resource_groups":
 		m.openForm("Azure resource group filter", "sync_azure_resource_groups", []field{
 			{label: "Resource groups", description: "Comma-separated names; blank = all", value: strings.Join(m.metadata.Azure().ResourceGroupFilter, ", "), optional: true, placeholder: "production, staging"},
+		})
+	case "contexts":
+		m.openForm("Hetzner context filter", "sync_hetzner_contexts", []field{
+			{label: "Contexts", description: "Comma-separated context names; blank = all tokens", value: strings.Join(m.metadata.Hetzner().ContextFilter, ", "), optional: true, placeholder: "prod, staging"},
+		})
+	case "locations":
+		m.openForm("Hetzner location filter", "sync_hetzner_locations", []field{
+			{label: "Locations", description: "Comma-separated locations; blank = all", value: strings.Join(m.metadata.Hetzner().LocationFilter, ", "), optional: true, placeholder: "fsn1, nbg1, hel1"},
 		})
 	case "sa_add":
 		m.openForm("Add service account key", "sync_gcp_sa_add", []field{
@@ -1783,6 +1931,147 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			defer cancel()
 			result, err := m.syncer.DeleteUpstash(ctx, syncID)
 			return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
+		}
+	case "sync_hetzner_user":
+		hetzner := m.metadata.Hetzner()
+		hetzner.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
+		if err := m.metadata.SetHetzner(hetzner); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default Hetzner SSH user updated")
+	case "sync_hetzner_port":
+		port := strings.TrimSpace(values["SSH port"])
+		if port != "" && port != "22" {
+			n, err := strconv.Atoi(port)
+			if err != nil || n <= 0 || n > 65535 {
+				if m.form != nil {
+					m.form.validationError = "port must be 1-65535"
+				}
+				return nil
+			}
+		} else {
+			port = ""
+		}
+		hetzner := m.metadata.Hetzner()
+		hetzner.DefaultSSHPort = port
+		if err := m.metadata.SetHetzner(hetzner); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default Hetzner SSH port updated")
+	case "sync_hetzner_contexts":
+		hetzner := m.metadata.Hetzner()
+		hetzner.ContextFilter = splitCSV(values["Contexts"])
+		if err := m.metadata.SetHetzner(hetzner); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Hetzner context filter updated")
+	case "sync_hetzner_locations":
+		hetzner := m.metadata.Hetzner()
+		hetzner.LocationFilter = splitCSV(values["Locations"])
+		if err := m.metadata.SetHetzner(hetzner); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Hetzner location filter updated")
+	case "hetzner_key":
+		name := strings.TrimSpace(values["Name"])
+		if name == "" {
+			if m.syncer != nil && m.syncer.Hetzner != nil && len(m.syncer.Hetzner.StoredTokenNames()) > 0 {
+				if m.form != nil {
+					m.form.validationError = "name is required for additional projects"
+				}
+				return nil
+			}
+			name = "default"
+		}
+		key := strings.TrimSpace(values["API token"])
+		if key == "" {
+			if m.form != nil {
+				m.form.validationError = "API token is required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["hetzner"] {
+			return m.setNotice("Hetzner operation already in progress")
+		}
+		opGen := m.beginProviderOp("hetzner")
+		m.beginSyncBusy("Connecting Hetzner…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.SaveHetznerKey(ctx, name, key)
+			return syncDoneMsg{provider: "hetzner", result: result, err: err, opGen: opGen}
+		}
+	case "hetzner_key_remove":
+		name := strings.TrimSpace(values["Token"])
+		if name == "" {
+			if m.form != nil {
+				m.form.validationError = "choose a token"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["hetzner"] {
+			return m.setNotice("Hetzner operation already in progress")
+		}
+		opGen := m.beginProviderOp("hetzner")
+		m.beginSyncBusy("Removing Hetzner token…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteHetznerToken(ctx, name)
+			return syncDoneMsg{provider: "hetzner", result: result, err: err, opGen: opGen}
+		}
+	case "hetzner_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		force := truthyForm(values["Force poweroff"])
+		m.form = nil
+		if m.syncingProviders["hetzner"] {
+			return m.setNotice("Hetzner operation already in progress")
+		}
+		opGen := m.beginProviderOp("hetzner")
+		m.syncActivity = "stopping…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopHetzner(ctx, syncID, force)
+			return syncDoneMsg{provider: "hetzner", result: result, err: err, opGen: opGen}
+		}
+	case "hetzner_restart":
+		confirm := strings.TrimSpace(values["Type restart to confirm"])
+		if confirm != "restart" && confirm != "force" {
+			if m.form != nil {
+				m.form.validationError = "type restart to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		force := confirm == "force" || truthyForm(values["Force reset"])
+		m.form = nil
+		if m.syncingProviders["hetzner"] {
+			return m.setNotice("Hetzner operation already in progress")
+		}
+		opGen := m.beginProviderOp("hetzner")
+		m.syncActivity = "restarting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, err := m.syncer.RestartHetzner(ctx, syncID, force)
+			return syncDoneMsg{provider: "hetzner", result: result, err: err, opGen: opGen}
 		}
 	}
 	return nil

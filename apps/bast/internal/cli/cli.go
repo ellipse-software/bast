@@ -39,6 +39,7 @@ Usage:
   bast sync <command>          Sync cloud VMs into Bast
   bast box <command>           Create and manage ASCII Box sandboxes
   bast upstash <command>       Create and manage Upstash Box sandboxes
+  bast hetzner <command>       Start, stop, and restart Hetzner Cloud servers
   bast vault <command>         Sync Bast-managed config via encrypted vault
 
 Host commands:
@@ -50,13 +51,16 @@ Key commands:
   public, copy, delete
 
 Sync commands:
-  gcp, aws, azure, box, upstash, status, disable
+  gcp, aws, azure, box, upstash, hetzner, status, disable
 
 Box commands:
   new, fork, stop, resume
 
 Upstash commands:
   new, fork, stop, resume, delete, key
+
+Hetzner commands:
+  start, stop, restart, key
 
 Vault commands:
   login, status, push, pull, logout, passphrase
@@ -66,7 +70,8 @@ Global options:
   --no-input                  Never prompt for missing input
 
 Run "bast hosts <command> --help", "bast keys <command> --help", "bast sync <command> --help",
-"bast box <command> --help", "bast upstash <command> --help", or "bast vault <command> --help" for details.
+"bast box <command> --help", "bast upstash <command> --help", "bast hetzner <command> --help",
+or "bast vault <command> --help" for details.
 `
 
 func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
@@ -112,7 +117,7 @@ func fail(code, message string) error { return &commandError{code: code, message
 func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writer) (*Runner, error) {
 	return &Runner{
 		Paths: p, OpenSSH: client, Version: "dev", In: in, Out: out, Err: errOut,
-		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig},
+		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncHetznerConfig: p.SyncHetznerConfig},
 		keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
 		reader:  bufio.NewReader(in),
 	}, nil
@@ -120,7 +125,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "connect", "hosts", "keys", "sync", "box", "upstash", "vault":
+	case "tui", "update", "connect", "hosts", "keys", "sync", "box", "upstash", "hetzner", "vault":
 		return true
 	}
 	return false
@@ -176,6 +181,8 @@ func (r *Runner) Run(args []string) error {
 				err = r.boxCmd(args[1:])
 			case "upstash":
 				err = r.upstashCmd(args[1:])
+			case "hetzner":
+				err = r.hetznerCmd(args[1:])
 			case "vault":
 				err = r.vault(args[1:])
 			default:
@@ -260,9 +267,15 @@ Commands: list, show, generate, import, promote, comment, export, install,
 		"sync azure":       "Usage: bast sync azure",
 		"sync box":         "Usage: bast sync box",
 		"sync upstash":     "Usage: bast sync upstash",
+		"sync hetzner":     "Usage: bast sync hetzner",
 		"sync status":      "Usage: bast sync status",
-		"sync disable":     "Usage: bast sync disable <gcp|aws|azure|box|upstash>",
-		"sync --help":      "Usage: bast sync <gcp|aws|azure|box|upstash|status|disable>",
+		"sync disable":     "Usage: bast sync disable <gcp|aws|azure|box|upstash|hetzner>",
+		"sync --help":      "Usage: bast sync <gcp|aws|azure|box|upstash|hetzner|status|disable>",
+		"hetzner --help":   "Usage: bast hetzner <start|stop|restart|key>",
+		"hetzner start":    "Usage: bast hetzner start <host|id>",
+		"hetzner stop":     "Usage: bast hetzner stop <host|id> [--force]",
+		"hetzner restart":  "Usage: bast hetzner restart <host|id> [--force]",
+		"hetzner key":      "Usage: bast hetzner key [--name project] [--key-file path]\n       bast hetzner key --remove project",
 		"box --help":       "Usage: bast box <new|fork|stop|resume>",
 		"box new":          "Usage: bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
 		"box fork":         "Usage: bast box fork <host|id> [--type small|default|large] [--no-env]",

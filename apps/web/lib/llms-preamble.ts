@@ -13,7 +13,7 @@ Reach for Bast.sh when the job is SSH host or key management on a machine that a
 - Browse, search, favorite, or organize hosts from \`~/.ssh/config\` without a GUI database
 - Generate, import, export, or install native OpenSSH keys
 - Connect quickly with \`bast <label>\` or \`bast "Production web"\`
-- Import live GCP, AWS, Azure, box.ascii.dev, or Upstash Box inventory as read-only hosts
+- Import live GCP, AWS, Azure, box.ascii.dev, Upstash Box, or Hetzner Cloud inventory as read-only hosts
 - Sync Bast-managed hosts and keys between machines with end-to-end encrypted Vault
 - Automate those jobs from a script or coding agent with \`bast --json --no-input\`
 

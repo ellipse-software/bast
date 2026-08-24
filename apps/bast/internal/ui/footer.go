@@ -69,7 +69,9 @@ func (m *App) hostsFooterParts() []string {
 		return append(parts, "?")
 	}
 	if host, ok := m.selectedHost(); ok {
-		if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash") {
+		if host.Synced && m.hostHasCapability(host, func(c cloud.Capabilities) bool {
+			return c.Stop || c.Start || c.Restart || c.Fork || c.Delete
+		}) {
 			parts := m.sandboxHostFooterParts(host)
 			if !m.isMobileLayout() {
 				parts = append(parts, "F files")
@@ -149,7 +151,7 @@ func (m *App) syncFooterParts() []string {
 			return []string{"␣ " + label, "esc back", "?"}
 		}
 		if m.hostHasCapability(row.host, func(c cloud.Capabilities) bool {
-			return c.Stop || c.Start || c.Fork || c.Delete
+			return c.Stop || c.Start || c.Restart || c.Fork || c.Delete
 		}) {
 			return append(m.sandboxHostFooterParts(row.host), "esc back", "?")
 		}
@@ -159,15 +161,40 @@ func (m *App) syncFooterParts() []string {
 }
 
 func (m *App) sandboxHostFooterParts(host sshconfig.Host) []string {
-	parts := []string{"enter connect", "o stop", "n fork"}
-	if host.SyncSource == "upstash" {
-		parts = append(parts, "d delete")
+	kind, ok := cloud.KindForSource(host.SyncSource)
+	if !ok {
+		return []string{"enter connect"}
 	}
+	caps := cloud.CapabilitiesFor(kind)
 	if m.hostLooksStopped(host) {
-		parts = []string{"enter connect", "r resume", "n fork"}
-		if host.SyncSource == "upstash" {
+		parts := []string{"enter connect"}
+		if caps.Start {
+			if host.SyncSource == "hetzner" {
+				parts = append(parts, "r start")
+			} else {
+				parts = append(parts, "r resume")
+			}
+		}
+		if caps.Fork {
+			parts = append(parts, "n fork")
+		}
+		if caps.Delete {
 			parts = append(parts, "d delete")
 		}
+		return parts
+	}
+	parts := []string{"enter connect"}
+	if caps.Stop {
+		parts = append(parts, "o stop")
+	}
+	if caps.Restart {
+		parts = append(parts, "R restart")
+	}
+	if caps.Fork {
+		parts = append(parts, "n fork")
+	}
+	if caps.Delete {
+		parts = append(parts, "d delete")
 	}
 	return parts
 }
