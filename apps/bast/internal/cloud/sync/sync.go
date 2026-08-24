@@ -1047,7 +1047,9 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			Enabled: vercelIntegration.Enabled, AutoSync: vercelIntegration.AutoSync, Disabled: vercelIntegration.Disabled,
 			TeamID: vercelIntegration.TeamID, ProjectID: vercelIntegration.ProjectID,
 			LastSyncAt: vercelIntegration.LastSyncAt, LastSyncError: vercelIntegration.LastSyncError,
-			LastInstanceCount: vercelIntegration.LastInstanceCount, HasToken: e.Vercel.HasToken(),
+			LastInstanceCount: vercelIntegration.LastInstanceCount,
+			Unrestorable:      append([]string(nil), vercelIntegration.Unrestorable...),
+			HasToken:          e.Vercel.HasToken(),
 		},
 	}
 
@@ -1235,6 +1237,7 @@ type VercelStatus struct {
 	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
 	LastSyncError     string     `json:"lastSyncError,omitempty"`
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Unrestorable      []string   `json:"unrestorable,omitempty"`
 	Error             string     `json:"error,omitempty"`
 }
 

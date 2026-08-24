@@ -245,6 +245,9 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 	if caps.Create && provider == "vercel" && m.vercelReady() {
 		life = append(life, syncMenuItem{label: "New sandbox", action: "vercel_new"})
 	}
+	if provider == "vercel" && detail.enabled && m.vercelReady() && len(m.metadata.Vercel().Unrestorable) > 0 {
+		life = append(life, syncMenuItem{label: "Cleanup", action: "vercel_cleanup"})
+	}
 	if provider == "upstash" {
 		life = append(life, syncMenuItem{label: "API key", action: "upstash_key"})
 	}
@@ -827,6 +830,11 @@ func (m *App) renderProviderIdentity(s styleSet, provider string) string {
 		facts = append(facts, fmt.Sprintf("%d running", running))
 		if stopped > 0 {
 			facts = append(facts, fmt.Sprintf("%d stopped", stopped))
+		}
+		if kind == cloud.Vercel {
+			if n := len(m.metadata.Vercel().Unrestorable); n > 0 {
+				facts = append(facts, fmt.Sprintf("%d unrestorable", n))
+			}
 		}
 	} else if detail.enabled || detail.lastInstanceCount > 0 {
 		facts = append(facts, fmt.Sprintf("%d instances", detail.lastInstanceCount))
@@ -1415,6 +1423,9 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "vercel_new":
 		m.openVercelNewForm()
+		return m, nil
+	case "vercel_cleanup":
+		m.openVercelCleanupForm()
 		return m, nil
 	case "vercel_token":
 		m.openVercelTokenForm()
@@ -2010,6 +2021,41 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			defer cancel()
 			result, err := m.syncer.DeleteVercel(ctx, syncID)
 			return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+		}
+	case "vercel_cleanup":
+		if strings.TrimSpace(values["Type cleanup to confirm"]) != "cleanup" {
+			if m.form != nil {
+				m.form.validationError = "type cleanup to confirm"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		if m.section == syncSection {
+			m.beginSyncBusy("Cleaning up Vercel…")
+		} else {
+			m.syncActivity = "cleaning up…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, deleted, err := m.syncer.CleanupVercel(ctx)
+			if err != nil {
+				return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+			}
+			notice := "Nothing to clean up"
+			switch len(deleted) {
+			case 1:
+				notice = "Deleted " + deleted[0]
+			default:
+				if len(deleted) > 1 {
+					notice = fmt.Sprintf("Deleted %d unrestorable sandboxes", len(deleted))
+				}
+			}
+			return syncDoneMsg{provider: "vercel", result: result, err: nil, opGen: opGen, notice: notice}
 		}
 	}
 	return nil

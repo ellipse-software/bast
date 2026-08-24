@@ -32,6 +32,11 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 - Linux packages for apt, dnf, pacman, and apk: `.deb`, `.rpm`, `.apk`, and Arch packages on GitHub releases, plus a signed repository at https://packages.bast.sh.
 
+### Changed
+
+- Offline Vercel sandboxes without a snapshot stay off the host list. Cleanup on the Vercel Sync page (or `bast vercel cleanup`) deletes them after confirmation.
+- Provider groups with no running hosts stay hidden until `.` reveals stopped or hidden hosts.
+
 ### Fixed
 
 - Box stop returns once the box is stopping instead of waiting minutes for the snapshot to finish, and a late sync result can no longer clear a newer in-flight Box operation.

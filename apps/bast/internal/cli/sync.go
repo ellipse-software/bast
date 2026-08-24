@@ -387,6 +387,9 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if vercel.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", vercel.LastSyncError)
 	}
+	if len(vercel.Unrestorable) > 0 {
+		fmt.Fprintf(r.Out, "  Unrestorable: %s\n", strings.Join(vercel.Unrestorable, ", "))
+	}
 	return nil
 }
 

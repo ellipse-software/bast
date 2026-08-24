@@ -85,6 +85,7 @@ type syncDoneMsg struct {
 	err        error
 	skipped    bool
 	focusAlias string // when set, jump to Hosts with this alias selected
+	notice     string
 	opGen      uint64
 }
 
@@ -586,11 +587,19 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		label := strings.ToUpper(msg.provider)
 		notice := m.syncCompletionNotice(msg.provider, msg.result.Count)
+		if msg.provider == "vercel" {
+			if n := len(m.metadata.Vercel().Unrestorable); n > 0 && msg.notice == "" {
+				notice += fmt.Sprintf(" · %d unrestorable", n)
+			}
+		}
 		connectAfter := m.boxConnectAfter
 		if msg.result.Error == "disabled" {
 			m.boxConnectAfter = ""
 			notice = label + " sync disconnected"
 			telemetry.Track("sync_"+msg.provider+"_disable", m.version)
+		} else if msg.notice != "" {
+			notice = msg.notice
+			telemetry.Track("sync_"+msg.provider, m.version)
 		} else if msg.focusAlias != "" {
 			notice = "Created " + msg.focusAlias
 			m.selectAfterLoadSection = hostsSection

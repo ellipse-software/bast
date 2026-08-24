@@ -14,7 +14,7 @@ import (
 
 func (r *Runner) vercelCmd(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast vercel <new|fork|stop|resume|delete|token>")
+		fmt.Fprintln(r.Out, "Usage: bast vercel <new|fork|stop|resume|delete|cleanup|token>")
 		return nil
 	}
 	engine := sync.New(r.Paths, r.store)
@@ -29,6 +29,8 @@ func (r *Runner) vercelCmd(args []string) error {
 		return r.vercelResume(engine, args[1:])
 	case "delete":
 		return r.vercelDelete(engine, args[1:])
+	case "cleanup":
+		return r.vercelCleanup(engine, args[1:])
 	case "token":
 		return r.vercelToken(engine, args[1:])
 	default:
@@ -191,6 +193,53 @@ func (r *Runner) vercelDelete(engine *sync.Engine, args []string) error {
 	}
 	telemetry.Track("vercel_delete", r.Version)
 	return r.success(result, fmt.Sprintf("Deleted Vercel sandbox (%d synced)", result.Count))
+}
+
+func (r *Runner) vercelCleanup(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("vercel cleanup")
+	yes := fs.Bool("yes", false, "Skip confirmation")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast vercel cleanup [--yes]")
+	}
+	listCtx, listCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	names, err := engine.ListVercelUnrestorable(listCtx)
+	listCancel()
+	if err != nil {
+		return fail("vercel_cleanup", err.Error())
+	}
+	if len(names) == 0 {
+		return r.success(map[string]any{"deleted": []string{}}, "No unrestorable sandboxes")
+	}
+	if !*yes {
+		fmt.Fprintf(r.Err, "Offline, no snapshot: %s\n", strings.Join(names, ", "))
+		confirm, err := r.prompt("Type cleanup to confirm", "", true)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(confirm) != "cleanup" {
+			return fail("vercel_cleanup", "confirmation did not match")
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	result, deleted, err := engine.CleanupVercel(ctx)
+	if err != nil {
+		telemetry.Track("vercel_cleanup_fail", r.Version)
+		return fail("vercel_cleanup", err.Error())
+	}
+	telemetry.Track("vercel_cleanup", r.Version)
+	msg := "No unrestorable sandboxes"
+	if len(deleted) == 1 {
+		msg = "Deleted " + deleted[0]
+	} else if len(deleted) > 1 {
+		msg = fmt.Sprintf("Deleted %d unrestorable sandboxes", len(deleted))
+	}
+	return r.success(map[string]any{
+		"provider": result.Provider, "count": result.Count, "deleted": deleted,
+	}, msg)
 }
 
 func (r *Runner) vercelToken(engine *sync.Engine, args []string) error {

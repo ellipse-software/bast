@@ -143,6 +143,7 @@ func TestVercelIntegrationRoundTrip(t *testing.T) {
 	}
 	if err := store.SetVercel(VercelIntegration{
 		Enabled: true, AutoSync: true, TeamID: "team_1", ProjectID: "prj_1", LastInstanceCount: 4,
+		Unrestorable: []string{"idle"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -153,6 +154,9 @@ func TestVercelIntegrationRoundTrip(t *testing.T) {
 	got := reopened.Vercel()
 	if !got.Enabled || !got.AutoSync || got.TeamID != "team_1" || got.ProjectID != "prj_1" || got.LastInstanceCount != 4 {
 		t.Fatalf("vercel = %+v", got)
+	}
+	if len(got.Unrestorable) != 1 || got.Unrestorable[0] != "idle" {
+		t.Fatalf("unrestorable = %v", got.Unrestorable)
 	}
 	if err := reopened.SetVercel(VercelIntegration{Disabled: true, TeamID: "team_1", ProjectID: "prj_1"}); err != nil {
 		t.Fatal(err)

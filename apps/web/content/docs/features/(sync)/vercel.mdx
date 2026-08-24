@@ -53,7 +53,7 @@ Host vercel_dev
 
 That hostname is a sentinel so the host appears in Bast. It is not a reachable SSH target. Connection settings, group, and label are owned by sync.
 
-Stopped sandboxes stay in the **Vercel** group and are hidden from the host list until you press `.`.
+Stopped sandboxes with a snapshot stay in the **Vercel** group and are hidden from the host list until you press `.`. If no sandboxes are running, the group is hidden too; `.` brings it back when stopped sandboxes remain. Offline sandboxes without a snapshot cannot be resumed, so they stay off the host list. **Cleanup** on the Vercel Sync page (or `bast vercel cleanup`) deletes them after you confirm.
 
 ## Lifecycle
 
@@ -64,6 +64,7 @@ Stopped sandboxes stay in the **Vercel** group and are hidden from the host list
 | Resume (`r` / Enter on a stopped sandbox) | Starts a new session from the snapshot, then opens the shell |
 | Fork (`n`) | Creates a new named sandbox from the current snapshot |
 | Delete (`d`) | Destroys the named sandbox. Snapshots remain on Vercel |
+| Cleanup | Deletes offline sandboxes with no snapshot (cannot be resumed) |
 
 Create options: vCPUs `1` / `2` / `4` (2 GB RAM each), timeout `15m` / `1h` / `5h`, optional name, persistent (default on).
 
@@ -97,9 +98,10 @@ bast vercel fork <host|id> [--name name]
 bast vercel stop <host|id>
 bast vercel resume <host|id>
 bast vercel delete <host|id> [--yes]
+bast vercel cleanup [--yes]
 bast connect vercel_dev
 ```
 
 ## Re-sync and cleanup
 
-Press `r` on the Sync tab (or `bast sync vercel`) after you create, stop, or delete sandboxes outside Bast. Disconnecting Vercel removes the generated sync config. The token file stays until you delete `~/.config/bast/vercel-token`.
+Press `r` on the Sync tab (or `bast sync vercel`) after you create, stop, or delete sandboxes outside Bast. Offline sandboxes with no snapshot show as **N unrestorable** on the Vercel page. Cleanup deletes those from Vercel after confirmation. Disconnecting Vercel removes the generated sync config. The token file stays until you delete `~/.config/bast/vercel-token`.

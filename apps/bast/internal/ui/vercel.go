@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -119,6 +120,21 @@ func (m *App) openVercelDeleteForm(host sshconfig.Host) {
 	m.openForm("Delete Vercel Sandbox: "+label, "vercel_delete", []field{
 		{label: "SyncID", value: host.SyncID, hidden: true},
 		{label: "Type delete to confirm", description: "Permanently destroys the sandbox; snapshots are kept", placeholder: "delete"},
+	})
+}
+
+func (m *App) openVercelCleanupForm() {
+	names := m.metadata.Vercel().Unrestorable
+	desc := "Deletes offline sandboxes with no snapshot"
+	if len(names) > 0 {
+		list := strings.Join(names, ", ")
+		if len(list) > 80 {
+			list = fmt.Sprintf("%d sandboxes", len(names))
+		}
+		desc = list + " · no snapshot, cannot resume"
+	}
+	m.openForm("Cleanup Vercel sandboxes", "vercel_cleanup", []field{
+		{label: "Type cleanup to confirm", description: desc, placeholder: "cleanup"},
 	})
 }
 

@@ -179,9 +179,10 @@ bast vercel fork <host|id> [--name name]
 bast vercel stop <host|id>
 bast vercel resume <host|id>
 bast vercel delete <host|id> [--yes]
+bast vercel cleanup [--yes]
 ```
 
-Connect is a WebSocket PTY, not OpenSSH. SFTP is unavailable. Token file: `~/.config/bast/vercel-token`. Docs: https://bast.sh/docs/features/vercel
+Connect is a WebSocket PTY, not OpenSSH. SFTP is unavailable. Token file: `~/.config/bast/vercel-token`. Offline sandboxes without a snapshot stay off the host list; `bast vercel cleanup` deletes them after confirmation. Docs: https://bast.sh/docs/features/vercel
 
 ## Files (SFTP)
 

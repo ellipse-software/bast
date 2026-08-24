@@ -40,11 +40,19 @@ func (m *App) shouldInjectProviderRoot(kind cloud.Kind) bool {
 	if _, ok := cloud.DescriptorForKind(kind); !ok {
 		return false
 	}
-	if cloud.CapabilitiesFor(kind).Create && m.providerEnabled(kind) {
-		return true
+	// Visible hosts already create the group. An empty header is only useful
+	// when `.` is revealing stopped or user-hidden hosts that would otherwise
+	// have no parent row. Create still lives on the Sync tab.
+	if !m.showHidden || m.searchText() != "" {
+		return false
 	}
+	hostMetadata := m.hostMetadata()
 	for _, host := range m.hosts {
-		if host.Synced && host.SyncSource == string(kind) {
+		if !host.Synced || host.SyncSource != string(kind) {
+			continue
+		}
+		meta := hostMetadata[host.Alias]
+		if meta.Hidden || hostLooksStopped(host, meta) {
 			return true
 		}
 	}

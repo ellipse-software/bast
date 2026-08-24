@@ -126,6 +126,7 @@ func (e *Engine) SyncVercel(ctx context.Context) (Result, error) {
 	latest.LastSyncAt = &now
 	latest.LastSyncError = strings.Join(discovery.Warnings, "; ")
 	latest.LastInstanceCount = len(blocks)
+	latest.Unrestorable = append([]string(nil), discovery.Unrestorable...)
 	if err := e.Store.SetVercel(latest); err != nil {
 		return Result{Provider: vercelcloud.ProviderName}, err
 	}
@@ -229,6 +230,21 @@ func (e *Engine) DeleteVercel(ctx context.Context, syncID string) (Result, error
 		return Result{}, err
 	}
 	return e.SyncVercel(ctx)
+}
+
+func (e *Engine) ListVercelUnrestorable(ctx context.Context) ([]string, error) {
+	e.applyVercelScope()
+	return e.Vercel.Unrestorable(ctx)
+}
+
+func (e *Engine) CleanupVercel(ctx context.Context) (Result, []string, error) {
+	e.applyVercelScope()
+	deleted, err := e.Vercel.CleanupUnrestorable(ctx)
+	result, syncErr := e.SyncVercel(ctx)
+	if err != nil {
+		return result, deleted, err
+	}
+	return result, deleted, syncErr
 }
 
 func (e *Engine) ResolveVercelSyncID(ctx context.Context, hostOrID string) (string, error) {
@@ -350,5 +366,6 @@ func (e *Engine) DisableVercel(ctx context.Context) error {
 	integration.Disabled = true
 	integration.LastSyncError = ""
 	integration.LastInstanceCount = 0
+	integration.Unrestorable = nil
 	return e.Store.SetVercel(integration)
 }

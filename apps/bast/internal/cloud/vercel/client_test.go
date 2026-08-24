@@ -37,36 +37,70 @@ func testClient(t *testing.T, handler http.HandlerFunc) *Client {
 
 func TestListAndDiscover(t *testing.T) {
 	pages := 0
+	deleted := map[string]int{}
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer vercel_test_token" {
 			t.Errorf("missing bearer")
 		}
-		if r.URL.Query().Get("teamId") != "team_1" || r.URL.Query().Get("project") != "prj_1" {
+		if r.URL.Query().Get("teamId") != "team_1" {
 			t.Errorf("query = %s", r.URL.RawQuery)
 		}
-		if r.URL.Path != "/v2/sandboxes" || r.Method != http.MethodGet {
-			http.NotFound(w, r)
-			return
-		}
-		pages++
-		if r.URL.Query().Get("cursor") == "" {
-			next := "page2"
-			raw := sandboxListResponse{
-				Sandboxes: []Sandbox{
-					{Name: "dev", Status: "running", Persistent: true, VCPUs: 2, Runtime: "node24", CurrentSessionID: "sbx_1"},
-				},
+		name := strings.TrimPrefix(r.URL.Path, "/v2/sandboxes/")
+		switch {
+		case r.URL.Path == "/v2/sandboxes" && r.Method == http.MethodGet:
+			if r.URL.Query().Get("project") != "prj_1" {
+				t.Errorf("query = %s", r.URL.RawQuery)
 			}
-			raw.Pagination.Count = 1
-			raw.Pagination.Next = &next
-			_ = json.NewEncoder(w).Encode(raw)
-			return
+			pages++
+			if r.URL.Query().Get("cursor") == "" {
+				next := "page2"
+				raw := sandboxListResponse{
+					Sandboxes: []Sandbox{
+						{Name: "dev", Status: "running", Persistent: true, VCPUs: 2, Runtime: "node24", CurrentSessionID: "sbx_1"},
+						{Name: "paused", Status: "stopped", Persistent: true, VCPUs: 2, CurrentSnapshot: "snap_paused"},
+					},
+				}
+				raw.Pagination.Count = 2
+				raw.Pagination.Next = &next
+				_ = json.NewEncoder(w).Encode(raw)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(sandboxListResponse{
+				Sandboxes: []Sandbox{
+					{Name: "idle", Status: "stopped", Persistent: true, VCPUs: 1, CurrentSessionID: "sbx_2"},
+					{Name: "temp", Status: "stopped", Persistent: false},
+					{Name: "dead", Status: "failed"},
+					{Name: "saving", Status: "snapshotting", Persistent: true},
+				},
+			})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v2/sandboxes/"):
+			if deleted[name] > 0 {
+				http.NotFound(w, r)
+				return
+			}
+			box := Sandbox{Name: name, Persistent: true}
+			switch name {
+			case "idle":
+				box.Status = "stopped"
+			case "paused":
+				box.Status = "stopped"
+				box.CurrentSnapshot = "snap_paused"
+			case "temp":
+				box.Status = "stopped"
+				box.Persistent = false
+			case "dead":
+				box.Status = "failed"
+			default:
+				http.NotFound(w, r)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(sandboxSessionResponse{Sandbox: box})
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v2/sandboxes/"):
+			deleted[name]++
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
 		}
-		_ = json.NewEncoder(w).Encode(sandboxListResponse{
-			Sandboxes: []Sandbox{
-				{Name: "idle", Status: "stopped", Persistent: true, VCPUs: 1, CurrentSessionID: "sbx_2"},
-				{Name: "dead", Status: "failed"},
-			},
-		})
 	})
 	discovery, err := client.Discover(context.Background(), struct{}{})
 	if err != nil {
@@ -75,17 +109,33 @@ func TestListAndDiscover(t *testing.T) {
 	if pages < 2 {
 		t.Fatalf("pages = %d", pages)
 	}
-	if len(discovery.Instances) != 2 {
-		t.Fatalf("instances = %d, want 2", len(discovery.Instances))
+	if len(deleted) != 0 {
+		t.Fatalf("discover must not delete: %v", deleted)
+	}
+	if got := strings.Join(discovery.Unrestorable, ","); got != "dead,idle,temp" {
+		t.Fatalf("unrestorable = %v", discovery.Unrestorable)
+	}
+	if len(discovery.Instances) != 3 {
+		t.Fatalf("instances = %d, want 3: %+v", len(discovery.Instances), discovery.Instances)
 	}
 	if discovery.Instances[0].SyncID != "prj_1/dev" || !discovery.Instances[0].Running {
 		t.Fatalf("running = %+v", discovery.Instances[0])
 	}
-	if discovery.Instances[1].SyncID != "prj_1/idle" || discovery.Instances[1].Running {
-		t.Fatalf("stopped = %+v", discovery.Instances[1])
+	byName := map[string]Instance{}
+	for _, inst := range discovery.Instances {
+		byName[inst.Name] = inst
 	}
-	if !HostLooksStopped(discovery.Instances[1].Tags) {
-		t.Fatal("stopped should look stopped")
+	if _, ok := byName["paused"]; !ok || byName["paused"].Running {
+		t.Fatalf("paused = %+v", byName["paused"])
+	}
+	if !HostLooksStopped(byName["paused"].Tags) {
+		t.Fatal("paused should look stopped")
+	}
+	if _, ok := byName["saving"]; !ok || byName["saving"].Running {
+		t.Fatalf("saving = %+v", byName["saving"])
+	}
+	if _, ok := byName["idle"]; ok {
+		t.Fatal("stopped without snapshot should not be listed")
 	}
 	if AliasFor(discovery.Instances[0]) != "vercel_dev" {
 		t.Fatalf("alias = %s", AliasFor(discovery.Instances[0]))
@@ -93,6 +143,42 @@ func TestListAndDiscover(t *testing.T) {
 	host := ToSyncHost(discovery.Instances[0], "")
 	if host.HostName != StoppedHost || host.SyncSource != ProviderName || host.User != "" {
 		t.Fatalf("sync host = %+v", host)
+	}
+
+	cleaned, err := client.CleanupUnrestorable(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(cleaned, ",") != "dead,idle,temp" {
+		t.Fatalf("cleaned = %v", cleaned)
+	}
+	if deleted["idle"] == 0 || deleted["temp"] == 0 || deleted["dead"] == 0 {
+		t.Fatalf("cleanup deleted = %v", deleted)
+	}
+	if deleted["paused"] != 0 || deleted["saving"] != 0 || deleted["dev"] != 0 {
+		t.Fatalf("cleanup deleted restorable sandboxes: %v", deleted)
+	}
+}
+
+func TestUnrestorableOffline(t *testing.T) {
+	cases := []struct {
+		box  Sandbox
+		want bool
+	}{
+		{Sandbox{Status: "stopped"}, true},
+		{Sandbox{Status: "stopped", CurrentSnapshot: "snap_1"}, false},
+		{Sandbox{Status: "snapshotting"}, false},
+		{Sandbox{Status: "stopping"}, false},
+		{Sandbox{Status: "running"}, false},
+		{Sandbox{Status: "pending"}, false},
+		{Sandbox{Status: "failed"}, true},
+		{Sandbox{Status: "aborted"}, true},
+		{Sandbox{Status: "failed", CurrentSnapshot: "snap_1"}, false},
+	}
+	for _, tc := range cases {
+		if got := unrestorableOffline(tc.box); got != tc.want {
+			t.Errorf("%+v: got %v want %v", tc.box, got, tc.want)
+		}
 	}
 }
 

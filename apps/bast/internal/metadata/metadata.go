@@ -126,6 +126,7 @@ type VercelIntegration struct {
 	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
 	LastSyncError     string     `json:"lastSyncError,omitempty"`
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Unrestorable      []string   `json:"unrestorable,omitempty"`
 }
 
 type Integrations struct {
@@ -691,7 +692,7 @@ func (s *Store) SetVercel(vercel VercelIntegration) error {
 	defer s.mu.Unlock()
 	previous := s.state.Integrations.Vercel
 	if !vercel.Enabled && !vercel.AutoSync && !vercel.Disabled && vercel.TeamID == "" && vercel.ProjectID == "" &&
-		vercel.LastSyncAt == nil && vercel.LastSyncError == "" && vercel.LastInstanceCount == 0 {
+		vercel.LastSyncAt == nil && vercel.LastSyncError == "" && vercel.LastInstanceCount == 0 && len(vercel.Unrestorable) == 0 {
 		s.state.Integrations.Vercel = nil
 	} else {
 		copy := cloneVercel(vercel)
@@ -798,6 +799,7 @@ func cloneUpstash(upstash UpstashIntegration) UpstashIntegration {
 }
 
 func cloneVercel(vercel VercelIntegration) VercelIntegration {
+	vercel.Unrestorable = append([]string(nil), vercel.Unrestorable...)
 	if vercel.LastSyncAt != nil {
 		lastSyncAt := *vercel.LastSyncAt
 		vercel.LastSyncAt = &lastSyncAt
