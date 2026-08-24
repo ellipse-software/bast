@@ -6,9 +6,15 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
-### Changed
-
+- Script installers accept `BAST_VERSION` (stable) and `BAST_NIGHTLY_VERSION` (nightly) to install a specific GitHub release.
 - Keys tab: `g` generates a key, `a` adds the selected key to a server. The in-app `?` overlay, footer hints, and detail chips share one keymap.
+- Homebrew formulae compile Bast from source instead of installing prebuilt release archives.
+
+## v0.9.3 - 2026-08-23
+
+### Added
+
+- Linux packages for apt, dnf, pacman, and apk: `.deb`, `.rpm`, `.apk`, and Arch packages on GitHub releases, plus a signed repository at https://packages.bast.sh.
 
 ### Fixed
 

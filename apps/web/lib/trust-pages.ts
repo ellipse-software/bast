@@ -127,11 +127,12 @@ Bast.sh is a native SSH picker and key manager. Agents and developers should sta
 
 ## CLI
 
-Official Bast.sh CLI, not an HTTP SDK. Install with Homebrew, WinGet, or the install script, then use \`bast --json\` for function-calling-style automation.
+Official Bast.sh CLI, not an HTTP SDK. Install with Homebrew, Linux packages, WinGet, or the install script, then use \`bast --json\` for function-calling-style automation.
 
 - CLI: ${siteUrl}/cli
 - Command reference: ${siteUrl}/docs/features/cli
 - Homebrew: \`brew install ellipse-software/tap/bast\`
+- Linux packages: \`curl -fsSL https://packages.bast.sh/setup.sh | sudo sh\`
 - WinGet: \`winget install EllipseSoftware.Bast\`
 
 ## Trust
@@ -157,6 +158,12 @@ Homebrew:
 brew install ellipse-software/tap/bast
 \`\`\`
 
+Linux packages:
+
+\`\`\`bash
+curl -fsSL https://packages.bast.sh/setup.sh | sudo sh
+\`\`\`
+
 Installer (macOS and Linux):
 
 \`\`\`bash
@@ -175,7 +182,7 @@ WinGet:
 winget install EllipseSoftware.Bast
 \`\`\`
 
-The CLI is not published on npm or PyPI. Homebrew, WinGet, and the install scripts are the official distribution channels. Source: ${bastRepoUrl}.
+The CLI is not published on npm or PyPI. Homebrew, Linux packages, WinGet, and the install scripts are the official distribution channels. Source: ${bastRepoUrl}.
 
 ## Use from an agent
 
@@ -234,6 +241,7 @@ Bast.sh wraps the OpenSSH binary already on your machine. It reads ~/.ssh/config
 \`\`\`bash
 curl -fsSL https://bast.sh/install | sh
 brew install ellipse-software/tap/bast
+curl -fsSL https://packages.bast.sh/setup.sh | sudo sh
 \`\`\`
 
 Windows 11: \`irm https://bast.sh/install.ps1 | iex\` or \`winget install EllipseSoftware.Bast\`

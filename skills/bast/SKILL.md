@@ -38,12 +38,19 @@ Installer:
 
 ```sh
 curl -fsSL https://bast.sh/install | sh
+curl -fsSL https://bast.sh/install | BAST_VERSION=v0.9.1 sh
 ```
 
 Homebrew:
 
 ```sh
 brew install ellipse-software/tap/bast
+```
+
+Linux packages:
+
+```sh
+curl -fsSL https://packages.bast.sh/setup.sh | sudo sh
 ```
 
 Windows 11 PowerShell:
