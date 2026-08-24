@@ -32,7 +32,7 @@ func (c *Client) Create(ctx context.Context, opts CreateOpts) (string, error) {
 	if image == "" {
 		return "", fmt.Errorf("fly image is required")
 	}
-	args := []string{"machine", "run", image, "--app", app}
+	args := []string{"machine", "run", image, "--app", app, "--detach"}
 	if region := strings.TrimSpace(opts.Region); region != "" {
 		args = append(args, "--region", region)
 	}
@@ -98,7 +98,7 @@ func (c *Client) Clone(ctx context.Context, org, app, id string, opts ForkOpts) 
 	if err != nil {
 		return "", err
 	}
-	args := []string{"machine", "clone", id, "--app", app}
+	args := []string{"machine", "clone", id, "--app", app, "--detach"}
 	if region := strings.TrimSpace(opts.Region); region != "" {
 		args = append(args, "--region", region)
 	}

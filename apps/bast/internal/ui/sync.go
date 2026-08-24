@@ -1938,9 +1938,16 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 	case "fly_new":
 		app := strings.TrimSpace(values["App"])
 		image := strings.TrimSpace(values["Image"])
+		region := strings.TrimSpace(values["Region"])
 		if app == "" || image == "" {
 			if m.form != nil {
 				m.form.validationError = "app and image are required"
+			}
+			return nil
+		}
+		if region == "" {
+			if m.form != nil {
+				m.form.validationError = "region is required"
 			}
 			return nil
 		}
@@ -1959,7 +1966,7 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			defer cancel()
 			result, alias, err := m.syncer.NewFly(ctx, flycloud.CreateOpts{
 				App: app, Image: image, Org: strings.TrimSpace(values["Org"]),
-				Region: strings.TrimSpace(values["Region"]), Size: strings.TrimSpace(values["Size"]),
+				Region: region, Size: strings.TrimSpace(values["Size"]),
 				Name: strings.TrimSpace(values["Name"]),
 			})
 			if err != nil {

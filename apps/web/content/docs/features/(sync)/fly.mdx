@@ -10,7 +10,7 @@ Every Machine already runs Fly’s built-in SSH server (`hallpass`). You do not 
 ## Requirements
 
 - Fly CLI (`fly` or `flyctl`) on your `PATH`
-- An authenticated Fly account (`fly auth login`)
+- An authenticated Fly account (`fly auth login` in a terminal; Bast runs flyctl without prompts)
 - A shell in the Machine image for interactive SSH
 
 ## Connect Fly.io
@@ -59,7 +59,7 @@ SFTP in Files uses the same path. Hallpass SFTP works as `root`.
 
 | Action | What Fly does |
 | --- | --- |
-| New | `fly machine run` into an **existing** app (image, optional region, size, name) |
+| New | `fly machine run` into an **existing** app (image, region, optional size and name) |
 | Stop (`o` / `bast fly stop`) | Stops the Machine. Ephemeral disks are lost unless a volume is mounted |
 | Resume (`r` / Enter on a stopped machine) | `fly machine start`, then SSH |
 | Fork (`n`) | `fly machine clone` (config and image; volumes are not cloned) |

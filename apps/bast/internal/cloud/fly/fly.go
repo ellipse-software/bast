@@ -81,21 +81,100 @@ func resolveFlyBin() string {
 	return "fly"
 }
 
+// flyctlEnv keeps flyctl from prompting, auto-updating, or sending metrics
+// while Bast captures stdout. FLY_APP is cleared so a caller shell cannot bind
+// commands to an unrelated app.
+var flyctlEnv = []string{
+	"FLY_NO_UPDATE_CHECK=1",
+	"FLY_SEND_METRICS=0",
+	"FLY_APP=",
+}
+
+func isolatedWorkDir() string {
+	dir := filepath.Join(os.TempDir(), "bast-fly")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return ""
+	}
+	return dir
+}
+
+func configureFlyctlCmd(cmd *exec.Cmd, extraEnv []string) {
+	if dir := isolatedWorkDir(); dir != "" {
+		cmd.Dir = dir
+	}
+	cmd.Env = append(os.Environ(), flyctlEnv...)
+	if len(extraEnv) > 0 {
+		cmd.Env = append(cmd.Env, extraEnv...)
+	}
+}
+
 func defaultRunner(ctx context.Context, args []string, env []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.WaitDelay = 2 * time.Second
-	cmd.Env = append(os.Environ(), env...)
+	configureFlyctlCmd(cmd, env)
+	// Null stdin so flyctl does not inherit a TTY and try to prompt.
+	cmd.Stdin = nil
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return nil, fmt.Errorf("fly: %s", msg)
+		return nil, fmt.Errorf("fly: %s", flyctlError(stderr.String(), err))
 	}
 	return out, nil
+}
+
+func flyctlError(stderr string, err error) string {
+	msg := cleanFlyctlOutput(stderr)
+	if msg == "" && err != nil {
+		msg = err.Error()
+	}
+	return rewriteFlyctlError(msg)
+}
+
+func cleanFlyctlOutput(s string) string {
+	var kept []string
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "warning: metrics token unavailable") {
+			continue
+		}
+		if strings.Contains(lower, "error spawning metrics process") {
+			continue
+		}
+		kept = append(kept, trimmed)
+	}
+	return strings.Join(kept, "\n")
+}
+
+func rewriteFlyctlError(msg string) string {
+	lines := strings.Split(msg, "\n")
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "Error: ")
+		line = strings.TrimPrefix(line, "error: ")
+		if line != "" {
+			kept = append(kept, line)
+		}
+	}
+	msg = strings.Join(kept, "\n")
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "org slug must be specified"):
+		return "organization slug is required"
+	case strings.Contains(lower, "region code must be specified"):
+		return "region is required when flyctl cannot prompt; pass a region code such as iad"
+	case strings.Contains(lower, "no access token"), strings.Contains(lower, "no auth token"):
+		return "not logged in; run fly auth login"
+	case strings.Contains(lower, "prompt: non interactive"):
+		return "flyctl cannot prompt from Bast; run fly auth login in a terminal, and specify org and region when creating a machine"
+	default:
+		return msg
+	}
 }
 
 func (c *Client) bin() string {
@@ -145,13 +224,14 @@ func (c *Client) Account(ctx context.Context) (AccountStatus, error) {
 	if err := c.CheckAvailable(ctx); err != nil {
 		return AccountStatus{Error: err.Error()}, err
 	}
-	out, err := c.runRaw(ctx, "auth", "whoami")
+	out, err := c.runJSON(ctx, "auth", "whoami")
 	if err != nil {
 		msg := err.Error()
 		lower := strings.ToLower(msg)
 		if strings.Contains(lower, "unauthor") || strings.Contains(lower, "not logged") ||
 			strings.Contains(lower, "login") || strings.Contains(lower, "no access token") ||
-			strings.Contains(lower, "401") {
+			strings.Contains(lower, "no auth token") || strings.Contains(lower, "401") ||
+			strings.Contains(lower, "prompt: non interactive") {
 			return AccountStatus{Authenticated: false, Error: "not logged in; run fly auth login"}, nil
 		}
 		return AccountStatus{Error: msg}, err

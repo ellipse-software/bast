@@ -67,7 +67,7 @@ func (m *App) openFlyNewForm() {
 		appField,
 		{label: "Image", description: "Docker image", placeholder: "nginx", value: "nginx"},
 		{label: "Org", description: "Organization slug", optional: true, placeholder: "personal", value: strings.Join(m.metadata.Fly().OrgFilter, ", ")},
-		{label: "Region", description: "Optional region code", optional: true, placeholder: "iad"},
+		{label: "Region", description: "Region code", placeholder: "iad", value: "iad"},
 		{
 			label: "Size", value: "shared-cpu-1x", selected: 0,
 			options: []fieldOption{

@@ -247,6 +247,122 @@ func TestEnsureAccessIssuesCertificate(t *testing.T) {
 	}
 }
 
+func TestFlyctlErrorStripsMetricsAndPrompt(t *testing.T) {
+	stderr := "Warning: Metrics token unavailable: failed to run query($slug: String!) { organization(slug: $slug) { id internalNumericId slug rawSlug name type billable } }: context canceled\nError: prompt: non interactive\n"
+	got := flyctlError(stderr, fmt.Errorf("exit status 1"))
+	if strings.Contains(strings.ToLower(got), "metrics") {
+		t.Fatalf("metrics warning leaked: %q", got)
+	}
+	if strings.Contains(got, "Error:") {
+		t.Fatalf("Error prefix leaked: %q", got)
+	}
+	if !strings.Contains(got, "fly auth login") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestAccountUsesJSONWhoami(t *testing.T) {
+	var whoami string
+	client := &Client{
+		Run: func(_ context.Context, args []string, _ []string) ([]byte, error) {
+			cmd := strings.Join(args, " ")
+			switch {
+			case strings.Contains(cmd, "version"):
+				return []byte("fly v0.3.0"), nil
+			case strings.Contains(cmd, "auth whoami"):
+				whoami = cmd
+				if !strings.Contains(cmd, "--json") {
+					return nil, fmt.Errorf("whoami must use --json: %s", cmd)
+				}
+				return []byte(`{"email":"ada@example.com"}`), nil
+			default:
+				return nil, fmt.Errorf("unexpected %s", cmd)
+			}
+		},
+	}
+	status, err := client.Account(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.Authenticated || status.Login != "ada@example.com" {
+		t.Fatalf("%+v", status)
+	}
+	if !strings.Contains(whoami, "--json") {
+		t.Fatalf("whoami = %q", whoami)
+	}
+}
+
+func TestCreatePassesDetachRegionAndOrg(t *testing.T) {
+	var runCmd string
+	client := &Client{
+		PollInterval: time.Millisecond,
+		Run: func(_ context.Context, args []string, _ []string) ([]byte, error) {
+			cmd := strings.Join(args, " ")
+			switch {
+			case strings.Contains(cmd, "machine run"):
+				runCmd = cmd
+				return []byte("Machine e286065f969386 has been created"), nil
+			case strings.Contains(cmd, "machine list"):
+				return []byte(`[{"id":"e286065f969386","state":"started"}]`), nil
+			default:
+				return nil, fmt.Errorf("unexpected %s", cmd)
+			}
+		},
+	}
+	id, err := client.Create(context.Background(), CreateOpts{
+		App: "web", Image: "nginx", Region: "iad", Org: "personal",
+	})
+	if err != nil || id != "e286065f969386" {
+		t.Fatalf("id=%q err=%v", id, err)
+	}
+	for _, want := range []string{"--detach", "--region iad", "--org personal", "--app web"} {
+		if !strings.Contains(runCmd, want) {
+			t.Fatalf("missing %q in %q", want, runCmd)
+		}
+	}
+}
+
+func TestDefaultRunnerIsolatesFlyctl(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fixture")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "fly")
+	body := `#!/bin/sh
+echo "FLY_NO_UPDATE_CHECK=${FLY_NO_UPDATE_CHECK}"
+echo "FLY_SEND_METRICS=${FLY_SEND_METRICS}"
+echo "FLY_APP=[${FLY_APP}]"
+echo "PWD=$(pwd)"
+if [ -t 0 ]; then echo STDIN_TTY=1; else echo STDIN_TTY=0; fi
+`
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, err := defaultRunner(context.Background(), []string{script}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+	if !strings.Contains(got, "FLY_NO_UPDATE_CHECK=1") || !strings.Contains(got, "FLY_SEND_METRICS=0") {
+		t.Fatalf("env:\n%s", got)
+	}
+	if !strings.Contains(got, "FLY_APP=[]") {
+		t.Fatalf("FLY_APP should be cleared:\n%s", got)
+	}
+	if !strings.Contains(got, "STDIN_TTY=0") {
+		t.Fatalf("stdin should not be a TTY:\n%s", got)
+	}
+	if want := isolatedWorkDir(); want != "" {
+		resolved, err := filepath.EvalSymlinks(want)
+		if err != nil {
+			resolved = want
+		}
+		if !strings.Contains(got, "PWD="+want) && !strings.Contains(got, "PWD="+resolved) {
+			t.Fatalf("cwd:\n%s\nwant %s", got, resolved)
+		}
+	}
+}
+
 func TestGeneratedFlyConfigIsAcceptedByOpenSSH(t *testing.T) {
 	ssh, err := exec.LookPath("ssh")
 	if err != nil {

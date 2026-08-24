@@ -86,7 +86,7 @@ func (c *Client) ensureCertificate(ctx context.Context, org, managedKeys, user s
 		return identity, cert, nil
 	}
 	reportStatus(status, "Issuing Fly SSH certificate…")
-	args := []string{"ssh", "issue", org, identity, "--hours", "24", "--overwrite"}
+	args := []string{"ssh", "issue", org, identity, "--org", org, "--hours", "24", "--overwrite"}
 	if trimmed := strings.TrimSpace(user); trimmed != "" && trimmed != SSHUser && trimmed != "fly" {
 		args = append(args, "--username", SSHUser+","+trimmed)
 	}

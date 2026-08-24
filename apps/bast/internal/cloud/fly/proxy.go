@@ -83,6 +83,7 @@ func RunProxy(ctx context.Context, options ProxyOptions, in io.Reader, out, errO
 		"--watch-stdin",
 	}
 	cmd := exec.CommandContext(childCtx, client.bin(), args...)
+	configureFlyctlCmd(cmd, nil)
 	cmd.Stderr = errOut
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start fly proxy: %w", err)

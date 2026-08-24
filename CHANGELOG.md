@@ -10,6 +10,7 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Fixed
 
+- Fly sync no longer fails with flyctl's `prompt: non interactive` / metrics-token warning. Bast runs flyctl without a TTY, isolated from `fly.toml`, and without metrics or update checks.
 - Box stop returns once the box is stopping instead of waiting minutes for the snapshot to finish, and a late sync result can no longer clear a newer in-flight Box operation.
 - Hosts provider group selection fills the highlight under branded labels and icons.
 - Stop, fork, resume, and delete work on a selected sandbox on the Sync provider page, matching Hosts.
