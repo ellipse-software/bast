@@ -53,6 +53,7 @@ type VaultIntegrations struct {
 	AWS     *VaultAWSIntegration     `json:"aws,omitempty"`
 	Azure   *VaultAzureIntegration   `json:"azure,omitempty"`
 	Upstash *VaultUpstashIntegration `json:"upstash,omitempty"`
+	Fly     *VaultFlyIntegration     `json:"fly,omitempty"`
 }
 
 type VaultGCPIntegration struct {
@@ -81,6 +82,14 @@ type VaultAzureIntegration struct {
 type VaultUpstashIntegration struct {
 	Enabled  bool `json:"enabled"`
 	AutoSync bool `json:"autoSync,omitempty"`
+}
+
+type VaultFlyIntegration struct {
+	Enabled        bool     `json:"enabled"`
+	AutoSync       bool     `json:"autoSync,omitempty"`
+	OrgFilter      []string `json:"orgFilter,omitempty"`
+	AppFilter      []string `json:"appFilter,omitempty"`
+	DefaultSSHUser string   `json:"defaultSshUser,omitempty"`
 }
 
 type Conflict struct {

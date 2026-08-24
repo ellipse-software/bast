@@ -21,6 +21,8 @@ func TestKindForGroup(t *testing.T) {
 		{"Box/Running", Box, true},
 		{"Upstash", Upstash, true},
 		{"Upstash/dev", Upstash, true},
+		{"Fly.io", Fly, true},
+		{"Fly.io/personal", Fly, true},
 		{"Work", "", false},
 		{"Boxing", "", false},
 		{"", "", false},
@@ -45,6 +47,10 @@ func TestKindForSource(t *testing.T) {
 	if !ok || kind != Upstash {
 		t.Fatalf("KindForSource(upstash) = %q, %t", kind, ok)
 	}
+	kind, ok = KindForSource("fly")
+	if !ok || kind != Fly {
+		t.Fatalf("KindForSource(fly) = %q, %t", kind, ok)
+	}
 	if _, ok := KindForSource("digitalocean"); ok {
 		t.Fatal("unknown source should not match")
 	}
@@ -58,6 +64,10 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 	upstash := CapabilitiesFor(Upstash)
 	if !upstash.Create || !upstash.Stop || !upstash.Start || !upstash.Fork || !upstash.Delete {
 		t.Fatalf("upstash caps = %+v", upstash)
+	}
+	fly := CapabilitiesFor(Fly)
+	if !fly.Create || !fly.Stop || !fly.Start || !fly.Fork || !fly.Delete {
+		t.Fatalf("fly caps = %+v", fly)
 	}
 	for _, kind := range []Kind{GCP, AWS, Azure} {
 		if caps := CapabilitiesFor(kind); caps != (Capabilities{}) {
@@ -86,7 +96,7 @@ func TestDescriptorsCoverEveryKind(t *testing.T) {
 		}
 		seen[d.Kind] = true
 	}
-	for _, kind := range []Kind{GCP, AWS, Azure, Box, Upstash} {
+	for _, kind := range []Kind{GCP, AWS, Azure, Box, Upstash, Fly} {
 		if !seen[kind] {
 			t.Fatalf("missing descriptor for %s", kind)
 		}

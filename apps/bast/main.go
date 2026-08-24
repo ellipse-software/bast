@@ -15,6 +15,7 @@ import (
 
 	"bast/internal/cli"
 	azurecloud "bast/internal/cloud/azure"
+	flycloud "bast/internal/cloud/fly"
 	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/openssh"
 	"bast/internal/paths"
@@ -82,6 +83,15 @@ func run(args []string) error {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 		return azurecloud.RunBastionProxy(ctx, options, os.Stdin, os.Stdout, os.Stderr)
+	}
+	if len(args) > 0 && args[0] == "__fly-proxy" {
+		options, err := flycloud.ParseProxyOptions(args[1:])
+		if err != nil {
+			return err
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		return flycloud.RunProxy(ctx, options, os.Stdin, os.Stdout, os.Stderr)
 	}
 	jsonOutput := false
 	for _, arg := range args {

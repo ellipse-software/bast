@@ -35,7 +35,7 @@ export const guideNavItems = [
   {
     href: "/cloud-ssh",
     label: "Cloud SSH",
-    blurb: "GCP, AWS, Azure, and box.ascii.dev",
+    blurb: "GCP, AWS, Azure, Box, and Fly.io",
   },
   {
     href: "/ssh-sftp",

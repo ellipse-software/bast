@@ -68,6 +68,7 @@ type Manager struct {
 	SyncAzureConfig   string
 	SyncBoxConfig     string
 	SyncUpstashConfig string
+	SyncFlyConfig     string
 }
 
 type SyncHostInput struct {

@@ -29,24 +29,11 @@ func (m *App) providerEnabled(kind cloud.Kind) bool {
 		return m.metadata.Box().Enabled
 	case cloud.Upstash:
 		return m.metadata.Upstash().Enabled
+	case cloud.Fly:
+		return m.metadata.Fly().Enabled
 	default:
 		return false
 	}
-}
-
-func (m *App) shouldInjectProviderRoot(kind cloud.Kind) bool {
-	if _, ok := cloud.DescriptorForKind(kind); !ok {
-		return false
-	}
-	if cloud.CapabilitiesFor(kind).Create && m.providerEnabled(kind) {
-		return true
-	}
-	for _, host := range m.hosts {
-		if host.Synced && host.SyncSource == string(kind) {
-			return true
-		}
-	}
-	return false
 }
 
 func (m *App) providerGroupStats(group string) (running, stopped int) {
@@ -69,6 +56,9 @@ func (m *App) providerGroupPrimaryAction(kind cloud.Kind) string {
 	if cloud.CapabilitiesFor(kind).Create {
 		if kind == cloud.Box || kind == cloud.Upstash {
 			return " New box "
+		}
+		if kind == cloud.Fly {
+			return " New machine "
 		}
 		return " New "
 	}
@@ -109,6 +99,8 @@ func (m *App) stopSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 		m.openUpstashStopForm(host)
 	case "box":
 		m.openBoxStopForm(host)
+	case "fly":
+		m.openFlyStopForm(host)
 	default:
 		return m, nil
 	}
@@ -127,6 +119,8 @@ func (m *App) forkSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 		m.openUpstashForkForm(host)
 	case "box":
 		m.openBoxForkForm(host)
+	case "fly":
+		m.openFlyForkForm(host)
 	default:
 		return m, nil
 	}
@@ -137,7 +131,12 @@ func (m *App) deleteSyncedHost(host sshconfig.Host) bool {
 	if !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Delete }) {
 		return false
 	}
-	m.openUpstashDeleteForm(host)
+	switch host.SyncSource {
+	case "fly":
+		m.openFlyDeleteForm(host)
+	default:
+		m.openUpstashDeleteForm(host)
+	}
 	return true
 }
 
@@ -150,6 +149,8 @@ func (m *App) resumeSyncedHost(host sshconfig.Host, thenConnect bool) tea.Cmd {
 		return m.resumeSelectedUpstash(host, thenConnect)
 	case "box":
 		return m.resumeSelectedBox(host, thenConnect)
+	case "fly":
+		return m.resumeSelectedFly(host, thenConnect)
 	default:
 		return nil
 	}
@@ -179,6 +180,15 @@ func (m *App) runProviderGroupCreate(kind cloud.Kind) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.openUpstashNewForm()
+		return m, nil
+	case cloud.Fly:
+		if m.syncingProviders["fly"] {
+			return m, m.setNotice("Fly operation already in progress")
+		}
+		if !m.syncStatus.Fly.Authenticated && !m.metadata.Fly().Enabled {
+			return m, m.setNotice("Connect Fly on the Sync tab first")
+		}
+		m.openFlyNewForm()
 		return m, nil
 	default:
 		return m, m.setNotice("Create is not available for this provider yet")

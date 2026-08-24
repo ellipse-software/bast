@@ -15,6 +15,7 @@ import (
 	awscloud "bast/internal/cloud/aws"
 	azurecloud "bast/internal/cloud/azure"
 	boxcloud "bast/internal/cloud/box"
+	flycloud "bast/internal/cloud/fly"
 	"bast/internal/cloud/gcp"
 	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/metadata"
@@ -36,6 +37,7 @@ type Engine struct {
 	azureMu        stdsync.Mutex
 	boxMu          stdsync.Mutex
 	upstashMu      stdsync.Mutex
+	flyMu          stdsync.Mutex
 	Paths          paths.Paths
 	Config         sshconfig.Manager
 	Store          *metadata.Store
@@ -44,6 +46,7 @@ type Engine struct {
 	Azure          *azurecloud.Client
 	Box            *boxcloud.Client
 	Upstash        *upstashcloud.Client
+	Fly            *flycloud.Client
 	BastExecutable string
 	Discover       func(ctx context.Context) ([]sshconfig.Host, error)
 
@@ -65,7 +68,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
 		SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig,
-		SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig,
+		SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncFlyConfig: p.SyncFlyConfig,
 	}
 	return &Engine{
 		Paths:          p,
@@ -76,6 +79,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		Azure:          azurecloud.New(),
 		Box:            boxcloud.New(),
 		Upstash:        upstashcloud.New(p.UpstashAPIKey),
+		Fly:            flycloud.New(),
 		BastExecutable: stableExecutablePath(),
 		Discover: func(ctx context.Context) ([]sshconfig.Host, error) {
 			return cfg.Discover()
@@ -993,6 +997,7 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	azureIntegration := e.Store.Azure()
 	boxIntegration := e.Store.Box()
 	upstashIntegration := e.Store.Upstash()
+	flyIntegration := e.Store.Fly()
 	status := Status{
 		GCP: GCPStatus{
 			Enabled:           integration.Enabled,
@@ -1028,10 +1033,17 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			LastSyncAt: upstashIntegration.LastSyncAt, LastSyncError: upstashIntegration.LastSyncError,
 			LastInstanceCount: upstashIntegration.LastInstanceCount, HasKey: e.Upstash.HasKey(),
 		},
+		Fly: FlyStatus{
+			Enabled: flyIntegration.Enabled, AutoSync: flyIntegration.AutoSync, Disabled: flyIntegration.Disabled,
+			OrgFilter:      append([]string(nil), flyIntegration.OrgFilter...),
+			AppFilter:      append([]string(nil), flyIntegration.AppFilter...),
+			DefaultSSHUser: flyIntegration.DefaultSSHUser, LastSyncAt: flyIntegration.LastSyncAt,
+			LastSyncError: flyIntegration.LastSyncError, LastInstanceCount: flyIntegration.LastInstanceCount,
+		},
 	}
 
 	var probes stdsync.WaitGroup
-	probes.Add(5)
+	probes.Add(6)
 	go func() {
 		defer probes.Done()
 		if err := e.GCP.CheckAvailable(ctx); err != nil {
@@ -1111,6 +1123,19 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			status.Upstash.Error = account.Error
 		}
 	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Fly.Account(ctx)
+		if err != nil {
+			status.Fly.FlyCLIError = err.Error()
+			return
+		}
+		if account.Error != "" && !account.Authenticated {
+			status.Fly.FlyCLIError = account.Error
+		}
+		status.Fly.Authenticated = account.Authenticated
+		status.Fly.Login = account.Login
+	}()
 	probes.Wait()
 	return status, nil
 }
@@ -1121,6 +1146,7 @@ type Status struct {
 	Azure   AzureStatus   `json:"azure"`
 	Box     BoxStatus     `json:"box"`
 	Upstash UpstashStatus `json:"upstash"`
+	Fly     FlyStatus     `json:"fly"`
 }
 
 type GCPStatus struct {
@@ -1187,6 +1213,21 @@ type UpstashStatus struct {
 	LastSyncError     string     `json:"lastSyncError,omitempty"`
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 	Error             string     `json:"error,omitempty"`
+}
+
+type FlyStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	Login             string     `json:"login,omitempty"`
+	OrgFilter         []string   `json:"orgFilter,omitempty"`
+	AppFilter         []string   `json:"appFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	FlyCLIError       string     `json:"flyCliError,omitempty"`
 }
 
 func IsSyncedGroup(group string) bool {

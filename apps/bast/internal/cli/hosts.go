@@ -754,6 +754,16 @@ func (r *Runner) connect(args []string) error {
 			return fail("upstash_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "fly" && host.SyncID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if err := engine.EnsureFlyAccess(ctx, sshconfig.Host{
+			Alias: host.Alias, Synced: host.Synced, SyncSource: host.SyncSource, SyncID: host.SyncID,
+		}, connectbanner.Status(r.Out)); err != nil {
+			return fail("fly_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
 	}
 	if err := r.store.RecordUse(host.Alias); err != nil {
 		return err

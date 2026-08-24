@@ -161,6 +161,17 @@ func applyIntegrations(store *metadata.Store, in VaultIntegrations) error {
 			return err
 		}
 	}
+	if in.Fly != nil {
+		cur := store.Fly()
+		cur.Enabled = in.Fly.Enabled
+		cur.AutoSync = in.Fly.AutoSync
+		cur.OrgFilter = append([]string(nil), in.Fly.OrgFilter...)
+		cur.AppFilter = append([]string(nil), in.Fly.AppFilter...)
+		cur.DefaultSSHUser = in.Fly.DefaultSSHUser
+		if err := store.SetFly(cur); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

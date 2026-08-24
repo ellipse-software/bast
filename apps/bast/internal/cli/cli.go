@@ -39,6 +39,7 @@ Usage:
   bast sync <command>          Sync cloud VMs into Bast
   bast box <command>           Create and manage ASCII Box sandboxes
   bast upstash <command>       Create and manage Upstash Box sandboxes
+  bast fly <command>           Create and manage Fly Machines
   bast vault <command>         Sync Bast-managed config via encrypted vault
 
 Host commands:
@@ -50,13 +51,16 @@ Key commands:
   public, copy, delete
 
 Sync commands:
-  gcp, aws, azure, box, upstash, status, disable
+  gcp, aws, azure, box, upstash, fly, status, disable
 
 Box commands:
   new, fork, stop, resume
 
 Upstash commands:
   new, fork, stop, resume, delete, key
+
+Fly commands:
+  new, fork, stop, resume, delete
 
 Vault commands:
   login, status, push, pull, logout, passphrase
@@ -66,7 +70,7 @@ Global options:
   --no-input                  Never prompt for missing input
 
 Run "bast hosts <command> --help", "bast keys <command> --help", "bast sync <command> --help",
-"bast box <command> --help", "bast upstash <command> --help", or "bast vault <command> --help" for details.
+"bast box <command> --help", "bast upstash <command> --help", "bast fly <command> --help", or "bast vault <command> --help" for details.
 `
 
 func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
@@ -112,7 +116,7 @@ func fail(code, message string) error { return &commandError{code: code, message
 func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writer) (*Runner, error) {
 	return &Runner{
 		Paths: p, OpenSSH: client, Version: "dev", In: in, Out: out, Err: errOut,
-		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig},
+		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncFlyConfig: p.SyncFlyConfig},
 		keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
 		reader:  bufio.NewReader(in),
 	}, nil
@@ -120,7 +124,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "connect", "hosts", "keys", "sync", "box", "upstash", "vault":
+	case "tui", "update", "connect", "hosts", "keys", "sync", "box", "upstash", "fly", "vault":
 		return true
 	}
 	return false
@@ -176,6 +180,8 @@ func (r *Runner) Run(args []string) error {
 				err = r.boxCmd(args[1:])
 			case "upstash":
 				err = r.upstashCmd(args[1:])
+			case "fly":
+				err = r.flyCmd(args[1:])
 			case "vault":
 				err = r.vault(args[1:])
 			default:
@@ -260,9 +266,10 @@ Commands: list, show, generate, import, promote, comment, export, install,
 		"sync azure":       "Usage: bast sync azure",
 		"sync box":         "Usage: bast sync box",
 		"sync upstash":     "Usage: bast sync upstash",
+		"sync fly":         "Usage: bast sync fly",
 		"sync status":      "Usage: bast sync status",
-		"sync disable":     "Usage: bast sync disable <gcp|aws|azure|box|upstash>",
-		"sync --help":      "Usage: bast sync <gcp|aws|azure|box|upstash|status|disable>",
+		"sync disable":     "Usage: bast sync disable <gcp|aws|azure|box|upstash|fly>",
+		"sync --help":      "Usage: bast sync <gcp|aws|azure|box|upstash|fly|status|disable>",
 		"box --help":       "Usage: bast box <new|fork|stop|resume>",
 		"box new":          "Usage: bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
 		"box fork":         "Usage: bast box fork <host|id> [--type small|default|large] [--no-env]",
@@ -275,6 +282,12 @@ Commands: list, show, generate, import, promote, comment, export, install,
 		"upstash resume":   "Usage: bast upstash resume <host|id>",
 		"upstash delete":   "Usage: bast upstash delete <host|id> [--yes]",
 		"upstash key":      "Usage: bast upstash key [--key-file path]",
+		"fly --help":       "Usage: bast fly <new|fork|stop|resume|delete>",
+		"fly new":          "Usage: bast fly new --app app --image image [--org org] [--region region] [--size size] [--name name]",
+		"fly fork":         "Usage: bast fly fork <host|id> [--region region]",
+		"fly stop":         "Usage: bast fly stop <host|id>",
+		"fly resume":       "Usage: bast fly resume <host|id>",
+		"fly delete":       "Usage: bast fly delete <host|id> [--yes]",
 		"vault --help":     "Usage: bast vault <login|status|push|pull|logout|passphrase>",
 		"vault login":      "Usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]",
 		"vault status":     "Usage: bast vault status",

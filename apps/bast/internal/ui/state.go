@@ -10,6 +10,7 @@ import (
 
 	"bast/internal/cloud"
 	boxcloud "bast/internal/cloud/box"
+	flycloud "bast/internal/cloud/fly"
 	cloudsync "bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/keys"
@@ -161,7 +162,6 @@ func (m *App) hostRows() []hostRow {
 		cache.collapseGeneration == m.collapseRevision &&
 		cache.search == search &&
 		cache.showHidden == m.showHidden &&
-		cache.boxEnabled == m.metadata.Box().Enabled &&
 		cache.hostSignature == hostSignature {
 		return cache.rows
 	}
@@ -205,17 +205,6 @@ func (m *App) hostRows() []hostRow {
 		}
 		parent.hosts = append(parent.hosts, host)
 	}
-	for _, d := range cloud.Descriptors() {
-		if seenTopLevel[d.GroupRoot] {
-			continue
-		}
-		if !m.shouldInjectProviderRoot(d.Kind) {
-			continue
-		}
-		seenTopLevel[d.GroupRoot] = true
-		topLevelOrder = append(topLevelOrder, d.GroupRoot)
-		groups[d.GroupRoot] = &hostGroup{path: d.GroupRoot}
-	}
 	rows := make([]hostRow, 0, len(hosts)+len(groups))
 	for _, group := range topLevelOrder {
 		if group == "" {
@@ -229,7 +218,7 @@ func (m *App) hostRows() []hostRow {
 	m.hostRowsCache = hostRowsCache{
 		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
 		collapseGeneration: m.collapseRevision, search: search,
-		showHidden: m.showHidden, boxEnabled: m.metadata.Box().Enabled,
+		showHidden:    m.showHidden,
 		hostSignature: hostSignature, rows: rows,
 	}
 	return rows
@@ -246,7 +235,6 @@ func (m *App) hostListRows() []hostRow {
 		cache.collapseGeneration == m.collapseRevision &&
 		cache.search == search &&
 		cache.showHidden == m.showHidden &&
-		cache.boxEnabled == m.hostRowsCache.boxEnabled &&
 		cache.hostSignature == m.hostRowsCache.hostSignature &&
 		cache.historyCollapsed == m.historySuggestionsCollapsed &&
 		cache.suggestionSig == suggestionSig {
@@ -268,7 +256,7 @@ func (m *App) hostListRows() []hostRow {
 	m.hostListRowsCache = hostListRowsCache{
 		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
 		collapseGeneration: m.collapseRevision, search: search,
-		showHidden: m.showHidden, boxEnabled: m.hostRowsCache.boxEnabled,
+		showHidden:       m.showHidden,
 		hostSignature:    m.hostRowsCache.hostSignature,
 		historyCollapsed: m.historySuggestionsCollapsed, suggestionSig: suggestionSig, rows: rows,
 	}
@@ -905,6 +893,9 @@ func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
 	}
 	if kind == cloud.Upstash {
 		return upstashcloud.HostLooksStopped(meta.Tags)
+	}
+	if kind == cloud.Fly {
+		return flycloud.HostLooksStopped(host.Resolved.HostName, meta.Tags)
 	}
 	return false
 }

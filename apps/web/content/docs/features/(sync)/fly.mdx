@@ -1,0 +1,123 @@
+---
+title: Fly.io
+description: Import Fly Machines into Bast and manage create, stop, start, clone, and destroy through flyctl.
+---
+
+The **Sync** tab (`4`) imports [Fly Machines](https://fly.io/docs/machines/overview/) into Bast. Synced machines show up in the host picker under **Fly.io**. Bast talks to Fly through the native **`fly` / `flyctl` CLI** on your machine. It does not store a Fly API token.
+
+Every Machine already runs Fly’s built-in SSH server (`hallpass`). You do not install `sshd` in the guest. Bast still connects with your system `ssh`: a small stdin proxy (`bast __fly-proxy`) uses `fly proxy` over flyctl’s WireGuard agent, and `fly ssh issue` writes a short-lived certificate under `~/.ssh/bast/keys`.
+
+## Requirements
+
+- Fly CLI (`fly` or `flyctl`) on your `PATH`
+- An authenticated Fly account (`fly auth login`)
+- A shell in the Machine image for interactive SSH
+
+## Connect Fly.io
+
+1. Open Bast and press `4` for Sync.
+2. Select **Fly.io** and press Enter.
+3. Choose **Connect** or **Sync now**.
+
+If flyctl is already installed and logged in, Bast **auto-connects** on TUI start and `bast sync status`, unless you previously chose **Disconnect**.
+
+```bash
+fly auth login
+fly auth whoami
+```
+
+## What gets created
+
+Each Machine becomes an SSH host under:
+
+```
+~/.ssh/bast/sync/fly/config
+```
+
+In the picker they are grouped as:
+
+```
+Fly.io / <org> / <app>
+  machine-name
+```
+
+Stopped machines stay in the same group and are hidden from the host list until you press `.`. The **Fly.io** group appears on Hosts once a machine is visible; create from the Sync tab when it is empty. Connection settings, group, and label are owned by sync.
+
+## How Bast connects
+
+On connect (TUI Enter or `bast connect`), Bast issues or reuses a Fly SSH certificate, then launches your system `ssh`. `ProxyCommand` is `bast __fly-proxy`, which starts `fly proxy` to the Machine’s private SSH port.
+
+| Situation | Behavior |
+| --- | --- |
+| Running Machine | OpenSSH through `fly proxy` as `root` (or your default SSH user) |
+| Stopped Machine | Enter starts it, refreshes sync, then SSHs in |
+| Missing or expired cert | `fly ssh issue` into `~/.ssh/bast/keys/fly_<org>` (24 hours) |
+
+SFTP in Files uses the same path. Hallpass SFTP works as `root`.
+
+## Lifecycle
+
+| Action | What Fly does |
+| --- | --- |
+| New | `fly machine run` into an **existing** app (image, optional region, size, name) |
+| Stop (`o` / `bast fly stop`) | Stops the Machine. Ephemeral disks are lost unless a volume is mounted |
+| Resume (`r` / Enter on a stopped machine) | `fly machine start`, then SSH |
+| Fork (`n`) | `fly machine clone` (config and image; volumes are not cloned) |
+| Delete (`d`) | Destroys the Machine, not the Fly app |
+
+Bast does not create Fly apps, allocate Anycast IPs, or manage volumes.
+
+Fly Proxy auto-stop is driven by HTTP traffic, not SSH. An auto-stop app can close a session; resume-on-connect covers the stopped case.
+
+## Fly.io settings
+
+Inside the Fly.io submenu:
+
+| Action | Purpose |
+| --- | --- |
+| Sync now | Re-run discovery and refresh SSH config |
+| New machine | Run a Machine in an existing app |
+| Connect / Disconnect | Enable sync, or turn it off and remove generated hosts |
+| Enable / Disable auto-sync | Sync when the TUI opens |
+| Default SSH user | Hallpass default is `root` |
+| Org filter | Comma-separated slugs; blank = all orgs |
+| App filter | Comma-separated app names; blank = all apps |
+
+## Host keys (Hosts tab)
+
+With the **Fly.io** group selected:
+
+| Key | Action |
+| --- | --- |
+| `n` | Create a new Machine |
+| `s` | Sync now |
+| `.` | Show stopped machines |
+
+With a Fly host selected:
+
+| Key | Action |
+| --- | --- |
+| Enter | Connect (start first if stopped) |
+| `r` | Start only (when stopped) |
+| `o` | Stop (when running; confirms with `stop`) |
+| `n` | Clone (confirms with `fork`) |
+| `d` | Destroy the Machine (confirms with `delete`) |
+| `F` | Open Files (SFTP) |
+
+## CLI
+
+```bash
+bast sync fly
+bast sync status
+bast sync disable fly
+
+bast fly new --app APP --image IMAGE [--org org] [--region iad] [--size shared-cpu-1x] [--name name]
+bast fly fork <host|id> [--region iad]
+bast fly stop <host|id>
+bast fly resume <host|id>
+bast fly delete <host|id> [--yes]
+
+bast connect fly_personal_web_web-1
+```
+
+You can also set `FLY_CLI` to a flyctl binary path. `FLY_API_TOKEN` is honored by flyctl itself; Bast does not copy it into `~/.config/bast`.

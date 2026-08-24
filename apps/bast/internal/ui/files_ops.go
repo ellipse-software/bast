@@ -137,7 +137,7 @@ const cloudPrepareTimeout = 90 * time.Second
 const boxPrepareTimeout = 5 * time.Minute
 
 func prepareTimeoutForHost(host sshconfig.Host) time.Duration {
-	if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash") {
+	if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash" || host.SyncSource == "fly") {
 		return boxPrepareTimeout
 	}
 	return cloudPrepareTimeout
@@ -231,6 +231,18 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 				_, _ = m.syncer.SyncUpstash(ctx)
 			}
 			return m.syncer.EnsureUpstashAccess(ctx, host, status)
+		}
+	case "fly":
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Starting Fly Machine…")
+				}
+				if _, err := m.syncer.ResumeFly(ctx, host.SyncID); err != nil {
+					return err
+				}
+			}
+			return m.syncer.EnsureFlyAccess(ctx, host, status)
 		}
 	}
 	if ensure == nil {

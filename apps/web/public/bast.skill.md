@@ -17,8 +17,9 @@ Docs: https://bast.sh/llms.txt
 - User wants to browse, search, or organize SSH hosts from the terminal
 - User needs to generate, import, export, or install SSH keys
 - User wants quick connect: `bast <label>` or `bast "Production web"`
-- User wants to import cloud VMs (`bast sync gcp|aws|azure|box|upstash`) and connect with local keys
+- User wants to import cloud VMs (`bast sync gcp|aws|azure|box|upstash|fly`) and connect with local keys
 - User already has the ASCII Box CLI installed and logged in (Bast auto-connects Box)
+- User already has flyctl installed and logged in (Bast auto-connects Fly)
 - User has an Upstash Box API key (Bast stores it locally and uses it for API + SSH)
 - User SSHs from a phone or narrow terminal: the TUI switches to a stacked mobile layout below 60 columns (tap Connect)
 - Automation/scripts need host or key management with stable JSON output
@@ -106,15 +107,17 @@ bast sync aws
 bast sync azure
 bast sync box
 bast sync upstash
+bast sync fly
 bast sync status
 bast sync disable gcp
 bast sync disable box
 bast sync disable upstash
+bast sync disable fly
 ```
 
-GCP, AWS, Azure, and ASCII Box require the matching CLI on `PATH` (`gcloud`, `aws`, `az`, or `box`) and an authenticated account. Upstash Box uses a stored API key (`bast upstash key` or `UPSTASH_BOX_API_KEY`), not a CLI. Synced hosts are read-only; disconnect via Sync to remove them.
+GCP, AWS, Azure, ASCII Box, and Fly.io require the matching CLI on `PATH` (`gcloud`, `aws`, `az`, `box`, or `fly`/`flyctl`) and an authenticated account. Upstash Box uses a stored API key (`bast upstash key` or `UPSTASH_BOX_API_KEY`), not a CLI. Synced hosts are read-only; disconnect via Sync to remove them.
 
-If the Box CLI is already installed and logged in, Bast auto-connects on TUI start and `bast sync status` (unless you previously ran `bast sync disable box`). The same auto-connect applies to Upstash when a key file is present (unless `bast sync disable upstash`).
+If the Box CLI is already installed and logged in, Bast auto-connects on TUI start and `bast sync status` (unless you previously ran `bast sync disable box`). The same auto-connect applies to Fly when `fly auth whoami` succeeds (unless `bast sync disable fly`), and to Upstash when a key file is present (unless `bast sync disable upstash`).
 
 On GCP connect, Bast prefers a local key already authorized on the VM. If none matches, it ensures `~/.ssh/google_compute_engine`, publishes it when needed, and may wait for the guest agent.
 
@@ -142,11 +145,23 @@ bast upstash delete <host|id> [--yes]
 
 SSH user is the box id at `us-east-1.box.upstash.com`. Bast feeds the stored API key as the SSH password. Key file: `~/.config/bast/upstash-box-api-key`. Docs: https://bast.sh/docs/features/upstash
 
+## Fly.io lifecycle
+
+```sh
+bast fly new --app APP --image IMAGE [--org org] [--region region] [--size size] [--name name]
+bast fly fork <host|id> [--region region]
+bast fly stop <host|id>
+bast fly resume <host|id>
+bast fly delete <host|id> [--yes]
+```
+
+SSH uses OpenSSH plus `bast __fly-proxy` (flyctl WireGuard) and a Fly-issued cert in `~/.ssh/bast/keys/fly_<org>`. Default user is `root`. Stopped machines are hidden until `.`. Docs: https://bast.sh/docs/features/fly
+
 ## Files (SFTP)
 
 TUI Files tab (`5`) is a dual-pane local/remote browser over OpenSSH SFTP. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
 
-TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Box/Upstash). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`.
+TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Box/Upstash/Fly). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`.
 
 ## File layout
 

@@ -43,7 +43,7 @@ export const mobaxtermComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud hosts",
-      bast: "GCP, AWS, Azure, and box.ascii.dev via provider CLIs",
+      bast: "GCP, AWS, Azure, box.ascii.dev, and Fly.io via provider CLIs",
       competitor: "Mostly manual session setup",
     },
     {
@@ -108,7 +108,7 @@ export const mobaxtermComparison: ComparisonCaseStudy = {
       title: "Cloud fleets and agent workflows",
       paragraphs: [
         <>
-          Bast can import live hosts from GCP, AWS, Azure, and box.ascii.dev through the CLIs you
+          Bast can import live hosts from GCP, AWS, Azure, box.ascii.dev, and Fly.io through the CLIs you
           already authenticate. Synced hosts stay read-only reflections of cloud
           inventory.
         </>,

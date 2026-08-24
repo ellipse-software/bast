@@ -18,6 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"bast/internal/cloud"
 	cloudsync "bast/internal/cloud/sync"
 	"bast/internal/connectbanner"
 	keymodel "bast/internal/keys"
@@ -1988,10 +1989,10 @@ func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 		t.Fatalf("mobile grid cols = %d", m.syncGridCols())
 	}
 	body := m.renderSync(m.styles())
-	if strings.Count(body, "┌") != 5 {
+	if strings.Count(body, "┌") != 6 {
 		t.Fatalf("mobile should keep one boxed tile per provider:\n%s", body)
 	}
-	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") || !strings.Contains(body, "Upstash") {
+	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") || !strings.Contains(body, "Upstash") || !strings.Contains(body, "Fly.io") {
 		t.Fatalf("mobile grid body:\n%s", body)
 	}
 }
@@ -3151,6 +3152,55 @@ func TestUpstashProviderLifecycleRow(t *testing.T) {
 	}
 }
 
+func TestFlyProviderLifecycleRow(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "fly"
+	m.syncCursor = 0
+	m.syncStatus.Fly.Authenticated = true
+	if err := m.metadata.SetFly(metadata.FlyIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	body := m.renderSync(m.styles())
+	if !strings.Contains(body, "New machine") {
+		t.Fatalf("fly page should offer New machine:\n%s", body)
+	}
+	m.updateSyncKeys("l")
+	if m.syncCursor != 1 {
+		t.Fatalf("l should move to New machine, cursor=%d", m.syncCursor)
+	}
+	m.updateSyncKeys("enter")
+	if m.form == nil || m.form.action != "fly_new" {
+		t.Fatalf("enter on New machine should open form, got %#v", m.form)
+	}
+}
+
+func TestFlyDeleteUsesRemoteConfirm(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "fly_web", Synced: true, SyncSource: "fly", SyncID: "personal/web/e286065f969386",
+		Resolved: sshconfig.Resolved{HostName: "e286065f969386", User: "root"},
+	}}
+	if err := m.metadata.SetHost("fly_web", metadata.Host{Label: "web-1", Group: "Fly.io/Personal/web", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.section = hostsSection
+	selectHostAlias(t, m, "fly_web")
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "fly_delete" {
+		t.Fatalf("d on fly host should confirm remote delete, got %#v", m.form)
+	}
+}
+
+func TestFlyGroupNameUsesBrandColor(t *testing.T) {
+	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
+	rendered := renderManagedGroupName("Fly.io/personal", restStyle, false)
+	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8B5CF6")).Render("Fly.io")
+	if !strings.Contains(rendered, provider) {
+		t.Fatalf("Fly brand colour was not applied uniformly: %q", rendered)
+	}
+}
+
 func TestUpstashDeleteUsesRemoteConfirm(t *testing.T) {
 	m := testApp(t)
 	m.hosts = []sshconfig.Host{{
@@ -3751,6 +3801,9 @@ func TestInitDefersProviderAutoSyncUntilHostsDiscovered(t *testing.T) {
 	if err := m.metadata.SetBox(metadata.BoxIntegration{Disabled: true}); err != nil {
 		t.Fatal(err)
 	}
+	if err := m.metadata.SetFly(metadata.FlyIntegration{Disabled: true}); err != nil {
+		t.Fatal(err)
+	}
 
 	cmd := m.Init()
 	if cmd == nil {
@@ -3808,6 +3861,9 @@ func TestAutoSyncDoesNotRestartAfterSyncReload(t *testing.T) {
 
 func TestBoxAutoConnectSkipsExplicitAutoSyncOff(t *testing.T) {
 	m := testApp(t)
+	if err := m.metadata.SetFly(metadata.FlyIntegration{Disabled: true}); err != nil {
+		t.Fatal(err)
+	}
 	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true, AutoSync: false}); err != nil {
 		t.Fatal(err)
 	}
@@ -3959,14 +4015,20 @@ func TestTabKeysOpenVaultSyncFiles(t *testing.T) {
 
 func TestProviderGroupShowsCreate(t *testing.T) {
 	m := testApp(t)
-	m.hosts = nil
+	m.hosts = []sshconfig.Host{{
+		Alias: "box_sunny", Synced: true, SyncSource: "box", SyncID: "bx_sunny01",
+		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"},
+	}}
 	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("box_sunny", metadata.Host{Label: "sunny", Group: "Box", Tags: []string{"state:idle"}}); err != nil {
 		t.Fatal(err)
 	}
 	m.collapsedGroups = map[string]bool{}
 	rows := m.hostRows()
 	if len(rows) == 0 || !rows[0].header || rows[0].group != "Box" {
-		t.Fatalf("expected injected Box group, rows=%+v", rows)
+		t.Fatalf("expected Box group from visible host, rows=%+v", rows)
 	}
 	m.cursor = 0
 	detail := m.renderGroupDetail(m.styles(), rows[0], 60)
@@ -3987,5 +4049,63 @@ func TestProviderGroupShowsCreate(t *testing.T) {
 	}
 	if len(m.form.fields) < 3 || len(m.form.fields[0].options) != 3 || m.form.fields[0].selected != 1 {
 		t.Fatalf("new box form should offer constrained type options, got %#v", m.form.fields)
+	}
+}
+
+func TestEmptyProviderGroupsAreOmitted(t *testing.T) {
+	m := testApp(t)
+	m.hosts = nil
+	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetUpstash(metadata.UpstashIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetFly(metadata.FlyIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range m.hostRows() {
+		if row.header && cloud.IsProviderRoot(row.group) {
+			t.Fatalf("empty provider group %q should not appear on Hosts", row.group)
+		}
+	}
+}
+
+func TestHiddenProviderHostsDoNotKeepEmptyGroup(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{
+		{Alias: "box_idle", Synced: true, SyncSource: "box", SyncID: "bx_idle01", Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"}},
+		{Alias: "fly_web", Synced: true, SyncSource: "fly", SyncID: "personal/web/e286065f969386", Resolved: sshconfig.Resolved{HostName: "fly.stopped.invalid", User: "root"}},
+	}
+	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetFly(metadata.FlyIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("fly_web", metadata.Host{Label: "web-1", Group: "Fly.io/Personal/web", Tags: []string{"state:stopped"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.showHidden = false
+	for _, row := range m.hostRows() {
+		if row.header && (row.group == "Box" || strings.HasPrefix(row.group, "Fly.io")) {
+			t.Fatalf("stopped-only provider group %q should stay hidden until .", row.group)
+		}
+	}
+	m.showHidden = true
+	var sawBox, sawFly bool
+	for _, row := range m.hostRows() {
+		if row.header && row.group == "Box" {
+			sawBox = true
+		}
+		if row.header && (row.group == "Fly.io" || strings.HasPrefix(row.group, "Fly.io/")) {
+			sawFly = true
+		}
+	}
+	if !sawBox || !sawFly {
+		t.Fatalf("showing hidden should reveal provider groups, box=%t fly=%t", sawBox, sawFly)
 	}
 }

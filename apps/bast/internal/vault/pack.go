@@ -179,5 +179,14 @@ func packIntegrations(in metadata.Integrations) VaultIntegrations {
 			AutoSync: in.Upstash.AutoSync,
 		}
 	}
+	if in.Fly != nil {
+		out.Fly = &VaultFlyIntegration{
+			Enabled:        in.Fly.Enabled,
+			AutoSync:       in.Fly.AutoSync,
+			OrgFilter:      append([]string(nil), in.Fly.OrgFilter...),
+			AppFilter:      append([]string(nil), in.Fly.AppFilter...),
+			DefaultSSHUser: in.Fly.DefaultSSHUser,
+		}
+	}
 	return out
 }

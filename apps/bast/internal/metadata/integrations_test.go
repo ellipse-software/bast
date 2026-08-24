@@ -134,3 +134,33 @@ func TestUpstashIntegrationRoundTrip(t *testing.T) {
 		t.Fatalf("disabled upstash = %+v", reopened.Upstash())
 	}
 }
+
+func TestFlyIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetFly(FlyIntegration{
+		Enabled: true, AutoSync: true, DefaultSSHUser: "root",
+		OrgFilter: []string{"personal"}, AppFilter: []string{"web"}, LastInstanceCount: 4,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reopened.Fly()
+	if !got.Enabled || !got.AutoSync || got.DefaultSSHUser != "root" || got.LastInstanceCount != 4 ||
+		len(got.OrgFilter) != 1 || got.OrgFilter[0] != "personal" ||
+		len(got.AppFilter) != 1 || got.AppFilter[0] != "web" {
+		t.Fatalf("fly = %+v", got)
+	}
+	if err := reopened.SetFly(FlyIntegration{Disabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !reopened.Fly().Disabled || reopened.Fly().Enabled {
+		t.Fatalf("disabled fly = %+v", reopened.Fly())
+	}
+}

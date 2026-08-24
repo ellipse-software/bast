@@ -110,12 +110,25 @@ type UpstashIntegration struct {
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 }
 
+type FlyIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	OrgFilter         []string   `json:"orgFilter,omitempty"`
+	AppFilter         []string   `json:"appFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
 type Integrations struct {
 	GCP     *GCPIntegration     `json:"gcp,omitempty"`
 	AWS     *AWSIntegration     `json:"aws,omitempty"`
 	Azure   *AzureIntegration   `json:"azure,omitempty"`
 	Box     *BoxIntegration     `json:"box,omitempty"`
 	Upstash *UpstashIntegration `json:"upstash,omitempty"`
+	Fly     *FlyIntegration     `json:"fly,omitempty"`
 }
 
 type State struct {
@@ -623,6 +636,34 @@ func (s *Store) SetUpstash(upstash UpstashIntegration) error {
 	return nil
 }
 
+func (s *Store) Fly() FlyIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Fly == nil {
+		return FlyIntegration{}
+	}
+	return cloneFly(*s.state.Integrations.Fly)
+}
+
+func (s *Store) SetFly(fly FlyIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Fly
+	if !fly.Enabled && !fly.AutoSync && !fly.Disabled && len(fly.OrgFilter) == 0 &&
+		len(fly.AppFilter) == 0 && fly.DefaultSSHUser == "" && fly.LastSyncAt == nil &&
+		fly.LastSyncError == "" && fly.LastInstanceCount == 0 {
+		s.state.Integrations.Fly = nil
+	} else {
+		copy := cloneFly(fly)
+		s.state.Integrations.Fly = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Fly = previous
+		return err
+	}
+	return nil
+}
+
 func cloneHost(host Host) Host {
 	host.Tags = append([]string(nil), host.Tags...)
 	if host.LastUsedAt != nil {
@@ -708,6 +749,16 @@ func cloneUpstash(upstash UpstashIntegration) UpstashIntegration {
 	return upstash
 }
 
+func cloneFly(fly FlyIntegration) FlyIntegration {
+	fly.OrgFilter = append([]string(nil), fly.OrgFilter...)
+	fly.AppFilter = append([]string(nil), fly.AppFilter...)
+	if fly.LastSyncAt != nil {
+		lastSyncAt := *fly.LastSyncAt
+		fly.LastSyncAt = &lastSyncAt
+	}
+	return fly
+}
+
 func cloneIntegrations(integrations Integrations) Integrations {
 	out := Integrations{}
 	if integrations.GCP != nil {
@@ -729,6 +780,10 @@ func cloneIntegrations(integrations Integrations) Integrations {
 	if integrations.Upstash != nil {
 		upstash := cloneUpstash(*integrations.Upstash)
 		out.Upstash = &upstash
+	}
+	if integrations.Fly != nil {
+		fly := cloneFly(*integrations.Fly)
+		out.Fly = &fly
 	}
 	return out
 }

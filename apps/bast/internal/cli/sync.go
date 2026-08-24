@@ -12,7 +12,7 @@ import (
 
 func (r *Runner) sync(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|box|upstash|status|disable>")
+		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|box|upstash|fly|status|disable>")
 		return nil
 	}
 	engine := sync.New(r.Paths, r.store)
@@ -27,6 +27,8 @@ func (r *Runner) sync(args []string) error {
 		return r.syncBox(engine, args[1:])
 	case "upstash":
 		return r.syncUpstash(engine, args[1:])
+	case "fly":
+		return r.syncFly(engine, args[1:])
 	case "status":
 		return r.syncStatus(engine, args[1:])
 	case "disable":
@@ -76,6 +78,29 @@ func (r *Runner) syncUpstash(engine *sync.Engine, args []string) error {
 	}
 	telemetry.Track("sync_upstash", r.Version)
 	msg := fmt.Sprintf("Synced %d Upstash boxes", result.Count)
+	if result.Error != "" {
+		msg += "\nWarning: " + result.Error
+	}
+	return r.success(result, msg)
+}
+
+func (r *Runner) syncFly(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync fly")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync fly")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	result, err := engine.SyncFly(ctx)
+	if err != nil {
+		telemetry.Track("sync_fly_fail", r.Version)
+		return fail("sync_failed", err.Error())
+	}
+	telemetry.Track("sync_fly", r.Version)
+	msg := fmt.Sprintf("Synced %d Fly Machines", result.Count)
 	if result.Error != "" {
 		msg += "\nWarning: " + result.Error
 	}
@@ -169,6 +194,10 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if upstashAutoErr == nil && upstashRan {
 		telemetry.Track("sync_upstash_auto", r.Version)
 	}
+	_, flyRan, flyAutoErr := engine.MaybeAutoConnectFly(ctx)
+	if flyAutoErr == nil && flyRan {
+		telemetry.Track("sync_fly_auto", r.Version)
+	}
 	status, err := engine.Status(ctx)
 	if err != nil {
 		return fail("sync_status", err.Error())
@@ -178,6 +207,9 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	}
 	if upstashAutoErr != nil {
 		status.Upstash.LastSyncError = upstashAutoErr.Error()
+	}
+	if flyAutoErr != nil {
+		status.Fly.LastSyncError = flyAutoErr.Error()
 	}
 	if r.JSON {
 		return r.success(status, "")
@@ -325,6 +357,41 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if upstash.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", upstash.LastSyncError)
 	}
+	fly := status.Fly
+	fmt.Fprintln(r.Out, "Fly")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", fly.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", fly.AutoSync)
+	if fly.Disabled {
+		fmt.Fprintln(r.Out, "  Disabled: true (sticky; will not auto-connect)")
+	}
+	if fly.FlyCLIError != "" {
+		fmt.Fprintf(r.Out, "  fly: %s\n", fly.FlyCLIError)
+	} else if fly.Authenticated {
+		login := fly.Login
+		if login == "" {
+			login = "authenticated"
+		}
+		fmt.Fprintf(r.Out, "  Account: %s\n", login)
+	} else {
+		fmt.Fprintln(r.Out, "  Account: not logged in")
+	}
+	if len(fly.OrgFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Org filter: %s\n", strings.Join(fly.OrgFilter, ", "))
+	}
+	if len(fly.AppFilter) > 0 {
+		fmt.Fprintf(r.Out, "  App filter: %s\n", strings.Join(fly.AppFilter, ", "))
+	}
+	if fly.DefaultSSHUser != "" {
+		fmt.Fprintf(r.Out, "  Default SSH user: %s\n", fly.DefaultSSHUser)
+	}
+	if fly.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d machines)\n", fly.LastSyncAt.Local().Format(time.RFC3339), fly.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if fly.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", fly.LastSyncError)
+	}
 	return nil
 }
 
@@ -334,10 +401,10 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 1 {
-		return usagef("usage: bast sync disable <gcp|aws|azure|box|upstash>")
+		return usagef("usage: bast sync disable <gcp|aws|azure|box|upstash|fly>")
 	}
 	provider := fs.Arg(0)
-	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "box" && provider != "upstash" {
+	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "box" && provider != "upstash" && provider != "fly" {
 		return usagef("unknown sync provider %q", provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -354,6 +421,8 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		err = engine.DisableBox(ctx)
 	case "upstash":
 		err = engine.DisableUpstash(ctx)
+	case "fly":
+		err = engine.DisableFly(ctx)
 	}
 	if err != nil {
 		return fail("sync_disable", err.Error())

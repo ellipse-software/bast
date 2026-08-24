@@ -6,6 +6,8 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- Fly.io sync and lifecycle: import Machines via flyctl, then create, stop, start, clone, and destroy. SSH uses OpenSSH with `bast __fly-proxy` and Fly-issued certificates.
+
 ### Fixed
 
 - Box stop returns once the box is stopping instead of waiting minutes for the snapshot to finish, and a late sync result can no longer clear a newer in-flight Box operation.

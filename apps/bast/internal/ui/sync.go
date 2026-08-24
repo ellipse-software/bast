@@ -12,6 +12,7 @@ import (
 
 	"bast/internal/cloud"
 	boxcloud "bast/internal/cloud/box"
+	flycloud "bast/internal/cloud/fly"
 	"bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/sshconfig"
@@ -63,7 +64,7 @@ func (m *App) syncProviders() []syncMenuItem {
 	for _, d := range cloud.Descriptors() {
 		detail := m.providerDetail(string(d.Kind))
 		text := "disabled"
-		if d.Kind == cloud.Box || d.Kind == cloud.Upstash {
+		if cloud.CapabilitiesFor(d.Kind).Stop {
 			running, stopped := m.providerGroupStats(d.GroupRoot)
 			if !detail.enabled && running+stopped == 0 {
 				text = "disabled"
@@ -196,6 +197,33 @@ func (m *App) providerDetail(provider string) providerDetail {
 			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
+	case "fly":
+		integration := m.metadata.Fly()
+		status := m.syncStatus.Fly
+		accountLabel, accountValue := "Account", "not logged in"
+		if status.FlyCLIError != "" {
+			accountLabel, accountValue = "fly", status.FlyCLIError
+		} else if status.Authenticated {
+			accountValue = status.Login
+			if accountValue == "" {
+				accountValue = "authenticated"
+			}
+		} else if integration.Disabled {
+			accountValue = "disabled"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		if integration.Disabled {
+			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
+		}
+		orgs := "all"
+		if len(integration.OrgFilter) > 0 {
+			orgs = strings.Join(integration.OrgFilter, ", ")
+		}
+		apps := "all"
+		if len(integration.AppFilter) > 0 {
+			apps = strings.Join(integration.AppFilter, ", ")
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, statusRows, []providerRow{{"Org filter", orgs}, {"App filter", apps}}}
 	default:
 		return providerDetail{}
 	}
@@ -215,6 +243,9 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 	}
 	if caps.Create && provider == "upstash" && m.upstashHasKey() {
 		life = append(life, syncMenuItem{label: "New box", action: "upstash_new"})
+	}
+	if caps.Create && provider == "fly" && (m.syncStatus.Fly.Authenticated || detail.enabled) {
+		life = append(life, syncMenuItem{label: "New machine", action: "fly_new"})
 	}
 	if provider == "upstash" {
 		life = append(life, syncMenuItem{label: "API key", action: "upstash_key"})
@@ -248,6 +279,12 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 			syncMenuItem{label: "Default SSH user", action: "user"},
 			syncMenuItem{label: "Subscription filter", action: "subscriptions"},
 			syncMenuItem{label: "Resource group filter", action: "resource_groups"},
+		)
+	case "fly":
+		config = append(config,
+			syncMenuItem{label: "Default SSH user", action: "user"},
+			syncMenuItem{label: "Org filter", action: "orgs"},
+			syncMenuItem{label: "App filter", action: "apps"},
 		)
 	}
 	config = append(config, syncMenuItem{label: "Refresh status", action: "refresh"})
@@ -312,6 +349,29 @@ func (m *App) autoConnectUpstashCmd() tea.Cmd {
 			return syncDoneMsg{provider: "upstash", result: result, err: nil, skipped: true, opGen: opGen}
 		}
 		return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) syncFlyCmd() tea.Cmd {
+	opGen := m.providerOpGen("fly")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncFly(ctx)
+		return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) autoConnectFlyCmd() tea.Cmd {
+	opGen := m.providerOpGen("fly")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		result, ran, err := m.syncer.MaybeAutoConnectFly(ctx)
+		if !ran {
+			return syncDoneMsg{provider: "fly", result: result, err: nil, skipped: true, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
 	}
 }
 
@@ -425,6 +485,18 @@ func (m *App) disableBoxCmd() tea.Cmd {
 			return syncDoneMsg{provider: "box", err: err, opGen: opGen}
 		}
 		return syncDoneMsg{provider: "box", result: sync.Result{Provider: "box", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableFlyCmd() tea.Cmd {
+	opGen := m.providerOpGen("fly")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableFly(ctx); err != nil {
+			return syncDoneMsg{provider: "fly", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "fly", result: sync.Result{Provider: "fly", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
@@ -751,7 +823,7 @@ func (m *App) renderProviderIdentity(s styleSet, provider string) string {
 		stateStyle = s.success
 	}
 	facts := make([]string, 0, 4)
-	if kind == cloud.Box || kind == cloud.Upstash {
+	if cloud.CapabilitiesFor(kind).Stop {
 		group := "Box"
 		if d, ok := cloud.DescriptorForKind(kind); ok {
 			group = d.GroupRoot
@@ -1040,7 +1112,7 @@ func (m *App) updateProviderKeys(key string) (tea.Model, tea.Cmd) {
 			return m.forkSyncedHost(host)
 		}
 		for _, item := range life {
-			if item.action == "box_new" || item.action == "upstash_new" {
+			if item.action == "box_new" || item.action == "upstash_new" || item.action == "fly_new" {
 				return m.runSyncAction(item.action)
 			}
 		}
@@ -1302,6 +1374,19 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Batch(m.syncUpstashCmd(), m.setNotice("Syncing Upstash…"))
+		case "fly":
+			fly := m.metadata.Fly()
+			fly.Disabled = false
+			fly.Enabled = true
+			if action == "enable" {
+				fly.AutoSync = true
+			}
+			if err := m.metadata.SetFly(fly); err != nil {
+				delete(m.syncingProviders, "fly")
+				m.setError(err)
+				return m, nil
+			}
+			return m, tea.Batch(m.syncFlyCmd(), m.setNotice("Syncing Fly…"))
 		}
 		return m, tea.Batch(m.syncGCPCmd(), m.setNotice("Syncing GCP…"))
 	case "disable":
@@ -1318,12 +1403,18 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "upstash" {
 			return m, m.disableUpstashCmd()
 		}
+		if m.syncProvider == "fly" {
+			return m, m.disableFlyCmd()
+		}
 		return m, m.disableGCPCmd()
 	case "box_new":
 		m.openBoxNewForm()
 		return m, nil
 	case "upstash_new":
 		m.openUpstashNewForm()
+		return m, nil
+	case "fly_new":
+		m.openFlyNewForm()
 		return m, nil
 	case "upstash_key":
 		m.openUpstashKeyForm()
@@ -1362,6 +1453,16 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			upstash.AutoSync = true
 			upstash.Disabled = false
 			if err := m.metadata.SetUpstash(upstash); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "fly" {
+			fly := m.metadata.Fly()
+			fly.AutoSync = true
+			fly.Disabled = false
+			if err := m.metadata.SetFly(fly); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1411,6 +1512,15 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync disabled")
 		}
+		if m.syncProvider == "fly" {
+			fly := m.metadata.Fly()
+			fly.AutoSync = false
+			if err := m.metadata.SetFly(fly); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
 		gcp := m.metadata.GCP()
 		gcp.AutoSync = false
 		if err := m.metadata.SetGCP(gcp); err != nil {
@@ -1437,6 +1547,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "upstash" {
 			return m, m.setNotice("Upstash SSH user is the box id")
 		}
+		if m.syncProvider == "fly" {
+			m.openForm("Default Fly SSH user", "sync_fly_user", []field{
+				{label: "SSH user", description: "Hallpass default is root", value: m.metadata.Fly().DefaultSSHUser, optional: true, placeholder: "root"},
+			})
+			break
+		}
 		m.openForm("Default GCP SSH user", "sync_gcp_user", []field{
 			{label: "SSH user", description: "Blank uses OS Login or instance metadata when available", value: m.metadata.GCP().DefaultSSHUser, optional: true, placeholder: "ubuntu"},
 		})
@@ -1459,6 +1575,14 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 	case "resource_groups":
 		m.openForm("Azure resource group filter", "sync_azure_resource_groups", []field{
 			{label: "Resource groups", description: "Comma-separated names; blank = all", value: strings.Join(m.metadata.Azure().ResourceGroupFilter, ", "), optional: true, placeholder: "production, staging"},
+		})
+	case "orgs":
+		m.openForm("Fly org filter", "sync_fly_orgs", []field{
+			{label: "Orgs", description: "Comma-separated slugs or names; blank = all", value: strings.Join(m.metadata.Fly().OrgFilter, ", "), optional: true, placeholder: "personal, acme"},
+		})
+	case "apps":
+		m.openForm("Fly app filter", "sync_fly_apps", []field{
+			{label: "Apps", description: "Comma-separated app names; blank = all", value: strings.Join(m.metadata.Fly().AppFilter, ", "), optional: true, placeholder: "web, worker"},
 		})
 	case "sa_add":
 		m.openForm("Add service account key", "sync_gcp_sa_add", []field{
@@ -1783,6 +1907,127 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			defer cancel()
 			result, err := m.syncer.DeleteUpstash(ctx, syncID)
 			return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
+		}
+	case "sync_fly_user":
+		fly := m.metadata.Fly()
+		fly.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
+		if err := m.metadata.SetFly(fly); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default Fly SSH user updated")
+	case "sync_fly_orgs":
+		fly := m.metadata.Fly()
+		fly.OrgFilter = splitCSV(values["Orgs"])
+		if err := m.metadata.SetFly(fly); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Fly org filter updated")
+	case "sync_fly_apps":
+		fly := m.metadata.Fly()
+		fly.AppFilter = splitCSV(values["Apps"])
+		if err := m.metadata.SetFly(fly); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Fly app filter updated")
+	case "fly_new":
+		app := strings.TrimSpace(values["App"])
+		image := strings.TrimSpace(values["Image"])
+		if app == "" || image == "" {
+			if m.form != nil {
+				m.form.validationError = "app and image are required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["fly"] {
+			return m.setNotice("Fly operation already in progress")
+		}
+		opGen := m.beginProviderOp("fly")
+		if m.section == syncSection {
+			m.beginSyncBusy("Creating Fly Machine…")
+		} else {
+			m.syncActivity = "creating…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.NewFly(ctx, flycloud.CreateOpts{
+				App: app, Image: image, Org: strings.TrimSpace(values["Org"]),
+				Region: strings.TrimSpace(values["Region"]), Size: strings.TrimSpace(values["Size"]),
+				Name: strings.TrimSpace(values["Name"]),
+			})
+			if err != nil {
+				return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "fly", result: result, err: nil, focusAlias: alias, opGen: opGen}
+		}
+	case "fly_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["fly"] {
+			return m.setNotice("Fly operation already in progress")
+		}
+		opGen := m.beginProviderOp("fly")
+		m.syncActivity = "stopping…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopFly(ctx, syncID)
+			return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+		}
+	case "fly_fork":
+		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
+			if m.form != nil {
+				m.form.validationError = "type fork to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["fly"] {
+			return m.setNotice("Fly operation already in progress")
+		}
+		opGen := m.beginProviderOp("fly")
+		return tea.Batch(m.setNotice("Cloning Fly Machine…"), func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.ForkFly(ctx, syncID, flycloud.ForkOpts{Region: strings.TrimSpace(values["Region"])})
+			if err != nil {
+				return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "fly", result: result, focusAlias: alias, opGen: opGen}
+		})
+	case "fly_delete":
+		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
+			if m.form != nil {
+				m.form.validationError = "type delete to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["fly"] {
+			return m.setNotice("Fly operation already in progress")
+		}
+		opGen := m.beginProviderOp("fly")
+		m.syncActivity = "destroying…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteFly(ctx, syncID)
+			return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
 		}
 	}
 	return nil
