@@ -10,6 +10,7 @@ import (
 
 	"bast/internal/cloud"
 	boxcloud "bast/internal/cloud/box"
+	railwaycloud "bast/internal/cloud/railway"
 	cloudsync "bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/keys"
@@ -204,17 +205,6 @@ func (m *App) hostRows() []hostRow {
 			parent = node
 		}
 		parent.hosts = append(parent.hosts, host)
-	}
-	for _, d := range cloud.Descriptors() {
-		if seenTopLevel[d.GroupRoot] {
-			continue
-		}
-		if !m.shouldInjectProviderRoot(d.Kind) {
-			continue
-		}
-		seenTopLevel[d.GroupRoot] = true
-		topLevelOrder = append(topLevelOrder, d.GroupRoot)
-		groups[d.GroupRoot] = &hostGroup{path: d.GroupRoot}
 	}
 	rows := make([]hostRow, 0, len(hosts)+len(groups))
 	for _, group := range topLevelOrder {
@@ -906,6 +896,9 @@ func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
 	if kind == cloud.Upstash {
 		return upstashcloud.HostLooksStopped(meta.Tags)
 	}
+	if kind == cloud.Railway {
+		return railwaycloud.HostLooksStopped(meta.Tags)
+	}
 	return false
 }
 func hostIdentity(h sshconfig.Host) string {
@@ -954,6 +947,12 @@ func hostStatusLine(h sshconfig.Host, meta metadata.Host) string {
 			parts = append(parts, "Upstash paused")
 		} else {
 			parts = append(parts, "Upstash synced")
+		}
+	case h.Synced && h.SyncSource == "railway":
+		if hostLooksStopped(h, meta) {
+			parts = append(parts, "Railway stopped")
+		} else {
+			parts = append(parts, "Railway synced")
 		}
 	case h.Synced:
 		parts = append(parts, h.SyncSource+" synced")

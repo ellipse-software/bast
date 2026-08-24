@@ -6,6 +6,12 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- Railway sync and lifecycle: import services as SSH hosts, plus create, stop, resume, and delete through the GraphQL API. The API token is stored in `~/.config/bast/railway-api-token`. SSH uses `~/.ssh/bast/keys/railway` against `ssh.railway.com`.
+
+### Changed
+
+- Empty cloud provider groups no longer appear on the Hosts tab. If every host is stopped or sleeping, the group stays hidden until `.`.
+
 ### Fixed
 
 - Box stop returns once the box is stopping instead of waiting minutes for the snapshot to finish, and a late sync result can no longer clear a newer in-flight Box operation.

@@ -110,12 +110,22 @@ type UpstashIntegration struct {
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 }
 
+type RailwayIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
 type Integrations struct {
 	GCP     *GCPIntegration     `json:"gcp,omitempty"`
 	AWS     *AWSIntegration     `json:"aws,omitempty"`
 	Azure   *AzureIntegration   `json:"azure,omitempty"`
 	Box     *BoxIntegration     `json:"box,omitempty"`
 	Upstash *UpstashIntegration `json:"upstash,omitempty"`
+	Railway *RailwayIntegration `json:"railway,omitempty"`
 }
 
 type State struct {
@@ -623,6 +633,33 @@ func (s *Store) SetUpstash(upstash UpstashIntegration) error {
 	return nil
 }
 
+func (s *Store) Railway() RailwayIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Railway == nil {
+		return RailwayIntegration{}
+	}
+	return cloneRailway(*s.state.Integrations.Railway)
+}
+
+func (s *Store) SetRailway(railway RailwayIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Railway
+	if !railway.Enabled && !railway.AutoSync && !railway.Disabled && railway.LastSyncAt == nil &&
+		railway.LastSyncError == "" && railway.LastInstanceCount == 0 {
+		s.state.Integrations.Railway = nil
+	} else {
+		copy := cloneRailway(railway)
+		s.state.Integrations.Railway = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Railway = previous
+		return err
+	}
+	return nil
+}
+
 func cloneHost(host Host) Host {
 	host.Tags = append([]string(nil), host.Tags...)
 	if host.LastUsedAt != nil {
@@ -708,6 +745,14 @@ func cloneUpstash(upstash UpstashIntegration) UpstashIntegration {
 	return upstash
 }
 
+func cloneRailway(railway RailwayIntegration) RailwayIntegration {
+	if railway.LastSyncAt != nil {
+		lastSyncAt := *railway.LastSyncAt
+		railway.LastSyncAt = &lastSyncAt
+	}
+	return railway
+}
+
 func cloneIntegrations(integrations Integrations) Integrations {
 	out := Integrations{}
 	if integrations.GCP != nil {
@@ -729,6 +774,10 @@ func cloneIntegrations(integrations Integrations) Integrations {
 	if integrations.Upstash != nil {
 		upstash := cloneUpstash(*integrations.Upstash)
 		out.Upstash = &upstash
+	}
+	if integrations.Railway != nil {
+		railway := cloneRailway(*integrations.Railway)
+		out.Railway = &railway
 	}
 	return out
 }

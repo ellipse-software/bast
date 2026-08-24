@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	railwaycloud "bast/internal/cloud/railway"
 	"bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/connectbanner"
@@ -752,6 +753,22 @@ func (r *Runner) connect(args []string) error {
 			Alias: host.Alias, Synced: host.Synced, SyncSource: host.SyncSource, SyncID: host.SyncID,
 		}, connectbanner.Status(r.Out)); err != nil {
 			return fail("upstash_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "railway" && host.SyncID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		sshHost := sshconfig.Host{
+			Alias: host.Alias, Synced: host.Synced, SyncSource: host.SyncSource, SyncID: host.SyncID,
+		}
+		if railwaycloud.HostLooksStopped(r.store.Host(host.Alias).Tags) {
+			if _, err := engine.ResumeRailway(ctx, host.SyncID); err != nil {
+				return fail("railway_access", err.Error())
+			}
+		}
+		if err := engine.EnsureRailwayAccess(ctx, sshHost, connectbanner.Status(r.Out)); err != nil {
+			return fail("railway_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
 	}

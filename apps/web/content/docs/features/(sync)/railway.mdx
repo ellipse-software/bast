@@ -1,0 +1,122 @@
+---
+title: Railway
+description: Import Railway services into Bast and manage create, stop, resume, and delete through the GraphQL API.
+---
+
+The **Sync** tab (`4`) imports [Railway](https://docs.railway.com) services into Bast. Synced services show up in the host picker under **Railway**. Bast talks to Railway over the public GraphQL API. There is no Railway CLI to install.
+
+SSH is native OpenSSH to `ssh.railway.com`. The SSH user is the service instance ID, not a Unix username. Bast registers a dedicated key at `~/.ssh/bast/keys/railway` with your Railway account.
+
+## Requirements
+
+- An [account or workspace API token](https://railway.com/account/tokens)
+- Network access to `https://backboard.railway.com/graphql/v2`
+
+Project tokens (`RAILWAY_TOKEN`) are too narrow. They cannot list projects or register SSH keys.
+
+## Connect Railway
+
+1. Open Bast and press `4` for Sync.
+2. Select **Railway** and press Enter.
+3. Choose **Connect**. Paste the API token.
+
+Bast writes the token to `~/.config/bast/railway-api-token` (mode `0600`). It is not stored in SSH config, `state.json`, or Vault. Disconnect leaves the token file in place so you can reconnect without pasting again.
+
+You can also set `RAILWAY_API_TOKEN` in the environment. The first successful sync copies it into the local token file.
+
+CLI:
+
+```bash
+bast railway key                 # prompt, or use $RAILWAY_API_TOKEN
+bast railway key --key-file path
+bast sync railway
+bast sync status
+bast sync disable railway
+```
+
+If a token is already stored, Bast **auto-connects** on TUI start and `bast sync status`, unless you previously chose **Disconnect**.
+
+## What gets created
+
+Each service in each environment becomes an SSH host under:
+
+```
+~/.ssh/bast/sync/railway/config
+```
+
+```
+Host railway_api_web
+    HostName ssh.railway.com
+    User <service-instance-id>
+    IdentityFile ~/.ssh/bast/keys/railway
+    IdentitiesOnly yes
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+    StrictHostKeyChecking accept-new
+```
+
+Hosts are grouped as `Railway / <project> / <environment>`. Connection settings, group, and label are owned by sync.
+
+Stopped and sleeping services stay in the **Railway** group and are hidden from the host list until you press `.`. If none are running, the **Railway** group is omitted from Hosts until `.`.
+
+## How Bast connects
+
+On connect, Bast registers `~/.ssh/bast/keys/railway` with Railway if needed, waits if the service is still deploying, then launches your system `ssh`.
+
+| Situation | Behavior |
+| --- | --- |
+| Running (`SUCCESS`) | SSH to `ssh.railway.com` as the service instance ID |
+| Stopped or sleeping | Enter resumes, then SSHs in |
+| Deploying | Waits until the deployment is running |
+
+SFTP and `scp` work. VS Code Remote-SSH is not supported by Railway.
+
+A Railway key fingerprint can only be registered once across all accounts. Bast uses a dedicated key so it does not collide with a GitHub or laptop key already uploaded on railway.com.
+
+## Lifecycle
+
+| Action | What Railway does |
+| --- | --- |
+| New | Create a service from a Docker image (and optionally a new project), set a start command, deploy |
+| Stop (`o` / `bast railway stop`) | Stops the current deployment |
+| Resume (`r` / Enter on a stopped service) | Redeploys, then SSH |
+| Delete (`d`) | Deletes the service and its deployments |
+
+Fork is not available. Railway has no per-service snapshot.
+
+Create options: existing project id or name, or `--new-project`; image default `ubuntu:24.04`; start command default `sleep infinity` so the container stays up for SSH. Images with their own long-running process can override the start command. Creating services bills Railway.
+
+## Host keys (Hosts tab)
+
+With the **Railway** group selected:
+
+| Key | Action |
+| --- | --- |
+| `n` | Create a new service |
+| `s` | Sync now |
+| `.` | Show stopped services |
+
+With a Railway host selected:
+
+| Key | Action |
+| --- | --- |
+| Enter | Connect (resume first if stopped) |
+| `r` | Resume only (when stopped) |
+| `o` | Stop (when running; confirms with `stop`) |
+| `d` | Delete the remote service (confirms with `delete`) |
+| `F` | Open Files (SFTP) |
+
+## CLI
+
+```bash
+bast railway new --name shell --new-project bast-sandbox
+bast railway new --name api --project my-app --image ghcr.io/example/api:latest --start-command "node server.js"
+bast railway stop <host|id>
+bast railway resume <host|id>
+bast railway delete <host|id> [--yes]
+bast connect railway_api_web
+```
+
+## Re-sync and cleanup
+
+Press `r` on the Sync tab (or `bast sync railway`) after you create, stop, or delete services outside Bast. Disconnecting Railway removes the generated sync config. The API token file and `~/.ssh/bast/keys/railway` stay until you delete them.

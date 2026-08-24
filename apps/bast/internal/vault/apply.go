@@ -161,6 +161,14 @@ func applyIntegrations(store *metadata.Store, in VaultIntegrations) error {
 			return err
 		}
 	}
+	if in.Railway != nil {
+		cur := store.Railway()
+		cur.Enabled = in.Railway.Enabled
+		cur.AutoSync = in.Railway.AutoSync
+		if err := store.SetRailway(cur); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

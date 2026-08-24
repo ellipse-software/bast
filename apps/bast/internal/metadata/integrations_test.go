@@ -134,3 +134,30 @@ func TestUpstashIntegrationRoundTrip(t *testing.T) {
 		t.Fatalf("disabled upstash = %+v", reopened.Upstash())
 	}
 }
+
+func TestRailwayIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetRailway(RailwayIntegration{
+		Enabled: true, AutoSync: true, LastInstanceCount: 4,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reopened.Railway()
+	if !got.Enabled || !got.AutoSync || got.LastInstanceCount != 4 {
+		t.Fatalf("railway = %+v", got)
+	}
+	if err := reopened.SetRailway(RailwayIntegration{Disabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !reopened.Railway().Disabled || reopened.Railway().Enabled {
+		t.Fatalf("disabled railway = %+v", reopened.Railway())
+	}
+}

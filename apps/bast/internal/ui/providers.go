@@ -17,38 +17,6 @@ func (m *App) selectedProviderRoot() (cloud.Kind, bool) {
 	return cloud.KindForGroup(group)
 }
 
-func (m *App) providerEnabled(kind cloud.Kind) bool {
-	switch kind {
-	case cloud.GCP:
-		return m.metadata.GCP().Enabled
-	case cloud.AWS:
-		return m.metadata.AWS().Enabled
-	case cloud.Azure:
-		return m.metadata.Azure().Enabled
-	case cloud.Box:
-		return m.metadata.Box().Enabled
-	case cloud.Upstash:
-		return m.metadata.Upstash().Enabled
-	default:
-		return false
-	}
-}
-
-func (m *App) shouldInjectProviderRoot(kind cloud.Kind) bool {
-	if _, ok := cloud.DescriptorForKind(kind); !ok {
-		return false
-	}
-	if cloud.CapabilitiesFor(kind).Create && m.providerEnabled(kind) {
-		return true
-	}
-	for _, host := range m.hosts {
-		if host.Synced && host.SyncSource == string(kind) {
-			return true
-		}
-	}
-	return false
-}
-
 func (m *App) providerGroupStats(group string) (running, stopped int) {
 	hostMetadata := m.hostMetadata()
 	for _, host := range m.hosts {
@@ -69,6 +37,9 @@ func (m *App) providerGroupPrimaryAction(kind cloud.Kind) string {
 	if cloud.CapabilitiesFor(kind).Create {
 		if kind == cloud.Box || kind == cloud.Upstash {
 			return " New box "
+		}
+		if kind == cloud.Railway {
+			return " New service "
 		}
 		return " New "
 	}
@@ -109,6 +80,8 @@ func (m *App) stopSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 		m.openUpstashStopForm(host)
 	case "box":
 		m.openBoxStopForm(host)
+	case "railway":
+		m.openRailwayStopForm(host)
 	default:
 		return m, nil
 	}
@@ -137,7 +110,14 @@ func (m *App) deleteSyncedHost(host sshconfig.Host) bool {
 	if !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Delete }) {
 		return false
 	}
-	m.openUpstashDeleteForm(host)
+	switch host.SyncSource {
+	case "upstash":
+		m.openUpstashDeleteForm(host)
+	case "railway":
+		m.openRailwayDeleteForm(host)
+	default:
+		return false
+	}
 	return true
 }
 
@@ -150,6 +130,8 @@ func (m *App) resumeSyncedHost(host sshconfig.Host, thenConnect bool) tea.Cmd {
 		return m.resumeSelectedUpstash(host, thenConnect)
 	case "box":
 		return m.resumeSelectedBox(host, thenConnect)
+	case "railway":
+		return m.resumeSelectedRailway(host, thenConnect)
 	default:
 		return nil
 	}
@@ -179,6 +161,16 @@ func (m *App) runProviderGroupCreate(kind cloud.Kind) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.openUpstashNewForm()
+		return m, nil
+	case cloud.Railway:
+		if m.syncingProviders["railway"] {
+			return m, m.setNotice("Railway operation already in progress")
+		}
+		if !m.railwayHasToken() {
+			m.openRailwayKeyForm()
+			return m, nil
+		}
+		m.openRailwayNewForm()
 		return m, nil
 	default:
 		return m, m.setNotice("Create is not available for this provider yet")

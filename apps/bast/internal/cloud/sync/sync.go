@@ -16,6 +16,7 @@ import (
 	azurecloud "bast/internal/cloud/azure"
 	boxcloud "bast/internal/cloud/box"
 	"bast/internal/cloud/gcp"
+	railwaycloud "bast/internal/cloud/railway"
 	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/metadata"
 	"bast/internal/paths"
@@ -36,6 +37,7 @@ type Engine struct {
 	azureMu        stdsync.Mutex
 	boxMu          stdsync.Mutex
 	upstashMu      stdsync.Mutex
+	railwayMu      stdsync.Mutex
 	Paths          paths.Paths
 	Config         sshconfig.Manager
 	Store          *metadata.Store
@@ -44,6 +46,7 @@ type Engine struct {
 	Azure          *azurecloud.Client
 	Box            *boxcloud.Client
 	Upstash        *upstashcloud.Client
+	Railway        *railwaycloud.Client
 	BastExecutable string
 	Discover       func(ctx context.Context) ([]sshconfig.Host, error)
 
@@ -66,6 +69,12 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
 		SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig,
 		SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig,
+		SyncRailwayConfig: p.SyncRailwayConfig,
+	}
+	railwayClient := railwaycloud.New(p.RailwayAPIToken)
+	railwayClient.ManagedKeys = p.ManagedKeys
+	if p.ManagedKeys != "" {
+		railwayClient.IdentityFile = filepath.Join(p.ManagedKeys, railwaycloud.IdentityName)
 	}
 	return &Engine{
 		Paths:          p,
@@ -76,6 +85,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		Azure:          azurecloud.New(),
 		Box:            boxcloud.New(),
 		Upstash:        upstashcloud.New(p.UpstashAPIKey),
+		Railway:        railwayClient,
 		BastExecutable: stableExecutablePath(),
 		Discover: func(ctx context.Context) ([]sshconfig.Host, error) {
 			return cfg.Discover()
@@ -993,6 +1003,7 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	azureIntegration := e.Store.Azure()
 	boxIntegration := e.Store.Box()
 	upstashIntegration := e.Store.Upstash()
+	railwayIntegration := e.Store.Railway()
 	status := Status{
 		GCP: GCPStatus{
 			Enabled:           integration.Enabled,
@@ -1028,10 +1039,15 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			LastSyncAt: upstashIntegration.LastSyncAt, LastSyncError: upstashIntegration.LastSyncError,
 			LastInstanceCount: upstashIntegration.LastInstanceCount, HasKey: e.Upstash.HasKey(),
 		},
+		Railway: RailwayStatus{
+			Enabled: railwayIntegration.Enabled, AutoSync: railwayIntegration.AutoSync, Disabled: railwayIntegration.Disabled,
+			LastSyncAt: railwayIntegration.LastSyncAt, LastSyncError: railwayIntegration.LastSyncError,
+			LastInstanceCount: railwayIntegration.LastInstanceCount, HasToken: e.Railway.HasToken(),
+		},
 	}
 
 	var probes stdsync.WaitGroup
-	probes.Add(5)
+	probes.Add(6)
 	go func() {
 		defer probes.Done()
 		if err := e.GCP.CheckAvailable(ctx); err != nil {
@@ -1111,6 +1127,21 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			status.Upstash.Error = account.Error
 		}
 	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Railway.Account(ctx)
+		if err != nil {
+			status.Railway.Error = err.Error()
+			return
+		}
+		status.Railway.Authenticated = account.Authenticated
+		status.Railway.HasToken = e.Railway.HasToken()
+		status.Railway.Name = account.Name
+		status.Railway.Email = account.Email
+		if account.Error != "" && !account.Authenticated {
+			status.Railway.Error = account.Error
+		}
+	}()
 	probes.Wait()
 	return status, nil
 }
@@ -1121,6 +1152,7 @@ type Status struct {
 	Azure   AzureStatus   `json:"azure"`
 	Box     BoxStatus     `json:"box"`
 	Upstash UpstashStatus `json:"upstash"`
+	Railway RailwayStatus `json:"railway"`
 }
 
 type GCPStatus struct {
@@ -1183,6 +1215,20 @@ type UpstashStatus struct {
 	Disabled          bool       `json:"disabled,omitempty"`
 	Authenticated     bool       `json:"authenticated,omitempty"`
 	HasKey            bool       `json:"hasKey,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Error             string     `json:"error,omitempty"`
+}
+
+type RailwayStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	HasToken          bool       `json:"hasToken,omitempty"`
+	Name              string     `json:"name,omitempty"`
+	Email             string     `json:"email,omitempty"`
 	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
 	LastSyncError     string     `json:"lastSyncError,omitempty"`
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`

@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 
 type Section = "hosts" | "keys" | "vault" | "sync" | "files";
-type SyncProvider = "" | "gcp" | "aws" | "azure" | "box" | "upstash";
+type SyncProvider = "" | "gcp" | "aws" | "azure" | "box" | "upstash" | "railway";
 
 type DetailRow = { label: string; value: string };
 
@@ -274,6 +274,12 @@ const syncTiles: SyncTile[] = [
     detail: "2 running",
     description: "Import Upstash Box sandboxes into Bast",
   },
+  {
+    id: "railway",
+    title: "Railway",
+    detail: "3 running",
+    description: "Import Railway services into Bast",
+  },
 ];
 
 const vaultMenu: SyncMenuItem[] = [
@@ -355,6 +361,15 @@ const providerPages: Record<Exclude<SyncProvider, "">, ProviderPage> = {
   upstash: {
     identity: ["enabled · 2 running", "key stored · auto-sync on"],
     chips: ["Sync", "New box", "API key"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Disable auto-sync" },
+      { label: "Refresh status" },
+    ],
+  },
+  railway: {
+    identity: ["enabled · 3 running", "token stored · auto-sync on"],
+    chips: ["Sync", "New service", "API token"],
     config: [
       { label: "Disconnect" },
       { label: "Disable auto-sync" },
@@ -1807,6 +1822,8 @@ function ProviderTitle({
       return <span className="font-bold text-foreground">Box</span>;
     case "upstash":
       return <span className="font-bold text-[#00E9A3]">Upstash</span>;
+    case "railway":
+      return <span className="font-bold text-[#853BCC]">Railway</span>;
   }
 }
 

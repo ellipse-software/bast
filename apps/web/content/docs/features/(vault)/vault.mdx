@@ -3,7 +3,7 @@ title: Vault
 description: Sync Bast-managed hosts and keys between machines with end-to-end encryption.
 ---
 
-Vault syncs **Bast-managed** hosts, keys, and metadata between your machines. It is separate from cloud provider sync (GCP / AWS / Azure / box.ascii.dev / Upstash Box), which lives on the **Sync** tab (`4`).
+Vault syncs **Bast-managed** hosts, keys, and metadata between your machines. It is separate from cloud provider sync (GCP / AWS / Azure / box.ascii.dev / Upstash Box / Railway), which lives on the **Sync** tab (`4`).
 
 Ciphertext is stored by Bast. The encryption passphrase never leaves your machine. Bast keeps a local copy in `~/.config/bast/vault-passphrase` (mode `0600`) so linked machines stay unlocked across launches. That file is a local secret equivalent to an unlocked key: protect the account that can read `~/.config/bast`. Log out deletes it.
 

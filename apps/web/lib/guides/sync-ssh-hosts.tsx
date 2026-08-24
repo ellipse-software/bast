@@ -36,7 +36,7 @@ export const syncSshHostsGuide: GuidePage = {
     </>,
     <>
       Cloud host inventory is separate on purpose: re-sync GCP, AWS, Azure,
-      box.ascii.dev, or Upstash Box per machine so cloud credentials stay
+      box.ascii.dev, Upstash Box, or Railway per machine so cloud credentials stay
       where they belong.
     </>,
   ],

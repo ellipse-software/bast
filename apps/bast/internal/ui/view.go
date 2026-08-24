@@ -245,6 +245,7 @@ func (m *App) renderHosts(s styleSet) string {
 	azureErr := m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != ""
 	boxErr := m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != ""
 	upstashErr := m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != ""
+	railwayErr := m.metadata.Railway().LastSyncError != "" || m.syncStatus.Railway.Error != ""
 	start := scrollStart(m.cursor, len(rowsData), listHeight)
 	var list strings.Builder
 	list.Grow(listHeight * (rowWidth + 8))
@@ -288,7 +289,7 @@ func (m *App) renderHosts(s styleSet) string {
 					name = name[slash+1:]
 				}
 			}
-			showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boxErr, upstashErr)
+			showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boxErr, upstashErr, railwayErr)
 			rawPrefix := indent + indicator + " "
 			reservedWidth := lipgloss.Width(rawPrefix) + 1 + lipgloss.Width(fmt.Sprintf("(%d)", row.count)) + lipgloss.Width(managedGroupIcon(name, m.nerdFont))
 			if showError {
@@ -441,10 +442,11 @@ func (m *App) cloudSyncGroupHasError(group string) bool {
 		m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != "",
 		m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != "",
 		m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != "",
+		m.metadata.Railway().LastSyncError != "" || m.syncStatus.Railway.Error != "",
 	)
 }
 
-func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boxErr, upstashErr bool) bool {
+func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boxErr, upstashErr, railwayErr bool) bool {
 	kind, ok := cloud.KindForGroup(group)
 	if !ok {
 		return false
@@ -460,6 +462,8 @@ func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boxErr
 		return boxErr
 	case cloud.Upstash:
 		return upstashErr
+	case cloud.Railway:
+		return railwayErr
 	default:
 		return false
 	}
@@ -577,6 +581,8 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool
 		return suffix("Box", brandText("#FFFFFF", icon("Box")+"Box", restStyle))
 	case name == "Upstash" || strings.HasPrefix(name, "Upstash/"):
 		return suffix("Upstash", brandText("#00E9A3", icon("Upstash")+"Upstash", restStyle))
+	case name == "Railway" || strings.HasPrefix(name, "Railway/"):
+		return suffix("Railway", brandText("#853BCC", icon("Railway")+"Railway", restStyle))
 	default:
 		return name
 	}
@@ -1056,9 +1062,9 @@ func helpSections() []helpSection {
 				{"󰌑", "Open provider, run action, or connect"},
 				{"␣", "Collapse or expand status group"},
 				{"s", "Sync"},
-				{"n", "New box, or fork selected sandbox"},
+				{"n", "New box or service, or fork selected sandbox"},
 				{"o", "Stop or pause selected sandbox"},
-				{"d", "Delete selected Upstash box"},
+				{"d", "Delete selected Upstash or Railway host"},
 				{"Esc", "Back"},
 				{"r", "Resume selected sandbox, or refresh status"},
 			},

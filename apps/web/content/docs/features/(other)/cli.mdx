@@ -62,13 +62,15 @@ bast sync aws
 bast sync azure
 bast sync box
 bast sync upstash
+bast sync railway
 bast sync status
 bast sync disable gcp
 bast sync disable box
 bast sync disable upstash
+bast sync disable railway
 ```
 
-Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [box.ascii.dev](/docs/features/box), or [Upstash Box](/docs/features/upstash) for provider setup.
+Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [box.ascii.dev](/docs/features/box), [Upstash Box](/docs/features/upstash), or [Railway](/docs/features/railway) for provider setup.
 
 ```bash
 bast upstash new [--name name] [--runtime node] [--size small] [--keep-alive]
@@ -77,6 +79,14 @@ bast upstash stop <host|id>
 bast upstash resume <host|id>
 bast upstash delete <host|id> [--yes]
 bast upstash key [--key-file path]
+```
+
+```bash
+bast railway new --name shell --new-project bast-sandbox
+bast railway stop <host|id>
+bast railway resume <host|id>
+bast railway delete <host|id> [--yes]
+bast railway key [--key-file path]
 ```
 
 ## JSON mode

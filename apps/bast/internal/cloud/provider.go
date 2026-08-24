@@ -13,6 +13,7 @@ const (
 	Azure   Kind = "azure"
 	Box     Kind = "box"
 	Upstash Kind = "upstash"
+	Railway Kind = "railway"
 )
 
 // Descriptor is the stable identity for a cloud provider. UI, grouping, and
@@ -103,6 +104,11 @@ var descriptors = []Descriptor{
 		Description: "Import Upstash Box sandboxes into Bast",
 		BrandColor:  "#00E9A3", NerdIcon: "\uf1b2",
 	},
+	{
+		Kind: Railway, Title: "Railway", FullTitle: "Railway", GroupRoot: "Railway",
+		Description: "Import Railway services into Bast",
+		BrandColor:  "#853BCC", NerdIcon: "\uf238",
+	},
 }
 
 var capabilities = map[Kind]Capabilities{
@@ -111,6 +117,7 @@ var capabilities = map[Kind]Capabilities{
 	Azure:   {},
 	Box:     {Create: true, Stop: true, Start: true, Fork: true},
 	Upstash: {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
+	Railway: {Create: true, Stop: true, Start: true, Delete: true},
 }
 
 func Descriptors() []Descriptor {

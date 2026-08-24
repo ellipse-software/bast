@@ -179,5 +179,11 @@ func packIntegrations(in metadata.Integrations) VaultIntegrations {
 			AutoSync: in.Upstash.AutoSync,
 		}
 	}
+	if in.Railway != nil {
+		out.Railway = &VaultRailwayIntegration{
+			Enabled:  in.Railway.Enabled,
+			AutoSync: in.Railway.AutoSync,
+		}
+	}
 	return out
 }

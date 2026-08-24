@@ -15,7 +15,7 @@ export const aboutPage = {
     "Bast.sh is the native SSH picker and key manager from ellipse Software. OpenSSH stays the source of truth; the CLI is MIT licensed.",
   paragraphs: [
     `Bast.sh is a terminal application for browsing SSH hosts, managing OpenSSH keys, transferring files over SFTP, importing cloud VMs, and connecting with the ssh binary already on your machine. ${defaultDescription}`,
-    "Bast does not replace OpenSSH and does not invent a second host database. Connection settings stay in ~/.ssh/config. Bast adds a picker, groups, tags, notes, favorites, a key manager, dual-pane SFTP, optional encrypted Vault sync, and read-only imports from GCP, AWS, Azure, box.ascii.dev, and Upstash Box.",
+    "Bast does not replace OpenSSH and does not invent a second host database. Connection settings stay in ~/.ssh/config. Bast adds a picker, groups, tags, notes, favorites, a key manager, dual-pane SFTP, optional encrypted Vault sync, and read-only imports from GCP, AWS, Azure, box.ascii.dev, Upstash Box, and Railway.",
     `The CLI and TUI are open source under the MIT licence. The website, documentation, installer, Vault, and related APIs are hosted services of ${company.legalName}, a company incorporated in ${company.jurisdiction} with company number ${company.companyNumber}, trading as ${company.tradingName}.`,
     `Registered office: ${company.registeredAddress}. Product site: ${siteUrl}. Company site: ${company.website}. Source: ${bastRepoUrl}.`,
     "Use Bast.sh when you already live in a terminal and want a faster path around hosts you already have. Use a GUI client instead when you need a proprietary session store, mobile GUI sync as the primary workflow, or PuTTY .ppk keys without OpenSSH.",
@@ -226,7 +226,7 @@ Bast.sh wraps the OpenSSH binary already on your machine. It reads ~/.ssh/config
 - Browse, search, or organize SSH hosts from the terminal
 - Generate, import, export, or install OpenSSH keys
 - Connect with \`bast <label>\` without leaving the terminal
-- Import GCP, AWS, Azure, box.ascii.dev, or Upstash Box hosts
+- Import GCP, AWS, Azure, box.ascii.dev, Upstash Box, or Railway hosts
 - Automate host and key management with \`bast --json\`
 
 ## Install

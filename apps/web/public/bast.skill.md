@@ -17,9 +17,10 @@ Docs: https://bast.sh/llms.txt
 - User wants to browse, search, or organize SSH hosts from the terminal
 - User needs to generate, import, export, or install SSH keys
 - User wants quick connect: `bast <label>` or `bast "Production web"`
-- User wants to import cloud VMs (`bast sync gcp|aws|azure|box|upstash`) and connect with local keys
+- User wants to import cloud VMs (`bast sync gcp|aws|azure|box|upstash|railway`) and connect with local keys
 - User already has the ASCII Box CLI installed and logged in (Bast auto-connects Box)
 - User has an Upstash Box API key (Bast stores it locally and uses it for API + SSH)
+- User has a Railway account or workspace token (Bast stores it locally and registers `~/.ssh/bast/keys/railway`)
 - User SSHs from a phone or narrow terminal: the TUI switches to a stacked mobile layout below 60 columns (tap Connect)
 - Automation/scripts need host or key management with stable JSON output
 
@@ -106,15 +107,17 @@ bast sync aws
 bast sync azure
 bast sync box
 bast sync upstash
+bast sync railway
 bast sync status
 bast sync disable gcp
 bast sync disable box
 bast sync disable upstash
+bast sync disable railway
 ```
 
-GCP, AWS, Azure, and ASCII Box require the matching CLI on `PATH` (`gcloud`, `aws`, `az`, or `box`) and an authenticated account. Upstash Box uses a stored API key (`bast upstash key` or `UPSTASH_BOX_API_KEY`), not a CLI. Synced hosts are read-only; disconnect via Sync to remove them.
+GCP, AWS, Azure, and ASCII Box require the matching CLI on `PATH` (`gcloud`, `aws`, `az`, or `box`) and an authenticated account. Upstash Box and Railway use stored API tokens (`bast upstash key` / `UPSTASH_BOX_API_KEY`, `bast railway key` / `RAILWAY_API_TOKEN`), not a CLI. Synced hosts are read-only; disconnect via Sync to remove them.
 
-If the Box CLI is already installed and logged in, Bast auto-connects on TUI start and `bast sync status` (unless you previously ran `bast sync disable box`). The same auto-connect applies to Upstash when a key file is present (unless `bast sync disable upstash`).
+If the Box CLI is already installed and logged in, Bast auto-connects on TUI start and `bast sync status` (unless you previously ran `bast sync disable box`). The same auto-connect applies to Upstash and Railway when a token file is present (unless previously disabled).
 
 On GCP connect, Bast prefers a local key already authorized on the VM. If none matches, it ensures `~/.ssh/google_compute_engine`, publishes it when needed, and may wait for the guest agent.
 
@@ -142,11 +145,23 @@ bast upstash delete <host|id> [--yes]
 
 SSH user is the box id at `us-east-1.box.upstash.com`. Bast feeds the stored API key as the SSH password. Key file: `~/.config/bast/upstash-box-api-key`. Docs: https://bast.sh/docs/features/upstash
 
+## Railway lifecycle
+
+```sh
+bast railway key [--key-file path]
+bast railway new --name name [--image ubuntu:24.04] [--start-command command] [--project id|name | --new-project name]
+bast railway stop <host|id>
+bast railway resume <host|id>
+bast railway delete <host|id> [--yes]
+```
+
+SSH is `ssh <service-instance-id>@ssh.railway.com` with `~/.ssh/bast/keys/railway`. Token file: `~/.config/bast/railway-api-token`. Fork is not available. Docs: https://bast.sh/docs/features/railway
+
 ## Files (SFTP)
 
 TUI Files tab (`5`) is a dual-pane local/remote browser over OpenSSH SFTP. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
 
-TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Box/Upstash). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`.
+TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Box/Upstash/Railway). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`.
 
 ## File layout
 
@@ -158,6 +173,8 @@ TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is en
 | `~/.ssh/google_compute_engine` | Fallback GCP identity (created on demand) |
 | `~/.config/bast/state.json` | Metadata: groups, tags, colors, notes, favorites, usage stats, sync settings |
 | `~/.config/bast/upstash-box-api-key` | Upstash Box API key (mode 0600; not vaulted) |
+| `~/.config/bast/railway-api-token` | Railway API token (mode 0600; not vaulted) |
+| `~/.ssh/bast/keys/railway` | Dedicated Railway SSH identity, registered via GraphQL |
 | `~/.ssh/config` | Gets `Include ~/.ssh/bast/config` on first run |
 
 Connection settings (hostname, user, port, identity files) live in SSH config. Bast metadata (groups, tags, notes) lives in `state.json`.

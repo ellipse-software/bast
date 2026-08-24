@@ -18,6 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	boxcloud "bast/internal/cloud/box"
 	cloudsync "bast/internal/cloud/sync"
 	"bast/internal/connectbanner"
 	keymodel "bast/internal/keys"
@@ -1988,10 +1989,10 @@ func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 		t.Fatalf("mobile grid cols = %d", m.syncGridCols())
 	}
 	body := m.renderSync(m.styles())
-	if strings.Count(body, "┌") != 5 {
+	if strings.Count(body, "┌") != 6 {
 		t.Fatalf("mobile should keep one boxed tile per provider:\n%s", body)
 	}
-	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") || !strings.Contains(body, "Upstash") {
+	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") || !strings.Contains(body, "Upstash") || !strings.Contains(body, "Railway") {
 		t.Fatalf("mobile grid body:\n%s", body)
 	}
 }
@@ -2755,6 +2756,11 @@ func TestSyncTileSelectedBorderUsesProviderColor(t *testing.T) {
 	if !strings.Contains(upSel, "38;2;0;233;163") {
 		t.Fatalf("selected Upstash tile should use green border:\n%q", upSel)
 	}
+
+	railwaySel := m.renderSyncTile(m.styles(), 0, syncMenuItem{provider: "railway"}, 24)
+	if !strings.Contains(railwaySel, "38;2;133;59;204") {
+		t.Fatalf("selected Railway tile should use purple border:\n%q", railwaySel)
+	}
 }
 
 func TestProviderGroupRowsUseBrandColor(t *testing.T) {
@@ -3165,6 +3171,46 @@ func TestUpstashDeleteUsesRemoteConfirm(t *testing.T) {
 	_, _ = m.updateKeys(press("d"))
 	if m.form == nil || m.form.action != "upstash_delete" {
 		t.Fatalf("d on upstash host should confirm remote delete, got %#v", m.form)
+	}
+}
+
+func TestRailwayProviderLifecycleRow(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "railway"
+	m.syncCursor = 0
+	m.syncStatus.Railway.HasToken = true
+	body := m.renderSync(m.styles())
+	if !strings.Contains(body, "New service") {
+		t.Fatalf("railway page should offer New service:\n%s", body)
+	}
+	if !strings.Contains(body, "API token") {
+		t.Fatalf("railway page should offer API token:\n%s", body)
+	}
+	m.updateSyncKeys("l")
+	if m.syncCursor != 1 {
+		t.Fatalf("l should move to New service, cursor=%d", m.syncCursor)
+	}
+	m.updateSyncKeys("enter")
+	if m.form == nil || m.form.action != "railway_new" {
+		t.Fatalf("enter on New service should open form, got %#v", m.form)
+	}
+}
+
+func TestRailwayDeleteUsesRemoteConfirm(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "railway_api_web", Synced: true, SyncSource: "railway", SyncID: "proj-1/env-1/svc-web",
+		Resolved: sshconfig.Resolved{HostName: "ssh.railway.com", User: "si-1"},
+	}}
+	if err := m.metadata.SetHost("railway_api_web", metadata.Host{Label: "web", Group: "Railway / api / production", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.section = hostsSection
+	selectHostAlias(t, m, "railway_api_web")
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "railway_delete" {
+		t.Fatalf("d on railway host should confirm remote delete, got %#v", m.form)
 	}
 }
 
@@ -3957,16 +4003,69 @@ func TestTabKeysOpenVaultSyncFiles(t *testing.T) {
 	}
 }
 
-func TestProviderGroupShowsCreate(t *testing.T) {
+func TestEmptyProviderGroupIsOmitted(t *testing.T) {
 	m := testApp(t)
 	m.hosts = nil
 	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
+	if err := m.metadata.SetUpstash(metadata.UpstashIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetRailway(metadata.RailwayIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	rows := m.hostRows()
+	for _, row := range rows {
+		if row.header && (row.group == "Box" || row.group == "Upstash" || row.group == "Railway" ||
+			strings.HasPrefix(row.group, "Box/") || strings.HasPrefix(row.group, "Upstash/") || strings.HasPrefix(row.group, "Railway/")) {
+			t.Fatalf("empty provider group should not appear, rows=%+v", rows)
+		}
+	}
+}
+
+func TestStoppedOnlyProviderGroupAppearsWhenShown(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "box_idle", Synced: true, SyncSource: "box", SyncID: "box-1",
+		Resolved: sshconfig.Resolved{HostName: boxcloud.StoppedHostName, User: "user"},
+	}}
+	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:archived"}}); err != nil {
+		t.Fatal(err)
+	}
+	rows := m.hostRows()
+	for _, row := range rows {
+		if row.header && (row.group == "Box" || strings.HasPrefix(row.group, "Box/")) {
+			t.Fatalf("stopped-only group should be hidden until ., rows=%+v", rows)
+		}
+	}
+	m.showHidden = true
+	m.hostRowsCache = hostRowsCache{}
+	rows = m.hostRows()
+	if len(rows) == 0 || !rows[0].header || rows[0].group != "Box" {
+		t.Fatalf("stopped-only group should appear with ., rows=%+v", rows)
+	}
+}
+
+func TestProviderGroupShowsCreate(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "box_sunny", Synced: true, SyncSource: "box", SyncID: "box-1",
+		Resolved: sshconfig.Resolved{HostName: "1.2.3.4", User: "user"},
+	}}
+	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("box_sunny", metadata.Host{Label: "sunny", Group: "Box", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
 	m.collapsedGroups = map[string]bool{}
 	rows := m.hostRows()
 	if len(rows) == 0 || !rows[0].header || rows[0].group != "Box" {
-		t.Fatalf("expected injected Box group, rows=%+v", rows)
+		t.Fatalf("expected Box group, rows=%+v", rows)
 	}
 	m.cursor = 0
 	detail := m.renderGroupDetail(m.styles(), rows[0], 60)

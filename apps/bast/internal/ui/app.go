@@ -241,7 +241,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncRailwayConfig: p.SyncRailwayConfig,
 		},
 		openSSH:          client,
 		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
@@ -379,6 +379,15 @@ func (m *App) autoSyncCmds() tea.Cmd {
 		} else if !upstash.Enabled && m.upstashHasKey() {
 			m.beginProviderOp("upstash")
 			autoSyncCmds = append(autoSyncCmds, m.autoConnectUpstashCmd())
+		}
+	}
+	if railway := m.metadata.Railway(); !railway.Disabled && !m.syncingProviders["railway"] {
+		if railway.Enabled && railway.AutoSync {
+			m.beginProviderOp("railway")
+			autoSyncCmds = append(autoSyncCmds, m.syncRailwayCmd())
+		} else if !railway.Enabled && m.railwayHasToken() {
+			m.beginProviderOp("railway")
+			autoSyncCmds = append(autoSyncCmds, m.autoConnectRailwayCmd())
 		}
 	}
 	if pull := m.vaultPullCmd(false); pull != nil {

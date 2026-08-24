@@ -12,7 +12,7 @@ import (
 
 func (r *Runner) sync(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|box|upstash|status|disable>")
+		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|box|upstash|railway|status|disable>")
 		return nil
 	}
 	engine := sync.New(r.Paths, r.store)
@@ -27,6 +27,8 @@ func (r *Runner) sync(args []string) error {
 		return r.syncBox(engine, args[1:])
 	case "upstash":
 		return r.syncUpstash(engine, args[1:])
+	case "railway":
+		return r.syncRailway(engine, args[1:])
 	case "status":
 		return r.syncStatus(engine, args[1:])
 	case "disable":
@@ -76,6 +78,29 @@ func (r *Runner) syncUpstash(engine *sync.Engine, args []string) error {
 	}
 	telemetry.Track("sync_upstash", r.Version)
 	msg := fmt.Sprintf("Synced %d Upstash boxes", result.Count)
+	if result.Error != "" {
+		msg += "\nWarning: " + result.Error
+	}
+	return r.success(result, msg)
+}
+
+func (r *Runner) syncRailway(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync railway")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync railway")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	result, err := engine.SyncRailway(ctx)
+	if err != nil {
+		telemetry.Track("sync_railway_fail", r.Version)
+		return fail("sync_failed", err.Error())
+	}
+	telemetry.Track("sync_railway", r.Version)
+	msg := fmt.Sprintf("Synced %d Railway services", result.Count)
 	if result.Error != "" {
 		msg += "\nWarning: " + result.Error
 	}
@@ -169,6 +194,10 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if upstashAutoErr == nil && upstashRan {
 		telemetry.Track("sync_upstash_auto", r.Version)
 	}
+	_, railwayRan, railwayAutoErr := engine.MaybeAutoConnectRailway(ctx)
+	if railwayAutoErr == nil && railwayRan {
+		telemetry.Track("sync_railway_auto", r.Version)
+	}
 	status, err := engine.Status(ctx)
 	if err != nil {
 		return fail("sync_status", err.Error())
@@ -178,6 +207,9 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	}
 	if upstashAutoErr != nil {
 		status.Upstash.LastSyncError = upstashAutoErr.Error()
+	}
+	if railwayAutoErr != nil {
+		status.Railway.LastSyncError = railwayAutoErr.Error()
 	}
 	if r.JSON {
 		return r.success(status, "")
@@ -325,6 +357,37 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if upstash.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", upstash.LastSyncError)
 	}
+	railway := status.Railway
+	fmt.Fprintln(r.Out, "Railway")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", railway.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", railway.AutoSync)
+	if railway.Disabled {
+		fmt.Fprintln(r.Out, "  Disabled: true (sticky; will not auto-connect)")
+	}
+	if railway.Error != "" {
+		fmt.Fprintf(r.Out, "  API: %s\n", railway.Error)
+	} else if railway.Authenticated {
+		account := railway.Name
+		if account == "" {
+			account = railway.Email
+		}
+		if account == "" {
+			account = "authenticated"
+		}
+		fmt.Fprintf(r.Out, "  Account: %s\n", account)
+	} else if railway.HasToken {
+		fmt.Fprintln(r.Out, "  Account: token stored")
+	} else {
+		fmt.Fprintln(r.Out, "  Account: no API token")
+	}
+	if railway.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d services)\n", railway.LastSyncAt.Local().Format(time.RFC3339), railway.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if railway.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", railway.LastSyncError)
+	}
 	return nil
 }
 
@@ -334,10 +397,10 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 1 {
-		return usagef("usage: bast sync disable <gcp|aws|azure|box|upstash>")
+		return usagef("usage: bast sync disable <gcp|aws|azure|box|upstash|railway>")
 	}
 	provider := fs.Arg(0)
-	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "box" && provider != "upstash" {
+	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "box" && provider != "upstash" && provider != "railway" {
 		return usagef("unknown sync provider %q", provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -354,6 +417,8 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		err = engine.DisableBox(ctx)
 	case "upstash":
 		err = engine.DisableUpstash(ctx)
+	case "railway":
+		err = engine.DisableRailway(ctx)
 	}
 	if err != nil {
 		return fail("sync_disable", err.Error())

@@ -12,6 +12,7 @@ import (
 
 	"bast/internal/cloud"
 	boxcloud "bast/internal/cloud/box"
+	railwaycloud "bast/internal/cloud/railway"
 	"bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/sshconfig"
@@ -63,7 +64,7 @@ func (m *App) syncProviders() []syncMenuItem {
 	for _, d := range cloud.Descriptors() {
 		detail := m.providerDetail(string(d.Kind))
 		text := "disabled"
-		if d.Kind == cloud.Box || d.Kind == cloud.Upstash {
+		if cloud.CapabilitiesFor(d.Kind).Stop {
 			running, stopped := m.providerGroupStats(d.GroupRoot)
 			if !detail.enabled && running+stopped == 0 {
 				text = "disabled"
@@ -196,6 +197,30 @@ func (m *App) providerDetail(provider string) providerDetail {
 			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
+	case "railway":
+		integration := m.metadata.Railway()
+		status := m.syncStatus.Railway
+		accountLabel, accountValue := "Account", "no API token"
+		if status.Error != "" {
+			accountLabel, accountValue = "API", status.Error
+		} else if status.Authenticated {
+			accountValue = status.Name
+			if accountValue == "" {
+				accountValue = status.Email
+			}
+			if accountValue == "" {
+				accountValue = "authenticated"
+			}
+		} else if status.HasToken || m.railwayHasToken() {
+			accountValue = "token stored"
+		} else if integration.Disabled {
+			accountValue = "disabled"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		if integration.Disabled {
+			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
 	default:
 		return providerDetail{}
 	}
@@ -218,6 +243,12 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 	}
 	if provider == "upstash" {
 		life = append(life, syncMenuItem{label: "API key", action: "upstash_key"})
+	}
+	if caps.Create && provider == "railway" && m.railwayHasToken() {
+		life = append(life, syncMenuItem{label: "New service", action: "railway_new"})
+	}
+	if provider == "railway" {
+		life = append(life, syncMenuItem{label: "API token", action: "railway_key"})
 	}
 	if detail.enabled {
 		config = append(config, syncMenuItem{label: "Disconnect", action: "disable"})
@@ -312,6 +343,29 @@ func (m *App) autoConnectUpstashCmd() tea.Cmd {
 			return syncDoneMsg{provider: "upstash", result: result, err: nil, skipped: true, opGen: opGen}
 		}
 		return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) syncRailwayCmd() tea.Cmd {
+	opGen := m.providerOpGen("railway")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncRailway(ctx)
+		return syncDoneMsg{provider: "railway", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) autoConnectRailwayCmd() tea.Cmd {
+	opGen := m.providerOpGen("railway")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, ran, err := m.syncer.MaybeAutoConnectRailway(ctx)
+		if !ran {
+			return syncDoneMsg{provider: "railway", result: result, err: nil, skipped: true, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "railway", result: result, err: err, opGen: opGen}
 	}
 }
 
@@ -413,6 +467,18 @@ func (m *App) disableUpstashCmd() tea.Cmd {
 			return syncDoneMsg{provider: "upstash", err: err, opGen: opGen}
 		}
 		return syncDoneMsg{provider: "upstash", result: sync.Result{Provider: "upstash", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableRailwayCmd() tea.Cmd {
+	opGen := m.providerOpGen("railway")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableRailway(ctx); err != nil {
+			return syncDoneMsg{provider: "railway", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "railway", result: sync.Result{Provider: "railway", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
@@ -1040,7 +1106,7 @@ func (m *App) updateProviderKeys(key string) (tea.Model, tea.Cmd) {
 			return m.forkSyncedHost(host)
 		}
 		for _, item := range life {
-			if item.action == "box_new" || item.action == "upstash_new" {
+			if item.action == "box_new" || item.action == "upstash_new" || item.action == "railway_new" {
 				return m.runSyncAction(item.action)
 			}
 		}
@@ -1302,6 +1368,24 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Batch(m.syncUpstashCmd(), m.setNotice("Syncing Upstash…"))
+		case "railway":
+			if action == "enable" && !m.railwayHasToken() {
+				delete(m.syncingProviders, "railway")
+				m.openRailwayKeyForm()
+				return m, nil
+			}
+			railway := m.metadata.Railway()
+			railway.Disabled = false
+			railway.Enabled = true
+			if action == "enable" {
+				railway.AutoSync = true
+			}
+			if err := m.metadata.SetRailway(railway); err != nil {
+				delete(m.syncingProviders, "railway")
+				m.setError(err)
+				return m, nil
+			}
+			return m, tea.Batch(m.syncRailwayCmd(), m.setNotice("Syncing Railway…"))
 		}
 		return m, tea.Batch(m.syncGCPCmd(), m.setNotice("Syncing GCP…"))
 	case "disable":
@@ -1318,6 +1402,9 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "upstash" {
 			return m, m.disableUpstashCmd()
 		}
+		if m.syncProvider == "railway" {
+			return m, m.disableRailwayCmd()
+		}
 		return m, m.disableGCPCmd()
 	case "box_new":
 		m.openBoxNewForm()
@@ -1327,6 +1414,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "upstash_key":
 		m.openUpstashKeyForm()
+		return m, nil
+	case "railway_new":
+		m.openRailwayNewForm()
+		return m, nil
+	case "railway_key":
+		m.openRailwayKeyForm()
 		return m, nil
 	case "auto_on":
 		if m.syncProvider == "aws" {
@@ -1362,6 +1455,16 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			upstash.AutoSync = true
 			upstash.Disabled = false
 			if err := m.metadata.SetUpstash(upstash); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "railway" {
+			railway := m.metadata.Railway()
+			railway.AutoSync = true
+			railway.Disabled = false
+			if err := m.metadata.SetRailway(railway); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1406,6 +1509,15 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			upstash := m.metadata.Upstash()
 			upstash.AutoSync = false
 			if err := m.metadata.SetUpstash(upstash); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
+		if m.syncProvider == "railway" {
+			railway := m.metadata.Railway()
+			railway.AutoSync = false
+			if err := m.metadata.SetRailway(railway); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1783,6 +1895,119 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			defer cancel()
 			result, err := m.syncer.DeleteUpstash(ctx, syncID)
 			return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
+		}
+	case "railway_key":
+		key := strings.TrimSpace(values["API token"])
+		if key == "" {
+			if m.form != nil {
+				m.form.validationError = "API token is required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["railway"] {
+			return m.setNotice("Railway operation already in progress")
+		}
+		opGen := m.beginProviderOp("railway")
+		m.beginSyncBusy("Connecting Railway…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.SaveRailwayToken(ctx, key)
+			return syncDoneMsg{provider: "railway", result: result, err: err, opGen: opGen}
+		}
+	case "railway_new":
+		name := strings.TrimSpace(values["Name"])
+		if name == "" {
+			if m.form != nil {
+				m.form.validationError = "name is required"
+			}
+			return nil
+		}
+		opts := railwaycloud.CreateOpts{
+			Name:         name,
+			Image:        strings.TrimSpace(values["Image"]),
+			StartCommand: strings.TrimSpace(values["Start command"]),
+		}
+		if truthyForm(values["New project"]) {
+			opts.NewProject = strings.TrimSpace(values["New project name"])
+			if opts.NewProject == "" {
+				opts.NewProject = name
+			}
+		} else {
+			opts.ProjectID = strings.TrimSpace(values["Project"])
+			if opts.ProjectID == "" {
+				if m.form != nil {
+					m.form.validationError = "project is required"
+				}
+				return nil
+			}
+		}
+		m.form = nil
+		if m.syncingProviders["railway"] {
+			return m.setNotice("Railway operation already in progress")
+		}
+		opGen := m.beginProviderOp("railway")
+		if m.section == syncSection {
+			m.beginSyncBusy("Creating Railway service…")
+		} else {
+			m.syncActivity = "creating…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			if opts.NewProject == "" {
+				resolved, err := m.syncer.Railway.ResolveProject(ctx, opts.ProjectID)
+				if err != nil {
+					return syncDoneMsg{provider: "railway", err: err, opGen: opGen}
+				}
+				opts.ProjectID = resolved.ID
+			}
+			result, alias, err := m.syncer.NewRailway(ctx, opts)
+			if err != nil {
+				return syncDoneMsg{provider: "railway", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "railway", result: result, err: nil, focusAlias: alias, opGen: opGen}
+		}
+	case "railway_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["railway"] {
+			return m.setNotice("Railway operation already in progress")
+		}
+		opGen := m.beginProviderOp("railway")
+		m.syncActivity = "stopping…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopRailway(ctx, syncID)
+			return syncDoneMsg{provider: "railway", result: result, err: err, opGen: opGen}
+		}
+	case "railway_delete":
+		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
+			if m.form != nil {
+				m.form.validationError = "type delete to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["railway"] {
+			return m.setNotice("Railway operation already in progress")
+		}
+		opGen := m.beginProviderOp("railway")
+		m.syncActivity = "deleting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteRailway(ctx, syncID)
+			return syncDoneMsg{provider: "railway", result: result, err: err, opGen: opGen}
 		}
 	}
 	return nil
