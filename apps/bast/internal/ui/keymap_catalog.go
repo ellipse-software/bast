@@ -20,7 +20,7 @@ func buildCatalog() []Binding {
 		bind(ActionHelpPageDown, []string{"pgdown"}, ScopeHelp, "Page down", "").noHelp(),
 		bind(ActionHelpTop, []string{"g", "home"}, ScopeHelp, "Top", "").noHelp(),
 		bind(ActionHelpBottom, []string{"G", "end"}, ScopeHelp, "Bottom", "").noHelp(),
-		bind(ActionHelpScrollDown, []string{"up", "down"}, ScopeHelp, "Scroll", "scroll").chord("↑/↓").withFooter(10).when(func(m *App) bool { return m.helpCanScroll() }).noHelp(),
+		bind(ActionHelpScrollDown, []string{"up", "down"}, ScopeHelp, "Scroll", "scroll").chord("↑/↓").withFooter(10).when(func(m *App) bool { return m.helpCanScroll() }).noHelp().skip(),
 
 		// Credits.
 		bind(ActionHelpToggle, []string{"?"}, ScopeCredits, "Help", "").noHelp(),
@@ -155,7 +155,7 @@ func buildCatalog() []Binding {
 		bind(ActionMoveLeft, []string{"h", "j", "k", "l"}, ScopeSync, "Move", "move").chord("hjkl").withFooter(10).when(func(m *App) bool { return m.syncProvider == "" }).noHelp().skip(),
 		bind(ActionSyncEnter, []string{"enter"}, ScopeSync, "Open", "open").withFooter(20).when(func(m *App) bool { return m.syncProvider == "" }).noHelp(),
 		bind(ActionSyncNow, []string{"s"}, ScopeSync, "Sync", "sync").withFooter(30).when(func(m *App) bool { return m.syncProvider == "" }).noHelp(),
-		bind(ActionMoveLeft, []string{"h", "l"}, ScopeSync, "Cycle", "cycle").chord("h/l").withFooter(10).when(syncFooterCycle).noHelp(),
+		bind(ActionMoveLeft, []string{"h", "l"}, ScopeSync, "Cycle", "cycle").chord("h/l").withFooter(10).when(syncFooterCycle).noHelp().skip(),
 		bind(ActionSyncEnter, []string{"enter"}, ScopeSync, "Enter", "").hintOf(syncFooterEnterHint).withFooter(20).when(syncFooterLifecycle).noHelp(),
 		bind(ActionToggleGroup, []string{"space"}, ScopeSync, "Collapse", "").chord("␣").hintOf(syncFooterInvHint).withFooter(10).when(syncFooterInvHeader).noHelp(),
 		bind(ActionSyncEnter, []string{"enter"}, ScopeSync, "Connect", "connect").withFooter(10).when(syncFooterInvHost).noHelp(),

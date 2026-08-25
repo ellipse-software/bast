@@ -470,9 +470,8 @@ func (m *App) helpRows(bindings []Binding, shadowed map[string]bool) []helpRow {
 		display := b
 		if len(shadowed) > 0 && !b.HelpOnly {
 			display.Keys = keys
-			if b.Chord != "" && keyIn(b.Keys, "g") && shadowed["g"] && keyIn(b.Keys, "home") {
+			if b.Chord != "" && len(keys) < len(b.Keys) {
 				display.Chord = ""
-				display.Keys = []string{"home"}
 			}
 		}
 		row := helpRow{

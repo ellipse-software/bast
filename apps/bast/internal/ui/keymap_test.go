@@ -41,6 +41,51 @@ func bindingWhenNil(scope Scope, key string) Action {
 	return 0
 }
 
+func TestMatchableBindingsDoNotStealKeys(t *testing.T) {
+	type keyScope struct {
+		scope Scope
+		key   string
+	}
+	first := map[keyScope]Action{}
+	for _, b := range catalog() {
+		if b.HelpOnly || b.SkipMatch {
+			continue
+		}
+		for _, key := range b.Keys {
+			id := keyScope{b.Scope, key}
+			if prev, ok := first[id]; ok && prev != b.ID {
+				t.Fatalf("scope %d key %q can resolve to %d or %d", b.Scope, key, prev, b.ID)
+			}
+			if _, ok := first[id]; !ok {
+				first[id] = b.ID
+			}
+		}
+	}
+}
+
+func TestHelpUpScrollsUpNotDown(t *testing.T) {
+	m := testApp(t)
+	m.help = true
+	if b, ok := m.matchBinding("up"); !ok || b.ID != ActionHelpScrollUp {
+		t.Fatalf("help up = %+v ok=%v", b, ok)
+	}
+	if b, ok := m.matchBinding("down"); !ok || b.ID != ActionHelpScrollDown {
+		t.Fatalf("help down = %+v ok=%v", b, ok)
+	}
+}
+
+func TestSyncLMovesRight(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "box"
+	if b, ok := m.matchBinding("l"); !ok || b.ID != ActionMoveRight {
+		t.Fatalf("sync l = %+v ok=%v", b, ok)
+	}
+	if b, ok := m.matchBinding("h"); !ok || b.ID != ActionMoveLeft {
+		t.Fatalf("sync h = %+v ok=%v", b, ok)
+	}
+}
+
 func TestKeysRemapGenerateAndInstall(t *testing.T) {
 	m := testApp(t)
 	m.section = keysSection
