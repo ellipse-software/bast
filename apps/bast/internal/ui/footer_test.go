@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	keymodel "bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/sshconfig"
 )
@@ -52,8 +53,13 @@ func TestContextualFootersBySection(t *testing.T) {
 
 	m.section = keysSection
 	m.keys = nil
-	if got := m.browseFooterHint(80); got != "a generate · i import · ?" {
+	if got := m.browseFooterHint(80); got != "g generate · i import · ?" {
 		t.Fatalf("empty keys = %q", got)
+	}
+	m.keys = []keymodel.Key{{Name: "work", PublicPath: "/tmp/work.pub", PrivatePath: "/tmp/work"}}
+	m.cursor = 0
+	if got := m.browseFooterHint(80); !strings.Contains(got, "a add") || strings.Contains(got, "u add") {
+		t.Fatalf("selected key = %q", got)
 	}
 
 	m.section = vaultSection

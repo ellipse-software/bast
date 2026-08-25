@@ -798,7 +798,7 @@ export function TuiDemo() {
     section === "hosts"
       ? "↵ connect • ␣ group • a add • e edit • 5 files • ? help"
       : section === "keys"
-        ? "a generate • i import • x export • u add to server • ? help"
+        ? "g generate • i import • x export • a add to server • ? help"
         : section === "files"
           ? filesInfo
             ? "j/k next • i/esc close"
@@ -1511,7 +1511,7 @@ function KeyDetail({
       ) : null}
       <div className={`space-y-0.5 ${compact ? "mt-1.5" : "mt-2"}`}>
         <p className={`font-bold text-accent ${compact ? "mt-1" : "mt-1.5"}`}>
-          [u] Add to server
+          [a] Add to server
         </p>
         {keyItem.rows.map((row) => (
           <DetailLine key={row.label} {...row} compact={compact} />
