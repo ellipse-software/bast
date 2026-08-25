@@ -221,28 +221,61 @@ $wasInstalled = Test-Path $destination
 Write-Info "Platform: windows/$goArchitecture"
 Write-Info "Install location: $destination"
 Write-Host ""
-Write-Step "Checking for the latest release..."
-
 $headers = @{ Accept = "application/vnd.github+json"; "User-Agent" = "bast-installer" }
+$pinned = $false
 if ($Channel -eq "nightly") {
+    if ($env:BAST_VERSION) {
+        throw "BAST_VERSION is for the stable installer; set BAST_NIGHTLY_VERSION instead"
+    }
     if ($env:BAST_NIGHTLY_VERSION) {
-        $version = $env:BAST_NIGHTLY_VERSION
+        $version = $env:BAST_NIGHTLY_VERSION.Trim()
+        if ($version -notmatch '^nightly\.[0-9]{8}\.[0-9a-f]{7}$') {
+            throw "invalid BAST_NIGHTLY_VERSION: $($env:BAST_NIGHTLY_VERSION) (expected nightly.YYYYMMDD.<sha>)"
+        }
+        $pinned = $true
+        Write-Step "Using BAST_NIGHTLY_VERSION $version..."
     } else {
+        Write-Step "Checking for the latest release..."
         $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases?per_page=50" -Headers $headers -TimeoutSec 30
         $release = $releases | Where-Object { $_.prerelease -and -not $_.draft -and $_.tag_name -match '^nightly\.[0-9]{8}\.[0-9a-f]{7}$' } | Sort-Object published_at -Descending | Select-Object -First 1
         $version = [string]$release.tag_name
-    }
-    if ($version -notmatch '^nightly\.[0-9]{8}\.[0-9a-f]{7}$') {
-        throw "No supported nightly release was found"
+        if ($version -notmatch '^nightly\.[0-9]{8}\.[0-9a-f]{7}$') {
+            throw "No supported nightly release was found"
+        }
     }
 } else {
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers $headers -TimeoutSec 30
-    $version = [string]$release.tag_name
-    if ($version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
-        throw "The latest release has an unsupported version: $version"
+    if ($env:BAST_NIGHTLY_VERSION) {
+        throw "BAST_NIGHTLY_VERSION is for the nightly installer; set BAST_VERSION instead"
+    }
+    if ($env:BAST_VERSION) {
+        $version = $env:BAST_VERSION.Trim()
+        if ($version -notmatch '^v') {
+            $version = "v$version"
+        }
+        if ($version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw "invalid BAST_VERSION: $($env:BAST_VERSION) (expected vX.Y.Z)"
+        }
+        $pinned = $true
+        Write-Step "Using BAST_VERSION $version..."
+        try {
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/tags/$version" -Headers $headers -TimeoutSec 30
+        } catch {
+            throw "could not find GitHub release $version"
+        }
+    } else {
+        Write-Step "Checking for the latest release..."
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers $headers -TimeoutSec 30
+        $version = [string]$release.tag_name
+        if ($version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw "The latest release has an unsupported version: $version"
+        }
     }
 }
-Write-Success "Latest release: $version"
+if ($pinned) {
+    Write-Success "Requested version: $version"
+} else {
+    Write-Success "Latest release: $version"
+}
 
 $cleanVersion = $version.TrimStart("v")
 $bundle = "bast_${cleanVersion}_windows_${goArchitecture}"

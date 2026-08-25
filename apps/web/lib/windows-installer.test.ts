@@ -29,4 +29,12 @@ describe("Windows installer", () => {
     expect(installer).toContain("Enabled shell completions");
     expect(installer).toContain("Install-BastCompletions $destination");
   });
+
+  test("pins a stable GitHub release with BAST_VERSION", () => {
+    expect(installer).toContain("releases/tags/$version");
+    expect(installer).toContain('Write-Success "Requested version: $version"');
+    expect(installer).toContain(
+      "BAST_NIGHTLY_VERSION is for the nightly installer; set BAST_VERSION instead",
+    );
+  });
 });

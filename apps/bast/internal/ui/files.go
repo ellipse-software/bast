@@ -998,6 +998,14 @@ func (m *App) updateFilesMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m *App) filesFooterHint() string {
+	if status := m.filesFooterStatus(); status != "" {
+		return status
+	}
+	return strings.Join(m.catalogFooterParts(), " · ")
+}
+
+func (m *App) filesFooterStatus() string {
+	m.initFilesState()
 	if m.files.chmod.active {
 		return m.filesChmodHint()
 	}
@@ -1017,10 +1025,7 @@ func (m *App) filesFooterHint() string {
 	if pane.connecting {
 		return "connecting… esc"
 	}
-	if pane.pickingHost() {
-		return "enter connect · / search · esc back · ?"
-	}
-	return "tab · c copy · m move · f jump · esc back · ?"
+	return ""
 }
 
 func (m *App) filesTransferHint() string {

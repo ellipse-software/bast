@@ -251,11 +251,15 @@ fail() {
   exit 1
 }
 
+is_nightly_tag() {
+  printf '%s\n' "$1" | grep -Eq '^nightly\.[0-9]{8}\.[0-9a-f]{7}$'
+}
+
 print_banner
 note "Installing the nightly channel from master."
 print_telemetry_notice
 
-for command_name in curl install mktemp tar; do
+for command_name in curl grep install mktemp tar; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 
@@ -296,20 +300,30 @@ fi
 info "Install location: ${install_path}"
 blank
 
-prepare_channel_switch
+if [ -n "${BAST_VERSION:-}" ]; then
+  fail "BAST_VERSION is for https://bast.sh/install; set BAST_NIGHTLY_VERSION instead"
+fi
 
-step "Checking for the latest nightly build..."
+refuse_system_package_conflict() {
+  if [ -n "${BAST_INSTALL_DIR:-}" ]; then
+    return 0
+  fi
+  if [ ! -x /usr/bin/bast ]; then
+    return 0
+  fi
+  fail "Bast is already installed at /usr/bin/bast (likely a package). Uninstall that copy first, or set BAST_INSTALL_DIR to install a separate user copy."
+}
+
+refuse_system_package_conflict
+
 if [ -n "${BAST_NIGHTLY_VERSION:-}" ]; then
-  case "$BAST_NIGHTLY_VERSION" in
-  nightly.*)
-    version="$BAST_NIGHTLY_VERSION"
-    release_tag="$version"
-    ;;
-  *)
-    fail "invalid BAST_NIGHTLY_VERSION: ${BAST_NIGHTLY_VERSION}"
-    ;;
-  esac
+  version="$BAST_NIGHTLY_VERSION"
+  is_nightly_tag "$version" || fail "invalid BAST_NIGHTLY_VERSION: ${BAST_NIGHTLY_VERSION} (expected nightly.YYYYMMDD.<sha>)"
+  release_tag="$version"
+  step "Using BAST_NIGHTLY_VERSION ${version}..."
+  success "Requested nightly: ${version}"
 else
+  step "Checking for the latest nightly build..."
   release_json="$(curl -fsSL \
     -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -361,14 +375,11 @@ else
     )"
     release_tag="nightly"
   fi
+  is_nightly_tag "$version" || fail "could not find the latest nightly build"
+  success "Latest nightly: ${version}"
 fi
 
-case "$version" in
-nightly.*) ;;
-*) fail "could not find the latest nightly build" ;;
-esac
-
-success "Latest nightly: ${version}"
+prepare_channel_switch
 
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/bast.XXXXXX")"
 
@@ -409,8 +420,8 @@ else
 fi
 
 step "Downloading ${archive}..."
-curl -fsSL "$download_url" -o "$temp_dir/$archive"
-curl -fsSL "$download_url.sha256" -o "$temp_dir/$archive.sha256"
+curl -fsSL "$download_url" -o "$temp_dir/$archive" || fail "could not download ${archive}"
+curl -fsSL "$download_url.sha256" -o "$temp_dir/$archive.sha256" || fail "could not download ${archive}.sha256"
 success "Download complete"
 
 step "Verifying SHA-256 checksum..."

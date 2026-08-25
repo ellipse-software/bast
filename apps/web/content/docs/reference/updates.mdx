@@ -15,6 +15,12 @@ The reminder depends on how you installed Bast:
 | bast.sh nightly script | `bast update` |
 | Homebrew | `brew upgrade bast` |
 | Homebrew nightly | `brew upgrade bast-nightly` |
+| apt | `sudo apt upgrade bast` |
+| dnf / yum | `sudo dnf upgrade bast` |
+| zypper | `sudo zypper update bast` |
+| pacman | `sudo pacman -Syu bast` |
+| AUR (`bast-bin`) | `yay -Syu bast-bin` |
+| apk | `sudo apk upgrade bast` |
 | Windows PowerShell installer | `bast update` |
 | Windows PowerShell nightly | `bast update` |
 | Source build | Link back to bast.sh |
@@ -27,9 +33,11 @@ Press `v` in the TUI to see version info and the update suggestion.
 bast update
 ```
 
-This only runs when the bast.sh installer receipt is present beside the executable. It works for both stable and nightly script installs, and will not overwrite Homebrew-managed or source-built copies.
+This only runs when the bast.sh installer receipt is present beside the executable. It works for both stable and nightly script installs, and will not overwrite Homebrew, WinGet, apt, dnf, pacman, apk, or source-built copies.
 
 The installer downloads the latest release and verifies its checksum. Windows also verifies the Authenticode publisher, then uses a helper process to replace `bast.exe` after the running command exits.
+
+Pinned script installs (`BAST_VERSION` or `BAST_NIGHTLY_VERSION`) use the same receipt, so `bast update` still jumps to the latest build on that channel. Re-run the pinned install command to stay on a specific release.
 
 ## Check manually
 
