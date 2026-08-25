@@ -28,6 +28,8 @@ describe("Windows installer", () => {
     expect(installer).toContain("# >>> bast completions >>>");
     expect(installer).toContain("Enabled shell completions");
     expect(installer).toContain("Install-BastCompletions $destination");
+    expect(installer).toContain("Get-Content -LiteralPath $Path -Raw -ErrorAction Stop");
+    expect(installer).toContain("} catch {");
   });
 
   test("pins a stable GitHub release with BAST_VERSION", () => {

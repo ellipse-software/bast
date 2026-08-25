@@ -16,6 +16,11 @@ describe("Unix installer", () => {
       expect(installer).toMatch(
         /already up to date\."\n  install_shell_completions/,
       );
+      expect(installer).toContain('login_shell="${SHELL:-}"');
+      expect(installer).toContain('work="$(mktemp -d "${TMPDIR:-/tmp}/bast-rc.XXXXXX")"');
+      expect(installer).toContain(
+        'install -m 0644 "$completion_dir/bast.bash" "$bash_completion_file" || true',
+      );
     }
   });
 

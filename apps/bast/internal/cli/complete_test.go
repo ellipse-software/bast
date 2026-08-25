@@ -49,7 +49,10 @@ func TestCompletionScripts(t *testing.T) {
 		{"powershell", "Register-ArgumentCompleter"},
 		{"pwsh", "Register-ArgumentCompleter"},
 		{"elvish", "edit:completion:arg-completer"},
+		{"elvish", "} catch { }"},
+		{"elvish", "external $args[0]"},
 		{"nushell", "extern"},
+		{"nushell", "get 1?"},
 		{"nu", "extern"},
 	}
 	for _, tc := range cases {

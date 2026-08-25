@@ -110,27 +110,45 @@ upsert_rc_block() {
   body="$2"
   begin='# >>> bast completions >>>'
   end='# <<< bast completions <<<'
-  mkdir -p "$(dirname "$target")"
-  stripped="$temp_dir/rc-stripped"
+  parent="$(dirname "$target")"
+  mkdir -p "$parent" || return 1
+  work="$(mktemp -d "${TMPDIR:-/tmp}/bast-rc.XXXXXX")" || return 1
+  stripped="$work/stripped"
+  trimmed="$work/trimmed"
+  assembled="$work/assembled"
   if [ -f "$target" ]; then
-    awk -v begin="$begin" -v end="$end" '
+    if ! awk -v begin="$begin" -v end="$end" '
       $0 == begin { skip=1; next }
       skip == 1 && $0 == end { skip=0; next }
       skip == 1 { next }
       { print }
-    ' "$target" >"$stripped"
-  else
-    : >"$stripped"
+    ' "$target" >"$stripped"; then
+      rm -rf "$work"
+      return 1
+    fi
+  elif ! : >"$stripped"; then
+    rm -rf "$work"
+    return 1
   fi
-  trimmed="$temp_dir/rc-trimmed"
-  awk 'BEGIN { n=0 } { lines[++n]=$0 } END { while (n>0 && lines[n]=="") n--; for (i=1;i<=n;i++) print lines[i] }' "$stripped" >"$trimmed"
-  {
+  if ! awk 'BEGIN { n=0 } { lines[++n]=$0 } END { while (n>0 && lines[n]=="") n--; for (i=1;i<=n;i++) print lines[i] }' "$stripped" >"$trimmed"; then
+    rm -rf "$work"
+    return 1
+  fi
+  if ! {
     if [ -s "$trimmed" ]; then
       cat "$trimmed"
       printf '\n'
     fi
     printf '%s\n%s\n%s\n' "$begin" "$body" "$end"
-  } >"$target"
+  } >"$assembled"; then
+    rm -rf "$work"
+    return 1
+  fi
+  if ! mv "$assembled" "$target"; then
+    rm -rf "$work"
+    return 1
+  fi
+  rm -rf "$work"
 }
 
 install_shell_completions() {
@@ -139,7 +157,7 @@ install_shell_completions() {
   [ -x "$install_path" ] || return 0
   [ -n "${completion_dir:-}" ] || return 0
 
-  mkdir -p "$completion_dir"
+  mkdir -p "$completion_dir" || return 0
   if ! write_completion_script bash "$completion_dir/bast.bash"; then
     return 0
   fi
@@ -151,28 +169,29 @@ install_shell_completions() {
   write_completion_script elvish "$completion_dir/bast.elv" || true
   write_completion_script nushell "$completion_dir/bast.nu" || true
 
-  mkdir -p "$(dirname "$bash_completion_file")"
-  install -m 0644 "$completion_dir/bast.bash" "$bash_completion_file"
+  mkdir -p "$(dirname "$bash_completion_file")" || true
+  install -m 0644 "$completion_dir/bast.bash" "$bash_completion_file" || true
 
-  login_shell="${SHELL##*/}"
+  login_shell="${SHELL:-}"
+  login_shell="${login_shell##*/}"
   if [ -f "$completion_dir/bast.fish" ] && { [ "$login_shell" = "fish" ] || command -v fish >/dev/null 2>&1 || [ -d "$config_home/fish" ]; }; then
-    mkdir -p "$(dirname "$fish_completion")"
-    install -m 0644 "$completion_dir/bast.fish" "$fish_completion"
+    mkdir -p "$(dirname "$fish_completion")" || true
+    install -m 0644 "$completion_dir/bast.fish" "$fish_completion" || true
   fi
 
   if [ -f "$completion_dir/_bast" ] && { [ "$login_shell" = "zsh" ] || [ -f "$HOME/.zshrc" ]; }; then
     upsert_rc_block "$HOME/.zshrc" "if typeset -f compdef >/dev/null 2>&1; then
   . \"$completion_dir/_bast\"
-fi"
+fi" || true
   fi
 
   if [ -f "$completion_dir/bast.bash" ] && { [ "$login_shell" = "bash" ] || [ -f "$HOME/.bashrc" ] || [ -f "$HOME/.bash_profile" ]; }; then
     bash_block=". \"$completion_dir/bast.bash\""
     if [ -f "$HOME/.bashrc" ] || [ "$login_shell" = "bash" ]; then
-      upsert_rc_block "$HOME/.bashrc" "$bash_block"
+      upsert_rc_block "$HOME/.bashrc" "$bash_block" || true
     fi
     if [ -f "$HOME/.bash_profile" ]; then
-      upsert_rc_block "$HOME/.bash_profile" "$bash_block"
+      upsert_rc_block "$HOME/.bash_profile" "$bash_block" || true
     fi
   fi
 
@@ -180,17 +199,17 @@ fi"
   if [ -f "$completion_dir/bast.ps1" ] && { command -v pwsh >/dev/null 2>&1 || [ -f "$pwsh_profile" ]; }; then
     upsert_rc_block "$pwsh_profile" "if (Test-Path -LiteralPath '$completion_dir/bast.ps1') {
   . '$completion_dir/bast.ps1'
-}"
+}" || true
   fi
 
   elvish_rc="$config_home/elvish/rc.elv"
   if [ -f "$completion_dir/bast.elv" ] && { command -v elvish >/dev/null 2>&1 || [ -f "$elvish_rc" ]; }; then
-    upsert_rc_block "$elvish_rc" "eval (slurp < '$completion_dir/bast.elv')"
+    upsert_rc_block "$elvish_rc" "eval (slurp < '$completion_dir/bast.elv')" || true
   fi
 
   nushell_config="$config_home/nushell/config.nu"
   if [ -f "$completion_dir/bast.nu" ] && { command -v nu >/dev/null 2>&1 || [ -f "$nushell_config" ]; }; then
-    upsert_rc_block "$nushell_config" "source \"$completion_dir/bast.nu\""
+    upsert_rc_block "$nushell_config" "source \"$completion_dir/bast.nu\"" || true
   fi
 
   success "Enabled shell completions"

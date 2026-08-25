@@ -201,14 +201,15 @@ const powershellCompletionScript = `Register-ArgumentCompleter -Native -CommandN
 const elvishCompletionScript = `set edit:completion:arg-completer[bast] = {|@args|
     var request = $args[1..]
     try {
-        var lines = [(bast __complete -- $@request)]
+        var cmd = (external $args[0])
+        var lines = [($cmd __complete -- $@request)]
         for line $lines {
             if (has-prefix $line ':') {
                 continue
             }
             put (splits "\t" &max=2 $line | take 1)
         }
-    } except { }
+    } catch { }
 }
 `
 
@@ -225,7 +226,7 @@ const nushellCompletionScript = `def nu-complete-bast [context: string] {
             let parts = ($line | split row "\t")
             {
                 value: ($parts | get 0)
-                description: ($parts | get -i 1 | default '')
+                description: ($parts | get 1? | default '')
             }
         }
     } catch {

@@ -12,7 +12,7 @@ The installers enable this for you. Open a new terminal after install, type `bas
 | `curl \| sh` / `bast update` | Writes scripts under `~/.local/share/bast/completions` and adds a marked block to your shell startup file (`.zshrc`, `.bashrc`, or `.bash_profile`). Fish gets `~/.config/fish/completions/bast.fish` with no rc edit. Elvish, Nushell, and `pwsh` are hooked if those shells are already present. |
 | Windows `install.ps1` | Writes `completions\bast.ps1` next to `bast.exe` and adds a marked block to your PowerShell 5.1 and PowerShell 7 profiles. |
 | Homebrew | bash, zsh, and fish completions are generated at `brew install` time. |
-| WinGet | Portable zip. Use `bast completion powershell` if Tab does not work. |
+| WinGet | Portable zip. Register with `bast completion powershell \| Out-String \| Invoke-Expression`, or save that script and dot-source it from `$PROFILE`. |
 
 Skip installer hooks with `BAST_NO_COMPLETIONS=1`. Re-running the installer is idempotent: it refreshes the scripts and replaces the marked block instead of stacking copies.
 

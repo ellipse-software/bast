@@ -64,10 +64,11 @@ irm https://bast.sh/install.ps1 | iex
 The script installers and Homebrew enable tab completion. Open a new terminal after install. Opt out with `BAST_NO_COMPLETIONS=1`.
 
 ```sh
-source <(bast completion bash)   # also: zsh, fish, powershell, elvish, nushell
+source <(bast completion bash)   # zsh: source <(bast completion zsh)
+bast completion fish | source
 ```
 
-Docs: https://bast.sh/docs/reference/completions
+PowerShell, Elvish, and Nushell: https://bast.sh/docs/reference/completions
 
 ## Automation rules
 

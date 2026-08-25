@@ -83,9 +83,13 @@ function Update-BastCompletionBlock([string]$Path, [string]$Block) {
     }
     $existing = ""
     if (Test-Path -LiteralPath $Path) {
-        $existing = Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue
-        if ($null -eq $existing) {
-            $existing = ""
+        try {
+            $existing = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
+            if ($null -eq $existing) {
+                $existing = ""
+            }
+        } catch {
+            return
         }
         $pattern = "(?s)\r?\n?" + [regex]::Escape($begin) + ".*?" + [regex]::Escape($end) + "\r?\n?"
         $existing = [regex]::Replace($existing, $pattern, "`n").TrimEnd()
@@ -93,7 +97,11 @@ function Update-BastCompletionBlock([string]$Path, [string]$Block) {
             $existing += "`r`n`r`n"
         }
     }
-    Set-Content -LiteralPath $Path -Value ($existing + $Block.TrimEnd() + "`r`n") -Encoding UTF8
+    try {
+        Set-Content -LiteralPath $Path -Value ($existing + $Block.TrimEnd() + "`r`n") -Encoding UTF8
+    } catch {
+        return
+    }
 }
 
 function Install-BastCompletions([string]$Binary) {
