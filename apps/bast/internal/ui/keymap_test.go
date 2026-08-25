@@ -74,6 +74,22 @@ func TestHelpUpScrollsUpNotDown(t *testing.T) {
 	}
 }
 
+func TestDoctorKeyDoesNotStealFilesDisconnect(t *testing.T) {
+	m := testApp(t)
+	if b, ok := m.matchBinding("D"); !ok || b.ID != ActionDoctorOpen {
+		t.Fatalf("hosts D = %+v ok=%v", b, ok)
+	}
+	m.section = filesSection
+	if b, ok := m.matchBinding("D"); !ok || b.ID != ActionFilesDisconnect {
+		t.Fatalf("files D = %+v ok=%v", b, ok)
+	}
+	m.section = hostsSection
+	m.doctor = true
+	if b, ok := m.matchBinding("esc"); !ok || b.ID != ActionDoctorClose {
+		t.Fatalf("doctor esc = %+v ok=%v", b, ok)
+	}
+}
+
 func TestSyncLMovesRight(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection

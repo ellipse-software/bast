@@ -104,12 +104,17 @@ export default async function CliPage() {
         <pre className="overflow-x-auto border border-border bg-surface px-4 py-3 font-mono text-xs text-foreground">
           {`bast hosts list --json
 bast keys list --json
+bast doctor --json
 bast --json hosts show production_web`}
         </pre>
         <p>
           Command reference:{" "}
           <Link href="/docs/features/cli" className={legalLinkClass}>
             Command line
+          </Link>
+          {" · "}
+          <Link href="/docs/features/doctor" className={legalLinkClass}>
+            Doctor
           </Link>
           . HTTP API for Vault lives at{" "}
           <Link href="/developers" className={legalLinkClass}>

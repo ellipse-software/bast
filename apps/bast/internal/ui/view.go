@@ -70,6 +70,8 @@ func (m *App) render() string {
 		body = m.renderError(styles)
 	} else if m.credits {
 		body = m.renderCredits(styles)
+	} else if m.doctor {
+		body = m.renderDoctor(styles)
 	} else if m.help {
 		body = m.renderHelp(styles)
 	} else if m.form != nil {
@@ -109,6 +111,8 @@ func (m *App) renderError(s styleSet) string {
 	explanation := "The action did not complete."
 	if m.form != nil {
 		explanation += " Your entries are still available when you return."
+	} else {
+		explanation += " Run bast doctor for a full diagnosis."
 	}
 	footer := "Enter/Esc return"
 	if telemetry.Enabled() {
@@ -1097,6 +1101,13 @@ func (m *App) renderFooter(s styleSet) string {
 		hint := strings.Join(m.overlayFooterParts(ScopeCredits), " · ")
 		if hint == "" {
 			hint = "v / Esc / ⌫ close"
+		}
+		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
+	}
+	if m.doctor {
+		hint := strings.Join(m.overlayFooterParts(ScopeDoctor), " · ")
+		if hint == "" {
+			hint = "D / Esc / ⌫ close"
 		}
 		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
 	}

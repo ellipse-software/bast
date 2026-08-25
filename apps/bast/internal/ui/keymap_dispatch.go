@@ -13,6 +13,7 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 	case ActionQuit:
 		return m, tea.Quit
 	case ActionHelpToggle:
+		m.closeDoctor()
 		m.help, m.credits, m.helpOffset = true, false, 0
 		return m, nil
 	case ActionHelpClose:
@@ -37,10 +38,34 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 		m.helpOffset = m.maxHelpOffset()
 		return m, nil
 	case ActionCreditsOpen:
+		m.closeDoctor()
 		m.credits, m.help, m.helpOffset = true, false, 0
 		return m, nil
 	case ActionCreditsClose:
 		m.credits = false
+		return m, nil
+	case ActionDoctorOpen:
+		return m, m.openDoctor()
+	case ActionDoctorClose:
+		m.closeDoctor()
+		return m, nil
+	case ActionDoctorScrollUp:
+		m.scrollDoctor(-1)
+		return m, nil
+	case ActionDoctorScrollDown:
+		m.scrollDoctor(1)
+		return m, nil
+	case ActionDoctorPageUp:
+		m.scrollDoctor(-m.helpBodyHeight())
+		return m, nil
+	case ActionDoctorPageDown:
+		m.scrollDoctor(m.helpBodyHeight())
+		return m, nil
+	case ActionDoctorTop:
+		m.doctorOffset = 0
+		return m, nil
+	case ActionDoctorBottom:
+		m.doctorOffset = m.maxDoctorOffset()
 		return m, nil
 	case ActionTabHosts:
 		return m, m.switchToSection(hostsSection)

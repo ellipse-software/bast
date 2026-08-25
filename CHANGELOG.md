@@ -6,10 +6,16 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- `bast doctor` diagnoses SSH config, keys, permissions, and Bast setup. Press `D` in the TUI (not in Files). `--fix` repairs the Bast Include and modes OpenSSH will refuse; `--json` exposes stable finding ids.
+- `bast doctor` uses the TUI palette on a color terminal (purple headers, red failures, green ok findings). Pipes and `NO_COLOR` stay plain.
 - Shell completions via `bast completion` for bash, zsh, fish, PowerShell, Elvish, and Nushell. Tab completes commands, flags, hosts, and keys. The script installers enable this automatically (opt out with `BAST_NO_COMPLETIONS=1`). Homebrew generates bash, zsh, and fish completions on install.
 - Script installers accept `BAST_VERSION` (stable) and `BAST_NIGHTLY_VERSION` (nightly) to install a specific GitHub release.
 - Keys tab: `g` generates a key, `a` adds the selected key to a server. The in-app `?` overlay, footer hints, and detail chips share one keymap.
 - Homebrew formulae compile Bast from source instead of installing prebuilt release archives.
+
+### Fixed
+
+- `bast doctor` finds the ASCII Box CLI at `~/.ascii/bin/box` the same way Bast sync does, instead of reporting it missing when `box` is only a shell function.
 
 ## v0.9.3 - 2026-08-23
 

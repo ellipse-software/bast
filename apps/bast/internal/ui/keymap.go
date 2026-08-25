@@ -21,6 +21,14 @@ const (
 	ActionHelpBottom
 	ActionCreditsOpen
 	ActionCreditsClose
+	ActionDoctorOpen
+	ActionDoctorClose
+	ActionDoctorScrollUp
+	ActionDoctorScrollDown
+	ActionDoctorPageUp
+	ActionDoctorPageDown
+	ActionDoctorTop
+	ActionDoctorBottom
 	ActionTabHosts
 	ActionTabKeys
 	ActionTabVault
@@ -92,6 +100,7 @@ const (
 	ScopeGlobal Scope = iota
 	ScopeHelp
 	ScopeCredits
+	ScopeDoctor
 	ScopeHosts
 	ScopeKeys
 	ScopeVault
@@ -194,6 +203,9 @@ func (m *App) matchScopes() []Scope {
 	}
 	if m.credits {
 		return []Scope{ScopeCredits}
+	}
+	if m.doctor {
+		return []Scope{ScopeDoctor}
 	}
 	return []Scope{m.tabScope(), ScopeGlobal}
 }

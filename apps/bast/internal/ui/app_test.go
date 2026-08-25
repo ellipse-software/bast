@@ -20,6 +20,7 @@ import (
 
 	cloudsync "bast/internal/cloud/sync"
 	"bast/internal/connectbanner"
+	"bast/internal/doctor"
 	keymodel "bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/openssh"
@@ -173,6 +174,7 @@ func TestCtrlCQuitsFromEveryBastContext(t *testing.T) {
 		"root":   func(*App) {},
 		"help":   func(m *App) { m.help = true },
 		"about":  func(m *App) { m.credits = true },
+		"doctor": func(m *App) { m.doctor = true },
 		"search": func(m *App) { m.search = "\x00query" },
 		"error":  func(m *App) { m.status, m.statusError = "failed", true },
 		"host form": func(m *App) {
@@ -193,11 +195,12 @@ func TestCtrlCQuitsFromEveryBastContext(t *testing.T) {
 }
 
 func TestQQuitsOutsideTextInput(t *testing.T) {
-	for _, context := range []string{"root", "help", "about"} {
+	for _, context := range []string{"root", "help", "about", "doctor"} {
 		t.Run(context, func(t *testing.T) {
 			m := testApp(t)
 			m.help = context == "help"
 			m.credits = context == "about"
+			m.doctor = context == "doctor"
 			_, cmd := m.Update(press("q"))
 			requireQuit(t, cmd)
 		})
@@ -2327,6 +2330,42 @@ func TestHelpScreenIsSpacedAndScrollable(t *testing.T) {
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
 	if m.help || m.helpOffset != 0 {
 		t.Fatalf("Esc should close help and reset scroll: help=%v offset=%d", m.help, m.helpOffset)
+	}
+}
+
+func TestDoctorOpensOutsideFilesAndCloses(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 80, 24
+	_, cmd := m.Update(press("D"))
+	if !m.doctor || m.help || cmd == nil {
+		t.Fatalf("D should open doctor: doctor=%v help=%v cmd=%v", m.doctor, m.help, cmd)
+	}
+	m.Update(doctorDoneMsg{report: doctor.Report{
+		Healthy: true,
+		Findings: []doctor.Finding{{
+			ID: "env.openssh_ok", Severity: doctor.SeverityOK, Category: doctor.CatEnv, Title: "ssh ok",
+		}},
+	}})
+	if m.doctorLoading {
+		t.Fatal("doctor should finish loading")
+	}
+	rendered := m.render()
+	if !strings.Contains(rendered, "Doctor") || !strings.Contains(rendered, "ssh ok") {
+		t.Fatalf("doctor overlay missing content:\n%s", rendered)
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	if m.doctor {
+		t.Fatal("Esc did not close doctor")
+	}
+}
+
+func TestFilesDDoesNotOpenDoctor(t *testing.T) {
+	m := testApp(t)
+	m.section = filesSection
+	m.initFilesState()
+	m.Update(press("D"))
+	if m.doctor {
+		t.Fatal("D on Files opened doctor")
 	}
 }
 

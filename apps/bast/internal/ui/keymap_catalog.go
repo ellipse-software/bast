@@ -12,6 +12,7 @@ func buildCatalog() []Binding {
 	return []Binding{
 		// Help overlay (content describes browse; these keys operate the overlay).
 		bind(ActionCreditsOpen, []string{"v"}, ScopeHelp, "About", "").noHelp(),
+		bind(ActionDoctorOpen, []string{"D"}, ScopeHelp, "Doctor", "").noHelp(),
 		bind(ActionQuit, []string{"q"}, ScopeHelp, "Quit", "").noHelp(),
 		bind(ActionHelpClose, []string{"?", "esc", "backspace", "ctrl+h"}, ScopeHelp, "Close", "close").chord("? / Esc / ⌫").withFooter(20).noHelp(),
 		bind(ActionHelpScrollUp, []string{"up", "k"}, ScopeHelp, "Scroll up", "").noHelp(),
@@ -24,14 +25,29 @@ func buildCatalog() []Binding {
 
 		// Credits.
 		bind(ActionHelpToggle, []string{"?"}, ScopeCredits, "Help", "").noHelp(),
+		bind(ActionDoctorOpen, []string{"D"}, ScopeCredits, "Doctor", "").noHelp(),
 		bind(ActionQuit, []string{"q"}, ScopeCredits, "Quit", "").noHelp(),
 		bind(ActionCreditsClose, []string{"v", "esc", "backspace", "ctrl+h"}, ScopeCredits, "Close", "close").chord("v / Esc / ⌫").withFooter(10).noHelp(),
+
+		// Doctor overlay.
+		bind(ActionHelpToggle, []string{"?"}, ScopeDoctor, "Help", "").noHelp(),
+		bind(ActionCreditsOpen, []string{"v"}, ScopeDoctor, "About", "").noHelp(),
+		bind(ActionQuit, []string{"q"}, ScopeDoctor, "Quit", "").noHelp(),
+		bind(ActionDoctorClose, []string{"D", "esc", "backspace", "ctrl+h"}, ScopeDoctor, "Close", "close").chord("D / Esc / ⌫").withFooter(20).noHelp(),
+		bind(ActionDoctorScrollUp, []string{"up", "k"}, ScopeDoctor, "Scroll up", "").noHelp(),
+		bind(ActionDoctorScrollDown, []string{"down", "j"}, ScopeDoctor, "Scroll down", "").noHelp(),
+		bind(ActionDoctorPageUp, []string{"pgup"}, ScopeDoctor, "Page up", "").noHelp(),
+		bind(ActionDoctorPageDown, []string{"pgdown"}, ScopeDoctor, "Page down", "").noHelp(),
+		bind(ActionDoctorTop, []string{"g", "home"}, ScopeDoctor, "Top", "").noHelp(),
+		bind(ActionDoctorBottom, []string{"G", "end"}, ScopeDoctor, "Bottom", "").noHelp(),
+		bind(ActionDoctorScrollDown, []string{"up", "down"}, ScopeDoctor, "Scroll", "scroll").chord("↑/↓").withFooter(10).when(func(m *App) bool { return m.doctorCanScroll() }).noHelp().skip(),
 
 		// Global browse.
 		bind(ActionQuit, []string{"ctrl+c"}, ScopeGlobal, "Quit", "").noHelp(),
 		bind(ActionQuit, []string{"q"}, ScopeGlobal, "Quit", ""),
 		bind(ActionQuit, []string{"esc", "backspace", "ctrl+h"}, ScopeGlobal, "Quit", "").noHelp(),
 		bind(ActionHelpToggle, []string{"?"}, ScopeGlobal, "Help", "").withFooter(1000),
+		bind(ActionDoctorOpen, []string{"D"}, ScopeGlobal, "Doctor", "").when(func(m *App) bool { return m.section != filesSection }),
 		bind(ActionTabHosts, []string{"1"}, ScopeGlobal, "Hosts", "").noHelp(),
 		bind(ActionTabKeys, []string{"2"}, ScopeGlobal, "Keys", "").noHelp(),
 		bind(ActionTabVault, []string{"3"}, ScopeGlobal, "Vault", "").noHelp(),
