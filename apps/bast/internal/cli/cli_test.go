@@ -174,7 +174,7 @@ func TestKeyCommandsImportEditExportAndDelete(t *testing.T) {
 }
 
 func TestInvocationAndCommandHelp(t *testing.T) {
-	if !IsInvocation([]string{"--json", "hosts", "list"}) || !IsInvocation([]string{"connect", "prod"}) || !IsInvocation([]string{"update"}) || IsInvocation([]string{"prod"}) {
+	if !IsInvocation([]string{"--json", "hosts", "list"}) || !IsInvocation([]string{"connect", "prod"}) || !IsInvocation([]string{"update"}) || !IsInvocation([]string{"doctor"}) || !IsInvocation([]string{"completion", "bash"}) || IsInvocation([]string{"prod"}) {
 		t.Fatal("command invocation detection is incorrect")
 	}
 	out, errOut, err := runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "hosts", "add", "--help")
@@ -237,6 +237,10 @@ func fakeOpenSSH(t *testing.T) openssh.Client {
 		return path
 	}
 	ssh := writeScript("ssh", `
+if [ "$1" = "-V" ]; then
+  echo OpenSSH_9.8p1 >&2
+  exit 0
+fi
 if [ "$1" = "-G" ]; then
   printf 'hostname resolved.example\nuser deploy\nport 22\nidentitiesonly no\npubkeyauthentication yes\npasswordauthentication yes\nproxyjump none\n'
   exit 0
@@ -249,6 +253,31 @@ if [ "$1" = "-y" ]; then printf 'ssh-ed25519 AAA-test derived\n'; exit 0; fi
 exit 0`)
 	sshAdd := writeScript("ssh-add", "exit 1")
 	return openssh.Client{SSH: ssh, SSHKeygen: keygen, SSHAdd: sshAdd}
+}
+
+func TestDoctorJSONReportsIncludeScoping(t *testing.T) {
+	home := t.TempDir()
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(filepath.Join(sshDir, "bast"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "bast", "config"), []byte("Host managed\n  HostName managed.example\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte("Host work\n  HostName work.example\n  Include ~/.ssh/bast/config\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out, errOut, err := runTestCLI(t, home, fakeOpenSSH(t), "--json", "doctor")
+	code, ok := ExitCode(err)
+	if !ok || code != 1 {
+		t.Fatalf("expected exit 1, err=%v stderr=%q", err, errOut)
+	}
+	if errOut != "" {
+		t.Fatalf("stderr=%q", errOut)
+	}
+	if !strings.Contains(out, `"ok":true`) || !strings.Contains(out, `"healthy":false`) || !strings.Contains(out, "ssh_config.include_not_toplevel") {
+		t.Fatalf("output=%q", out)
+	}
 }
 
 func TestVaultLoginRequiresAcceptTerms(t *testing.T) {

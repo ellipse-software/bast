@@ -32,7 +32,8 @@ Usage:
   bast                         Open the TUI
   bast <label>                 Connect directly using a host label
   bast tui                     Open the TUI explicitly
-  bast update                  Update installer-managed copies of Bast
+  bast update                  Update script-installed copies of Bast
+  bast doctor                  Diagnose SSH config, keys, and Bast setup
   bast connect <host>          Connect using an alias or display label
   bast hosts <command>         Manage SSH hosts
   bast keys <command>          Manage SSH keys
@@ -40,6 +41,7 @@ Usage:
   bast box <command>           Create and manage ASCII Box sandboxes
   bast upstash <command>       Create and manage Upstash Box sandboxes
   bast vault <command>         Sync Bast-managed config via encrypted vault
+  bast completion <shell>      Print a shell completion script
 
 Host commands:
   list, show, add, edit, delete, promote, favorite, unfavorite, hide, show-hidden,
@@ -65,8 +67,9 @@ Global options:
   --json                      Emit structured JSON
   --no-input                  Never prompt for missing input
 
-Run "bast hosts <command> --help", "bast keys <command> --help", "bast sync <command> --help",
-"bast box <command> --help", "bast upstash <command> --help", or "bast vault <command> --help" for details.
+Run "bast doctor --help", "bast hosts <command> --help", "bast keys <command> --help",
+"bast sync <command> --help", "bast box <command> --help", "bast upstash <command> --help",
+"bast vault <command> --help", or "bast completion --help" for details.
 `
 
 func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
@@ -90,6 +93,10 @@ type Runner struct {
 type reportedError struct{ code int }
 
 func (e reportedError) Error() string { return "CLI error already reported" }
+
+type silentExit struct{ code int }
+
+func (e silentExit) Error() string { return "silent exit" }
 func ExitCode(err error) (int, bool) {
 	var reported reportedError
 	ok := errors.As(err, &reported)
@@ -120,7 +127,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "connect", "hosts", "keys", "sync", "box", "upstash", "vault":
+	case "tui", "update", "doctor", "connect", "hosts", "keys", "sync", "box", "upstash", "vault", "completion", "__complete":
 		return true
 	}
 	return false
@@ -139,6 +146,12 @@ func IsInvocation(args []string) bool {
 }
 
 func (r *Runner) Run(args []string) error {
+	if cmd, rest, ok := takeCompletionCommand(args); ok {
+		if cmd == "__complete" {
+			return r.completeQuery(rest)
+		}
+		return r.report(r.completion(rest))
+	}
 	args = r.globalFlags(args)
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		PrintHelp(r.Out)
@@ -155,6 +168,8 @@ func (r *Runner) Run(args []string) error {
 	var err error
 	if args[0] == "update" {
 		err = r.update(args[1:])
+	} else if args[0] == "doctor" {
+		err = r.doctor(args[1:])
 	} else {
 		store, openErr := metadata.Open(r.Paths.StateFile)
 		err = openErr
@@ -183,8 +198,16 @@ func (r *Runner) Run(args []string) error {
 			}
 		}
 	}
+	return r.report(err)
+}
+
+func (r *Runner) report(err error) error {
 	if err == nil {
 		return nil
+	}
+	var silent silentExit
+	if errors.As(err, &silent) {
+		return reportedError{code: silent.code}
 	}
 	ce := &commandError{code: "operation_failed", message: err.Error(), exit: 1}
 	var typed *commandError
@@ -212,6 +235,7 @@ func (r *Runner) Run(args []string) error {
 func commandUsage(resource, command string) string {
 	usage := map[string]string{
 		"update --help": "Usage: bast update",
+		"doctor --help": "Usage: bast doctor [--fix] [--probe] [--category name]",
 		"hosts --help": `Usage: bast hosts <command>
 
 Commands: list, show, add, edit, delete, promote, favorite, unfavorite, hide,
@@ -242,46 +266,47 @@ option to restore a default or remove values.`,
 
 Commands: list, show, generate, import, promote, comment, export, install,
           passphrase, public, copy, delete`,
-		"keys list":        "Usage: bast keys list [--search text]",
-		"keys show":        "Usage: bast keys show <name>",
-		"keys generate":    "Usage: bast keys generate [name] [--algorithm ed25519|rsa] [--no-passphrase]",
-		"keys import":      "Usage: bast keys import [name] --private path|- [--public path|-] [--comment text]",
-		"keys promote":     "Usage: bast keys promote <key> [--name managed-name]",
-		"keys comment":     "Usage: bast keys comment <name> (--comment text|--clear-comment)",
-		"keys export":      "Usage: bast keys export <name> --directory path [--yes]",
-		"keys install":     "Usage: bast keys install <name> --host host",
-		"keys passphrase":  "Usage: bast keys passphrase <name>",
-		"keys public":      "Usage: bast keys public <name>",
-		"keys copy":        "Usage: bast keys copy <name>",
-		"keys delete":      "Usage: bast keys delete <name> [--yes]",
-		"connect --help":   "Usage: bast connect <host>",
-		"sync gcp":         "Usage: bast sync gcp",
-		"sync aws":         "Usage: bast sync aws",
-		"sync azure":       "Usage: bast sync azure",
-		"sync box":         "Usage: bast sync box",
-		"sync upstash":     "Usage: bast sync upstash",
-		"sync status":      "Usage: bast sync status",
-		"sync disable":     "Usage: bast sync disable <gcp|aws|azure|box|upstash>",
-		"sync --help":      "Usage: bast sync <gcp|aws|azure|box|upstash|status|disable>",
-		"box --help":       "Usage: bast box <new|fork|stop|resume>",
-		"box new":          "Usage: bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
-		"box fork":         "Usage: bast box fork <host|id> [--type small|default|large] [--no-env]",
-		"box stop":         "Usage: bast box stop <host|id>",
-		"box resume":       "Usage: bast box resume <host|id> [--type small|default|large] [--no-env]",
-		"upstash --help":   "Usage: bast upstash <new|fork|stop|resume|delete|key>",
-		"upstash new":      "Usage: bast upstash new [--name name] [--runtime node|python|golang|ruby|rust] [--size small|medium|large] [--keep-alive]",
-		"upstash fork":     "Usage: bast upstash fork <host|id>",
-		"upstash stop":     "Usage: bast upstash stop <host|id>",
-		"upstash resume":   "Usage: bast upstash resume <host|id>",
-		"upstash delete":   "Usage: bast upstash delete <host|id> [--yes]",
-		"upstash key":      "Usage: bast upstash key [--key-file path]",
-		"vault --help":     "Usage: bast vault <login|status|push|pull|logout|passphrase>",
-		"vault login":      "Usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]",
-		"vault status":     "Usage: bast vault status",
-		"vault push":       "Usage: bast vault push",
-		"vault pull":       "Usage: bast vault pull [--mode merge|replace_local|replace_remote]",
-		"vault logout":     "Usage: bast vault logout",
-		"vault passphrase": "Usage: bast vault passphrase [--force]",
+		"keys list":         "Usage: bast keys list [--search text]",
+		"keys show":         "Usage: bast keys show <name>",
+		"keys generate":     "Usage: bast keys generate [name] [--algorithm ed25519|rsa] [--no-passphrase]",
+		"keys import":       "Usage: bast keys import [name] --private path|- [--public path|-] [--comment text]",
+		"keys promote":      "Usage: bast keys promote <key> [--name managed-name]",
+		"keys comment":      "Usage: bast keys comment <name> (--comment text|--clear-comment)",
+		"keys export":       "Usage: bast keys export <name> --directory path [--yes]",
+		"keys install":      "Usage: bast keys install <name> --host host",
+		"keys passphrase":   "Usage: bast keys passphrase <name>",
+		"keys public":       "Usage: bast keys public <name>",
+		"keys copy":         "Usage: bast keys copy <name>",
+		"keys delete":       "Usage: bast keys delete <name> [--yes]",
+		"connect --help":    "Usage: bast connect <host>",
+		"sync gcp":          "Usage: bast sync gcp",
+		"sync aws":          "Usage: bast sync aws",
+		"sync azure":        "Usage: bast sync azure",
+		"sync box":          "Usage: bast sync box",
+		"sync upstash":      "Usage: bast sync upstash",
+		"sync status":       "Usage: bast sync status",
+		"sync disable":      "Usage: bast sync disable <gcp|aws|azure|box|upstash>",
+		"sync --help":       "Usage: bast sync <gcp|aws|azure|box|upstash|status|disable>",
+		"box --help":        "Usage: bast box <new|fork|stop|resume>",
+		"box new":           "Usage: bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
+		"box fork":          "Usage: bast box fork <host|id> [--type small|default|large] [--no-env]",
+		"box stop":          "Usage: bast box stop <host|id>",
+		"box resume":        "Usage: bast box resume <host|id> [--type small|default|large] [--no-env]",
+		"upstash --help":    "Usage: bast upstash <new|fork|stop|resume|delete|key>",
+		"upstash new":       "Usage: bast upstash new [--name name] [--runtime node|python|golang|ruby|rust] [--size small|medium|large] [--keep-alive]",
+		"upstash fork":      "Usage: bast upstash fork <host|id>",
+		"upstash stop":      "Usage: bast upstash stop <host|id>",
+		"upstash resume":    "Usage: bast upstash resume <host|id>",
+		"upstash delete":    "Usage: bast upstash delete <host|id> [--yes]",
+		"upstash key":       "Usage: bast upstash key [--key-file path]",
+		"vault --help":      "Usage: bast vault <login|status|push|pull|logout|passphrase>",
+		"vault login":       "Usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]",
+		"vault status":      "Usage: bast vault status",
+		"vault push":        "Usage: bast vault push",
+		"vault pull":        "Usage: bast vault pull [--mode merge|replace_local|replace_remote]",
+		"vault logout":      "Usage: bast vault logout",
+		"vault passphrase":  "Usage: bast vault passphrase [--force]",
+		"completion --help": strings.TrimSuffix(completionUsage, "\n"),
 	}
 	if value := usage[resource+" "+command]; value != "" {
 		return value

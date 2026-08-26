@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/cloud/sync"
+	"bast/internal/doctor"
 	"bast/internal/history"
 	"bast/internal/keys"
 	"bast/internal/metadata"
@@ -185,6 +186,10 @@ type App struct {
 	onboardingTracked   bool
 	onboardingReplay    bool
 	onboardingPending   bool
+	doctor              bool
+	doctorOffset        int
+	doctorLoading       bool
+	doctorReport        doctor.Report
 	showHidden          bool
 	loading             bool
 	enriching           bool
@@ -433,6 +438,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.help {
 			m.clampHelpOffset()
 		}
+		if m.doctor {
+			m.clampDoctorOffset()
+		}
 		return m, nil
 	case tea.BackgroundColorMsg:
 		m.dark = msg.IsDark()
@@ -466,6 +474,14 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.autoSyncCmds(), m.setNotice(fmt.Sprintf("%d host details could not be resolved", msg.enrichmentErrors)))
 		}
 		return m, m.autoSyncCmds()
+	case doctorDoneMsg:
+		if !m.doctor {
+			return m, nil
+		}
+		m.doctorLoading = false
+		m.doctorReport = msg.report
+		m.clampDoctorOffset()
+		return m, nil
 	case discoveredMsg:
 		if msg.err != nil {
 			m.loading = false

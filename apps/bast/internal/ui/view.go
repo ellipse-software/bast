@@ -25,11 +25,8 @@ const (
 	connectActionRow     = 2
 	mobileScrollbarWidth = 3
 
-	keyInstallAction    = "[u] Add to server"
 	keyInstallActionRow = 4
 )
-
-var headerTabLabels = [...]string{"[1] Hosts", "[2] Keys", "[3] Vault", "[4] Sync", "[5] Files"}
 
 var headerTabSections = [...]section{hostsSection, keysSection, vaultSection, syncSection, filesSection}
 
@@ -75,6 +72,8 @@ func (m *App) render() string {
 		body = m.renderOnboarding(styles)
 	} else if m.credits {
 		body = m.renderCredits(styles)
+	} else if m.doctor {
+		body = m.renderDoctor(styles)
 	} else if m.help {
 		body = m.renderHelp(styles)
 	} else if m.form != nil {
@@ -114,6 +113,8 @@ func (m *App) renderError(s styleSet) string {
 	explanation := "The action did not complete."
 	if m.form != nil {
 		explanation += " Your entries are still available when you return."
+	} else {
+		explanation += " Run bast doctor for a full diagnosis."
 	}
 	footer := "Enter/Esc return"
 	if telemetry.Enabled() {
@@ -234,9 +235,10 @@ func (m *App) frameStyles(width, bodyHeight int) (body, frame lipgloss.Style) {
 }
 
 func (m *App) renderTabs(s styleSet) string {
-	parts := make([]string, 0, len(headerTabLabels))
-	for i, label := range headerTabLabels {
-		if m.section == headerTabSections[i] {
+	parts := make([]string, 0, len(headerTabSections))
+	for _, sec := range headerTabSections {
+		label := m.tabChip(sec)
+		if m.section == sec {
 			parts = append(parts, s.active.Render(label))
 		} else {
 			parts = append(parts, s.inactive.Render(label))
@@ -248,10 +250,12 @@ func (m *App) renderTabs(s styleSet) string {
 func tabAtX(x int) (section, bool) {
 	cursor := lipgloss.Width(headerTitle) + 2
 	gap := lipgloss.Width(headerTabSpacing)
-	for i, label := range headerTabLabels {
+	dummy := &App{}
+	for _, sec := range headerTabSections {
+		label := dummy.tabChip(sec)
 		width := lipgloss.Width(label)
 		if x >= cursor && x < cursor+width {
-			return headerTabSections[i], true
+			return sec, true
 		}
 		cursor += width + gap
 	}
@@ -270,10 +274,15 @@ func (m *App) renderHosts(s styleSet) string {
 		if m.hasHiddenHosts() && !m.showHidden {
 			return "\n  " + s.muted.Render("No visible hosts. Press . to show hidden and stopped hosts.")
 		}
+		add, ok := firstBinding(ActionAddHost)
+		var extras []string
+		if ok {
+			extras = append(extras, s.title.Render(" "+formatChip(add)+" "))
+		}
 		return m.renderSeal(s, "◇  No hosts yet", []string{
 			"Your SSH map is empty.",
 			opensshConfigTrust,
-		}, nil)
+		}, extras)
 	}
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
 	layout := m.panelLayout()
@@ -721,7 +730,7 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	}
 	if !host.Managed && !host.Synced {
 		b.WriteString("\n")
-		b.WriteString("  " + s.active.Render("[p] Promote to Bast managed") + "\n")
+		b.WriteString("  " + s.active.Render(m.keyPromoteChip()) + "\n")
 	}
 
 	var about strings.Builder
@@ -754,7 +763,14 @@ func (m *App) renderKeys(s styleSet) string {
 		if m.loading || m.enriching {
 			return "\n  " + s.muted.Render("Loading OpenSSH keys and agent…")
 		}
-		return m.renderSeal(s, "◇  No keys yet", []string{opensshAgentTrust}, nil)
+		var extras []string
+		if gen, ok := firstBinding(ActionGenerateKey); ok {
+			extras = append(extras, s.title.Render(" "+formatChip(gen)+" "))
+		}
+		if imp, ok := firstBinding(ActionImportKey); ok {
+			extras = append(extras, s.title.Render(" "+formatChip(imp)+" "))
+		}
+		return m.renderSeal(s, "◇  No keys yet", []string{opensshAgentTrust}, extras)
 	}
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
 	layout := m.panelLayout()
@@ -834,10 +850,10 @@ func (m *App) renderKeyDetail(s styleSet, key keys.Key, width int) string {
 	}
 	b.WriteString("\n")
 	if !key.Managed && key.PrivatePath != "" {
-		b.WriteString("  " + s.active.Render("[p] Promote to Bast managed") + "\n\n")
+		b.WriteString("  " + s.active.Render(m.keyPromoteChip()) + "\n\n")
 	}
 	if key.PublicPath != "" || key.PrivatePath != "" {
-		b.WriteString("  " + s.active.Render(keyInstallAction) + "\n\n")
+		b.WriteString("  " + s.active.Render(m.keyInstallChip()) + "\n\n")
 	}
 	if key.PrivatePath != "" {
 		b.WriteString(compactRow(s, "Private", shortPath(key.PrivatePath, m.paths.Home), width))
@@ -1022,184 +1038,43 @@ func contrastingTextColor(background string) (string, bool) {
 	return "#FFFFFF", true
 }
 
-type helpBinding struct {
-	keys string
-	desc string
-}
-
-type helpSection struct {
-	title    string
-	bindings []helpBinding
-}
-
-func helpSections() []helpSection {
-	return []helpSection{
-		{
-			title: "Navigation",
-			bindings: []helpBinding{
-				{"↑ ↓  j k", "Move selection"},
-				{"g  Home", "Jump to top"},
-				{"G  End", "Jump to bottom"},
-				{"/", "Search"},
-				{"r", "Reload"},
-				{"1", "Hosts"},
-				{"2", "Keys"},
-				{"3", "Vault"},
-				{"4", "Sync"},
-				{"5", "Files"},
-				{"?", "Help"},
-				{"v", "About"},
-				{"q", "Quit"},
-			},
-		},
-		{
-			title: "Hosts",
-			bindings: []helpBinding{
-				{"󰌑", "Connect or add suggestion"},
-				{"a", "Add host"},
-				{"e", "Edit or review suggestion"},
-				{"m", "Move host to group"},
-				{"x", "Dismiss history suggestion"},
-				{"d", "Delete host"},
-				{"p", "Promote external host"},
-				{"␣", "Collapse or expand group"},
-				{"[", "Collapse all groups"},
-				{"]", "Expand all groups"},
-				{"s", "Cycle sort"},
-				{"f", "Toggle favorite"},
-				{"F", "Open Files for host"},
-				{"h", "Hide or show selected"},
-				{".", "Toggle hidden and stopped hosts"},
-				{"n", "Fork sandbox, or new VM on a provider group"},
-				{"o", "Stop or pause sandbox"},
-				{"s", "Sync provider group, or cycle sort"},
-				{"K", "Remove known-host entry"},
-			},
-		},
-		{
-			title: "Keys",
-			bindings: []helpBinding{
-				{"a", "Generate key"},
-				{"i", "Import key"},
-				{"e", "Edit comment"},
-				{"d", "Delete key"},
-				{"u", "Add to server"},
-				{"x", "Export key"},
-				{"p", "Promote external / change passphrase"},
-				{"c", "Copy public key"},
-			},
-		},
-		{
-			title: "Vault",
-			bindings: []helpBinding{
-				{"󰌑", "Link, unlock, or sync"},
-				{"j k", "Secondary actions"},
-				{"r", "Sync now when unlocked"},
-			},
-		},
-		{
-			title: "Sync",
-			bindings: []helpBinding{
-				{"h j k l", "Grid move, or cycle actions"},
-				{"󰌑", "Open provider, run action, or connect"},
-				{"␣", "Collapse or expand status group"},
-				{"s", "Sync"},
-				{"n", "New box, or fork selected sandbox"},
-				{"o", "Stop or pause selected sandbox"},
-				{"d", "Delete selected Upstash box"},
-				{"Esc", "Back"},
-				{"r", "Resume selected sandbox, or refresh status"},
-			},
-		},
-		{
-			title: "Files",
-			bindings: []helpBinding{
-				{"Tab", "Switch pane"},
-				{"w", "Swap panes"},
-				{"L  R", "Pane local / remote"},
-				{"h  l", "Parent / enter"},
-				{"󰌑", "Enter dir or connect host"},
-				{"j k  g G", "Move / top / bottom"},
-				{"f", "Fuzzy jump"},
-				{"/", "Path jump or host search"},
-				{"␣", "Toggle mark"},
-				{"v", "Range mark"},
-				{"c  m", "Copy / move to other pane"},
-				{"d", "Delete"},
-				{"a", "New directory"},
-				{"r", "Rename"},
-				{"i", "File info"},
-				{"p", "Permissions (chmod)"},
-				{"t", "Shell in directory"},
-				{".", "Toggle hidden files"},
-				{"D", "Disconnect remote"},
-				{"Esc", "Clear marks / disconnect / Hosts"},
-				{"Esc  x", "Cancel transfer or connect"},
-			},
-		},
-		{
-			title: "During SSH",
-			bindings: []helpBinding{
-				{"exit", "Return to Bast"},
-				{"󰌑 then ~.", "Force-close a stuck session"},
-			},
-		},
-	}
-}
-
-func (m *App) contextualHelpSections() []helpSection {
-	all := helpSections()
-	nav := all[0]
-	byTitle := map[string]helpSection{}
-	for _, section := range all[1:] {
-		byTitle[section.title] = section
-	}
-	current := "Hosts"
-	switch m.section {
-	case keysSection:
-		current = "Keys"
-	case vaultSection:
-		current = "Vault"
-	case syncSection:
-		current = "Sync"
-	case filesSection:
-		current = "Files"
-	}
-	out := []helpSection{nav, byTitle[current]}
-	if current == "Hosts" {
-		out = append(out, byTitle["During SSH"])
-	}
-	out = append(out, helpSection{
-		title: "Docs",
-		bindings: []helpBinding{
-			{"bast.sh/docs", "Full shortcut reference"},
-		},
-	})
-	return out
-}
-
 func (m *App) helpContentWidth() int {
 	return max(36, m.terminalWidth()-6)
 }
 
 func (m *App) helpLines(s styleSet) []string {
-	const keyCol = 18
+	groups := m.helpGroups()
+	keyCol := 8
+	for _, group := range groups {
+		for _, row := range group.rows {
+			keyCol = max(keyCol, min(12, lipgloss.Width(row.chord)))
+		}
+	}
 	width := m.helpContentWidth()
 	lines := []string{
 		"",
-		s.active.Render("Keyboard shortcuts"),
+		s.active.Render(m.tabTitle()),
 		"",
 	}
-	for i, section := range m.contextualHelpSections() {
+	for i, group := range groups {
+		if len(group.rows) == 0 {
+			continue
+		}
 		if i > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, s.active.Render(section.title), "")
-		for _, binding := range section.bindings {
-			keys := s.value.Render(binding.keys)
-			gap := max(1, keyCol-lipgloss.Width(binding.keys))
+		if group.title != "" {
+			lines = append(lines, s.muted.Render(group.title), "")
+		}
+		for _, row := range group.rows {
+			keyStyle, descStyle := s.value, s.muted
+			if !row.enabled {
+				keyStyle, descStyle = s.muted, s.muted
+			}
+			keys := keyStyle.Render(row.chord)
+			gap := max(1, keyCol-lipgloss.Width(row.chord))
 			descWidth := max(8, width-keyCol-2)
-			desc := s.muted.Render(truncate(binding.desc, descWidth))
+			desc := descStyle.Render(truncate(row.name, descWidth))
 			lines = append(lines, keys+strings.Repeat(" ", gap)+desc)
 		}
 	}
@@ -1298,13 +1173,23 @@ func (m *App) renderFooter(s styleSet) string {
 		return strings.Repeat(" ", max(1, m.terminalWidth()))
 	}
 	if m.credits {
-		hint := "s sponsor · o intro · v / Esc / ⌫ close"
+		hint := strings.Join(m.overlayFooterParts(ScopeCredits), " · ")
+		if hint == "" {
+			hint = "v / Esc / ⌫ close"
+		}
+		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
+	}
+	if m.doctor {
+		hint := strings.Join(m.overlayFooterParts(ScopeDoctor), " · ")
+		if hint == "" {
+			hint = "D / Esc / ⌫ close"
+		}
 		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
 	}
 	if m.help {
-		hint := "? / Esc / ⌫ close"
-		if m.helpCanScroll() {
-			hint = "↑/↓ scroll · " + hint
+		hint := strings.Join(m.overlayFooterParts(ScopeHelp), " · ")
+		if hint == "" {
+			hint = "? / Esc / ⌫ close"
 		}
 		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
 	}
@@ -1355,7 +1240,7 @@ func (m *App) renderFooter(s styleSet) string {
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.onboarding || m.credits || m.help || m.form != nil || m.loading || m.vaultBusyBlocksBody() || m.section == vaultSection || m.section == syncSection || m.section == filesSection || !m.hasListItems() {
+	if m.statusError || m.onboarding || m.credits || m.doctor || m.help || m.form != nil || m.loading || m.vaultBusyBlocksBody() || m.section == vaultSection || m.section == syncSection || m.section == filesSection || !m.hasListItems() {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	if m.isMobileLayout() {

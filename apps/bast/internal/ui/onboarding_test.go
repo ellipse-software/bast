@@ -236,18 +236,25 @@ func TestOnboardingJumpsAndAdd(t *testing.T) {
 func TestOnboardingHeaderTabClickJumps(t *testing.T) {
 	m := testApp(t)
 	m.onboarding = true
-	x := lipgloss.Width(headerTitle) + 2
-	for i, label := range headerTabLabels {
-		if headerTabSections[i] == vaultSection {
-			m.Update(tea.MouseClickMsg(tea.Mouse{X: x, Y: 0, Button: tea.MouseLeft}))
-			if m.onboarding || m.section != vaultSection {
-				t.Fatalf("click %q should open vault: onboarding=%v section=%v", label, m.onboarding, m.section)
-			}
-			return
+	x, ok := 0, false
+	dummy := &App{}
+	cursor := lipgloss.Width(headerTitle) + 2
+	gap := lipgloss.Width(headerTabSpacing)
+	for _, sec := range headerTabSections {
+		width := lipgloss.Width(dummy.tabChip(sec))
+		if sec == vaultSection {
+			x, ok = cursor, true
+			break
 		}
-		x += lipgloss.Width(label) + lipgloss.Width(headerTabSpacing)
+		cursor += width + gap
 	}
-	t.Fatal("vault tab not found")
+	if !ok {
+		t.Fatal("vault tab not found")
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x, Y: 0, Button: tea.MouseLeft}))
+	if m.onboarding || m.section != vaultSection {
+		t.Fatalf("click vault should open vault: onboarding=%v section=%v", m.onboarding, m.section)
+	}
 }
 
 func TestAboutCanReplayOnboarding(t *testing.T) {

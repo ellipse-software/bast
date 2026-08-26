@@ -114,6 +114,7 @@ func onboardingActionLine(s styleSet, key, desc string, width int) string {
 }
 
 func (m *App) replayOnboarding() {
+	m.closeDoctor()
 	m.credits = false
 	m.help = false
 	m.onboardingPending = false

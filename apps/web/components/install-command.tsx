@@ -55,6 +55,21 @@ function CommandDisplay({
           </span>
         </code>
       );
+    case "apt":
+    case "dnf":
+    case "pacman":
+    case "apk":
+      return (
+        <code className="whitespace-nowrap">
+          <span className="text-accent">curl</span>
+          <span className="text-muted"> -fsSL </span>
+          <span className="text-accent">https://packages.bast.sh/setup.sh</span>
+          <span className="text-muted"> | </span>
+          <span className="text-accent">sudo</span>
+          <span className="text-muted"> sh -s -- </span>
+          <span className="text-accent">{method}</span>
+        </code>
+      );
     case "powershell":
       return (
         <code className="whitespace-nowrap">

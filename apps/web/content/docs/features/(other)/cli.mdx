@@ -5,6 +5,17 @@ description: Manage hosts and keys from the shell, with JSON output for scripts 
 
 Everything in the TUI is also available from the shell. That matters for scripts, automation, and tools that need stable output.
 
+## Doctor
+
+```bash
+bast doctor
+bast doctor --json
+bast doctor --fix
+bast doctor --probe
+```
+
+Diagnoses SSH config, keys, permissions, and Bast setup. Failures exit 1; warnings do not. See [Doctor](/docs/features/doctor).
+
 ## Host commands
 
 ```bash
@@ -87,6 +98,7 @@ Pass `--json` anywhere in the command for machine-readable output. It disables p
 bast hosts list --json
 bast --json hosts show production_web
 bast keys generate automation --no-passphrase --json
+bast doctor --json
 ```
 
 Success looks like `{"ok":true,"data":...}`. Errors go to stderr with a non-zero exit code. Commands that need an interactive SSH session or passphrase entry reject `--json` with `interactive_required`.
@@ -94,3 +106,7 @@ Success looks like `{"ok":true,"data":...}`. Errors go to stderr with a non-zero
 ## Prompts and confirmations
 
 Commands prompt for missing input and sensitive confirmations when attached to a terminal. Pass `--yes` to explicitly approve deletion, known-host removal, or private-key export in unattended use. Pass `--no-input` to never prompt (fields must be provided via flags).
+
+## Shell completions
+
+The script installers and Homebrew enable tab completion. Open a new terminal, type `bast`, and press Tab. See [Shell completions](/docs/reference/completions).
