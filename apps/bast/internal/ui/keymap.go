@@ -79,6 +79,8 @@ const (
 	ActionFilesRemote
 	ActionFilesParent
 	ActionFilesEnter
+	ActionFilesOpenDir
+	ActionFilesPreview
 	ActionFilesJump
 	ActionFilesPath
 	ActionFilesMark

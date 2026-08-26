@@ -824,6 +824,8 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleFilesTransferProgress(msg)
 	case filesOpDoneMsg:
 		return m, m.handleFilesOpDone(msg)
+	case filesPreviewMsg:
+		return m, m.handleFilesPreviewMsg(msg)
 	case clearStatusMsg:
 		if uint64(msg) == m.statusID && !m.statusError {
 			m.status = ""

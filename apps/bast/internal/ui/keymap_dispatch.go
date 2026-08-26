@@ -206,6 +206,12 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 	case ActionFilesEnter:
 		m.initFilesState()
 		return m.activateFilesSelection()
+	case ActionFilesOpenDir:
+		m.initFilesState()
+		return m.enterFilesDirectory()
+	case ActionFilesPreview:
+		m.initFilesState()
+		return m.openFilesPreview()
 	case ActionFilesJump:
 		m.initFilesState()
 		return m.beginFilesJump()
@@ -587,7 +593,7 @@ func (m *App) filesOverlay() bool {
 		return false
 	}
 	m.initFilesState()
-	if m.files.chmod.active || m.files.info || m.files.transfer.active || m.files.jump.active {
+	if m.files.chmod.active || m.files.info || m.files.preview.active || m.files.transfer.active || m.files.jump.active {
 		return true
 	}
 	pane := m.filesFocusedPane()

@@ -74,6 +74,20 @@ func TestHelpUpScrollsUpNotDown(t *testing.T) {
 	}
 }
 
+func TestFilesPreviewAndOpenDirBindings(t *testing.T) {
+	m := testApp(t)
+	m.section = filesSection
+	if b, ok := m.matchBinding("o"); !ok || b.ID != ActionFilesPreview {
+		t.Fatalf("files o = %+v ok=%v", b, ok)
+	}
+	if b, ok := m.matchBinding("l"); !ok || b.ID != ActionFilesOpenDir {
+		t.Fatalf("files l = %+v ok=%v", b, ok)
+	}
+	if b, ok := m.matchBinding("enter"); !ok || b.ID != ActionFilesEnter {
+		t.Fatalf("files enter = %+v ok=%v", b, ok)
+	}
+}
+
 func TestDoctorKeyDoesNotStealFilesDisconnect(t *testing.T) {
 	m := testApp(t)
 	if b, ok := m.matchBinding("D"); !ok || b.ID != ActionDoctorOpen {
