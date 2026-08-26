@@ -464,9 +464,9 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		if !ok {
 			return m.formError("host no longer exists")
 		}
-		err := m.config.Delete(host.ManagedID)
+		err := hostpass.Delete(m.paths.PasswordsDir, host.ManagedID)
 		if err == nil {
-			err = hostpass.Delete(m.paths.PasswordsDir, host.ManagedID)
+			err = m.config.Delete(host.ManagedID)
 		}
 		if err == nil {
 			err = m.metadata.DeleteHost(alias)

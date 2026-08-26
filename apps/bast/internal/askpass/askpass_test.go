@@ -12,8 +12,8 @@ import (
 
 func TestApplyReplacesAskPassEnv(t *testing.T) {
 	cmd := exec.Command("true")
-	cmd.Env = []string{"FOO=bar", "SSH_ASKPASS=old", KindEnv + "=stale", IDEnv + "=old-id"}
-	Apply(cmd, "/usr/bin/bast", KindHost, "abc123")
+	cmd.Env = []string{"FOO=bar", "SSH_ASKPASS=old", KindEnv + "=stale", IDEnv + "=old-id", HostEnv + "=old-host"}
+	ApplyHost(cmd, "/usr/bin/bast", "abc123", "legacy.example", "legacy")
 	joined := strings.Join(cmd.Env, "\n")
 	if !strings.Contains(joined, Env+"="+Value) {
 		t.Fatalf("env = %s", joined)
@@ -23,6 +23,12 @@ func TestApplyReplacesAskPassEnv(t *testing.T) {
 	}
 	if !strings.Contains(joined, IDEnv+"=abc123") || strings.Contains(joined, IDEnv+"=old-id") {
 		t.Fatalf("id env = %s", joined)
+	}
+	if !strings.Contains(joined, HostEnv+"=legacy.example") || strings.Contains(joined, HostEnv+"=old-host") {
+		t.Fatalf("host env = %s", joined)
+	}
+	if !strings.Contains(joined, AliasEnv+"=legacy") {
+		t.Fatalf("alias env = %s", joined)
 	}
 	if !strings.Contains(joined, "SSH_ASKPASS=/usr/bin/bast") || strings.Contains(joined, "SSH_ASKPASS=old") {
 		t.Fatalf("askpass env = %s", joined)
@@ -49,10 +55,16 @@ func TestPrepareUsesHostPassword(t *testing.T) {
 	}
 	cmd := exec.Command("true")
 	cmd.Env = []string{}
-	Prepare(cmd, "/usr/bin/bast", sshconfig.Host{Managed: true, ManagedID: "abc123"}, dir)
+	Prepare(cmd, "/usr/bin/bast", sshconfig.Host{
+		Managed: true, ManagedID: "abc123", Alias: "legacy",
+		Resolved: sshconfig.Resolved{HostName: "legacy.example"},
+	}, dir)
 	joined := strings.Join(cmd.Env, "\n")
 	if !strings.Contains(joined, KindEnv+"="+KindHost) || !strings.Contains(joined, IDEnv+"=abc123") {
 		t.Fatalf("env = %s", joined)
+	}
+	if !strings.Contains(joined, HostEnv+"=legacy.example") || !strings.Contains(joined, AliasEnv+"=legacy") {
+		t.Fatalf("destination env = %s", joined)
 	}
 }
 
@@ -70,7 +82,7 @@ func TestPreparePrefersUpstash(t *testing.T) {
 	if !strings.Contains(joined, KindEnv+"="+KindUpstash) {
 		t.Fatalf("env = %s", joined)
 	}
-	if strings.Contains(joined, IDEnv+"=") {
+	if strings.Contains(joined, IDEnv+"=") || strings.Contains(joined, HostEnv+"=") {
 		t.Fatalf("upstash askpass should not set a host id: %s", joined)
 	}
 }

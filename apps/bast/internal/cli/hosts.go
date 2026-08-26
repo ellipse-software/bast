@@ -605,10 +605,10 @@ func (r *Runner) hostDelete(args []string) error {
 	if err := r.confirm(host.Label, *yes); err != nil {
 		return err
 	}
-	if err := r.config.Delete(host.raw.ManagedID); err != nil {
+	if err := hostpass.Delete(r.Paths.PasswordsDir, host.raw.ManagedID); err != nil {
 		return err
 	}
-	if err := hostpass.Delete(r.Paths.PasswordsDir, host.raw.ManagedID); err != nil {
+	if err := r.config.Delete(host.raw.ManagedID); err != nil {
 		return err
 	}
 	if err := r.store.DeleteHost(host.Alias); err != nil {

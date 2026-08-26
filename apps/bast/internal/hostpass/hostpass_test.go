@@ -108,16 +108,55 @@ func TestPrint(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if err := Print(&buf, dir, "abc123", "user@host's password:"); err != nil {
+	if err := Print(&buf, dir, "abc123", "user@host's password:", "host"); err != nil {
 		t.Fatal(err)
 	}
 	if got := buf.String(); got != "s3cret\n" {
 		t.Fatalf("Print = %q", got)
 	}
-	if err := Print(&buf, dir, "abc123", "Verification code:"); err == nil {
+	if err := Print(&buf, dir, "abc123", "Verification code:", "host"); err == nil {
 		t.Fatal("expected OTP prompt to fail")
 	}
 	if strings.Contains(buf.String(), "Verification") {
 		t.Fatal("OTP refusal should not write extra output")
+	}
+	if err := Print(&buf, dir, "abc123", "jump@bastion.example's password:", "host"); err == nil {
+		t.Fatal("expected jump-host prompt to fail")
+	}
+}
+
+func TestSaveDoesNotClobberDotTmpID(t *testing.T) {
+	dir := t.TempDir()
+	if err := Save(dir, "abc.tmp", "keep-me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(dir, "abc", "other"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(dir, "abc.tmp")
+	if err != nil || got != "keep-me" {
+		t.Fatalf("abc.tmp = %q %v", got, err)
+	}
+	got, err = Read(dir, "abc")
+	if err != nil || got != "other" {
+		t.Fatalf("abc = %q %v", got, err)
+	}
+}
+
+func TestMatchesDestination(t *testing.T) {
+	if !MatchesDestination("Password:", "legacy.example") {
+		t.Fatal("generic password prompt should be allowed")
+	}
+	if !MatchesDestination("deploy@legacy.example's password:", "legacy.example", "legacy") {
+		t.Fatal("destination host prompt should match")
+	}
+	if !MatchesDestination("deploy@legacy's password:", "legacy.example", "legacy") {
+		t.Fatal("destination alias prompt should match")
+	}
+	if MatchesDestination("jump@bastion.example's password:", "legacy.example", "legacy") {
+		t.Fatal("jump host prompt should not match")
+	}
+	if MatchesDestination("deploy@legacy.example's password:") {
+		t.Fatal("named prompt with no expected host should not match")
 	}
 }

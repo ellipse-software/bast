@@ -80,7 +80,7 @@ func run(args []string) error {
 		}
 		switch askpass.Kind() {
 		case askpass.KindHost:
-			return hostpass.Print(os.Stdout, p.PasswordsDir, askpass.HostID(), prompt)
+			return hostpass.Print(os.Stdout, p.PasswordsDir, askpass.HostID(), prompt, askpass.ExpectedHost(), askpass.ExpectedAlias())
 		default:
 			return upstashcloud.PrintAPIKey(os.Stdout, p.UpstashAPIKey)
 		}

@@ -15,6 +15,8 @@ const (
 	Value       = "1"
 	KindEnv     = "BAST_SSH_ASKPASS_KIND"
 	IDEnv       = "BAST_SSH_ASKPASS_ID"
+	HostEnv     = "BAST_SSH_ASKPASS_HOST"
+	AliasEnv    = "BAST_SSH_ASKPASS_ALIAS"
 	KindUpstash = "upstash"
 	KindHost    = "host"
 )
@@ -35,7 +37,27 @@ func HostID() string {
 	return strings.TrimSpace(os.Getenv(IDEnv))
 }
 
+func ExpectedHost() string {
+	return strings.TrimSpace(os.Getenv(HostEnv))
+}
+
+func ExpectedAlias() string {
+	return strings.TrimSpace(os.Getenv(AliasEnv))
+}
+
 func Apply(cmd *exec.Cmd, bastExecutable, kind, id string) {
+	apply(cmd, bastExecutable, kind, id, "", "")
+}
+
+func ApplyUpstash(cmd *exec.Cmd, bastExecutable string) {
+	apply(cmd, bastExecutable, KindUpstash, "", "", "")
+}
+
+func ApplyHost(cmd *exec.Cmd, bastExecutable, managedID, hostname, alias string) {
+	apply(cmd, bastExecutable, KindHost, managedID, hostname, alias)
+}
+
+func apply(cmd *exec.Cmd, bastExecutable, kind, id, hostname, alias string) {
 	if cmd == nil {
 		return
 	}
@@ -56,11 +78,11 @@ func Apply(cmd *exec.Cmd, bastExecutable, kind, id string) {
 	if env == nil {
 		env = os.Environ()
 	}
-	filtered := make([]string, 0, len(env)+5)
+	filtered := make([]string, 0, len(env)+7)
 	for _, item := range env {
 		name, _, _ := strings.Cut(item, "=")
 		switch name {
-		case Env, KindEnv, IDEnv, "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE":
+		case Env, KindEnv, IDEnv, HostEnv, AliasEnv, "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE":
 			continue
 		}
 		filtered = append(filtered, item)
@@ -78,15 +100,13 @@ func Apply(cmd *exec.Cmd, bastExecutable, kind, id string) {
 	if id = strings.TrimSpace(id); id != "" {
 		filtered = append(filtered, IDEnv+"="+id)
 	}
+	if hostname = strings.TrimSpace(hostname); hostname != "" {
+		filtered = append(filtered, HostEnv+"="+hostname)
+	}
+	if alias = strings.TrimSpace(alias); alias != "" {
+		filtered = append(filtered, AliasEnv+"="+alias)
+	}
 	cmd.Env = filtered
-}
-
-func ApplyUpstash(cmd *exec.Cmd, bastExecutable string) {
-	Apply(cmd, bastExecutable, KindUpstash, "")
-}
-
-func ApplyHost(cmd *exec.Cmd, bastExecutable, managedID string) {
-	Apply(cmd, bastExecutable, KindHost, managedID)
 }
 
 func Needed(host sshconfig.Host, passwordsDir string) bool {
@@ -105,6 +125,6 @@ func Prepare(cmd *exec.Cmd, bastExecutable string, host sshconfig.Host, password
 		return
 	}
 	if host.Managed && host.ManagedID != "" && hostpass.Exists(passwordsDir, host.ManagedID) {
-		ApplyHost(cmd, bastExecutable, host.ManagedID)
+		ApplyHost(cmd, bastExecutable, host.ManagedID, host.Resolved.HostName, host.Alias)
 	}
 }

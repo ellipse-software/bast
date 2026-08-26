@@ -160,7 +160,7 @@ func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
 	prepare := m.filesPrepareFn(host)
 	passwordsDir := m.paths.PasswordsDir
 	exe := m.bastExecutable()
-	needAskPass := askpass.Needed(host, passwordsDir)
+	needInteractive := askpass.Needed(host, passwordsDir) || passwordOnly(host.Resolved)
 	return func() tea.Msg {
 		defer cancel()
 		if prepare != nil {
@@ -173,7 +173,7 @@ func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
 		}
 		var session *files.Session
 		var err error
-		if needAskPass {
+		if needInteractive {
 			session, err = files.OpenSessionPrepared(ctx, openSSH, alias, func(cmd *exec.Cmd) error {
 				askpass.Prepare(cmd, exe, host, passwordsDir)
 				return nil

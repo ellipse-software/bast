@@ -88,12 +88,24 @@ func Save(dir, managedID, password string) error {
 	if err := platform.SecurePath(dir, 0700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(password+"\n"), 0600); err != nil {
+	tmp, err := os.CreateTemp(dir, ".bast-*")
+	if err != nil {
 		return fmt.Errorf("write host password: %w", err)
 	}
-	if err := platform.ReplaceFile(tmp, path); err != nil {
-		_ = os.Remove(tmp)
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write([]byte(password + "\n")); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write host password: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := platform.ReplaceFile(tmpName, path); err != nil {
 		return err
 	}
 	return platform.SecurePath(path, 0600)
@@ -128,9 +140,50 @@ func LooksLikePassword(prompt string) bool {
 	return strings.Contains(p, "password")
 }
 
-func Print(out io.Writer, dir, managedID, prompt string) error {
+func PromptHost(prompt string) (string, bool) {
+	p := strings.TrimSpace(prompt)
+	lower := strings.ToLower(p)
+	if i := strings.Index(lower, "'s password"); i >= 0 {
+		prefix := strings.TrimSpace(p[:i])
+		if _, host, ok := strings.Cut(prefix, "@"); ok {
+			host = strings.TrimSpace(host)
+			return host, host != ""
+		}
+		return "", false
+	}
+	at := strings.LastIndex(p, "@")
+	if at < 0 {
+		return "", false
+	}
+	rest := strings.TrimSpace(p[at+1:])
+	rest = strings.Trim(rest, ".:")
+	host, _, _ := strings.Cut(rest, " ")
+	host = strings.Trim(host, `"'`)
+	if host == "" || strings.ContainsAny(host, `/\`) {
+		return "", false
+	}
+	return host, true
+}
+
+func MatchesDestination(prompt string, expected ...string) bool {
+	host, ok := PromptHost(prompt)
+	if !ok {
+		return true
+	}
+	for _, candidate := range expected {
+		if strings.TrimSpace(candidate) != "" && strings.EqualFold(host, strings.TrimSpace(candidate)) {
+			return true
+		}
+	}
+	return false
+}
+
+func Print(out io.Writer, dir, managedID, prompt string, expectedHosts ...string) error {
 	if !LooksLikePassword(prompt) {
 		return errors.New("askpass refused a non-password prompt")
+	}
+	if !MatchesDestination(prompt, expectedHosts...) {
+		return errors.New("askpass refused a password prompt for another host")
 	}
 	secret, err := Read(dir, managedID)
 	if err != nil {
