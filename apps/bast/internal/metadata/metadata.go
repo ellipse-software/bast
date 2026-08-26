@@ -117,12 +117,25 @@ type UpstashIntegration struct {
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 }
 
+type VercelIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	TeamID            string     `json:"teamId,omitempty"`
+	ProjectID         string     `json:"projectId,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Unrestorable      []string   `json:"unrestorable,omitempty"`
+}
+
 type Integrations struct {
 	GCP     *GCPIntegration     `json:"gcp,omitempty"`
 	AWS     *AWSIntegration     `json:"aws,omitempty"`
 	Azure   *AzureIntegration   `json:"azure,omitempty"`
 	Box     *BoxIntegration     `json:"box,omitempty"`
 	Upstash *UpstashIntegration `json:"upstash,omitempty"`
+	Vercel  *VercelIntegration  `json:"vercel,omitempty"`
 }
 
 type State struct {
@@ -665,6 +678,33 @@ func (s *Store) SetUpstash(upstash UpstashIntegration) error {
 	return nil
 }
 
+func (s *Store) Vercel() VercelIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Vercel == nil {
+		return VercelIntegration{}
+	}
+	return cloneVercel(*s.state.Integrations.Vercel)
+}
+
+func (s *Store) SetVercel(vercel VercelIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Vercel
+	if !vercel.Enabled && !vercel.AutoSync && !vercel.Disabled && vercel.TeamID == "" && vercel.ProjectID == "" &&
+		vercel.LastSyncAt == nil && vercel.LastSyncError == "" && vercel.LastInstanceCount == 0 && len(vercel.Unrestorable) == 0 {
+		s.state.Integrations.Vercel = nil
+	} else {
+		copy := cloneVercel(vercel)
+		s.state.Integrations.Vercel = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Vercel = previous
+		return err
+	}
+	return nil
+}
+
 func cloneHost(host Host) Host {
 	host.Tags = append([]string(nil), host.Tags...)
 	if host.LastUsedAt != nil {
@@ -758,6 +798,15 @@ func cloneUpstash(upstash UpstashIntegration) UpstashIntegration {
 	return upstash
 }
 
+func cloneVercel(vercel VercelIntegration) VercelIntegration {
+	vercel.Unrestorable = append([]string(nil), vercel.Unrestorable...)
+	if vercel.LastSyncAt != nil {
+		lastSyncAt := *vercel.LastSyncAt
+		vercel.LastSyncAt = &lastSyncAt
+	}
+	return vercel
+}
+
 func cloneIntegrations(integrations Integrations) Integrations {
 	out := Integrations{}
 	if integrations.GCP != nil {
@@ -779,6 +828,10 @@ func cloneIntegrations(integrations Integrations) Integrations {
 	if integrations.Upstash != nil {
 		upstash := cloneUpstash(*integrations.Upstash)
 		out.Upstash = &upstash
+	}
+	if integrations.Vercel != nil {
+		vercel := cloneVercel(*integrations.Vercel)
+		out.Vercel = &vercel
 	}
 	return out
 }

@@ -285,7 +285,7 @@ func selectedSandboxHost(m *App) (sshconfig.Host, bool) {
 	if !ok || !host.Synced {
 		return host, false
 	}
-	return host, host.SyncSource == "box" || host.SyncSource == "upstash"
+	return host, host.SyncSource == "box" || host.SyncSource == "upstash" || host.SyncSource == "vercel"
 }
 
 func hostsFooterSandbox(m *App) bool {
@@ -305,11 +305,12 @@ func hostsFooterSandboxStopped(m *App) bool {
 
 func hostsFooterSandboxDelete(m *App) bool {
 	host, ok := selectedSandboxHost(m)
-	return ok && host.SyncSource == "upstash"
+	return ok && (host.SyncSource == "upstash" || host.SyncSource == "vercel")
 }
 
 func hostsFooterSandboxDesktop(m *App) bool {
-	return hostsFooterSandbox(m) && !m.isMobileLayout()
+	host, ok := selectedSandboxHost(m)
+	return ok && !m.isMobileLayout() && host.SyncSource != "vercel"
 }
 
 func hostsFooterSyncedMobile(m *App) bool {
@@ -436,7 +437,7 @@ func syncFooterInvSandboxStopped(m *App) bool {
 
 func syncFooterInvSandboxDelete(m *App) bool {
 	row, ok := syncInvIndex(m)
-	return ok && syncFooterInvSandbox(m) && row.host.SyncSource == "upstash"
+	return ok && syncFooterInvSandbox(m) && (row.host.SyncSource == "upstash" || row.host.SyncSource == "vercel")
 }
 
 func syncFooterConfig(m *App) bool {

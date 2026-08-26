@@ -137,13 +137,16 @@ const cloudPrepareTimeout = 90 * time.Second
 const boxPrepareTimeout = 5 * time.Minute
 
 func prepareTimeoutForHost(host sshconfig.Host) time.Duration {
-	if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash") {
+	if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash" || host.SyncSource == "vercel") {
 		return boxPrepareTimeout
 	}
 	return cloudPrepareTimeout
 }
 
 func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
+	if host.Synced && host.SyncSource == "vercel" {
+		return m.setNotice("Vercel Sandboxes are not OpenSSH; SFTP is unavailable")
+	}
 	m.initFilesState()
 	pane := &m.files.panes[index]
 	pane.closeSession()

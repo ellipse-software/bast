@@ -53,6 +53,7 @@ type VaultIntegrations struct {
 	AWS     *VaultAWSIntegration     `json:"aws,omitempty"`
 	Azure   *VaultAzureIntegration   `json:"azure,omitempty"`
 	Upstash *VaultUpstashIntegration `json:"upstash,omitempty"`
+	Vercel  *VaultVercelIntegration  `json:"vercel,omitempty"`
 }
 
 type VaultGCPIntegration struct {
@@ -79,6 +80,11 @@ type VaultAzureIntegration struct {
 }
 
 type VaultUpstashIntegration struct {
+	Enabled  bool `json:"enabled"`
+	AutoSync bool `json:"autoSync,omitempty"`
+}
+
+type VaultVercelIntegration struct {
 	Enabled  bool `json:"enabled"`
 	AutoSync bool `json:"autoSync,omitempty"`
 }

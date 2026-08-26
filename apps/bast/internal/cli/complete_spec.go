@@ -8,6 +8,7 @@ const (
 	valueKey
 	valueBoxHost
 	valueUpstashHost
+	valueVercelHost
 	valueFile
 	valueDir
 	valueEnum
@@ -58,7 +59,7 @@ func (n specNode) names() []string {
 
 var completionShells = []string{"bash", "zsh", "fish", "powershell", "elvish", "nushell"}
 
-var syncProviders = []string{"gcp", "aws", "azure", "box", "upstash"}
+var syncProviders = []string{"gcp", "aws", "azure", "box", "upstash", "vercel"}
 
 var globalFlagSpecs = []flagSpec{
 	{name: "json", desc: "structured JSON", boolean: true},
@@ -83,6 +84,7 @@ func completionRoot() specNode {
 			syncSpec(),
 			boxSpec(),
 			upstashSpec(),
+			vercelSpec(),
 			vaultSpec(),
 			{
 				name: "completion",
@@ -208,6 +210,7 @@ func syncSpec() specNode {
 			{name: "azure", desc: "import Azure Linux VMs"},
 			{name: "box", desc: "import box.ascii.dev hosts"},
 			{name: "upstash", desc: "import Upstash Box hosts"},
+			{name: "vercel", desc: "import Vercel Sandboxes"},
 			{name: "status", desc: "show sync status"},
 			{
 				name: "disable",
@@ -263,6 +266,36 @@ func upstashSpec() specNode {
 			{name: "resume", desc: "resume an Upstash box", args: []argSpec{upstashArg}},
 			{name: "delete", desc: "delete an Upstash box", flags: []flagSpec{boolFlag("yes", "skip confirmation")}, args: []argSpec{upstashArg}},
 			{name: "key", desc: "store an Upstash Box API key", flags: []flagSpec{fileFlag("key-file", "read the API key from a file")}},
+		},
+	}
+}
+
+func vercelSpec() specNode {
+	vercelArg := argSpec{kind: valueVercelHost, desc: "host or id", includeHidden: true}
+	return specNode{
+		name: "vercel",
+		desc: "create and manage Vercel Sandboxes",
+		children: []specNode{
+			{
+				name: "new",
+				desc: "create a sandbox",
+				flags: []flagSpec{
+					{name: "name", desc: "sandbox name"},
+					enumFlag("vcpus", "vCPUs", "1", "2", "4"),
+					enumFlag("timeout", "session timeout", "15m", "1h", "5h"),
+					boolFlag("ephemeral", "disable filesystem persistence"),
+				},
+			},
+			{name: "fork", desc: "fork a sandbox", flags: []flagSpec{{name: "name", desc: "fork name"}}, args: []argSpec{vercelArg}},
+			{name: "stop", desc: "stop a sandbox", args: []argSpec{vercelArg}},
+			{name: "resume", desc: "resume a sandbox", args: []argSpec{vercelArg}},
+			{name: "delete", desc: "delete a sandbox", flags: []flagSpec{boolFlag("yes", "skip confirmation")}, args: []argSpec{vercelArg}},
+			{name: "cleanup", desc: "delete unrestorable sandboxes", flags: []flagSpec{boolFlag("yes", "skip confirmation")}},
+			{name: "token", desc: "store a Vercel access token", flags: []flagSpec{
+				fileFlag("token-file", "read the access token from a file"),
+				{name: "team", desc: "team ID"},
+				{name: "project", desc: "project ID or name"},
+			}},
 		},
 	}
 }
