@@ -14,6 +14,7 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case ActionHelpToggle:
 		m.closeDoctor()
+		m.onboarding = false
 		m.help, m.credits, m.helpOffset = true, false, 0
 		return m, nil
 	case ActionHelpClose:
@@ -39,11 +40,17 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 		return m, nil
 	case ActionCreditsOpen:
 		m.closeDoctor()
+		m.onboarding = false
 		m.credits, m.help, m.helpOffset = true, false, 0
 		return m, nil
 	case ActionCreditsClose:
 		m.credits = false
 		return m, nil
+	case ActionOnboardingReplay:
+		m.replayOnboarding()
+		return m, nil
+	case ActionSponsorOpen:
+		return m.openSponsor()
 	case ActionDoctorOpen:
 		return m, m.openDoctor()
 	case ActionDoctorClose:

@@ -25,6 +25,7 @@ func historyTestApp(t *testing.T, suggestions ...metadata.HistorySuggestion) *Ap
 		t.Fatal(err)
 	}
 	app.historySuggestions = state.Pending
+	app.onboarding = false
 	if len(suggestions) > 0 {
 		app.cursor = 1
 	}

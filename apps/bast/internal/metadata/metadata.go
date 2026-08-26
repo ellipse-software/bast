@@ -35,6 +35,13 @@ type Preferences struct {
 	CollapsedGroups []string `json:"collapsedGroups,omitempty"`
 }
 
+// Onboarding is per-machine TUI first-run state. It is not packed into Vault:
+// a new computer should still see a census of that machine.
+type Onboarding struct {
+	Eligible    bool       `json:"eligible,omitempty"`
+	DismissedAt *time.Time `json:"dismissedAt,omitempty"`
+}
+
 type HistorySource struct {
 	Offset   int64    `json:"offset,omitempty"`
 	TailHash string   `json:"tailHash,omitempty"`
@@ -124,6 +131,7 @@ type State struct {
 	Preferences  Preferences     `json:"preferences,omitempty"`
 	Integrations Integrations    `json:"integrations,omitempty"`
 	History      HistoryImport   `json:"history,omitempty"`
+	Onboarding   Onboarding      `json:"onboarding,omitempty"`
 }
 
 type Store struct {
@@ -139,6 +147,7 @@ func Open(path string) (*Store, error) {
 	s := &Store{path: path, state: State{Version: CurrentVersion, Hosts: map[string]Host{}}}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
+		s.state.Onboarding.Eligible = true
 		return s, nil
 	}
 	if err != nil {
@@ -394,6 +403,39 @@ func (s *Store) SetCollapsedGroups(groups []string) error {
 	return nil
 }
 
+func (s *Store) Onboarding() Onboarding {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneOnboarding(s.state.Onboarding)
+}
+
+// ShouldOnboard is true for a first TUI session on this machine that has not
+// been dismissed. Existing state files from older Bast versions are ineligible.
+func (s *Store) ShouldOnboard() bool {
+	if os.Getenv("BAST_NO_ONBOARDING") != "" {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.Onboarding.Eligible && s.state.Onboarding.DismissedAt == nil
+}
+
+func (s *Store) DismissOnboarding() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Onboarding.DismissedAt != nil {
+		return nil
+	}
+	previous := s.state.Onboarding
+	now := time.Now().UTC()
+	s.state.Onboarding.DismissedAt = &now
+	if err := s.save(); err != nil {
+		s.state.Onboarding = previous
+		return err
+	}
+	return nil
+}
+
 func (s *Store) HistoryImport() HistoryImport {
 	history, _ := s.HistoryImportSnapshot()
 	return history
@@ -630,6 +672,14 @@ func cloneHost(host Host) Host {
 		host.LastUsedAt = &lastUsedAt
 	}
 	return host
+}
+
+func cloneOnboarding(onboarding Onboarding) Onboarding {
+	if onboarding.DismissedAt != nil {
+		dismissed := *onboarding.DismissedAt
+		onboarding.DismissedAt = &dismissed
+	}
+	return onboarding
 }
 
 func cloneHistoryImport(history HistoryImport) HistoryImport {

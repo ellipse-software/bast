@@ -171,7 +171,7 @@ SSH user is the box id at `us-east-1.box.upstash.com`. Bast feeds the stored API
 
 TUI Files tab (`5`) is a dual-pane local/remote browser over OpenSSH SFTP. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
 
-TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Box/Upstash). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`.
+TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Box/Upstash). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`. First TUI with no hosts shows a skippable start chooser (`esc` skips, `BAST_NO_ONBOARDING=1` disables).
 
 ## File layout
 

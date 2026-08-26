@@ -18,6 +18,7 @@ type doctorDoneMsg struct {
 
 func (m *App) openDoctor() tea.Cmd {
 	m.help, m.credits, m.helpOffset = false, false, 0
+	m.onboarding = false
 	m.doctor, m.doctorOffset, m.doctorLoading = true, 0, true
 	m.doctorReport = doctor.Report{}
 	return m.doctorCmd()

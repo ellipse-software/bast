@@ -21,6 +21,8 @@ const (
 	ActionHelpBottom
 	ActionCreditsOpen
 	ActionCreditsClose
+	ActionOnboardingReplay
+	ActionSponsorOpen
 	ActionDoctorOpen
 	ActionDoctorClose
 	ActionDoctorScrollUp

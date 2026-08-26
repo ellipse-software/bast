@@ -68,6 +68,8 @@ func (m *App) render() string {
 	var body string
 	if m.statusError && m.status != "" {
 		body = m.renderError(styles)
+	} else if m.onboarding {
+		body = m.renderOnboarding(styles)
 	} else if m.credits {
 		body = m.renderCredits(styles)
 	} else if m.doctor {
@@ -130,6 +132,51 @@ func (m *App) renderError(s styleSet) string {
 		BorderForeground(lipgloss.Color("#EF4444")).
 		Render(content)
 	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, panel)
+}
+
+const (
+	opensshConfigTrust = "OpenSSH · ~/.ssh/config"
+	opensshAgentTrust  = "OpenSSH · ssh-agent"
+)
+
+func (m *App) renderSeal(s styleSet, title string, mutedLines []string, extraRows []string) string {
+	inner := min(50, max(8, m.terminalWidth()-2))
+	content := max(4, inner-2)
+	border := s.muted
+	top := border.Render("╭" + strings.Repeat("─", inner) + "╮")
+	bot := border.Render("╰" + strings.Repeat("─", inner) + "╯")
+	side := border.Render("│")
+	row := func(line string) string {
+		if lipgloss.Width(line) > content {
+			line = truncate(line, content)
+		}
+		return side + " " + padVisual(line, content) + " " + side
+	}
+
+	var b strings.Builder
+	b.WriteString(top + "\n")
+	if title != "" {
+		b.WriteString(row(s.active.Render(title)) + "\n")
+		if len(mutedLines) > 0 || len(extraRows) > 0 {
+			b.WriteString(row("") + "\n")
+		}
+	}
+	for _, line := range mutedLines {
+		for _, part := range wrapWords(line, content) {
+			b.WriteString(row(s.muted.Render(part)) + "\n")
+		}
+	}
+	if len(extraRows) > 0 {
+		if len(mutedLines) > 0 {
+			b.WriteString(row("") + "\n")
+		}
+		for _, line := range extraRows {
+			b.WriteString(row(line) + "\n")
+		}
+	}
+	b.WriteString(bot)
+	placed := lipgloss.PlaceHorizontal(m.terminalWidth(), lipgloss.Center, b.String())
+	return "\n" + placed + "\n"
 }
 
 type styleSet struct {
@@ -227,10 +274,15 @@ func (m *App) renderHosts(s styleSet) string {
 		if m.hasHiddenHosts() && !m.showHidden {
 			return "\n  " + s.muted.Render("No visible hosts. Press . to show hidden and stopped hosts.")
 		}
-		add, _ := firstBinding(ActionAddHost)
-		return "\n\n  " + s.active.Render("◇  No hosts yet") +
-			"\n\n  " + s.muted.Render("Your SSH map is empty.") +
-			"\n  " + s.active.Render(formatChip(add))
+		add, ok := firstBinding(ActionAddHost)
+		var extras []string
+		if ok {
+			extras = append(extras, s.title.Render(" "+formatChip(add)+" "))
+		}
+		return m.renderSeal(s, "◇  No hosts yet", []string{
+			"Your SSH map is empty.",
+			opensshConfigTrust,
+		}, extras)
 	}
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
 	layout := m.panelLayout()
@@ -711,9 +763,14 @@ func (m *App) renderKeys(s styleSet) string {
 		if m.loading || m.enriching {
 			return "\n  " + s.muted.Render("Loading OpenSSH keys and agent…")
 		}
-		gen, _ := firstBinding(ActionGenerateKey)
-		imp, _ := firstBinding(ActionImportKey)
-		return "\n  " + s.muted.Render(formatHint(gen, m)+" · "+formatHint(imp, m))
+		var extras []string
+		if gen, ok := firstBinding(ActionGenerateKey); ok {
+			extras = append(extras, s.title.Render(" "+formatChip(gen)+" "))
+		}
+		if imp, ok := firstBinding(ActionImportKey); ok {
+			extras = append(extras, s.title.Render(" "+formatChip(imp)+" "))
+		}
+		return m.renderSeal(s, "◇  No keys yet", []string{opensshAgentTrust}, extras)
 	}
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
 	layout := m.panelLayout()
@@ -1089,13 +1146,31 @@ func (m *App) renderCredits(s styleSet) string {
 	if m.latestVersion != "" {
 		content += "\n" + row("Update", m.latestVersion+" · "+m.updateSuggestion)
 	}
+	chip := s.title.Render(sponsorAction)
+	content += "\n\n" + lipgloss.NewStyle().Width(infoWidth).Align(lipgloss.Center).Render(chip)
 	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, content)
+}
+
+func (m *App) creditsSponsorBounds() (x, y, width int) {
+	chip := m.styles().title.Render(sponsorAction)
+	width = lipgloss.Width(chip)
+	for i, line := range strings.Split(m.render(), "\n") {
+		idx := strings.Index(line, chip)
+		if idx < 0 {
+			continue
+		}
+		return lipgloss.Width(line[:idx]), i, width
+	}
+	return 0, 0, 0
 }
 
 func (m *App) renderFooter(s styleSet) string {
 	if m.statusError && m.status != "" {
 		hint := "Enter / Esc / ⌫ return"
 		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
+	}
+	if m.onboarding {
+		return strings.Repeat(" ", max(1, m.terminalWidth()))
 	}
 	if m.credits {
 		hint := strings.Join(m.overlayFooterParts(ScopeCredits), " · ")
@@ -1165,7 +1240,7 @@ func (m *App) renderFooter(s styleSet) string {
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.vaultBusyBlocksBody() || m.section == vaultSection || m.section == syncSection || m.section == filesSection || !m.hasListItems() {
+	if m.statusError || m.onboarding || m.credits || m.doctor || m.help || m.form != nil || m.loading || m.vaultBusyBlocksBody() || m.section == vaultSection || m.section == syncSection || m.section == filesSection || !m.hasListItems() {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	if m.isMobileLayout() {

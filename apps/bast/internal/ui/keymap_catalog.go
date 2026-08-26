@@ -27,6 +27,9 @@ func buildCatalog() []Binding {
 		bind(ActionHelpToggle, []string{"?"}, ScopeCredits, "Help", "").noHelp(),
 		bind(ActionDoctorOpen, []string{"D"}, ScopeCredits, "Doctor", "").noHelp(),
 		bind(ActionQuit, []string{"q"}, ScopeCredits, "Quit", "").noHelp(),
+		bind(ActionSponsorOpen, []string{"s"}, ScopeCredits, "Sponsor", "sponsor").withFooter(4).noHelp(),
+		bind(ActionSponsorOpen, []string{"enter"}, ScopeCredits, "Sponsor", "").noHelp(),
+		bind(ActionOnboardingReplay, []string{"o"}, ScopeCredits, "Intro", "intro").withFooter(5).noHelp(),
 		bind(ActionCreditsClose, []string{"v", "esc", "backspace", "ctrl+h"}, ScopeCredits, "Close", "close").chord("v / Esc / ⌫").withFooter(10).noHelp(),
 
 		// Doctor overlay.
