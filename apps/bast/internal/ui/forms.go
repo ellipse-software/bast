@@ -541,7 +541,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			return m.formValidationError("Name does not match the key name")
 		}
 		return m.finishMutation(m.keyring.Delete(key, values["Type the name to confirm"]), "Key permanently deleted")
-	case "sync_gcp_user", "sync_gcp_projects", "sync_gcp_sa_add", "sync_gcp_sa_remove", "sync_aws_user", "sync_aws_profiles", "sync_aws_regions", "sync_azure_user", "sync_azure_subscriptions", "sync_azure_resource_groups", "box_new", "box_stop", "box_fork", "upstash_new", "upstash_stop", "upstash_fork", "upstash_delete", "upstash_key", "vercel_new", "vercel_stop", "vercel_fork", "vercel_delete", "vercel_token":
+	case "sync_gcp_user", "sync_gcp_projects", "sync_gcp_sa_add", "sync_gcp_sa_remove", "sync_aws_user", "sync_aws_profiles", "sync_aws_regions", "sync_azure_user", "sync_azure_subscriptions", "sync_azure_resource_groups", "box_new", "box_stop", "box_fork", "upstash_new", "upstash_stop", "upstash_fork", "upstash_delete", "upstash_key", "vercel_new", "vercel_stop", "vercel_fork", "vercel_delete", "vercel_cleanup", "vercel_token":
 		return m, m.submitSyncForm(f.action, values)
 	case "known_delete":
 		alias := values["Alias"]

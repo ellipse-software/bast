@@ -1931,13 +1931,33 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
 		}
 	case "vercel_new":
-		vcpus, _ := strconv.Atoi(strings.TrimSpace(values["vCPUs"]))
-		if err := vercelcloud.ValidateVCPUs(vcpus); err != nil {
-			vcpus = 2
+		vcpus := 2
+		if raw := strings.TrimSpace(values["vCPUs"]); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil {
+				if m.form != nil {
+					m.form.validationError = "vCPUs must be a number"
+				}
+				return nil
+			}
+			if err := vercelcloud.ValidateVCPUs(parsed); err != nil {
+				if m.form != nil {
+					m.form.validationError = err.Error()
+				}
+				return nil
+			}
+			vcpus = parsed
 		}
-		timeout, err := vercelcloud.ParseTimeoutFlag(values["Timeout"])
-		if err != nil {
-			timeout = time.Hour
+		timeout := time.Hour
+		if raw := strings.TrimSpace(values["Timeout"]); raw != "" {
+			parsed, err := vercelcloud.ParseTimeoutFlag(raw)
+			if err != nil {
+				if m.form != nil {
+					m.form.validationError = err.Error()
+				}
+				return nil
+			}
+			timeout = parsed
 		}
 		m.form = nil
 		if m.syncingProviders["vercel"] {

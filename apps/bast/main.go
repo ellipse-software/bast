@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"syscall"
 
 	tea "charm.land/bubbletea/v2"
@@ -114,6 +115,9 @@ func run(args []string) error {
 			if options.ProjectID == "" {
 				options.ProjectID = integration.ProjectID
 			}
+		}
+		if strings.TrimSpace(options.ProjectID) == "" {
+			return errors.New("vercel project is required")
 		}
 		client.TeamID = options.TeamID
 		client.ProjectID = options.ProjectID

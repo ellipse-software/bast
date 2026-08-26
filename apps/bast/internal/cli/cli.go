@@ -64,7 +64,7 @@ Upstash commands:
   new, fork, stop, resume, delete, key
 
 Vercel commands:
-  new, fork, stop, resume, delete, token
+  new, fork, stop, resume, delete, cleanup, token
 
 Vault commands:
   login, status, push, pull, logout, passphrase
@@ -181,7 +181,9 @@ func (r *Runner) Run(args []string) error {
 		err = openErr
 		if err == nil {
 			r.store = store
-			err = r.OpenSSH.Check()
+			if args[0] != "vercel" {
+				err = r.OpenSSH.Check()
+			}
 		}
 		if err == nil {
 			switch args[0] {

@@ -17,7 +17,7 @@ Docs: https://bast.sh/llms.txt
 - User wants to browse, search, or organize SSH hosts from the terminal
 - User needs to generate, import, export, or install SSH keys
 - User wants quick connect: `bast <label>` or `bast "Production web"`
-- User wants to import cloud VMs (`bast sync gcp|aws|azure|box|upstash|vercel`) and connect with local keys
+- User wants to import cloud VMs (`bast sync gcp|aws|azure|box|upstash`) and connect with local keys, or Vercel Sandboxes (`bast sync vercel`) over a WebSocket PTY
 - User already has the ASCII Box CLI installed and logged in (Bast auto-connects Box)
 - User has an Upstash Box API key (Bast stores it locally and uses it for API + SSH)
 - User has a Vercel access token, team ID, and project ID (Bast stores the token locally and opens a PTY shell)

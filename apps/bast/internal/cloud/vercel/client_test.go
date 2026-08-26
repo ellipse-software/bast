@@ -346,10 +346,8 @@ func TestStartAndResizeFrames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "token=tok") || strings.Contains(got, "tok/+/x") && !strings.Contains(got, "tok%2F") && !strings.Contains(got, "token=tok") {
-		if !strings.Contains(got, "token=tok") {
-			t.Fatalf("url = %s", got)
-		}
+	if got != "wss://example/pty?token=tok%2F%2B%2Fx" {
+		t.Fatalf("url = %s", got)
 	}
 }
 
@@ -392,7 +390,31 @@ func TestParseShellOptions(t *testing.T) {
 	if err != nil || opts.Name != "dev" || opts.ProjectID != "prj_1" || opts.TeamID != "team_1" {
 		t.Fatalf("opts = %+v err %v", opts, err)
 	}
-	if _, err := ParseShellOptions([]string{"--name", "dev"}); err == nil {
+	opts, err = ParseShellOptions([]string{"--name", "dev"})
+	if err != nil || opts.Name != "dev" || opts.ProjectID != "" {
+		t.Fatalf("name-only = %+v err %v", opts, err)
+	}
+	if _, err := ParseShellOptions([]string{}); err == nil {
 		t.Fatal("expected reject")
+	}
+}
+
+func TestScopedNameFallsBackToProject(t *testing.T) {
+	project, name, err := ScopedName("prj_abc/dev", "prj_other")
+	if err != nil || project != "prj_abc" || name != "dev" {
+		t.Fatalf("scoped = %q %q %v", project, name, err)
+	}
+	project, name, err = ScopedName("dev", "prj_fallback")
+	if err != nil || project != "prj_fallback" || name != "dev" {
+		t.Fatalf("legacy = %q %q %v", project, name, err)
+	}
+}
+
+func TestIsReadyStateRequiresRunning(t *testing.T) {
+	if isReadyState("pending") || isReadyState("PENDING") {
+		t.Fatal("pending must not be ready")
+	}
+	if !isReadyState("running") || !isReadyState("Running") {
+		t.Fatal("running must be ready")
 	}
 }

@@ -221,7 +221,7 @@ func isRunningState(status string) bool {
 }
 
 func isReadyState(status string) bool {
-	return normalizeState(status) == "running"
+	return strings.ToLower(strings.TrimSpace(status)) == "running"
 }
 
 func IsStoppedState(status string) bool {
@@ -253,6 +253,17 @@ func SyncID(projectID, name string) string {
 		return name
 	}
 	return projectID + "/" + name
+}
+
+func ScopedName(syncID, fallbackProject string) (projectID, name string, err error) {
+	projectID, name, err = ParseSyncID(syncID)
+	if err != nil {
+		return "", "", err
+	}
+	if projectID == "" {
+		projectID = strings.TrimSpace(fallbackProject)
+	}
+	return projectID, name, nil
 }
 
 func ParseSyncID(syncID string) (projectID, name string, err error) {

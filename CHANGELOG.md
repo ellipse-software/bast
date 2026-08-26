@@ -21,6 +21,8 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 ### Changed
 
 - Empty Hosts and Keys tabs use the same first-run seal as Vault, without narrating keybindings.
+- Offline Vercel sandboxes without a snapshot stay off the host list. Cleanup on the Vercel Sync page (or `bast vercel cleanup`) deletes them after confirmation.
+- Provider groups with no running hosts stay hidden until `.` reveals stopped or hidden hosts.
 
 ### Fixed
 
@@ -31,11 +33,6 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 ### Added
 
 - Linux packages for apt, dnf, pacman, and apk: `.deb`, `.rpm`, `.apk`, and Arch packages on GitHub releases, plus a signed repository at https://packages.bast.sh.
-
-### Changed
-
-- Offline Vercel sandboxes without a snapshot stay off the host list. Cleanup on the Vercel Sync page (or `bast vercel cleanup`) deletes them after confirmation.
-- Provider groups with no running hosts stay hidden until `.` reveals stopped or hidden hosts.
 
 ### Fixed
 

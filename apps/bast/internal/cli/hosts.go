@@ -834,12 +834,12 @@ func (r *Runner) connect(args []string) error {
 	}
 	var cmd *exec.Cmd
 	if host.Synced && host.SyncSource == "vercel" {
-		_, name, err := vercelcloud.ParseSyncID(host.SyncID)
+		integration := r.store.Vercel()
+		projectID, name, err := vercelcloud.ScopedName(host.SyncID, integration.ProjectID)
 		if err != nil {
 			return fail("vercel_access", err.Error())
 		}
-		integration := r.store.Vercel()
-		cmd = vercelcloud.ShellCommand(os.Args[0], name, integration.ProjectID, integration.TeamID)
+		cmd = vercelcloud.ShellCommand(os.Args[0], name, projectID, integration.TeamID)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

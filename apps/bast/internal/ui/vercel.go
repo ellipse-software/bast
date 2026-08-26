@@ -139,14 +139,14 @@ func (m *App) openVercelCleanupForm() {
 }
 
 func (m *App) vercelShellCmd(host sshconfig.Host) (*exec.Cmd, error) {
-	_, name, err := vercelcloud.ParseSyncID(host.SyncID)
+	integration := m.metadata.Vercel()
+	projectID, name, err := vercelcloud.ScopedName(host.SyncID, integration.ProjectID)
 	if err != nil {
 		return nil, err
 	}
-	integration := m.metadata.Vercel()
 	exe := ""
 	if m.syncer != nil {
 		exe = m.syncer.BastExecutable
 	}
-	return vercelcloud.ShellCommand(exe, name, integration.ProjectID, integration.TeamID), nil
+	return vercelcloud.ShellCommand(exe, name, projectID, integration.TeamID), nil
 }

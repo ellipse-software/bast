@@ -58,7 +58,7 @@ func ParseShellOptions(args []string) (ShellOptions, error) {
 	if err := fs.Parse(args); err != nil {
 		return ShellOptions{}, err
 	}
-	if fs.NArg() != 0 || strings.TrimSpace(options.Name) == "" || strings.TrimSpace(options.ProjectID) == "" {
+	if fs.NArg() != 0 || strings.TrimSpace(options.Name) == "" {
 		return ShellOptions{}, errors.New("invalid Vercel sandbox shell arguments")
 	}
 	return options, nil
