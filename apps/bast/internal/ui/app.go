@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/cloud/sync"
+	"bast/internal/doctor"
 	"bast/internal/history"
 	"bast/internal/keys"
 	"bast/internal/metadata"
@@ -181,6 +182,14 @@ type App struct {
 	help                bool
 	helpOffset          int
 	credits             bool
+	onboarding          bool
+	onboardingTracked   bool
+	onboardingReplay    bool
+	onboardingPending   bool
+	doctor              bool
+	doctorOffset        int
+	doctorLoading       bool
+	doctorReport        doctor.Report
 	showHidden          bool
 	loading             bool
 	enriching           bool
@@ -257,6 +266,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 	}
 	app.hostMeta, app.hostMetaRevision = store.HostsSnapshot()
 	app.historySuggestions = store.HistoryImport().Pending
+	app.onboardingPending = store.ShouldOnboard()
 	if pass, err := vault.LoadPassphrase(vault.PassphrasePath(p.StateFile)); err == nil && pass != "" {
 		app.vaultPassphrase = pass
 	}
@@ -428,6 +438,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.help {
 			m.clampHelpOffset()
 		}
+		if m.doctor {
+			m.clampDoctorOffset()
+		}
 		return m, nil
 	case tea.BackgroundColorMsg:
 		m.dark = msg.IsDark()
@@ -461,10 +474,19 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.autoSyncCmds(), m.setNotice(fmt.Sprintf("%d host details could not be resolved", msg.enrichmentErrors)))
 		}
 		return m, m.autoSyncCmds()
+	case doctorDoneMsg:
+		if !m.doctor {
+			return m, nil
+		}
+		m.doctorLoading = false
+		m.doctorReport = msg.report
+		m.clampDoctorOffset()
+		return m, nil
 	case discoveredMsg:
 		if msg.err != nil {
 			m.loading = false
 			m.enriching = false
+			m.onboardingPending = false
 			m.setError(msg.err)
 			cmds := []tea.Cmd{tea.RequestBackgroundColor}
 			if cmd := m.postPaintCmds(); cmd != nil {
@@ -494,6 +516,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		// Hosts are usable from config parse; clear loading now and enrich quietly.
 		m.loading = false
 		m.enriching = true
+		m.decideOnboarding()
 		cmds := []tea.Cmd{m.enrichCmd(m.hosts), tea.RequestBackgroundColor}
 		if cmd := m.postPaintCmds(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -801,6 +824,8 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleFilesTransferProgress(msg)
 	case filesOpDoneMsg:
 		return m, m.handleFilesOpDone(msg)
+	case filesPreviewMsg:
+		return m, m.handleFilesPreviewMsg(msg)
 	case clearStatusMsg:
 		if uint64(msg) == m.statusID && !m.statusError {
 			m.status = ""
@@ -872,6 +897,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.form != nil {
 			return m.updateForm(msg)
+		}
+		if m.onboarding {
+			return m.updateOnboarding(msg.String())
 		}
 		model, cmd := m.updateKeys(msg)
 		if m.form != nil && isHostForm(m.form) {

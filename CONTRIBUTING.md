@@ -36,7 +36,9 @@ Never include real hostnames, private keys, fingerprints, or production SSH conf
 
 Every CLI change pushed to `master` publishes a rolling nightly pre-release via `.github/workflows/nightly.yml`. Tagged releases (`v*`) are stable and use `.github/workflows/release.yml` instead.
 
-Nightly builds use version strings like `nightly.YYYYMMDD.<sha>`, update the rolling GitHub release tagged `nightly`, and bump the `bast-nightly` Homebrew formula in `ellipse-software/homebrew-tap`.
+Nightly builds use version strings like `nightly.YYYYMMDD.<sha>`, update the rolling GitHub release tagged `nightly`, and bump the `bast-nightly` Homebrew formula in `ellipse-software/homebrew-tap`. Both formulae compile from source: the tagged GitHub archive for `bast`, and the nightly commit for `bast-nightly`. `Formula/bast.rb` can be copied into `homebrew/core` after dropping the tap-only `conflicts_with "bast-nightly"` line.
+
+Stable tags also build `.deb`, `.rpm`, `.apk`, and Arch packages and publish them to the signed repository at `https://packages.bast.sh`. Nightly is script and Homebrew only. Publishing the repo requires `LINUX_SIGNING_PRIVATE_KEY`, `LINUX_SIGNING_PUBLIC_KEY`, `PACKAGES_R2_ACCOUNT_ID`, `PACKAGES_R2_ACCESS_KEY_ID`, and `PACKAGES_R2_SECRET_ACCESS_KEY` (optional `LINUX_SIGNING_PASSPHRASE`, `LINUX_APK_RSA_*`, `PACKAGES_R2_BUCKET`).
 
 Stable and nightly installs are mutually exclusive at the same path. Script installs use separate receipts (`https://bast.sh/install` vs `https://bast.sh/install-nightly`); running either installer uninstalls the other channel first (including a Homebrew install of the other formula). The Homebrew formulae also declare `conflicts_with` each other.
 

@@ -50,6 +50,14 @@ brew install ellipse-software/tap/bast
 curl -fsSL https://bast.sh/install | sh
 ```
 
+Package managers (adds the Bast repo, then installs):
+
+```sh
+curl -fsSL https://packages.bast.sh/setup.sh | sudo sh
+```
+
+After the repo is configured: `sudo apt install bast`, `sudo dnf install bast`, `sudo pacman -S bast`, or `sudo apk add bast`. Arch users can also `yay -S bast-bin` from the AUR.
+
 Or with Homebrew:
 
 ```sh
@@ -76,11 +84,12 @@ Then run `bast`. Nightly builds, custom install paths, and building from source 
 ```sh
 bast                    # host picker
 bast production         # connect by label
+bast doctor             # diagnose SSH config and setup
 bast hosts list         # list hosts
 bast keys list          # list keys
 ```
 
-Press `?` in the TUI for keybindings. [Documentation](https://bast.sh/docs) covers hosts, keys, Vault, cloud sync, Files, and the CLI.
+Press `?` in the TUI for keybindings. [Documentation](https://bast.sh/docs) covers hosts, keys, Vault, cloud sync, Files, doctor, and the CLI.
 
 ## Agent skill
 

@@ -20,6 +20,7 @@ import (
 
 	cloudsync "bast/internal/cloud/sync"
 	"bast/internal/connectbanner"
+	"bast/internal/doctor"
 	keymodel "bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/openssh"
@@ -181,11 +182,13 @@ func TestNumberedNavigationAndSearch(t *testing.T) {
 
 func TestCtrlCQuitsFromEveryBastContext(t *testing.T) {
 	contexts := map[string]func(*App){
-		"root":   func(*App) {},
-		"help":   func(m *App) { m.help = true },
-		"about":  func(m *App) { m.credits = true },
-		"search": func(m *App) { m.search = "\x00query" },
-		"error":  func(m *App) { m.status, m.statusError = "failed", true },
+		"root":       func(*App) {},
+		"help":       func(m *App) { m.help = true },
+		"about":      func(m *App) { m.credits = true },
+		"onboarding": func(m *App) { m.onboarding = true },
+		"doctor":     func(m *App) { m.doctor = true },
+		"search":     func(m *App) { m.search = "\x00query" },
+		"error":      func(m *App) { m.status, m.statusError = "failed", true },
 		"host form": func(m *App) {
 			m.openAddHostForm()
 		},
@@ -204,11 +207,13 @@ func TestCtrlCQuitsFromEveryBastContext(t *testing.T) {
 }
 
 func TestQQuitsOutsideTextInput(t *testing.T) {
-	for _, context := range []string{"root", "help", "about"} {
+	for _, context := range []string{"root", "help", "about", "onboarding", "doctor"} {
 		t.Run(context, func(t *testing.T) {
 			m := testApp(t)
 			m.help = context == "help"
 			m.credits = context == "about"
+			m.onboarding = context == "onboarding"
+			m.doctor = context == "doctor"
 			_, cmd := m.Update(press("q"))
 			requireQuit(t, cmd)
 		})
@@ -1644,7 +1649,7 @@ func TestSelectedPublicKeyCanOpenServerPickerFromKeyOrMouse(t *testing.T) {
 	m.keys = []keymodel.Key{{Name: "work", PublicPath: filepath.Join(m.paths.ManagedKeys, "work.pub")}}
 	m.hosts[0].Resolved = sshconfig.Resolved{HostName: "alpha.example", User: "deploy", Port: "22"}
 
-	m.Update(press("u"))
+	m.Update(press("a"))
 	if m.form == nil || m.form.action != "key_install" || len(m.form.fields[1].options) != 2 {
 		t.Fatalf("server picker was not opened: %+v", m.form)
 	}
@@ -2315,6 +2320,9 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 		"github.com/ellipse-software/bast",
 		"MIT License",
 		"v1.2.3",
+		"Sponsor",
+		"s sponsor",
+		"o intro",
 		"v / Esc / ⌫ close",
 	} {
 		if !strings.Contains(rendered, text) {
@@ -2335,6 +2343,42 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 	}
 }
 
+func TestCreditsSponsorOpensBastSponsorPage(t *testing.T) {
+	var opened string
+	prev := openBrowser
+	openBrowser = func(raw string) error {
+		opened = raw
+		return nil
+	}
+	t.Cleanup(func() { openBrowser = prev })
+
+	m := testApp(t)
+	m.Update(press("v"))
+	if !m.credits {
+		t.Fatal("v should open about")
+	}
+	m.Update(press("s"))
+	if opened != sponsorURL || !m.credits {
+		t.Fatalf("s should open %s from about, opened=%q credits=%v", sponsorURL, opened, m.credits)
+	}
+
+	opened = ""
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if opened != sponsorURL {
+		t.Fatalf("enter should open sponsor, opened=%q", opened)
+	}
+
+	opened = ""
+	x, y, width := m.creditsSponsorBounds()
+	if width == 0 {
+		t.Fatal("sponsor chip bounds missing")
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x, Y: y, Button: tea.MouseLeft}))
+	if opened != sponsorURL {
+		t.Fatalf("click should open sponsor at (%d,%d), opened=%q", x, y, opened)
+	}
+}
+
 func TestHelpScreenIsSpacedAndScrollable(t *testing.T) {
 	m := testApp(t)
 	m.width, m.height = 80, 18
@@ -2344,10 +2388,9 @@ func TestHelpScreenIsSpacedAndScrollable(t *testing.T) {
 	}
 	rendered := m.render()
 	for _, text := range []string{
-		"Keyboard shortcuts",
-		"Navigation",
 		"Hosts",
-		"Move selection",
+		"Add host",
+		"Move",
 		"↑/↓ scroll",
 		"? / Esc / ⌫ close",
 	} {
@@ -2389,6 +2432,42 @@ func TestHelpScreenIsSpacedAndScrollable(t *testing.T) {
 	}
 }
 
+func TestDoctorOpensOutsideFilesAndCloses(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 80, 24
+	_, cmd := m.Update(press("D"))
+	if !m.doctor || m.help || cmd == nil {
+		t.Fatalf("D should open doctor: doctor=%v help=%v cmd=%v", m.doctor, m.help, cmd)
+	}
+	m.Update(doctorDoneMsg{report: doctor.Report{
+		Healthy: true,
+		Findings: []doctor.Finding{{
+			ID: "env.openssh_ok", Severity: doctor.SeverityOK, Category: doctor.CatEnv, Title: "ssh ok",
+		}},
+	}})
+	if m.doctorLoading {
+		t.Fatal("doctor should finish loading")
+	}
+	rendered := m.render()
+	if !strings.Contains(rendered, "Doctor") || !strings.Contains(rendered, "ssh ok") {
+		t.Fatalf("doctor overlay missing content:\n%s", rendered)
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	if m.doctor {
+		t.Fatal("Esc did not close doctor")
+	}
+}
+
+func TestFilesDDoesNotOpenDoctor(t *testing.T) {
+	m := testApp(t)
+	m.section = filesSection
+	m.initFilesState()
+	m.Update(press("D"))
+	if m.doctor {
+		t.Fatal("D on Files opened doctor")
+	}
+}
+
 func TestAvailableUpdateAppearsInFooterAndCredits(t *testing.T) {
 	m := testApp(t)
 	m.version = "v1.2.3"
@@ -2421,8 +2500,11 @@ func TestEmptyHostListInvitesFirstHost(t *testing.T) {
 	m := testApp(t)
 	m.hosts = nil
 	view := m.renderHosts(m.styles())
-	if !strings.Contains(view, "No hosts yet") || !strings.Contains(view, "Press a to add your first destination") {
+	if !strings.Contains(view, "No hosts yet") || !strings.Contains(view, "Your SSH map is empty.") || !strings.Contains(view, "[a] Add host") {
 		t.Fatalf("empty host state is not helpful:\n%s", view)
+	}
+	if strings.Contains(view, "Press") {
+		t.Fatalf("empty hosts should not narrate the key:\n%s", view)
 	}
 }
 
@@ -2452,7 +2534,7 @@ func TestDetailsAreCompactAndOmitEmptyMetadata(t *testing.T) {
 	if strings.Contains(key, "Name") || strings.Contains(key, "Public") || strings.Contains(key, "Used by") {
 		t.Fatalf("key details contain redundant or empty fields:\n%s", key)
 	}
-	if !strings.Contains(key, keyInstallAction) {
+	if !strings.Contains(key, m.keyInstallChip()) {
 		t.Fatalf("key details do not show the server action:\n%s", key)
 	}
 	if lipgloss.Height(key) > 8 {
@@ -3037,7 +3119,7 @@ func TestBoxResumeActionsAreStateAware(t *testing.T) {
 	}
 
 	selectHost("box_live")
-	footer := strings.Join(m.hostsFooterParts(), " · ")
+	footer := m.browseFooterHint(80)
 	if strings.Contains(footer, "resume") || !strings.Contains(footer, "o stop") {
 		t.Fatalf("running footer = %q", footer)
 	}
@@ -3055,7 +3137,7 @@ func TestBoxResumeActionsAreStateAware(t *testing.T) {
 	}
 
 	selectHost("box_idle")
-	footer = strings.Join(m.hostsFooterParts(), " · ")
+	footer = m.browseFooterHint(80)
 	if !strings.Contains(footer, "enter connect") || !strings.Contains(footer, "r resume") || strings.Contains(footer, "o stop") {
 		t.Fatalf("stopped footer = %q", footer)
 	}

@@ -3,7 +3,7 @@ title: Keyboard shortcuts
 description: Every keybinding in the Bast TUI, from navigation to host and key actions.
 ---
 
-Press `?` inside Bast for the in-app reference. Press `v` for version info, credits, and update hints.
+Press `?` inside Bast for the in-app reference. Press `v` for version info, credits, and update hints. A first TUI with no hosts is a skippable start chooser; see [First launch](/docs/features/onboarding).
 
 ## Navigation
 
@@ -19,7 +19,8 @@ Press `?` inside Bast for the in-app reference. Press `v` for version info, cred
 | `/` | Search |
 | `r` | Reload config from disk (or refresh sync status on the Sync tab; sync now on Vault) |
 | `?` | Toggle help |
-| `v` | About and version info |
+| `v` | About and version info (`o` replays first-launch chooser, `s` opens https://bast.sh/sponsor) |
+| `D` | Doctor (not in Files; Files uses `D` to disconnect) |
 | `q` | Quit |
 
 ## Hosts
@@ -49,11 +50,11 @@ Press `?` inside Bast for the in-app reference. Press `v` for version info, cred
 
 | Key | Action |
 | --- | --- |
-| `a` | Generate a key |
+| `g` | Generate a key |
 | `i` | Import a key |
 | `e` | Edit public key comment |
 | `d` | Delete selected key |
-| `u` | Add public key to a server |
+| `a` | Add public key to a server |
 | `x` | Export key files |
 | `p` | Promote an external key, or change passphrase on a managed key |
 | `c` | Copy public key |
@@ -90,7 +91,7 @@ See [GCP](/docs/features/gcp) / [AWS](/docs/features/aws) / [Azure](/docs/featur
 | `w` | Swap panes |
 | `L` / `R` | Make focused pane local / remote |
 | `h` / `l` | Parent / enter directory |
-| `Enter` | Enter directory, or connect the selected host |
+| `Enter` | Enter directory, preview a file, or connect the selected host |
 | `j` / `k` | Move |
 | `g` / `G` | Top / bottom |
 | `f` | Fuzzy jump |
@@ -102,6 +103,7 @@ See [GCP](/docs/features/gcp) / [AWS](/docs/features/aws) / [Azure](/docs/featur
 | `a` | Create directory |
 | `r` | Rename |
 | `i` | File info |
+| `o` | Preview file |
 | `p` | Permissions (chmod) |
 | `t` | Open a shell in the current directory |
 | `.` | Toggle hidden files |

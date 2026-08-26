@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"bast/internal/askpass"
-	"bast/internal/cloud"
 	"bast/internal/connectbanner"
 	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
@@ -76,7 +76,36 @@ func (c *connectionProcess) SetStderr(output io.Writer) {
 
 func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
-	if mouse.Button != tea.MouseLeft || m.help || m.credits || (m.statusError && m.status != "") {
+	if mouse.Button != tea.MouseLeft {
+		return m, nil
+	}
+	if m.onboarding {
+		if mouse.Y == 0 {
+			if sec, ok := tabAtX(mouse.X); ok {
+				event := "onboarding_skip"
+				switch sec {
+				case hostsSection:
+					event = "onboarding_continue"
+				case vaultSection:
+					event = "onboarding_vault"
+				case syncSection:
+					event = "onboarding_sync"
+				}
+				return m.afterOnboarding(event, func() tea.Cmd {
+					return m.switchToSection(sec)
+				})
+			}
+		}
+		return m, nil
+	}
+	if m.credits {
+		x, y, width := m.creditsSponsorBounds()
+		if width > 0 && mouse.Y == y && mouse.X >= x && mouse.X < x+width {
+			return m.openSponsor()
+		}
+		return m, nil
+	}
+	if m.help || m.doctor || (m.statusError && m.status != "") {
 		return m, nil
 	}
 	m.scrollbarDragging = false
@@ -143,7 +172,7 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		detailRow := mouse.Y - layout.detailTop
 		if detailRow == keyInstallActionRow && mouse.X >= detailX {
 			key, ok := m.selectedKey()
-			if ok && (key.PublicPath != "" || key.PrivatePath != "") && mouse.X < detailX+len(keyInstallAction) {
+			if ok && (key.PublicPath != "" || key.PrivatePath != "") && mouse.X < detailX+lipgloss.Width(m.keyInstallChip()) {
 				m.openInstallKeyForm()
 			}
 			return m, nil
@@ -204,7 +233,16 @@ func (m *App) updateMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
-	if m.credits || m.form != nil {
+	if m.credits || m.onboarding || m.form != nil {
+		return m, nil
+	}
+	if m.doctor {
+		switch msg.Mouse().Button {
+		case tea.MouseWheelUp:
+			m.scrollDoctor(-3)
+		case tea.MouseWheelDown:
+			m.scrollDoctor(3)
+		}
 		return m, nil
 	}
 	if m.help {
@@ -288,365 +326,18 @@ func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(m.search, "\x00") {
 		return m.updateSearch(key)
 	}
-	if m.credits {
-		if key == "?" {
-			m.credits, m.help, m.helpOffset = false, true, 0
-		} else if key == "q" {
-			return m, tea.Quit
-		} else if key == "v" || key == "esc" || key == "backspace" || key == "ctrl+h" {
-			m.credits = false
-		}
-		return m, nil
-	}
-	if m.help {
-		switch key {
-		case "v":
-			m.help, m.credits, m.helpOffset = false, true, 0
-		case "q":
-			return m, tea.Quit
-		case "?", "esc", "backspace", "ctrl+h":
-			m.help, m.helpOffset = false, 0
-		case "up", "k":
-			m.scrollHelp(-1)
-		case "down", "j":
-			m.scrollHelp(1)
-		case "pgup":
-			m.scrollHelp(-m.helpBodyHeight())
-		case "pgdown":
-			m.scrollHelp(m.helpBodyHeight())
-		case "g", "home":
-			m.helpOffset = 0
-		case "G", "end":
-			m.helpOffset = m.maxHelpOffset()
-		}
-		return m, nil
-	}
-	switch key {
-	case "ctrl+c":
-		return m, tea.Quit
-	case "q":
-		if m.filesTyping() {
-			break
-		}
-		return m, tea.Quit
-	case "?":
-		m.help, m.helpOffset = true, 0
-		return m, nil
-	case "1", "2", "3", "4", "5":
-		if m.filesTyping() {
-			break
-		}
-		switch key {
-		case "1":
-			return m, m.switchToSection(hostsSection)
-		case "2":
-			return m, m.switchToSection(keysSection)
-		case "3":
-			return m, m.switchToSection(vaultSection)
-		case "4":
-			return m, m.switchToSection(syncSection)
-		case "5":
-			return m, m.switchToSection(filesSection)
-		}
-	case "v":
-		if m.section != filesSection {
-			m.credits = true
-			return m, nil
-		}
-	}
 	if m.section == filesSection {
 		m.initFilesState()
 		pane := m.filesFocusedPane()
 		if pane.pathEdit && !m.files.transfer.active && !pane.connecting && !m.files.jump.active {
 			return m.updateFilesPathInputMsg(pane, msg)
 		}
-		return m.updateFilesKeys(key)
+		if m.filesOverlay() {
+			return m.updateFilesKeys(key)
+		}
 	}
-	switch key {
-	case ".":
-		if m.section == hostsSection {
-			kind, name := m.hostCursorKey()
-			m.showHidden = !m.showHidden
-			m.restoreHostCursor(kind, name)
-			if m.showHidden {
-				return m, m.setNotice("Showing hidden and stopped hosts")
-			}
-			return m, m.setNotice("Hidden and stopped hosts concealed")
-		}
-	case "esc":
-		if m.section == syncSection && m.syncProvider != "" {
-			return m.updateSyncKeys(key)
-		}
-		return m, tea.Quit
-	case "backspace", "ctrl+h":
-		if m.section == syncSection && m.syncProvider != "" {
-			return m.updateSyncKeys(key)
-		}
-		return m, tea.Quit
-	case "up", "k":
-		if m.section == syncSection {
-			return m.updateSyncKeys(key)
-		}
-		if m.section == vaultSection {
-			return m.updateVaultKeys(key)
-		}
-		if m.cursor > 0 {
-			m.cursor--
-		}
-	case "down", "j":
-		if m.section == syncSection {
-			return m.updateSyncKeys(key)
-		}
-		if m.section == vaultSection {
-			return m.updateVaultKeys(key)
-		}
-		if m.cursor+1 < m.itemCount() {
-			m.cursor++
-		}
-	case "left", "right", "l":
-		if m.section == syncSection {
-			return m.updateSyncKeys(key)
-		}
-	case "home", "g":
-		if m.section == syncSection {
-			return m.updateSyncKeys(key)
-		}
-		if m.section == vaultSection {
-			return m.updateVaultKeys(key)
-		}
-		m.cursor = 0
-	case "end", "G":
-		if m.section == syncSection {
-			return m.updateSyncKeys(key)
-		}
-		if m.section == vaultSection {
-			return m.updateVaultKeys(key)
-		}
-		if m.itemCount() > 0 {
-			m.cursor = m.itemCount() - 1
-		}
-	case "/":
-		if m.section == syncSection || m.section == vaultSection {
-			return m, nil
-		}
-		m.search = "\x00"
-		m.cursor = 0
-	case "r":
-		if m.section == syncSection {
-			return m.updateSyncKeys(key)
-		}
-		if m.section == vaultSection {
-			return m.updateVaultKeys(key)
-		}
-		if m.section == hostsSection {
-			if host, ok := m.selectedHost(); ok {
-				if cmd := m.resumeSyncedHost(host, false); cmd != nil {
-					return m, cmd
-				}
-			}
-		}
-		m.loading = true
-		m.enriching = false
-		return m, tea.Batch(m.loadCmd(), m.setNotice("Reloading OpenSSH files…"))
-	case "s":
-		if m.section == syncSection {
-			return m.updateSyncKeys(key)
-		}
-		if m.section == hostsSection {
-			if kind, ok := m.selectedProviderRoot(); ok {
-				return m.syncProviderFromHosts(kind)
-			}
-			return m, m.cycleSort()
-		}
-	case "space":
-		if m.section == syncSection {
-			return m.updateSyncKeys(key)
-		}
-		if m.section == hostsSection {
-			if m.historySuggestionsHeaderSelected() {
-				return m, m.toggleHistorySuggestions()
-			}
-			return m, m.toggleSelectedGroup()
-		}
-	case "[":
-		if m.section == hostsSection {
-			return m, m.collapseAllGroups()
-		}
-	case "]":
-		if m.section == hostsSection {
-			return m, m.expandAllGroups()
-		}
-	case "a":
-		if m.section == syncSection || m.section == vaultSection {
-			return m, nil
-		}
-		if m.section == hostsSection {
-			m.openAddHostForm()
-		} else {
-			m.openGenerateForm()
-		}
-	case "e":
-		if m.section == syncSection || m.section == vaultSection {
-			return m, nil
-		}
-		if m.section == hostsSection {
-			if _, ok := m.selectedHistorySuggestion(); ok {
-				m.openHistoryHostForm()
-			} else if _, ok := m.selectedGroupHeader(); ok {
-				m.openEditGroupForm()
-			} else {
-				if host, ok := m.selectedHost(); ok && (m.loading || m.enriching) && host.Resolved.HostName == "" {
-					return m, m.setNotice("Host details are still loading")
-				}
-				m.openEditHostForm()
-			}
-		} else {
-			m.openEditKeyForm()
-		}
-	case "m":
-		if m.section == hostsSection {
-			m.openGroupAssignmentForm()
-		}
-	case "d":
-		if m.section == vaultSection {
-			return m, nil
-		}
-		if m.section == syncSection {
-			return m.updateSyncKeys(key)
-		}
-		if m.section == hostsSection {
-			if host, ok := m.selectedHost(); ok && m.deleteSyncedHost(host) {
-				return m, nil
-			}
-			m.openDeleteHostForm()
-		} else {
-			m.openDeleteKeyForm()
-		}
-	case "i":
-		if m.section == keysSection {
-			m.openImportForm()
-		}
-	case "x":
-		if m.section == hostsSection {
-			return m, m.dismissSelectedHistorySuggestion()
-		}
-		if m.section == keysSection {
-			m.openExportForm()
-		}
-	case "u":
-		if m.section == keysSection {
-			m.openInstallKeyForm()
-		}
-	case "p":
-		if m.section == hostsSection {
-			return m, m.promoteSelectedHost()
-		}
-		if m.section == keysSection {
-			if key, ok := m.selectedKey(); ok && !key.Managed {
-				return m, m.promoteSelectedKey()
-			}
-			return m.runPassphraseAction()
-		}
-	case "c":
-		if m.section == keysSection {
-			selected, ok := m.selectedKey()
-			if ok {
-				public, err := m.keyring.PublicText(selected)
-				if err != nil {
-					m.setError(err)
-				} else {
-					return m, tea.Batch(tea.SetClipboard(public), m.setNotice("Public key copied"))
-				}
-			}
-		}
-	case "K":
-		if m.section == hostsSection {
-			m.openKnownHostForm()
-		}
-	case "o":
-		if m.section == syncSection {
-			return m.updateSyncKeys(key)
-		}
-		if m.section == hostsSection {
-			if host, ok := m.selectedHost(); ok {
-				return m.stopSyncedHost(host)
-			}
-		}
-	case "n":
-		if m.section == syncSection {
-			return m.updateSyncKeys(key)
-		}
-		if m.section == hostsSection {
-			if kind, ok := m.selectedProviderRoot(); ok && cloud.CapabilitiesFor(kind).Create {
-				return m.runProviderGroupCreate(kind)
-			}
-			if host, ok := m.selectedHost(); ok {
-				return m.forkSyncedHost(host)
-			}
-		}
-	case "f":
-		if m.section == hostsSection {
-			if host, ok := m.selectedHost(); ok {
-				if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash") {
-					return m, m.setNotice("Synced sandbox hosts are read-only")
-				}
-				_, err := m.metadata.ToggleFavorite(host.Alias)
-				if err != nil {
-					m.setError(err)
-				} else {
-					m.sortHosts()
-					m.cursor = 0
-				}
-			}
-		}
-	case "F":
-		if m.section == hostsSection {
-			if host, ok := m.selectedHost(); ok {
-				return m, m.openFilesForHost(host)
-			}
-		}
-	case "h":
-		if m.section == syncSection {
-			return m.updateSyncKeys(key)
-		}
-		if m.section == hostsSection {
-			if host, ok := m.selectedHost(); ok {
-				if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash") {
-					return m, m.setNotice("Synced sandbox hosts are read-only")
-				}
-				hidden, err := m.metadata.ToggleHidden(host.Alias)
-				if err != nil {
-					m.setError(err)
-				} else {
-					m.refreshHostMetadata()
-					notice := "Host hidden"
-					if !hidden {
-						notice = "Host shown"
-					}
-					m.clampCursor()
-					return m, m.setNotice(notice)
-				}
-			}
-		}
-	case "enter":
-		if m.section == syncSection {
-			return m.updateSyncKeys(key)
-		}
-		if m.section == vaultSection {
-			return m.updateVaultKeys(key)
-		}
-		if m.section == hostsSection {
-			if m.historySuggestionsHeaderSelected() {
-				return m, m.toggleHistorySuggestions()
-			}
-			if _, ok := m.selectedHistorySuggestion(); ok {
-				return m.importSelectedHistorySuggestion()
-			}
-			if _, groupSelected := m.selectedGroupHeader(); groupSelected {
-				return m, m.toggleSelectedGroup()
-			}
-			return m.connectSelected()
-		}
+	if b, ok := m.matchBinding(key); ok {
+		return m.dispatch(b.ID)
 	}
 	return m, nil
 }

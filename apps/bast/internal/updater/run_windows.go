@@ -71,6 +71,12 @@ func systemPowerShell() string {
 	return "powershell.exe"
 }
 
+func linuxPackageChannel(string) Channel { return ChannelOther }
+
+func rpmUpgradeSuggestion() string { return "sudo dnf upgrade bast" }
+
+func pacmanBinUpgradeSuggestion() string { return "sudo pacman -Syu bast-bin" }
+
 func wingetInstalled(executable string) bool {
 	path := strings.ToLower(filepath.ToSlash(executable))
 	return strings.Contains(path, "/microsoft/winget/packages/ellipsesoftware.bast_") ||

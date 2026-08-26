@@ -15,6 +15,8 @@ Include ~/.ssh/bast/config
 
 New hosts you create through Bast are written to that managed file. Everything else stays where it already lives.
 
+`Include` must stay above any `Host` or `Match` block. OpenSSH otherwise treats it as part of the preceding host, and Bast-managed hosts never apply. `bast doctor` flags that as `ssh_config.include_not_toplevel`.
+
 ## Discovery
 
 Bast discovers hosts from your main config and every file it includes. Externally managed blocks keep their original source path. Bast-managed blocks are marked so you know which ones it owns.
