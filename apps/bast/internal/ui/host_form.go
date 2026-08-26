@@ -102,15 +102,23 @@ func (f *form) sectionFieldIndices(section string) []int {
 	return out
 }
 
+func hostHubInline(id string) bool {
+	switch id {
+	case "label", "hostname", "user":
+		return true
+	default:
+		return false
+	}
+}
+
 func hostHubItems(f *form) []hostHubItem {
 	items := []hostHubItem{
 		{id: "label", title: "Label", section: formSectionBasics},
 	}
 	if f.action != "metadata_edit" {
-		items = append(items, hostHubItem{id: "hostname", title: "Hostname", section: formSectionBasics})
-	}
-	if f.action != "metadata_edit" {
 		items = append(items,
+			hostHubItem{id: "hostname", title: "Hostname", section: formSectionBasics},
+			hostHubItem{id: "user", title: "User", section: formSectionBasics},
 			hostHubItem{id: "auth", title: "Authentication", section: formSectionAuth},
 			hostHubItem{id: "advanced", title: "Advanced", section: formSectionAdvanced},
 		)
@@ -123,23 +131,11 @@ func (m *App) hostFormSummary(section string) string {
 	f := m.form
 	switch section {
 	case formSectionAuth:
-		user := fieldDisplay(f, "User")
-		port := fieldDisplay(f, "Port")
 		identity := authSummary(f)
-		parts := []string{}
-		if user != "" && user != "-" {
-			parts = append(parts, user)
-		}
-		if port != "" && port != "-" && port != "22" {
-			parts = append(parts, "port "+port)
-		}
-		if identity != "" {
-			parts = append(parts, identity)
-		}
-		if len(parts) == 0 {
+		if identity == "" {
 			return "OpenSSH defaults"
 		}
-		return strings.Join(parts, " · ")
+		return identity
 	case formSectionAdvanced:
 		return m.hostAdvancedSummary()
 	case formSectionMetadata:
@@ -166,7 +162,7 @@ func fieldDisplay(f *form, label string) string {
 	}
 	if len(item.options) > 0 && !item.options[item.selected].custom {
 		if item.options[item.selected].value == passwordOnlyIdentity {
-			return "Password only"
+			return "Password"
 		}
 		return item.options[item.selected].label
 	}
@@ -178,7 +174,7 @@ func fieldDisplay(f *form, label string) string {
 }
 
 func authSummary(f *form) string {
-	item := f.fieldByLabel("Identity file")
+	item := f.fieldByLabel(methodFieldLabel)
 	if item == nil {
 		return ""
 	}
@@ -218,6 +214,7 @@ func (m *App) openHostForm(title, action string, fields []field) {
 	}
 	m.hostSaveHintID++
 	m.hostSaveHintEnter = false
+	m.syncHostPasswordField()
 	m.focusHostHubItem()
 }
 
@@ -235,7 +232,7 @@ func (m *App) focusHostHubItem() {
 		f.hubIndex = 0
 	}
 	item := items[f.hubIndex]
-	if item.id == "label" || item.id == "hostname" {
+	if hostHubInline(item.id) {
 		idx := f.fieldIndex(item.title)
 		if idx >= 0 {
 			f.index = idx
@@ -307,7 +304,7 @@ func (m *App) commitHostHubField() {
 		return
 	}
 	item := items[f.hubIndex]
-	if item.id == "label" || item.id == "hostname" {
+	if hostHubInline(item.id) {
 		m.commitFormField()
 	}
 }
@@ -355,18 +352,16 @@ func (m *App) hostHubEnter() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	item := items[f.hubIndex]
-	switch item.id {
-	case "label", "hostname":
+	if hostHubInline(item.id) {
 		m.commitFormField()
 		if f.hubIndex+1 < len(items) {
 			f.hubIndex++
 			m.focusHostHubItem()
 		}
 		return m, nil
-	default:
-		m.enterHostSection(item.section)
-		return m, nil
 	}
+	m.enterHostSection(item.section)
+	return m, nil
 }
 
 func (m *App) hostSectionEnter() (tea.Model, tea.Cmd) {
@@ -379,6 +374,13 @@ func (m *App) hostSectionEnter() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.commitFormField()
+		if item.label == methodFieldLabel && item.value == passwordOnlyIdentity {
+			if idx := f.fieldIndex(passwordFieldLabel); idx >= 0 && !f.fields[idx].hidden {
+				f.index = idx
+				f.selecting = false
+				m.focusFormField()
+			}
+		}
 		return m, nil
 	}
 	if len(item.options) > 0 && !item.options[item.selected].custom {
@@ -418,7 +420,7 @@ func (m *App) updateHostForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	item := hostHubItems(f)[f.hubIndex]
-	if item.id == "label" || item.id == "hostname" {
+	if hostHubInline(item.id) {
 		switch key {
 		case "esc":
 			m.form = nil
@@ -736,6 +738,12 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 		value := item.value
 		if len(item.options) > 0 && !item.options[item.selected].custom {
 			value = item.options[item.selected].label
+		} else if item.secret {
+			if strings.TrimSpace(item.value) != "" {
+				value = "********"
+			} else {
+				value = "-"
+			}
 		}
 		if value == "" {
 			value = "-"
@@ -775,7 +783,7 @@ func hostFormHint(f *form, textInputActive, showEnterKey bool) string {
 	items := hostHubItems(f)
 	if f.hubIndex >= 0 && f.hubIndex < len(items) {
 		hub := items[f.hubIndex]
-		if hub.id == "label" || hub.id == "hostname" {
+		if hostHubInline(hub.id) {
 			return "Enter next • ↑/↓ or Tab move • " + save + " • q type • Esc cancel"
 		}
 	}
@@ -792,13 +800,15 @@ func hostFormFields(m *App, meta metadataHostValues, conn hostConnectionValues, 
 		field{label: "Label", section: formSectionBasics, description: labelDesc, value: meta.label, placeholder: "Work/api"},
 	)
 	if conn.includeConnection {
+		method := m.methodField(conn.identity, conn.passwordOnly)
+		method.section = formSectionAuth
 		fields = append(fields,
 			field{label: "Hostname", section: formSectionBasics, description: descHostHostname, value: conn.hostname, placeholder: "server.example.com"},
-			field{label: "User", section: formSectionAuth, description: descHostUser, value: conn.user, placeholder: "ubuntu", optional: true},
+			field{label: "User", section: formSectionBasics, description: descHostUser, value: conn.user, placeholder: "ubuntu", optional: true},
+			method,
+			m.passwordField(conn.passwordStored),
 			field{label: "Port", section: formSectionAuth, description: descHostPort, value: conn.port, placeholder: "22", optional: true},
 		)
-		fields = append(fields, m.identityField(conn.identity, conn.passwordOnly))
-		fields[len(fields)-1].section = formSectionAuth
 		fields = append(fields, advancedFormFields(m, conn.advanced)...)
 	}
 	fields = append(fields,
@@ -819,6 +829,7 @@ type hostConnectionValues struct {
 	hostname, user, port string
 	identity             string
 	passwordOnly         bool
+	passwordStored       bool
 	advanced             sshconfig.AdvancedSettings
 }
 

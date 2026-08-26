@@ -36,6 +36,8 @@ Labels with spaces work when quoted. Bast resolves them to the correct SSH alias
 
 Bast always launches your system's `ssh` binary. There is no proprietary runtime or custom transport. Whatever works in your terminal with plain `ssh` will work through Bast.
 
+If a host has a password stored in Bast, connect (and Files/SFTP) set `SSH_ASKPASS` so Bast types that password. Hosts without a stored password still prompt in the terminal as usual. Stored passwords are for password-only hosts without a second factor. Jump-host passwords and OTP prompts are not filled.
+
 For browsing and transferring files without a full shell session, use the [Files](/docs/features/files) tab (OpenSSH SFTP over the same host config).
 
 ## During a session

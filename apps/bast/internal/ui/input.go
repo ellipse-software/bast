@@ -11,7 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	upstashcloud "bast/internal/cloud/upstash"
+	"bast/internal/askpass"
 	"bast/internal/connectbanner"
 	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
@@ -407,15 +407,24 @@ func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	return m.startSSH(host, nil)
 }
 
+func (m *App) bastExecutable() string {
+	if m.syncer != nil {
+		return m.syncer.BastExecutable
+	}
+	return ""
+}
+
+func (m *App) prepareSSH(cmd *exec.Cmd, host sshconfig.Host) {
+	askpass.Prepare(cmd, m.bastExecutable(), host, m.paths.PasswordsDir)
+}
+
 func (m *App) startSSH(host sshconfig.Host, prepare func(func(string)) error) (tea.Model, tea.Cmd) {
 	cmd, err := m.openSSH.SSHCommand(host.Alias)
 	if err != nil {
 		m.setError(err)
 		return m, nil
 	}
-	if host.Synced && host.SyncSource == "upstash" {
-		upstashcloud.PrepareSSH(cmd, m.syncer.BastExecutable)
-	}
+	m.prepareSSH(cmd, host)
 	if prepare == nil {
 		if err := m.metadata.RecordUse(host.Alias); err != nil {
 			m.setError(err)

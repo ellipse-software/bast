@@ -18,6 +18,8 @@ import (
 
 	"github.com/charmbracelet/x/term"
 
+	"bast/internal/askpass"
+	"bast/internal/hostpass"
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/openssh"
@@ -244,15 +246,15 @@ Commands: list, show, add, edit, delete, promote, favorite, unfavorite, hide,
 		"hosts show": "Usage: bast hosts show <host>",
 		"hosts add": `Usage: bast hosts add [label] --hostname host [options]
 
-Connection: --user, --port, --identity, --password-only, --proxy-jump
+Connection: --user, --port, --identity, --password, --password-only, --proxy-jump
 Advanced: --forward-agent, --startup-command, --request-tty, --set-env,
           --local-forward, --remote-forward, --dynamic-forward, --compression,
           --keepalive, --ssh-option
 Metadata: label paths like Work/api set the group; or --group, --tag, --environment, --color, --notes`,
 		"hosts edit": `Usage: bast hosts edit <host> [options]
 
-Connection: --label, --hostname, --user, --port, --identity, --password-only,
-            --proxy-jump
+Connection: --label, --hostname, --user, --port, --identity, --password,
+            --password-only, --clear-password, --proxy-jump
 Advanced: --forward-agent, --startup-command, --request-tty, --set-env,
           --local-forward, --remote-forward, --dynamic-forward, --compression,
           --keepalive, --ssh-option
@@ -347,6 +349,7 @@ type hostRecord struct {
 	Port            string                     `json:"port"`
 	IdentityFiles   []string                   `json:"identityFiles"`
 	Authentication  string                     `json:"authentication"`
+	PasswordStored  bool                       `json:"passwordStored,omitempty"`
 	ProxyJump       string                     `json:"proxyJump"`
 	Advanced        sshconfig.AdvancedSettings `json:"advanced"`
 	Group           string                     `json:"group"`
@@ -478,7 +481,9 @@ func (r *Runner) load(ctx context.Context) ([]hostRecord, []keyRecord, error) {
 		}
 		hostRecords[i] = hostRecord{
 			Alias: hosts[i].Alias, Label: label, Hostname: resolved.HostName, User: resolved.User, Port: resolved.Port,
-			IdentityFiles: nonNil(resolved.IdentityFiles), Authentication: auth, ProxyJump: emptyNone(resolved.ProxyJump), Advanced: adv,
+			IdentityFiles: nonNil(resolved.IdentityFiles), Authentication: auth,
+			PasswordStored: hosts[i].Managed && hostpass.Exists(r.Paths.PasswordsDir, hosts[i].ManagedID),
+			ProxyJump:      emptyNone(resolved.ProxyJump), Advanced: adv,
 			Group: meta.Group,
 			Tags:  nonNil(meta.Tags), Environment: meta.Environment, Color: meta.Color, Notes: meta.Notes, Favorite: meta.Favorite,
 			Hidden: meta.Hidden, Managed: hosts[i].Managed, Synced: hosts[i].Synced, SyncSource: hosts[i].SyncSource,
@@ -561,6 +566,10 @@ func emptyNone(value string) string {
 	}
 	return value
 }
+func (r *Runner) prepareSSH(cmd *exec.Cmd, host sshconfig.Host) {
+	askpass.Prepare(cmd, "", host, r.Paths.PasswordsDir)
+}
+
 func emptyDefault(value string) string {
 	if value == "" {
 		return "default"

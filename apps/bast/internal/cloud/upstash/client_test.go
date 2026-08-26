@@ -223,6 +223,9 @@ func TestApplyAskPass(t *testing.T) {
 	if !strings.Contains(joined, AskPassEnv+"="+AskPassValue) {
 		t.Fatalf("env = %s", joined)
 	}
+	if !strings.Contains(joined, "BAST_SSH_ASKPASS_KIND=upstash") {
+		t.Fatalf("kind env = %s", joined)
+	}
 	if !strings.Contains(joined, "SSH_ASKPASS=/usr/bin/bast") || strings.Contains(joined, "SSH_ASKPASS=old") {
 		t.Fatalf("askpass env = %s", joined)
 	}
