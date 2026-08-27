@@ -9,18 +9,19 @@ import (
 )
 
 type Instance struct {
-	SyncID     string
-	Name       string
-	ProjectID  string
-	State      string
-	HostName   string
-	Running    bool
-	Persistent bool
-	VCPUs      int
-	Runtime    string
-	SessionID  string
-	CWD        string
-	Tags       []string
+	SyncID         string
+	Name           string
+	ProjectID      string
+	State          string
+	HostName       string
+	Running        bool
+	Persistent     bool
+	VCPUs          int
+	Runtime        string
+	SessionID      string
+	CWD            string
+	Tags           []string
+	SplitByProject bool
 }
 
 type Discovery struct {
@@ -31,35 +32,47 @@ type Discovery struct {
 }
 
 func (c *Client) Discover(ctx context.Context, _ struct{}) (Discovery, error) {
-	account, err := c.Account(ctx)
-	if err != nil {
-		return Discovery{}, err
+	if !c.HasToken() {
+		return Discovery{}, fmt.Errorf("no access token; connect on the Sync tab or set " + TokenEnv)
 	}
-	if !account.Authenticated {
-		msg := account.Error
-		if msg == "" {
-			msg = "not authenticated; connect on the Sync tab or set " + TokenEnv
-		}
-		return Discovery{}, fmt.Errorf("%s", msg)
+	if c.ResolveTeam() == "" {
+		return Discovery{}, fmt.Errorf("team is required")
 	}
 	sandboxes, err := c.List(ctx)
 	if err != nil {
+		msg := err.Error()
+		lower := strings.ToLower(msg)
+		if strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "invalid") {
+			return Discovery{}, fmt.Errorf("%s", msg)
+		}
 		return Discovery{}, err
 	}
-	project := c.ResolveProject()
+	fallback := c.ResolveProject()
 	instances := make([]Instance, 0, len(sandboxes))
 	var unrestorable []string
+	projects := map[string]bool{}
 	for _, box := range sandboxes {
 		box, drop := c.confirmUnrestorable(ctx, box)
+		project := strings.TrimSpace(box.ProjectID)
+		if project == "" {
+			project = fallback
+		}
 		if drop {
 			if name := strings.TrimSpace(box.Name); name != "" {
-				unrestorable = append(unrestorable, name)
+				unrestorable = append(unrestorable, SyncID(project, name))
 			}
 			continue
 		}
 		if inst, ok := instanceFromSandbox(box, project); ok {
+			if inst.ProjectID != "" {
+				projects[inst.ProjectID] = true
+			}
 			instances = append(instances, inst)
 		}
+	}
+	split := len(projects) > 1
+	for i := range instances {
+		instances[i].SplitByProject = split
 	}
 	sort.Slice(instances, func(i, j int) bool {
 		if instances[i].Running != instances[j].Running {
@@ -83,7 +96,11 @@ func (c *Client) Unrestorable(ctx context.Context) ([]string, error) {
 			continue
 		}
 		if name := strings.TrimSpace(box.Name); name != "" {
-			names = append(names, name)
+			project := strings.TrimSpace(box.ProjectID)
+			if project == "" {
+				project = c.ResolveProject()
+			}
+			names = append(names, SyncID(project, name))
 		}
 	}
 	sort.Strings(names)
@@ -106,7 +123,11 @@ func (c *Client) CleanupUnrestorable(ctx context.Context) ([]string, error) {
 		if name == "" {
 			continue
 		}
-		if err := c.Delete(ctx, SyncID(c.ResolveProject(), name)); err != nil && !isAPINotFound(err) {
+		project := strings.TrimSpace(box.ProjectID)
+		if project == "" {
+			project = c.ResolveProject()
+		}
+		if err := c.Delete(ctx, SyncID(project, name)); err != nil && !isAPINotFound(err) {
 			if first == nil {
 				first = fmt.Errorf("delete %s: %w", name, err)
 			}
@@ -127,7 +148,11 @@ func (c *Client) confirmUnrestorable(ctx context.Context, box Sandbox) (Sandbox,
 		return box, false
 	}
 	if box.Persistent && strings.TrimSpace(box.CurrentSnapshot) == "" {
-		info, err := c.Get(ctx, SyncID(c.ResolveProject(), name), false)
+		project := strings.TrimSpace(box.ProjectID)
+		if project == "" {
+			project = c.ResolveProject()
+		}
+		info, err := c.Get(ctx, SyncID(project, name), false)
 		if err != nil {
 			return box, false
 		}
@@ -177,6 +202,9 @@ func instanceFromSandbox(box Sandbox, projectID string) (Instance, bool) {
 	}
 	if box.Persistent {
 		tags = append(tags, "persistent")
+	}
+	if project := strings.TrimSpace(projectID); project != "" {
+		tags = append(tags, "project:"+project)
 	}
 	return Instance{
 		SyncID:     SyncID(projectID, name),

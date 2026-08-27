@@ -28,19 +28,16 @@ type Discovery struct {
 }
 
 func (c *Client) Discover(ctx context.Context, _ struct{}) (Discovery, error) {
-	account, err := c.Account(ctx)
-	if err != nil {
-		return Discovery{}, err
-	}
-	if !account.Authenticated {
-		msg := account.Error
-		if msg == "" {
-			msg = "not authenticated; connect on the Sync tab or set " + APIKeyEnv
-		}
-		return Discovery{}, fmt.Errorf("%s", msg)
+	if !c.HasKey() {
+		return Discovery{}, fmt.Errorf("no API key; connect on the Sync tab or set " + APIKeyEnv)
 	}
 	boxes, err := c.List(ctx)
 	if err != nil {
+		msg := err.Error()
+		lower := strings.ToLower(msg)
+		if strings.Contains(lower, "401") || strings.Contains(lower, "invalid") || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "api key") {
+			return Discovery{}, fmt.Errorf("%s", msg)
+		}
 		return Discovery{}, err
 	}
 	instances := make([]Instance, 0, len(boxes))

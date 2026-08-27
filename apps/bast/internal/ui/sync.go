@@ -197,8 +197,8 @@ func (m *App) providerDetail(provider string) providerDetail {
 		if integration.TeamID != "" {
 			statusRows = append(statusRows, providerRow{"Team", integration.TeamID})
 		}
-		if integration.ProjectID != "" {
-			statusRows = append(statusRows, providerRow{"Project", integration.ProjectID})
+		if projects := integration.Projects(); len(projects) > 0 {
+			statusRows = append(statusRows, providerRow{"Project", strings.Join(projects, ", ")})
 		}
 		if integration.Disabled {
 			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
@@ -2055,9 +2055,9 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		token := strings.TrimSpace(values["Access token"])
 		teamID := strings.TrimSpace(values["Team ID"])
 		projectID := strings.TrimSpace(values["Project ID"])
-		if token == "" || teamID == "" || projectID == "" {
+		if token == "" || teamID == "" {
 			if m.form != nil {
-				m.form.validationError = "token, team, and project are required"
+				m.form.validationError = "token and team are required"
 			}
 			return nil
 		}
@@ -2116,7 +2116,7 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 			defer cancel()
 			result, alias, err := m.syncer.NewVercel(ctx, vercelcloud.CreateOpts{
-				Name: values["Name"], VCPUs: vcpus, Timeout: timeout, Persistent: truthyForm(values["Persistent"]),
+				Name: values["Name"], Project: values["Project"], VCPUs: vcpus, Timeout: timeout, Persistent: truthyForm(values["Persistent"]),
 			})
 			if err != nil {
 				return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}

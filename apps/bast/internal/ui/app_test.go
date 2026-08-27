@@ -405,6 +405,36 @@ func TestCloudSyncRootShowsRightAlignedErrorIcon(t *testing.T) {
 	}
 }
 
+func TestVercelAndHetznerSyncErrorsShowIcon(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{Alias: "sandbox"}, {Alias: "web"}}
+	if err := m.metadata.SetHost("sandbox", metadata.Host{Group: "Vercel"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("web", metadata.Host{Group: "Hetzner Cloud/default/fsn1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetVercel(metadata.VercelIntegration{Enabled: true, LastSyncError: "team required"}); err != nil {
+		t.Fatal(err)
+	}
+	m.sortHosts()
+	if rendered := m.renderHosts(m.styles()); strings.Count(rendered, "⚠") != 1 {
+		t.Fatalf("expected Vercel error icon:\n%s", rendered)
+	}
+
+	vercel := m.metadata.Vercel()
+	vercel.LastSyncError = ""
+	if err := m.metadata.SetVercel(vercel); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHetzner(metadata.HetznerIntegration{Enabled: true, LastSyncError: "401"}); err != nil {
+		t.Fatal(err)
+	}
+	if rendered := m.renderHosts(m.styles()); strings.Count(rendered, "⚠") != 1 {
+		t.Fatalf("expected Hetzner error icon:\n%s", rendered)
+	}
+}
+
 func TestCloudSyncRootShowsCurrentCLIError(t *testing.T) {
 	m := testApp(t)
 	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Amazon EC2/default/eu-west-2"}); err != nil {

@@ -15,7 +15,10 @@ func (e *Engine) SyncUpstash(ctx context.Context) (Result, error) {
 		return Result{}, err
 	}
 	defer e.upstashMu.Unlock()
+	return e.syncUpstashLocked(ctx)
+}
 
+func (e *Engine) syncUpstashLocked(ctx context.Context) (Result, error) {
 	_ = e.Upstash.PersistResolvedKey()
 	discovery, err := e.Upstash.Discover(ctx, struct{}{})
 	now := time.Now().UTC()
@@ -29,103 +32,36 @@ func (e *Engine) SyncUpstash(ctx context.Context) (Result, error) {
 		return Result{Provider: upstashcloud.ProviderName, SyncedAt: now, Error: err.Error()}, err
 	}
 
-	existing, err := e.Discover(ctx)
-	if err != nil {
-		return Result{Provider: upstashcloud.ProviderName}, err
-	}
-	previousBlocks := map[string]sshconfig.SyncHostInput{}
-	if loaded, loadErr := sshconfig.LoadSyncHosts(e.Paths.SyncUpstashConfig); loadErr == nil {
-		for _, block := range loaded {
-			if block.SyncID != "" {
-				previousBlocks[block.SyncID] = block
-			}
-		}
-	}
-	usedAliases := map[string]bool{}
-	previousBySyncID := map[string]sshconfig.Host{}
-	for _, host := range existing {
-		if host.Synced && host.SyncSource == upstashcloud.ProviderName && host.SyncID != "" {
-			previousBySyncID[host.SyncID] = host
-			continue
-		}
-		usedAliases[host.Alias] = true
-	}
-
-	blocks := make([]sshconfig.SyncHostInput, 0, len(discovery.Instances))
-	aliases := make([]string, 0, len(discovery.Instances))
-	activeSyncIDs := map[string]bool{}
-	metadataUpdates := make([]hostMetadataUpdate, 0, len(discovery.Instances))
-	var metadataDeletes []string
+	rows := make([]sandboxRow, 0, len(discovery.Instances))
 	for _, inst := range discovery.Instances {
-		activeSyncIDs[inst.SyncID] = true
-		alias := ""
-		if prev, ok := previousBySyncID[inst.SyncID]; ok && !usedAliases[prev.Alias] {
-			alias = prev.Alias
-			usedAliases[alias] = true
-		} else {
-			alias = upstashcloud.UniqueAlias(upstashcloud.AliasFor(inst), usedAliases)
-			usedAliases[alias] = true
-		}
-		blocks = append(blocks, upstashcloud.ToSyncHost(inst, alias))
-		aliases = append(aliases, alias)
-		prevAlias := ""
-		if prev, ok := previousBySyncID[inst.SyncID]; ok {
-			prevAlias = prev.Alias
-		}
-		metadataUpdates = append(metadataUpdates, hostMetadataUpdate{
-			alias: alias, previousAlias: prevAlias, label: inst.Name,
-			group: upstashcloud.GroupPath(inst), tags: append([]string(nil), inst.Tags...),
+		rows = append(rows, sandboxRow{
+			Name:  inst.Name,
+			Group: upstashcloud.GroupPath(inst),
+			Tags:  append([]string(nil), inst.Tags...),
+			Block: upstashcloud.ToSyncHost(inst, upstashcloud.AliasFor(inst)),
 		})
 	}
-	if discovery.Complete {
-		for syncID, host := range previousBySyncID {
-			if activeSyncIDs[syncID] {
-				continue
-			}
-			metadataDeletes = append(metadataDeletes, host.Alias)
-		}
-	} else {
-		for syncID, host := range previousBySyncID {
-			if activeSyncIDs[syncID] {
-				continue
-			}
-			block, ok := previousBlocks[syncID]
-			if !ok {
-				block = sshconfig.SyncHostInput{
-					Alias: host.Alias, SyncSource: host.SyncSource, SyncID: host.SyncID, HostName: host.Alias,
-				}
-			}
-			usedAliases[block.Alias] = true
-			blocks = append(blocks, block)
-			aliases = append(aliases, block.Alias)
-		}
-	}
-	if err := e.Config.EnsureSyncInclude(e.Paths.SyncUpstashConfig); err != nil {
-		return Result{Provider: upstashcloud.ProviderName}, err
-	}
-	if err := sshconfig.WriteSyncConfig(e.Paths.SyncUpstashConfig, blocks); err != nil {
-		return Result{Provider: upstashcloud.ProviderName}, err
-	}
-	if err := e.applyMetadataUpdates(metadataUpdates, metadataDeletes); err != nil {
-		return Result{Provider: upstashcloud.ProviderName}, err
+	result, err := e.reconcileSyncedHosts(ctx, upstashcloud.ProviderName, e.Paths.SyncUpstashConfig, rows, discovery.Complete, discovery.Warnings)
+	if err != nil {
+		return result, err
 	}
 	latest := e.Store.Upstash()
 	latest.Enabled = true
 	latest.Disabled = false
-	latest.LastSyncAt = &now
+	latest.LastSyncAt = &result.SyncedAt
 	latest.LastSyncError = strings.Join(discovery.Warnings, "; ")
-	latest.LastInstanceCount = len(blocks)
+	latest.LastInstanceCount = result.Count
 	if err := e.Store.SetUpstash(latest); err != nil {
 		return Result{Provider: upstashcloud.ProviderName}, err
-	}
-	result := Result{Provider: upstashcloud.ProviderName, Count: len(blocks), SyncedAt: now, Aliases: aliases}
-	if len(discovery.Warnings) > 0 {
-		result.Error = strings.Join(discovery.Warnings, "; ")
 	}
 	return result, nil
 }
 
 func (e *Engine) MaybeAutoConnectUpstash(ctx context.Context) (Result, bool, error) {
+	if err := lockCtx(ctx, &e.upstashMu); err != nil {
+		return Result{}, false, err
+	}
+	defer e.upstashMu.Unlock()
 	integration := e.Store.Upstash()
 	if integration.Disabled {
 		return Result{}, false, nil
@@ -134,7 +70,7 @@ func (e *Engine) MaybeAutoConnectUpstash(ctx context.Context) (Result, bool, err
 		return Result{}, false, nil
 	}
 	if integration.Enabled && integration.AutoSync {
-		result, syncErr := e.SyncUpstash(ctx)
+		result, syncErr := e.syncUpstashLocked(ctx)
 		return result, true, syncErr
 	}
 	integration.Enabled = true
@@ -143,7 +79,7 @@ func (e *Engine) MaybeAutoConnectUpstash(ctx context.Context) (Result, bool, err
 	if err := e.Store.SetUpstash(integration); err != nil {
 		return Result{}, false, err
 	}
-	result, syncErr := e.SyncUpstash(ctx)
+	result, syncErr := e.syncUpstashLocked(ctx)
 	return result, true, syncErr
 }
 
@@ -155,11 +91,15 @@ func (e *Engine) SaveUpstashKey(ctx context.Context, key string) (Result, error)
 }
 
 func (e *Engine) NewUpstash(ctx context.Context, opts upstashcloud.CreateOpts) (Result, string, error) {
+	if err := lockCtx(ctx, &e.upstashMu); err != nil {
+		return Result{}, "", err
+	}
+	defer e.upstashMu.Unlock()
 	box, err := e.Upstash.Create(ctx, opts)
 	if err != nil && box.ID == "" {
 		return Result{}, "", err
 	}
-	result, syncErr := e.SyncUpstash(ctx)
+	result, syncErr := e.syncUpstashLocked(ctx)
 	alias := e.AliasForUpstashSyncID(ctx, box.ID)
 	if err != nil {
 		return result, alias, err
@@ -168,11 +108,15 @@ func (e *Engine) NewUpstash(ctx context.Context, opts upstashcloud.CreateOpts) (
 }
 
 func (e *Engine) ForkUpstash(ctx context.Context, syncID string) (Result, string, error) {
+	if err := lockCtx(ctx, &e.upstashMu); err != nil {
+		return Result{}, "", err
+	}
+	defer e.upstashMu.Unlock()
 	id, err := e.Upstash.Fork(ctx, syncID)
 	if err != nil && id == "" {
 		return Result{}, "", err
 	}
-	result, syncErr := e.SyncUpstash(ctx)
+	result, syncErr := e.syncUpstashLocked(ctx)
 	alias := e.AliasForUpstashSyncID(ctx, id)
 	if err != nil {
 		return result, alias, err
@@ -181,24 +125,36 @@ func (e *Engine) ForkUpstash(ctx context.Context, syncID string) (Result, string
 }
 
 func (e *Engine) StopUpstash(ctx context.Context, syncID string) (Result, error) {
+	if err := lockCtx(ctx, &e.upstashMu); err != nil {
+		return Result{}, err
+	}
+	defer e.upstashMu.Unlock()
 	if err := e.Upstash.Pause(ctx, syncID); err != nil {
 		return Result{}, err
 	}
-	return e.SyncUpstash(ctx)
+	return e.syncUpstashLocked(ctx)
 }
 
 func (e *Engine) ResumeUpstash(ctx context.Context, syncID string) (Result, error) {
+	if err := lockCtx(ctx, &e.upstashMu); err != nil {
+		return Result{}, err
+	}
+	defer e.upstashMu.Unlock()
 	if err := e.Upstash.Resume(ctx, syncID); err != nil {
 		return Result{}, err
 	}
-	return e.SyncUpstash(ctx)
+	return e.syncUpstashLocked(ctx)
 }
 
 func (e *Engine) DeleteUpstash(ctx context.Context, syncID string) (Result, error) {
+	if err := lockCtx(ctx, &e.upstashMu); err != nil {
+		return Result{}, err
+	}
+	defer e.upstashMu.Unlock()
 	if err := e.Upstash.Delete(ctx, syncID); err != nil {
 		return Result{}, err
 	}
-	return e.SyncUpstash(ctx)
+	return e.syncUpstashLocked(ctx)
 }
 
 func (e *Engine) ResolveUpstashSyncID(ctx context.Context, hostOrID string) (string, error) {
@@ -212,42 +168,17 @@ func (e *Engine) ResolveUpstashSyncID(ctx context.Context, hostOrID string) (str
 	if err != nil {
 		return "", err
 	}
-	for _, host := range hosts {
-		if host.Synced && host.SyncSource == upstashcloud.ProviderName &&
-			(host.Alias == hostOrID || strings.EqualFold(host.Alias, hostOrID)) {
-			return host.SyncID, nil
-		}
+	if aliasID, labels := e.matchSyncedID(hosts, upstashcloud.ProviderName, hostOrID); aliasID != "" {
+		return aliasID, nil
+	} else if len(labels) == 1 {
+		return labels[0], nil
+	} else {
+		return "", resolveMatchError("upstash", hostOrID, "pass an alias or box id", "sync with bast sync upstash", labels)
 	}
-	var matches []string
-	for _, host := range hosts {
-		if !host.Synced || host.SyncSource != upstashcloud.ProviderName {
-			continue
-		}
-		meta := e.Store.Host(host.Alias)
-		if meta.Label != "" && strings.EqualFold(meta.Label, hostOrID) {
-			matches = append(matches, host.SyncID)
-		}
-	}
-	if len(matches) == 1 {
-		return matches[0], nil
-	}
-	if len(matches) > 1 {
-		return "", fmt.Errorf("upstash label %q matches %d hosts; pass an alias or box id", hostOrID, len(matches))
-	}
-	return "", fmt.Errorf("upstash host %q not found; sync with bast sync upstash", hostOrID)
 }
 
 func (e *Engine) AliasForUpstashSyncID(ctx context.Context, syncID string) string {
-	hosts, err := e.Discover(ctx)
-	if err != nil {
-		return ""
-	}
-	for _, host := range hosts {
-		if host.Synced && host.SyncSource == upstashcloud.ProviderName && host.SyncID == syncID {
-			return host.Alias
-		}
-	}
-	return ""
+	return e.aliasFromHosts(ctx, upstashcloud.ProviderName, syncID)
 }
 
 func (e *Engine) EnsureUpstashAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
@@ -297,10 +228,8 @@ func (e *Engine) DisableUpstash(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, host := range existing {
-		if host.Synced && host.SyncSource == upstashcloud.ProviderName {
-			_ = e.Store.DeleteHost(host.Alias)
-		}
+	if err := e.deleteSyncedHostMetadata(existing, upstashcloud.ProviderName); err != nil {
+		return err
 	}
 	if err := e.Config.RemoveSyncInclude(e.Paths.SyncUpstashConfig); err != nil {
 		return err

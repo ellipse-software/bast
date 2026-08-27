@@ -15,8 +15,10 @@ func (e *Engine) applyVercelScope() {
 	if team := strings.TrimSpace(integration.TeamID); team != "" {
 		e.Vercel.TeamID = team
 	}
-	if project := strings.TrimSpace(integration.ProjectID); project != "" {
-		e.Vercel.ProjectID = project
+	projects := integration.Projects()
+	e.Vercel.ProjectIDs = append([]string(nil), projects...)
+	if len(projects) > 0 {
+		e.Vercel.ProjectID = projects[0]
 	}
 }
 
@@ -25,7 +27,10 @@ func (e *Engine) SyncVercel(ctx context.Context) (Result, error) {
 		return Result{}, err
 	}
 	defer e.vercelMu.Unlock()
+	return e.syncVercelLocked(ctx)
+}
 
+func (e *Engine) syncVercelLocked(ctx context.Context) (Result, error) {
 	e.applyVercelScope()
 	_ = e.Vercel.PersistResolvedToken()
 	discovery, err := e.Vercel.Discover(ctx, struct{}{})
@@ -40,104 +45,37 @@ func (e *Engine) SyncVercel(ctx context.Context) (Result, error) {
 		return Result{Provider: vercelcloud.ProviderName, SyncedAt: now, Error: err.Error()}, err
 	}
 
-	existing, err := e.Discover(ctx)
-	if err != nil {
-		return Result{Provider: vercelcloud.ProviderName}, err
-	}
-	previousBlocks := map[string]sshconfig.SyncHostInput{}
-	if loaded, loadErr := sshconfig.LoadSyncHosts(e.Paths.SyncVercelConfig); loadErr == nil {
-		for _, block := range loaded {
-			if block.SyncID != "" {
-				previousBlocks[block.SyncID] = block
-			}
-		}
-	}
-	usedAliases := map[string]bool{}
-	previousBySyncID := map[string]sshconfig.Host{}
-	for _, host := range existing {
-		if host.Synced && host.SyncSource == vercelcloud.ProviderName && host.SyncID != "" {
-			previousBySyncID[host.SyncID] = host
-			continue
-		}
-		usedAliases[host.Alias] = true
-	}
-
-	blocks := make([]sshconfig.SyncHostInput, 0, len(discovery.Instances))
-	aliases := make([]string, 0, len(discovery.Instances))
-	activeSyncIDs := map[string]bool{}
-	metadataUpdates := make([]hostMetadataUpdate, 0, len(discovery.Instances))
-	var metadataDeletes []string
+	rows := make([]sandboxRow, 0, len(discovery.Instances))
 	for _, inst := range discovery.Instances {
-		activeSyncIDs[inst.SyncID] = true
-		alias := ""
-		if prev, ok := previousBySyncID[inst.SyncID]; ok && !usedAliases[prev.Alias] {
-			alias = prev.Alias
-			usedAliases[alias] = true
-		} else {
-			alias = vercelcloud.UniqueAlias(vercelcloud.AliasFor(inst), usedAliases)
-			usedAliases[alias] = true
-		}
-		blocks = append(blocks, vercelcloud.ToSyncHost(inst, alias))
-		aliases = append(aliases, alias)
-		prevAlias := ""
-		if prev, ok := previousBySyncID[inst.SyncID]; ok {
-			prevAlias = prev.Alias
-		}
-		metadataUpdates = append(metadataUpdates, hostMetadataUpdate{
-			alias: alias, previousAlias: prevAlias, label: inst.Name,
-			group: vercelcloud.GroupPath(inst), tags: append([]string(nil), inst.Tags...),
+		rows = append(rows, sandboxRow{
+			Name:  inst.Name,
+			Group: vercelcloud.GroupPath(inst),
+			Tags:  append([]string(nil), inst.Tags...),
+			Block: vercelcloud.ToSyncHost(inst, vercelcloud.AliasFor(inst)),
 		})
 	}
-	if discovery.Complete {
-		for syncID, host := range previousBySyncID {
-			if activeSyncIDs[syncID] {
-				continue
-			}
-			metadataDeletes = append(metadataDeletes, host.Alias)
-		}
-	} else {
-		for syncID, host := range previousBySyncID {
-			if activeSyncIDs[syncID] {
-				continue
-			}
-			block, ok := previousBlocks[syncID]
-			if !ok {
-				block = sshconfig.SyncHostInput{
-					Alias: host.Alias, SyncSource: host.SyncSource, SyncID: host.SyncID, HostName: host.Alias,
-				}
-			}
-			usedAliases[block.Alias] = true
-			blocks = append(blocks, block)
-			aliases = append(aliases, block.Alias)
-		}
-	}
-	if err := e.Config.EnsureSyncInclude(e.Paths.SyncVercelConfig); err != nil {
-		return Result{Provider: vercelcloud.ProviderName}, err
-	}
-	if err := sshconfig.WriteSyncConfig(e.Paths.SyncVercelConfig, blocks); err != nil {
-		return Result{Provider: vercelcloud.ProviderName}, err
-	}
-	if err := e.applyMetadataUpdates(metadataUpdates, metadataDeletes); err != nil {
-		return Result{Provider: vercelcloud.ProviderName}, err
+	result, err := e.reconcileSyncedHosts(ctx, vercelcloud.ProviderName, e.Paths.SyncVercelConfig, rows, discovery.Complete, discovery.Warnings)
+	if err != nil {
+		return result, err
 	}
 	latest := e.Store.Vercel()
 	latest.Enabled = true
 	latest.Disabled = false
-	latest.LastSyncAt = &now
+	latest.LastSyncAt = &result.SyncedAt
 	latest.LastSyncError = strings.Join(discovery.Warnings, "; ")
-	latest.LastInstanceCount = len(blocks)
+	latest.LastInstanceCount = result.Count
 	latest.Unrestorable = append([]string(nil), discovery.Unrestorable...)
 	if err := e.Store.SetVercel(latest); err != nil {
 		return Result{Provider: vercelcloud.ProviderName}, err
-	}
-	result := Result{Provider: vercelcloud.ProviderName, Count: len(blocks), SyncedAt: now, Aliases: aliases}
-	if len(discovery.Warnings) > 0 {
-		result.Error = strings.Join(discovery.Warnings, "; ")
 	}
 	return result, nil
 }
 
 func (e *Engine) MaybeAutoConnectVercel(ctx context.Context) (Result, bool, error) {
+	if err := lockCtx(ctx, &e.vercelMu); err != nil {
+		return Result{}, false, err
+	}
+	defer e.vercelMu.Unlock()
 	integration := e.Store.Vercel()
 	if integration.Disabled {
 		return Result{}, false, nil
@@ -146,11 +84,11 @@ func (e *Engine) MaybeAutoConnectVercel(ctx context.Context) (Result, bool, erro
 	if !e.Vercel.HasToken() {
 		return Result{}, false, nil
 	}
-	if strings.TrimSpace(e.Vercel.ResolveTeam()) == "" || strings.TrimSpace(e.Vercel.ResolveProject()) == "" {
+	if strings.TrimSpace(e.Vercel.ResolveTeam()) == "" {
 		return Result{}, false, nil
 	}
 	if integration.Enabled && integration.AutoSync {
-		result, syncErr := e.SyncVercel(ctx)
+		result, syncErr := e.syncVercelLocked(ctx)
 		return result, true, syncErr
 	}
 	integration.Enabled = true
@@ -159,7 +97,7 @@ func (e *Engine) MaybeAutoConnectVercel(ctx context.Context) (Result, bool, erro
 	if err := e.Store.SetVercel(integration); err != nil {
 		return Result{}, false, err
 	}
-	result, syncErr := e.SyncVercel(ctx)
+	result, syncErr := e.syncVercelLocked(ctx)
 	return result, true, syncErr
 }
 
@@ -171,8 +109,13 @@ func (e *Engine) SaveVercelToken(ctx context.Context, token, teamID, projectID s
 	if team := strings.TrimSpace(teamID); team != "" {
 		integration.TeamID = team
 	}
-	if project := strings.TrimSpace(projectID); project != "" {
-		integration.ProjectID = project
+	if projects := vercelcloud.ParseProjectList(projectID); len(projects) > 0 {
+		integration.ProjectID = projects[0]
+		if len(projects) > 1 {
+			integration.ProjectIDs = projects
+		} else {
+			integration.ProjectIDs = nil
+		}
 	}
 	if err := e.Store.SetVercel(integration); err != nil {
 		return Result{}, err
@@ -181,12 +124,16 @@ func (e *Engine) SaveVercelToken(ctx context.Context, token, teamID, projectID s
 }
 
 func (e *Engine) NewVercel(ctx context.Context, opts vercelcloud.CreateOpts) (Result, string, error) {
+	if err := lockCtx(ctx, &e.vercelMu); err != nil {
+		return Result{}, "", err
+	}
+	defer e.vercelMu.Unlock()
 	e.applyVercelScope()
 	box, err := e.Vercel.Create(ctx, opts)
 	if err != nil && box.Name == "" {
 		return Result{}, "", err
 	}
-	result, syncErr := e.SyncVercel(ctx)
+	result, syncErr := e.syncVercelLocked(ctx)
 	alias := e.AliasForVercelSyncID(ctx, vercelcloud.SyncID(e.Vercel.ResolveProject(), box.Name))
 	if err != nil {
 		return result, alias, err
@@ -195,12 +142,16 @@ func (e *Engine) NewVercel(ctx context.Context, opts vercelcloud.CreateOpts) (Re
 }
 
 func (e *Engine) ForkVercel(ctx context.Context, syncID, name string) (Result, string, error) {
+	if err := lockCtx(ctx, &e.vercelMu); err != nil {
+		return Result{}, "", err
+	}
+	defer e.vercelMu.Unlock()
 	e.applyVercelScope()
 	id, err := e.Vercel.Fork(ctx, syncID, name)
 	if err != nil && id == "" {
 		return Result{}, "", err
 	}
-	result, syncErr := e.SyncVercel(ctx)
+	result, syncErr := e.syncVercelLocked(ctx)
 	alias := e.AliasForVercelSyncID(ctx, id)
 	if err != nil {
 		return result, alias, err
@@ -209,27 +160,39 @@ func (e *Engine) ForkVercel(ctx context.Context, syncID, name string) (Result, s
 }
 
 func (e *Engine) StopVercel(ctx context.Context, syncID string) (Result, error) {
+	if err := lockCtx(ctx, &e.vercelMu); err != nil {
+		return Result{}, err
+	}
+	defer e.vercelMu.Unlock()
 	e.applyVercelScope()
 	if err := e.Vercel.Stop(ctx, syncID); err != nil {
 		return Result{}, err
 	}
-	return e.SyncVercel(ctx)
+	return e.syncVercelLocked(ctx)
 }
 
 func (e *Engine) ResumeVercel(ctx context.Context, syncID string) (Result, error) {
+	if err := lockCtx(ctx, &e.vercelMu); err != nil {
+		return Result{}, err
+	}
+	defer e.vercelMu.Unlock()
 	e.applyVercelScope()
 	if err := e.Vercel.Resume(ctx, syncID); err != nil {
 		return Result{}, err
 	}
-	return e.SyncVercel(ctx)
+	return e.syncVercelLocked(ctx)
 }
 
 func (e *Engine) DeleteVercel(ctx context.Context, syncID string) (Result, error) {
+	if err := lockCtx(ctx, &e.vercelMu); err != nil {
+		return Result{}, err
+	}
+	defer e.vercelMu.Unlock()
 	e.applyVercelScope()
 	if err := e.Vercel.Delete(ctx, syncID); err != nil {
 		return Result{}, err
 	}
-	return e.SyncVercel(ctx)
+	return e.syncVercelLocked(ctx)
 }
 
 func (e *Engine) ListVercelUnrestorable(ctx context.Context) ([]string, error) {
@@ -238,9 +201,13 @@ func (e *Engine) ListVercelUnrestorable(ctx context.Context) ([]string, error) {
 }
 
 func (e *Engine) CleanupVercel(ctx context.Context) (Result, []string, error) {
+	if err := lockCtx(ctx, &e.vercelMu); err != nil {
+		return Result{}, nil, err
+	}
+	defer e.vercelMu.Unlock()
 	e.applyVercelScope()
 	deleted, err := e.Vercel.CleanupUnrestorable(ctx)
-	result, syncErr := e.SyncVercel(ctx)
+	result, syncErr := e.syncVercelLocked(ctx)
 	if err != nil {
 		return result, deleted, err
 	}
@@ -263,42 +230,17 @@ func (e *Engine) ResolveVercelSyncID(ctx context.Context, hostOrID string) (stri
 	if err != nil {
 		return "", err
 	}
-	for _, host := range hosts {
-		if host.Synced && host.SyncSource == vercelcloud.ProviderName &&
-			(host.Alias == hostOrID || strings.EqualFold(host.Alias, hostOrID)) {
-			return host.SyncID, nil
-		}
+	if aliasID, labels := e.matchSyncedID(hosts, vercelcloud.ProviderName, hostOrID); aliasID != "" {
+		return aliasID, nil
+	} else if len(labels) == 1 {
+		return labels[0], nil
+	} else {
+		return "", resolveMatchError("vercel", hostOrID, "pass an alias or sandbox name", "sync with bast sync vercel", labels)
 	}
-	var matches []string
-	for _, host := range hosts {
-		if !host.Synced || host.SyncSource != vercelcloud.ProviderName {
-			continue
-		}
-		meta := e.Store.Host(host.Alias)
-		if meta.Label != "" && strings.EqualFold(meta.Label, hostOrID) {
-			matches = append(matches, host.SyncID)
-		}
-	}
-	if len(matches) == 1 {
-		return matches[0], nil
-	}
-	if len(matches) > 1 {
-		return "", fmt.Errorf("vercel label %q matches %d hosts; pass an alias or sandbox name", hostOrID, len(matches))
-	}
-	return "", fmt.Errorf("vercel host %q not found; sync with bast sync vercel", hostOrID)
 }
 
 func (e *Engine) AliasForVercelSyncID(ctx context.Context, syncID string) string {
-	hosts, err := e.Discover(ctx)
-	if err != nil {
-		return ""
-	}
-	for _, host := range hosts {
-		if host.Synced && host.SyncSource == vercelcloud.ProviderName && host.SyncID == syncID {
-			return host.Alias
-		}
-	}
-	return ""
+	return e.aliasFromHosts(ctx, vercelcloud.ProviderName, syncID)
 }
 
 func (e *Engine) EnsureVercelAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
@@ -352,10 +294,8 @@ func (e *Engine) DisableVercel(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, host := range existing {
-		if host.Synced && host.SyncSource == vercelcloud.ProviderName {
-			_ = e.Store.DeleteHost(host.Alias)
-		}
+	if err := e.deleteSyncedHostMetadata(existing, vercelcloud.ProviderName); err != nil {
+		return err
 	}
 	if err := e.Config.RemoveSyncInclude(e.Paths.SyncVercelConfig); err != nil {
 		return err

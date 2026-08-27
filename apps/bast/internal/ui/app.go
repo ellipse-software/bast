@@ -132,7 +132,6 @@ type hostRowsCache struct {
 	search             string
 	showHidden         bool
 	hostSignature      uint64
-	boxEnabled         bool
 	rows               []hostRow
 }
 
@@ -142,7 +141,6 @@ type hostListRowsCache struct {
 	collapseGeneration uint64
 	search             string
 	showHidden         bool
-	boxEnabled         bool
 	hostSignature      uint64
 	historyCollapsed   bool
 	suggestionSig      uint64

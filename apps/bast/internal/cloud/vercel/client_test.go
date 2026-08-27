@@ -48,6 +48,11 @@ func TestListAndDiscover(t *testing.T) {
 		name := strings.TrimPrefix(r.URL.Path, "/v2/sandboxes/")
 		switch {
 		case r.URL.Path == "/v2/sandboxes" && r.Method == http.MethodGet:
+			if r.URL.Query().Get("project") == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"message": "project required"}})
+				return
+			}
 			if r.URL.Query().Get("project") != "prj_1" {
 				t.Errorf("query = %s", r.URL.RawQuery)
 			}
@@ -106,13 +111,13 @@ func TestListAndDiscover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pages < 2 {
-		t.Fatalf("pages = %d", pages)
+	if pages != 2 {
+		t.Fatalf("pages = %d, want 2 (list once)", pages)
 	}
 	if len(deleted) != 0 {
 		t.Fatalf("discover must not delete: %v", deleted)
 	}
-	if got := strings.Join(discovery.Unrestorable, ","); got != "dead,idle,temp" {
+	if got := strings.Join(discovery.Unrestorable, ","); got != "prj_1/dead,prj_1/idle,prj_1/temp" {
 		t.Fatalf("unrestorable = %v", discovery.Unrestorable)
 	}
 	if len(discovery.Instances) != 3 {
@@ -272,6 +277,84 @@ func TestStopResumeForkDelete(t *testing.T) {
 	}
 	if err := client.Delete(context.Background(), "prj_1/dev"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestParseProjectList(t *testing.T) {
+	got := ParseProjectList("prj_a, prj_b", "prj_a;prj_c")
+	if strings.Join(got, ",") != "prj_a,prj_b,prj_c" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestListTeamWideWhenProjectOmitted(t *testing.T) {
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/sandboxes" || r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Query().Get("project") != "" {
+			t.Errorf("team-wide list should omit project, query=%s", r.URL.RawQuery)
+		}
+		_ = json.NewEncoder(w).Encode(sandboxListResponse{
+			Sandboxes: []Sandbox{
+				{Name: "alpha", Status: "running", Persistent: true, ProjectID: "prj_a", CurrentSessionID: "sbx_a"},
+				{Name: "beta", Status: "running", Persistent: true, ProjectID: "prj_b", CurrentSessionID: "sbx_b"},
+			},
+		})
+	})
+	client.ProjectID = ""
+	client.ProjectIDs = nil
+	t.Setenv(ProjectEnv, "")
+	discovery, err := client.Discover(context.Background(), struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(discovery.Instances) != 2 {
+		t.Fatalf("instances = %d", len(discovery.Instances))
+	}
+	if discovery.Instances[0].ProjectID != "prj_a" || discovery.Instances[1].ProjectID != "prj_b" {
+		t.Fatalf("projects = %+v %+v", discovery.Instances[0], discovery.Instances[1])
+	}
+	if GroupPath(discovery.Instances[0]) != "Vercel/prj_a" || GroupPath(discovery.Instances[1]) != "Vercel/prj_b" {
+		t.Fatalf("groups = %s %s", GroupPath(discovery.Instances[0]), GroupPath(discovery.Instances[1]))
+	}
+}
+
+func TestListFallsBackToMultipleProjects(t *testing.T) {
+	listed := []string{}
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/sandboxes" || r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		project := r.URL.Query().Get("project")
+		if project == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"message": "project required"}})
+			return
+		}
+		listed = append(listed, project)
+		name := "box-" + project
+		_ = json.NewEncoder(w).Encode(sandboxListResponse{
+			Sandboxes: []Sandbox{{Name: name, Status: "running", Persistent: true, CurrentSessionID: "sbx_" + project}},
+		})
+	})
+	client.ProjectID = ""
+	client.ProjectIDs = []string{"prj_a", "prj_b"}
+	t.Setenv(ProjectEnv, "")
+	discovery, err := client.Discover(context.Background(), struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(listed, ",") != "prj_a,prj_b" {
+		t.Fatalf("listed = %v", listed)
+	}
+	if len(discovery.Instances) != 2 {
+		t.Fatalf("instances = %+v", discovery.Instances)
+	}
+	if discovery.Instances[0].SyncID != "prj_a/box-prj_a" || discovery.Instances[1].SyncID != "prj_b/box-prj_b" {
+		t.Fatalf("ids = %s %s", discovery.Instances[0].SyncID, discovery.Instances[1].SyncID)
 	}
 }
 

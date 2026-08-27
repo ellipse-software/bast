@@ -20,8 +20,15 @@ func ToSyncHost(inst Instance, alias string) sshconfig.SyncHostInput {
 	}
 }
 
-func GroupPath(_ Instance) string {
-	return "Vercel"
+func GroupPath(inst Instance) string {
+	if !inst.SplitByProject {
+		return "Vercel"
+	}
+	project := strings.ReplaceAll(strings.TrimSpace(inst.ProjectID), "/", "-")
+	if project == "" {
+		return "Vercel"
+	}
+	return "Vercel/" + project
 }
 
 func AliasFor(inst Instance) string {
@@ -31,6 +38,11 @@ func AliasFor(inst Instance) string {
 	}
 	if name == "" {
 		name = "sandbox"
+	}
+	if inst.SplitByProject {
+		if project := sshutil.SanitizeAliasPart(inst.ProjectID); project != "" && !strings.EqualFold(project, name) {
+			return "vercel_" + project + "_" + name
+		}
 	}
 	return "vercel_" + name
 }

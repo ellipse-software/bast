@@ -2,7 +2,6 @@ package sync
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -325,10 +324,8 @@ func (e *Engine) DisableHetzner(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, host := range existing {
-		if host.Synced && host.SyncSource == hetznercloud.ProviderName {
-			_ = e.Store.DeleteHost(host.Alias)
-		}
+	if err := e.deleteSyncedHostMetadata(existing, hetznercloud.ProviderName); err != nil {
+		return err
 	}
 	if err := e.Config.RemoveSyncInclude(e.Paths.SyncHetznerConfig); err != nil {
 		return err
@@ -349,27 +346,11 @@ func (e *Engine) ResolveHetznerSyncID(ctx context.Context, hostOrID string) (str
 	if err != nil {
 		return "", err
 	}
-	for _, host := range hosts {
-		if host.Synced && host.SyncSource == hetznercloud.ProviderName &&
-			(host.Alias == hostOrID || strings.EqualFold(host.Alias, hostOrID)) {
-			return host.SyncID, nil
-		}
+	if aliasID, labels := e.matchSyncedID(hosts, hetznercloud.ProviderName, hostOrID); aliasID != "" {
+		return aliasID, nil
+	} else if len(labels) == 1 {
+		return labels[0], nil
+	} else {
+		return "", resolveMatchError("Hetzner", hostOrID, "pass an alias or hetzner/<id>", "sync with bast sync hetzner", labels)
 	}
-	var matches []string
-	for _, host := range hosts {
-		if !host.Synced || host.SyncSource != hetznercloud.ProviderName {
-			continue
-		}
-		meta := e.Store.Host(host.Alias)
-		if meta.Label != "" && strings.EqualFold(meta.Label, hostOrID) {
-			matches = append(matches, host.SyncID)
-		}
-	}
-	if len(matches) == 1 {
-		return matches[0], nil
-	}
-	if len(matches) > 1 {
-		return "", fmt.Errorf("Hetzner label %q matches %d hosts; pass an alias or hetzner/<id>", hostOrID, len(matches))
-	}
-	return "", fmt.Errorf("Hetzner host %q not found; sync with bast sync hetzner", hostOrID)
 }

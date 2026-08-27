@@ -284,6 +284,7 @@ func vercelSpec() specNode {
 				desc: "create a sandbox",
 				flags: []flagSpec{
 					{name: "name", desc: "sandbox name"},
+					{name: "project", desc: "project ID or name"},
 					enumFlag("vcpus", "vCPUs", "1", "2", "4"),
 					enumFlag("timeout", "session timeout", "15m", "1h", "5h"),
 					boolFlag("ephemeral", "disable filesystem persistence"),
@@ -297,7 +298,7 @@ func vercelSpec() specNode {
 			{name: "token", desc: "store a Vercel access token", flags: []flagSpec{
 				fileFlag("token-file", "read the access token from a file"),
 				{name: "team", desc: "team ID"},
-				{name: "project", desc: "project ID or name"},
+				{name: "project", desc: "project ID or name, comma-separated for several"},
 			}},
 		},
 	}

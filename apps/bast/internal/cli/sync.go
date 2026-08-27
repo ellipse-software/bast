@@ -401,7 +401,9 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if vercel.TeamID != "" {
 		fmt.Fprintf(r.Out, "  Team: %s\n", vercel.TeamID)
 	}
-	if vercel.ProjectID != "" {
+	if projects := vercel.ProjectIDs; len(projects) > 0 {
+		fmt.Fprintf(r.Out, "  Project: %s\n", strings.Join(projects, ", "))
+	} else if vercel.ProjectID != "" {
 		fmt.Fprintf(r.Out, "  Project: %s\n", vercel.ProjectID)
 	}
 	if vercel.LastSyncAt != nil {

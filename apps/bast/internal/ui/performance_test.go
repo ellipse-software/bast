@@ -38,6 +38,7 @@ func benchmarkApp(b *testing.B, hostCount int) *App {
 		b.Fatal(err)
 	}
 	m.hostMeta, m.hostMetaRevision = m.metadata.HostsSnapshot()
+	m.sortHosts()
 	return m
 }
 

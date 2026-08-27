@@ -28,7 +28,7 @@ func (m *App) vercelReady() bool {
 		return false
 	}
 	integration := m.metadata.Vercel()
-	return strings.TrimSpace(integration.TeamID) != "" && strings.TrimSpace(integration.ProjectID) != ""
+	return strings.TrimSpace(integration.TeamID) != ""
 }
 
 func (m *App) resumeSelectedVercel(host sshconfig.Host, thenConnect bool) tea.Cmd {
@@ -60,8 +60,14 @@ func (m *App) resumeSelectedVercel(host sshconfig.Host, thenConnect bool) tea.Cm
 }
 
 func (m *App) openVercelNewForm() {
+	projects := m.metadata.Vercel().Projects()
+	defaultProject := ""
+	if len(projects) > 0 {
+		defaultProject = projects[0]
+	}
 	m.openForm("New Vercel Sandbox", "vercel_new", []field{
 		{label: "Name", description: "Optional URL-safe name", optional: true, placeholder: "dev"},
+		{label: "Project", description: "Required to create if team-wide list has no default", optional: true, value: defaultProject, placeholder: "prj_…"},
 		{
 			label: "vCPUs", value: "2", selected: 1,
 			options: []fieldOption{
@@ -93,7 +99,7 @@ func (m *App) openVercelTokenForm() {
 	m.openForm("Vercel access token", "vercel_token", []field{
 		{label: "Access token", description: "https://vercel.com/account/settings/tokens", secret: true, placeholder: "token"},
 		{label: "Team ID", value: integration.TeamID, placeholder: "team_…"},
-		{label: "Project ID", value: integration.ProjectID, placeholder: "prj_…"},
+		{label: "Project ID", description: "Optional; comma-separated if team-wide list is unavailable", optional: true, value: strings.Join(integration.Projects(), ","), placeholder: "prj_…"},
 	})
 }
 
@@ -140,7 +146,11 @@ func (m *App) openVercelCleanupForm() {
 
 func (m *App) vercelShellCmd(host sshconfig.Host) (*exec.Cmd, error) {
 	integration := m.metadata.Vercel()
-	projectID, name, err := vercelcloud.ScopedName(host.SyncID, integration.ProjectID)
+	fallback := integration.ProjectID
+	if projects := integration.Projects(); len(projects) > 0 {
+		fallback = projects[0]
+	}
+	projectID, name, err := vercelcloud.ScopedName(host.SyncID, fallback)
 	if err != nil {
 		return nil, err
 	}

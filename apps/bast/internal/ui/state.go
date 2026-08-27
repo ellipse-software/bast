@@ -155,18 +155,18 @@ type hostGroup struct {
 func (m *App) hostRows() []hostRow {
 	hostMetadata := m.hostMetadata()
 	search := m.searchText()
-	hostSignature := hostListSignature(m.hosts)
 	cache := m.hostRowsCache
 	if cache.rows != nil &&
 		cache.hostGeneration == m.hostGeneration &&
 		cache.metadataRevision == m.hostMetaRevision &&
 		cache.collapseGeneration == m.collapseRevision &&
 		cache.search == search &&
-		cache.showHidden == m.showHidden &&
-		cache.boxEnabled == m.metadata.Box().Enabled &&
-		cache.hostSignature == hostSignature {
-		return cache.rows
+		cache.showHidden == m.showHidden {
+		if m.hostGeneration > 0 || cache.hostSignature == hostListSignature(m.hosts) {
+			return cache.rows
+		}
 	}
+	hostSignature := hostListSignature(m.hosts)
 	hosts := m.filteredHostsWithMetadata(hostMetadata)
 	groups := map[string]*hostGroup{}
 	ungrouped := []sshconfig.Host{}
@@ -231,8 +231,7 @@ func (m *App) hostRows() []hostRow {
 	m.hostRowsCache = hostRowsCache{
 		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
 		collapseGeneration: m.collapseRevision, search: search,
-		showHidden: m.showHidden, boxEnabled: m.metadata.Box().Enabled,
-		hostSignature: hostSignature, rows: rows,
+		showHidden: m.showHidden, hostSignature: hostSignature, rows: rows,
 	}
 	return rows
 }
@@ -248,7 +247,6 @@ func (m *App) hostListRows() []hostRow {
 		cache.collapseGeneration == m.collapseRevision &&
 		cache.search == search &&
 		cache.showHidden == m.showHidden &&
-		cache.boxEnabled == m.hostRowsCache.boxEnabled &&
 		cache.hostSignature == m.hostRowsCache.hostSignature &&
 		cache.historyCollapsed == m.historySuggestionsCollapsed &&
 		cache.suggestionSig == suggestionSig {
@@ -270,7 +268,7 @@ func (m *App) hostListRows() []hostRow {
 	m.hostListRowsCache = hostListRowsCache{
 		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
 		collapseGeneration: m.collapseRevision, search: search,
-		showHidden: m.showHidden, boxEnabled: m.hostRowsCache.boxEnabled,
+		showHidden:       m.showHidden,
 		hostSignature:    m.hostRowsCache.hostSignature,
 		historyCollapsed: m.historySuggestionsCollapsed, suggestionSig: suggestionSig, rows: rows,
 	}

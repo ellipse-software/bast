@@ -11,12 +11,16 @@ import (
 
 type CreateOpts struct {
 	Name       string
+	Project    string
 	VCPUs      int
 	Timeout    time.Duration
 	Persistent bool
 }
 
 func (c *Client) Create(ctx context.Context, opts CreateOpts) (Sandbox, error) {
+	if project := strings.TrimSpace(opts.Project); project != "" {
+		c.ProjectID = project
+	}
 	project, err := c.requireProject()
 	if err != nil {
 		return Sandbox{}, err
@@ -93,7 +97,9 @@ func (c *Client) Delete(ctx context.Context, syncID string) error {
 		return err
 	}
 	query := url.Values{}
-	query.Set("projectId", project)
+	if project != "" {
+		query.Set("projectId", project)
+	}
 	return c.doJSON(ctx, http.MethodDelete, "/v2/sandboxes/"+url.PathEscape(name), query, nil, nil)
 }
 
@@ -110,7 +116,9 @@ func (c *Client) Fork(ctx context.Context, syncID string, name string) (string, 
 		body["name"] = n
 	}
 	query := url.Values{}
-	query.Set("projectId", project)
+	if project != "" {
+		query.Set("projectId", project)
+	}
 	var raw sandboxSessionResponse
 	if err := c.doJSON(ctx, http.MethodPost, "/v2/sandboxes/"+url.PathEscape(source)+"/fork", query, body, &raw); err != nil {
 		return "", err

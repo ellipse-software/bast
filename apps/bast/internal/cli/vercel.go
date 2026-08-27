@@ -41,6 +41,7 @@ func (r *Runner) vercelCmd(args []string) error {
 func (r *Runner) vercelNew(engine *sync.Engine, args []string) error {
 	fs := newFlagSet("vercel new")
 	name := fs.String("name", "", "Optional sandbox name")
+	project := fs.String("project", "", "Project ID or name (default: first stored project)")
 	vcpus := fs.Int("vcpus", 2, "vCPUs: 1, 2, or 4")
 	timeout := fs.String("timeout", "1h", "Session timeout: 15m, 1h, or 5h")
 	ephemeral := fs.Bool("ephemeral", false, "Disable filesystem persistence")
@@ -48,7 +49,7 @@ func (r *Runner) vercelNew(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 0 {
-		return usagef("usage: bast vercel new [--name name] [--vcpus 1|2|4] [--timeout 15m|1h|5h] [--ephemeral]")
+		return usagef("usage: bast vercel new [--name name] [--project id] [--vcpus 1|2|4] [--timeout 15m|1h|5h] [--ephemeral]")
 	}
 	if err := vercelcloud.ValidateVCPUs(*vcpus); err != nil {
 		return usagef("%v", err)
@@ -60,7 +61,7 @@ func (r *Runner) vercelNew(engine *sync.Engine, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 	result, alias, err := engine.NewVercel(ctx, vercelcloud.CreateOpts{
-		Name: *name, VCPUs: *vcpus, Timeout: duration, Persistent: !*ephemeral,
+		Name: *name, Project: *project, VCPUs: *vcpus, Timeout: duration, Persistent: !*ephemeral,
 	})
 	if err != nil {
 		if alias == "" {
@@ -251,7 +252,7 @@ func (r *Runner) vercelToken(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 0 {
-		return usagef("usage: bast vercel token [--token-file path] [--team team_id] [--project project_id]")
+		return usagef("usage: bast vercel token [--token-file path] [--team team_id] [--project id[,id...]]")
 	}
 	token := ""
 	if strings.TrimSpace(*tokenFile) != "" {
@@ -288,14 +289,15 @@ func (r *Runner) vercelToken(engine *sync.Engine, args []string) error {
 		projectID = strings.TrimSpace(os.Getenv(vercelcloud.ProjectEnv))
 	}
 	if projectID == "" {
-		value, err := r.prompt("Vercel project ID", engine.Store.Vercel().ProjectID, true)
+		existing := strings.Join(engine.Store.Vercel().Projects(), ",")
+		value, err := r.prompt("Vercel project ID (optional, comma-separated)", existing, false)
 		if err != nil {
 			return err
 		}
 		projectID = strings.TrimSpace(value)
 	}
-	if teamID == "" || projectID == "" {
-		return fail("vercel_token", "team and project are required")
+	if teamID == "" {
+		return fail("vercel_token", "team is required")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

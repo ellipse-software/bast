@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -154,6 +155,12 @@ func TestVercelIntegrationRoundTrip(t *testing.T) {
 	got := reopened.Vercel()
 	if !got.Enabled || !got.AutoSync || got.TeamID != "team_1" || got.ProjectID != "prj_1" || got.LastInstanceCount != 4 {
 		t.Fatalf("vercel = %+v", got)
+	}
+	if err := store.SetVercel(VercelIntegration{Enabled: true, TeamID: "team_1", ProjectID: "prj_a", ProjectIDs: []string{"prj_a", "prj_b"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Vercel().Projects(); strings.Join(got, ",") != "prj_a,prj_b" {
+		t.Fatalf("projects = %v", got)
 	}
 	if len(got.Unrestorable) != 1 || got.Unrestorable[0] != "idle" {
 		t.Fatalf("unrestorable = %v", got.Unrestorable)

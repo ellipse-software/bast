@@ -143,6 +143,15 @@ func IsCommand(arg string) bool {
 	return false
 }
 
+func commandUsesOpenSSH(cmd string) bool {
+	switch cmd {
+	case "box", "upstash", "vercel", "hetzner":
+		return false
+	default:
+		return true
+	}
+}
+
 func IsInvocation(args []string) bool {
 	globalOnly := false
 	for _, arg := range args {
@@ -185,7 +194,7 @@ func (r *Runner) Run(args []string) error {
 		err = openErr
 		if err == nil {
 			r.store = store
-			if args[0] != "vercel" {
+			if commandUsesOpenSSH(args[0]) {
 				err = r.OpenSSH.Check()
 			}
 		}
@@ -318,13 +327,13 @@ Commands: list, show, generate, import, promote, comment, export, install,
 		"upstash delete":    "Usage: bast upstash delete <host|id> [--yes]",
 		"upstash key":       "Usage: bast upstash key [--key-file path]",
 		"vercel --help":     "Usage: bast vercel <new|fork|stop|resume|delete|cleanup|token>",
-		"vercel new":        "Usage: bast vercel new [--name name] [--vcpus 1|2|4] [--timeout 15m|1h|5h] [--ephemeral]",
+		"vercel new":        "Usage: bast vercel new [--name name] [--project id] [--vcpus 1|2|4] [--timeout 15m|1h|5h] [--ephemeral]",
 		"vercel fork":       "Usage: bast vercel fork <host|id> [--name name]",
 		"vercel stop":       "Usage: bast vercel stop <host|id>",
 		"vercel resume":     "Usage: bast vercel resume <host|id>",
 		"vercel delete":     "Usage: bast vercel delete <host|id> [--yes]",
 		"vercel cleanup":    "Usage: bast vercel cleanup [--yes]",
-		"vercel token":      "Usage: bast vercel token [--token-file path] [--team team_id] [--project project_id]",
+		"vercel token":      "Usage: bast vercel token [--token-file path] [--team team_id] [--project id[,id...]]",
 		"hetzner --help":    "Usage: bast hetzner <start|stop|restart|key>",
 		"hetzner start":     "Usage: bast hetzner start <host|id>",
 		"hetzner stop":      "Usage: bast hetzner stop <host|id> [--force]",

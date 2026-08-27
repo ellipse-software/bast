@@ -853,7 +853,11 @@ func (r *Runner) connect(args []string) error {
 	var cmd *exec.Cmd
 	if host.Synced && host.SyncSource == "vercel" {
 		integration := r.store.Vercel()
-		projectID, name, err := vercelcloud.ScopedName(host.SyncID, integration.ProjectID)
+		fallback := integration.ProjectID
+		if projects := integration.Projects(); len(projects) > 0 {
+			fallback = projects[0]
+		}
+		projectID, name, err := vercelcloud.ScopedName(host.SyncID, fallback)
 		if err != nil {
 			return fail("vercel_access", err.Error())
 		}

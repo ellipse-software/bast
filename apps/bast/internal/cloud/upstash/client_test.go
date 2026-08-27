@@ -32,6 +32,7 @@ func testClient(t *testing.T, handler http.HandlerFunc) *Client {
 }
 
 func TestListAndDiscover(t *testing.T) {
+	lists := 0
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Box-Api-Key") != "box_testkey" {
 			t.Errorf("missing api key header")
@@ -40,6 +41,7 @@ func TestListAndDiscover(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
+		lists++
 		_ = json.NewEncoder(w).Encode([]BoxData{
 			{ID: "current-wasp-05510", Name: "dev", Status: "idle", Size: "small", Runtime: "node"},
 			{ID: "paused-fox-1", Name: "idle", Status: "paused", Size: "medium", KeepAlive: false},
@@ -49,6 +51,9 @@ func TestListAndDiscover(t *testing.T) {
 	discovery, err := client.Discover(context.Background(), struct{}{})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if lists != 1 {
+		t.Fatalf("list calls = %d, want 1", lists)
 	}
 	if len(discovery.Instances) != 2 {
 		t.Fatalf("instances = %d, want 2", len(discovery.Instances))

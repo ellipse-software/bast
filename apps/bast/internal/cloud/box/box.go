@@ -271,9 +271,6 @@ func statusLooksAuthenticated(raw map[string]any) bool {
 }
 
 func (c *Client) Discover(ctx context.Context, _ DiscoverConfig) (Discovery, error) {
-	if err := c.CheckAvailable(ctx); err != nil {
-		return Discovery{}, err
-	}
 	account, err := c.Account(ctx)
 	if err != nil {
 		return Discovery{}, err

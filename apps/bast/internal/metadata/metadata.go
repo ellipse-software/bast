@@ -123,10 +123,33 @@ type VercelIntegration struct {
 	Disabled          bool       `json:"disabled,omitempty"`
 	TeamID            string     `json:"teamId,omitempty"`
 	ProjectID         string     `json:"projectId,omitempty"`
+	ProjectIDs        []string   `json:"projectIds,omitempty"`
 	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
 	LastSyncError     string     `json:"lastSyncError,omitempty"`
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 	Unrestorable      []string   `json:"unrestorable,omitempty"`
+}
+
+func (v VercelIntegration) Projects() []string {
+	return parseVercelProjects(v.ProjectID, strings.Join(v.ProjectIDs, ","))
+}
+
+func parseVercelProjects(values ...string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, raw := range values {
+		for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+			return r == ',' || r == ';' || r == ' ' || r == '\n' || r == '\t'
+		}) {
+			part = strings.TrimSpace(part)
+			if part == "" || seen[part] {
+				continue
+			}
+			seen[part] = true
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 type HetznerIntegration struct {
@@ -706,6 +729,7 @@ func (s *Store) SetVercel(vercel VercelIntegration) error {
 	defer s.mu.Unlock()
 	previous := s.state.Integrations.Vercel
 	if !vercel.Enabled && !vercel.AutoSync && !vercel.Disabled && vercel.TeamID == "" && vercel.ProjectID == "" &&
+		len(vercel.ProjectIDs) == 0 &&
 		vercel.LastSyncAt == nil && vercel.LastSyncError == "" && vercel.LastInstanceCount == 0 && len(vercel.Unrestorable) == 0 {
 		s.state.Integrations.Vercel = nil
 	} else {
@@ -842,6 +866,7 @@ func cloneUpstash(upstash UpstashIntegration) UpstashIntegration {
 
 func cloneVercel(vercel VercelIntegration) VercelIntegration {
 	vercel.Unrestorable = append([]string(nil), vercel.Unrestorable...)
+	vercel.ProjectIDs = append([]string(nil), vercel.ProjectIDs...)
 	if vercel.LastSyncAt != nil {
 		lastSyncAt := *vercel.LastSyncAt
 		vercel.LastSyncAt = &lastSyncAt

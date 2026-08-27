@@ -24,13 +24,17 @@ const (
 )
 
 type Client struct {
-	BaseURL   string
-	TokenFile string
-	Token     string // test override; production uses env then TokenFile
-	TeamID    string
-	ProjectID string
-	HTTP      *http.Client
-	PollWait  time.Duration
+	BaseURL    string
+	TokenFile  string
+	Token      string // test override; production uses env then TokenFile
+	TeamID     string
+	ProjectID  string
+	ProjectIDs []string
+	HTTP       *http.Client
+	PollWait   time.Duration
+	// teamWideFailed is set after GET /v2/sandboxes without project is rejected,
+	// so later list/create in this process skip that extra round trip.
+	teamWideFailed bool
 }
 
 type Sandbox struct {
@@ -50,13 +54,15 @@ type Sandbox struct {
 	CreatedAt        int64             `json:"createdAt"`
 	UpdatedAt        int64             `json:"updatedAt"`
 	ExpiresAt        int64             `json:"expiresAt"`
+	ProjectID        string            `json:"projectId,omitempty"`
 }
 
 type Session struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-	CWD    string `json:"cwd"`
-	Region string `json:"region"`
+	ID        string `json:"id"`
+	Status    string `json:"status"`
+	CWD       string `json:"cwd"`
+	Region    string `json:"region"`
+	ProjectID string `json:"projectId,omitempty"`
 }
 
 type sandboxListResponse struct {
@@ -124,19 +130,12 @@ func (c *Client) ResolveTeam() string {
 	return strings.TrimSpace(os.Getenv(TeamEnv))
 }
 
-func (c *Client) ResolveProject() string {
-	if project := strings.TrimSpace(c.ProjectID); project != "" {
-		return project
-	}
-	return strings.TrimSpace(os.Getenv(ProjectEnv))
-}
-
 func (c *Client) Account(ctx context.Context) (AccountStatus, error) {
 	if !c.HasToken() {
 		return AccountStatus{Error: "no access token; connect on the Sync tab or set " + TokenEnv}, nil
 	}
-	if c.ResolveTeam() == "" || c.ResolveProject() == "" {
-		return AccountStatus{Error: "team and project are required"}, nil
+	if c.ResolveTeam() == "" {
+		return AccountStatus{Error: "team is required"}, nil
 	}
 	sandboxes, err := c.List(ctx)
 	if err != nil {
@@ -151,15 +150,50 @@ func (c *Client) Account(ctx context.Context) (AccountStatus, error) {
 }
 
 func (c *Client) List(ctx context.Context) ([]Sandbox, error) {
-	project, err := c.requireProject()
-	if err != nil {
-		return nil, err
+	if !c.teamWideFailed {
+		all, err := c.listProject(ctx, "")
+		if err == nil {
+			return all, nil
+		}
+		if !isProjectRequiredError(err) {
+			return nil, err
+		}
+		c.teamWideFailed = true
 	}
+	projects := c.ResolveProjects()
+	if len(projects) == 0 {
+		return nil, fmt.Errorf("vercel list requires a project; team-wide list was rejected. Set %s to one or more project IDs (comma-separated)", ProjectEnv)
+	}
+	var all []Sandbox
+	seen := map[string]bool{}
+	for _, project := range projects {
+		page, err := c.listProject(ctx, project)
+		if err != nil {
+			return all, err
+		}
+		for _, box := range page {
+			key := SyncID(project, box.Name)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if strings.TrimSpace(box.ProjectID) == "" {
+				box.ProjectID = project
+			}
+			all = append(all, box)
+		}
+	}
+	return all, nil
+}
+
+func (c *Client) listProject(ctx context.Context, project string) ([]Sandbox, error) {
 	var all []Sandbox
 	cursor := ""
 	for page := 0; page < 100; page++ {
 		query := url.Values{}
-		query.Set("project", project)
+		if project != "" {
+			query.Set("project", project)
+		}
 		query.Set("limit", "50")
 		query.Set("sortBy", "createdAt")
 		if cursor != "" {
@@ -169,7 +203,12 @@ func (c *Client) List(ctx context.Context) ([]Sandbox, error) {
 		if err := c.doJSON(ctx, http.MethodGet, "/v2/sandboxes", query, nil, &raw); err != nil {
 			return nil, err
 		}
-		all = append(all, raw.Sandboxes...)
+		for _, box := range raw.Sandboxes {
+			if project != "" && strings.TrimSpace(box.ProjectID) == "" {
+				box.ProjectID = project
+			}
+			all = append(all, box)
+		}
 		if raw.Pagination.Next == nil || strings.TrimSpace(*raw.Pagination.Next) == "" {
 			return all, nil
 		}
@@ -184,7 +223,9 @@ func (c *Client) Get(ctx context.Context, syncID string, resume bool) (sandboxSe
 		return sandboxSessionResponse{}, err
 	}
 	query := url.Values{}
-	query.Set("projectId", project)
+	if project != "" {
+		query.Set("projectId", project)
+	}
 	if resume {
 		query.Set("resume", "true")
 	}
@@ -194,6 +235,13 @@ func (c *Client) Get(ctx context.Context, syncID string, resume bool) (sandboxSe
 	}
 	if strings.TrimSpace(raw.Sandbox.Name) == "" {
 		return sandboxSessionResponse{}, fmt.Errorf("vercel sandbox %s info was incomplete", name)
+	}
+	if strings.TrimSpace(raw.Sandbox.ProjectID) == "" {
+		if sessionProject := strings.TrimSpace(raw.Session.ProjectID); sessionProject != "" {
+			raw.Sandbox.ProjectID = sessionProject
+		} else if project != "" {
+			raw.Sandbox.ProjectID = project
+		}
 	}
 	return raw, nil
 }
@@ -227,14 +275,25 @@ func (c *Client) ExtendTimeout(ctx context.Context, sessionID string, duration t
 }
 
 func (c *Client) requireProject() (string, error) {
-	project := c.ResolveProject()
-	if project == "" {
-		return "", fmt.Errorf("vercel project is required")
-	}
 	if c.ResolveTeam() == "" {
 		return "", fmt.Errorf("vercel team is required")
 	}
+	project := c.ResolveProject()
+	if project == "" {
+		return "", fmt.Errorf("vercel project is required to create a sandbox")
+	}
 	return project, nil
+}
+
+func isProjectRequiredError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "project") {
+		return false
+	}
+	return strings.Contains(msg, "400") || strings.Contains(msg, "required") || strings.Contains(msg, "invalid")
 }
 
 func (c *Client) parseScopedID(syncID string) (project, name string, err error) {
@@ -244,9 +303,6 @@ func (c *Client) parseScopedID(syncID string) (project, name string, err error) 
 	}
 	if project == "" {
 		project = c.ResolveProject()
-	}
-	if project == "" {
-		return "", "", fmt.Errorf("vercel project is required")
 	}
 	if c.ResolveTeam() == "" {
 		return "", "", fmt.Errorf("vercel team is required")
