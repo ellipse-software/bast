@@ -162,7 +162,7 @@ func (c *Client) doJSON(ctx context.Context, token, method, path string, query u
 }
 
 func (c *Client) retryAfter429(ctx context.Context, token, method, path string, query url.Values, body, out any, resp *http.Response, data []byte) error {
-	if c.Getenv != nil && c.Getenv("HETZNER_NO_RETRY") == "1" {
+	if c.getenv("HETZNER_NO_RETRY") == "1" {
 		return c.apiError(http.StatusTooManyRequests, data, token)
 	}
 	wait := c.pollEvery()

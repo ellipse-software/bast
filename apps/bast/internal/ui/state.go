@@ -13,6 +13,7 @@ import (
 	hetznercloud "bast/internal/cloud/hetzner"
 	cloudsync "bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
+	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/platform"
@@ -907,24 +908,33 @@ func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
 	if kind == cloud.Upstash {
 		return upstashcloud.HostLooksStopped(meta.Tags)
 	}
+	if kind == cloud.Vercel {
+		return vercelcloud.HostLooksStopped(meta.Tags)
+	}
 	if kind == cloud.Hetzner {
 		return hetznercloud.HostLooksStopped(meta.Tags)
 	}
 	return false
 }
-func hostIdentity(h sshconfig.Host) string {
+func hostIdentity(h sshconfig.Host, passwordStored bool) string {
 	if passwordOnly(h.Resolved) {
-		return "password only"
+		if passwordStored {
+			return "password · saved"
+		}
+		return "password"
 	}
 	return joinOr(h.Resolved.IdentityFiles, "agent/defaults")
 }
 
-func hostAuthSummary(h sshconfig.Host) string {
+func hostAuthSummary(h sshconfig.Host, passwordStored bool) string {
 	if !h.Synced {
-		return hostIdentity(h)
+		return hostIdentity(h, passwordStored)
 	}
 	if passwordOnly(h.Resolved) {
-		return "password only"
+		if passwordStored {
+			return "password · saved"
+		}
+		return "password"
 	}
 	if len(h.Resolved.IdentityFiles) > 0 {
 		return h.Resolved.IdentityFiles[0]

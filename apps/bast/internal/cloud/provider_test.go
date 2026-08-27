@@ -21,6 +21,8 @@ func TestKindForGroup(t *testing.T) {
 		{"Box/Running", Box, true},
 		{"Upstash", Upstash, true},
 		{"Upstash/dev", Upstash, true},
+		{"Vercel", Vercel, true},
+		{"Vercel/app", Vercel, true},
 		{"Hetzner Cloud", Hetzner, true},
 		{"Hetzner Cloud/prod/fsn1", Hetzner, true},
 		{"Work", "", false},
@@ -47,6 +49,10 @@ func TestKindForSource(t *testing.T) {
 	if !ok || kind != Upstash {
 		t.Fatalf("KindForSource(upstash) = %q, %t", kind, ok)
 	}
+	kind, ok = KindForSource("vercel")
+	if !ok || kind != Vercel {
+		t.Fatalf("KindForSource(vercel) = %q, %t", kind, ok)
+	}
 	kind, ok = KindForSource("hetzner")
 	if !ok || kind != Hetzner {
 		t.Fatalf("KindForSource(hetzner) = %q, %t", kind, ok)
@@ -64,6 +70,10 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 	upstash := CapabilitiesFor(Upstash)
 	if !upstash.Create || !upstash.Stop || !upstash.Start || !upstash.Fork || !upstash.Delete {
 		t.Fatalf("upstash caps = %+v", upstash)
+	}
+	vercel := CapabilitiesFor(Vercel)
+	if !vercel.Create || !vercel.Stop || !vercel.Start || !vercel.Fork || !vercel.Delete {
+		t.Fatalf("vercel caps = %+v", vercel)
 	}
 	hetzner := CapabilitiesFor(Hetzner)
 	if hetzner.Create || !hetzner.Stop || !hetzner.Start || !hetzner.Restart || hetzner.Fork || hetzner.Delete {
@@ -96,7 +106,7 @@ func TestDescriptorsCoverEveryKind(t *testing.T) {
 		}
 		seen[d.Kind] = true
 	}
-	for _, kind := range []Kind{GCP, AWS, Azure, Box, Upstash, Hetzner} {
+	for _, kind := range []Kind{GCP, AWS, Azure, Box, Upstash, Vercel, Hetzner} {
 		if !seen[kind] {
 			t.Fatalf("missing descriptor for %s", kind)
 		}

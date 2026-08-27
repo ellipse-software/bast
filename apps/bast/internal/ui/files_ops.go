@@ -11,8 +11,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"bast/internal/askpass"
 	boxcloud "bast/internal/cloud/box"
-	upstashcloud "bast/internal/cloud/upstash"
 	"bast/internal/files"
 	"bast/internal/openssh"
 	"bast/internal/sshconfig"
@@ -137,13 +137,16 @@ const cloudPrepareTimeout = 90 * time.Second
 const boxPrepareTimeout = 5 * time.Minute
 
 func prepareTimeoutForHost(host sshconfig.Host) time.Duration {
-	if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash" || host.SyncSource == "hetzner") {
+	if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash" || host.SyncSource == "vercel" || host.SyncSource == "hetzner") {
 		return boxPrepareTimeout
 	}
 	return cloudPrepareTimeout
 }
 
 func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
+	if host.Synced && host.SyncSource == "vercel" {
+		return m.setNotice("Vercel Sandboxes are not OpenSSH; SFTP is unavailable")
+	}
 	m.initFilesState()
 	pane := &m.files.panes[index]
 	pane.closeSession()
@@ -158,6 +161,9 @@ func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
 	openSSH := m.openSSH
 	alias := host.Alias
 	prepare := m.filesPrepareFn(host)
+	passwordsDir := m.paths.PasswordsDir
+	exe := m.bastExecutable()
+	needInteractive := askpass.Needed(host, passwordsDir) || passwordOnly(host.Resolved)
 	return func() tea.Msg {
 		defer cancel()
 		if prepare != nil {
@@ -170,9 +176,9 @@ func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
 		}
 		var session *files.Session
 		var err error
-		if host.Synced && host.SyncSource == "upstash" {
+		if needInteractive {
 			session, err = files.OpenSessionPrepared(ctx, openSSH, alias, func(cmd *exec.Cmd) error {
-				upstashcloud.PrepareSSH(cmd, "")
+				askpass.Prepare(cmd, exe, host, passwordsDir)
 				return nil
 			})
 		} else {
@@ -635,9 +641,7 @@ func (m *App) filesOpenShell() (tea.Model, tea.Cmd) {
 		m.setError(err)
 		return m, nil
 	}
-	if host.Synced && host.SyncSource == "upstash" {
-		upstashcloud.PrepareSSH(cmd, m.syncer.BastExecutable)
-	}
+	m.prepareSSH(cmd, host)
 	prepare := m.filesPrepareFn(host)
 	telemetry.Track("files_shell", m.version)
 	m.status = "Shell on " + pane.alias + " in " + pane.cwd

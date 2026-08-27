@@ -46,7 +46,7 @@ func (c *Client) EnsureAccess(ctx context.Context, syncID string, cfg EnsureConf
 	}
 	if status != "running" {
 		reportStatus(cfg.Status, "Waiting for Hetzner server…")
-		if err := c.waitGuest(ctx, token, srv.ID, "running", false); err != nil {
+		if err := c.waitGuest(ctx, token, srv.ID, "running"); err != nil {
 			return EnsureResult{}, err
 		}
 		srv, err = c.getServer(ctx, token, srv.ID)

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -210,23 +211,15 @@ func TestDiscover401(t *testing.T) {
 }
 
 func TestStartStopRestart(t *testing.T) {
+	var mu sync.Mutex
 	status := "off"
-	rebootPolls := 0
 	actions := 0
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/servers/42":
-			current := status
-			if status == "rebooting" {
-				rebootPolls++
-				if rebootPolls == 1 {
-					current = "stopping"
-				} else {
-					current = "running"
-					status = "running"
-				}
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"server": serverJSON(42, "web", current, "1.2.3.4", "", "ubuntu", "ubuntu", "fsn1", "cx22", nil)})
+			_ = json.NewEncoder(w).Encode(map[string]any{"server": serverJSON(42, "web", status, "1.2.3.4", "", "ubuntu", "ubuntu", "fsn1", "cx22", nil)})
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/actions/poweron"):
 			status = "running"
 			actions++
@@ -238,8 +231,6 @@ func TestStartStopRestart(t *testing.T) {
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{"action": map[string]any{"id": 2, "status": "running"}})
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/actions/reboot"):
-			status = "rebooting"
-			rebootPolls = 0
 			actions++
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{"action": map[string]any{"id": 3, "status": "running"}})
@@ -255,12 +246,35 @@ func TestStartStopRestart(t *testing.T) {
 	if err := client.Stop(context.Background(), "hetzner/42", false); err != nil {
 		t.Fatal(err)
 	}
+	mu.Lock()
 	status = "running"
+	mu.Unlock()
 	if err := client.Restart(context.Background(), "hetzner/42", false); err != nil {
 		t.Fatal(err)
 	}
+	mu.Lock()
+	defer mu.Unlock()
 	if actions != 3 {
 		t.Fatalf("actions = %d", actions)
+	}
+}
+
+func TestRestartACPISucceedsWhileStatusStaysRunning(t *testing.T) {
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/servers/42":
+			_ = json.NewEncoder(w).Encode(map[string]any{"server": serverJSON(42, "web", "running", "1.2.3.4", "", "ubuntu", "ubuntu", "fsn1", "cx22", nil)})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/actions/reboot"):
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"action": map[string]any{"id": 3, "status": "running"}})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/actions/"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"action": map[string]any{"id": 3, "status": "success"}})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	if err := client.Restart(context.Background(), "hetzner/42", false); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -348,6 +362,31 @@ func TestTokenContextsDedup(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(contexts) != 1 || contexts[0].Name != "prod" || contexts[0].Source != "env" {
+		t.Fatalf("contexts = %+v", contexts)
+	}
+}
+
+func TestTokenContextsSkipsUnreadableHCloudConfig(t *testing.T) {
+	home := t.TempDir()
+	blocked := filepath.Join(home, "cli.toml")
+	if err := os.Mkdir(blocked, 0700); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{
+		Home:       home,
+		ConfigPath: blocked,
+		Getenv: func(key string) string {
+			if key == APIKeyEnv {
+				return "env-token"
+			}
+			return ""
+		},
+	}
+	contexts, err := client.TokenContexts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contexts) != 1 || contexts[0].Source != "env" || contexts[0].Token != "env-token" {
 		t.Fatalf("contexts = %+v", contexts)
 	}
 }

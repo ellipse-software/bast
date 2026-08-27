@@ -4,13 +4,16 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	hetznercloud "bast/internal/cloud/hetzner"
 	"bast/internal/cloud/sync"
-	upstashcloud "bast/internal/cloud/upstash"
+	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/connectbanner"
+	"bast/internal/hostpass"
 	"bast/internal/metadata"
 	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
@@ -124,6 +127,7 @@ func (r *Runner) hostAdd(args []string) error {
 	user := fs.String("user", "", "remote user")
 	port := fs.String("port", "", "remote port")
 	identity := fs.String("identity", "", "identity file")
+	storePassword := fs.Bool("password", false, "prompt for a password Bast enters on connect")
 	passwordOnly := fs.Bool("password-only", false, "disable public-key authentication")
 	proxy := fs.String("proxy-jump", "", "jump host")
 	group := fs.String("group", "", "group path")
@@ -172,7 +176,7 @@ func (r *Runner) hostAdd(args []string) error {
 		if *passwordOnly {
 			auth = "password"
 		}
-		auth, err = r.prompt("Identity file (blank for defaults, or password)", auth, false)
+		auth, err = r.prompt("Method (blank for defaults, key path, or password)", auth, false)
 		if err != nil {
 			return err
 		}
@@ -216,8 +220,26 @@ func (r *Runner) hostAdd(args []string) error {
 			return err
 		}
 	}
+	if *storePassword {
+		*passwordOnly = true
+	}
 	if *identity != "" && *passwordOnly {
-		return usagef("--identity and --password-only cannot be used together")
+		return usagef("--identity cannot be used with --password or --password-only")
+	}
+	var secret string
+	if *storePassword {
+		secret, err = r.readSecret("Password")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(secret) == "" {
+			return fail("validation", "password is required")
+		}
+	} else if *passwordOnly && wizard && r.interactive() && !r.NoInput {
+		secret, err = r.readSecret("Password")
+		if err != nil {
+			return err
+		}
 	}
 	groupFlagSet := groupPrompted
 	fs.Visit(func(f *flag.Flag) {
@@ -250,6 +272,11 @@ func (r *Runner) hostAdd(args []string) error {
 	if err := r.store.SetHost(input.Alias, meta); err != nil {
 		return err
 	}
+	if strings.TrimSpace(secret) != "" {
+		if err := hostpass.Save(r.Paths.PasswordsDir, host.ManagedID, secret); err != nil {
+			return err
+		}
+	}
 	return r.success(map[string]string{"alias": host.Alias}, "Host saved: "+host.Alias)
 }
 
@@ -267,6 +294,8 @@ func (r *Runner) hostEdit(args []string) error {
 	fs.Var(&color, "color", "label colour")
 	fs.Var(&notes, "notes", "notes")
 	passwordOnly := fs.Bool("password-only", false, "use password only")
+	storePassword := fs.Bool("password", false, "prompt for a password Bast enters on connect")
+	clearPassword := fs.Bool("clear-password", false, "forget the stored password")
 	clearUser := fs.Bool("clear-user", false, "clear remote user")
 	clearPort := fs.Bool("clear-port", false, "clear port")
 	clearIdentity := fs.Bool("clear-identity", false, "use OpenSSH defaults")
@@ -286,8 +315,14 @@ func (r *Runner) hostEdit(args []string) error {
 	if fs.NArg() != 1 {
 		return usagef("usage: bast hosts edit <host> [options]")
 	}
+	if *storePassword {
+		*passwordOnly = true
+	}
 	if (identity.set && (*passwordOnly || *clearIdentity)) || (*passwordOnly && *clearIdentity) {
 		return usagef("--identity, --password-only, and --clear-identity are mutually exclusive")
+	}
+	if *storePassword && *clearPassword {
+		return usagef("--password and --clear-password cannot be used together")
 	}
 	for _, conflict := range []struct {
 		set   bool
@@ -309,10 +344,11 @@ func (r *Runner) hostEdit(args []string) error {
 	if err != nil {
 		return err
 	}
-	configChanged := hostname.set || user.set || port.set || identity.set || proxy.set || *passwordOnly || *clearUser || *clearPort || *clearIdentity || *clearProxy || advanced.changed()
+	configChanged := hostname.set || user.set || port.set || identity.set || proxy.set || *passwordOnly || *storePassword || *clearUser || *clearPort || *clearIdentity || *clearProxy || advanced.changed()
+	passwordChanged := *storePassword || *clearPassword
 	metadataChanged := label.set || group.set || environment.set || color.set || notes.set || len(tags) > 0 || *clearGroup || *clearTags || *clearEnvironment || *clearColor || *clearNotes
 	var wizardAdvanced *sshconfig.AdvancedSettings
-	if !configChanged && !metadataChanged {
+	if !configChanged && !metadataChanged && !passwordChanged {
 		if r.NoInput || !r.interactive() {
 			return usagef("no changes supplied")
 		}
@@ -343,7 +379,7 @@ func (r *Runner) hostEdit(args []string) error {
 			} else if host.Authentication == "identity" && len(host.IdentityFiles) > 0 {
 				auth = host.IdentityFiles[0]
 			}
-			auth, err = r.prompt("Identity file (default, password, or path)", auth, false)
+			auth, err = r.prompt("Method (default, password, or path)", auth, false)
 			if err != nil {
 				return err
 			}
@@ -398,14 +434,24 @@ func (r *Runner) hostEdit(args []string) error {
 		notes.set = true
 		configChanged, metadataChanged = host.Managed, true
 	}
-	if host.Synced && (configChanged || metadataChanged || label.set) {
+	if host.Synced && (configChanged || metadataChanged || label.set || passwordChanged) {
 		return fail("synced_host", "synced hosts are read-only; manage them with bast sync")
 	}
 	if host.Managed && label.set {
 		configChanged = true
 	}
-	if !host.Managed && configChanged {
+	if !host.Managed && (configChanged || passwordChanged) {
 		return fail("external_host", "externally managed hosts only support metadata changes")
+	}
+	var secret string
+	if *storePassword {
+		secret, err = r.readSecret("Password")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(secret) == "" {
+			return fail("validation", "password is required")
+		}
 	}
 	newAlias := host.Alias
 	newMeta := host.meta
@@ -510,6 +556,21 @@ func (r *Runner) hostEdit(args []string) error {
 		if err := r.config.Update(host.raw.ManagedID, input); err != nil {
 			return err
 		}
+		if !input.PasswordOnly {
+			if err := hostpass.Delete(r.Paths.PasswordsDir, host.raw.ManagedID); err != nil {
+				return err
+			}
+		}
+	}
+	if host.Managed && *clearPassword {
+		if err := hostpass.Delete(r.Paths.PasswordsDir, host.raw.ManagedID); err != nil {
+			return err
+		}
+	}
+	if host.Managed && strings.TrimSpace(secret) != "" {
+		if err := hostpass.Save(r.Paths.PasswordsDir, host.raw.ManagedID, secret); err != nil {
+			return err
+		}
 	}
 	if newAlias != host.Alias {
 		if err := r.store.RenameHost(host.Alias, newAlias); err != nil {
@@ -546,6 +607,9 @@ func (r *Runner) hostDelete(args []string) error {
 		return fail("external_host", "externally managed hosts cannot be deleted by Bast")
 	}
 	if err := r.confirm(host.Label, *yes); err != nil {
+		return err
+	}
+	if err := hostpass.Delete(r.Paths.PasswordsDir, host.raw.ManagedID); err != nil {
 		return err
 	}
 	if err := r.config.Delete(host.raw.ManagedID); err != nil {
@@ -755,6 +819,16 @@ func (r *Runner) connect(args []string) error {
 			return fail("upstash_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "vercel" && host.SyncID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if err := engine.EnsureVercelAccess(ctx, sshconfig.Host{
+			Alias: host.Alias, Synced: host.Synced, SyncSource: host.SyncSource, SyncID: host.SyncID,
+		}, connectbanner.Status(r.Out)); err != nil {
+			return fail("vercel_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
 	} else if host.Synced && host.SyncSource == "hetzner" && host.SyncID != "" {
 		timeout := 90 * time.Second
 		if hetznercloud.HostLooksStopped(r.store.Host(host.Alias).Tags) {
@@ -776,12 +850,24 @@ func (r *Runner) connect(args []string) error {
 	if err := r.store.RecordUse(host.Alias); err != nil {
 		return err
 	}
-	cmd, err := r.OpenSSH.SSHCommand(host.Alias)
-	if err != nil {
-		return err
-	}
-	if host.Synced && host.SyncSource == "upstash" {
-		upstashcloud.PrepareSSH(cmd, "")
+	var cmd *exec.Cmd
+	if host.Synced && host.SyncSource == "vercel" {
+		integration := r.store.Vercel()
+		projectID, name, err := vercelcloud.ScopedName(host.SyncID, integration.ProjectID)
+		if err != nil {
+			return fail("vercel_access", err.Error())
+		}
+		cmd = vercelcloud.ShellCommand(os.Args[0], name, projectID, integration.TeamID)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		var err error
+		cmd, err = r.OpenSSH.SSHCommand(host.Alias)
+		if err != nil {
+			return err
+		}
+		r.prepareSSH(cmd, host.raw)
 	}
 	telemetry.Track("connect", r.Version)
 	return r.runProcess(cmd, false)

@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/cloud/sync"
+	"bast/internal/hostpass"
 	"bast/internal/metadata"
 	"bast/internal/sshconfig"
 )
@@ -19,7 +20,8 @@ const (
 	descHostHostname       = "Required - Server hostname or IP address"
 	descHostUser           = "Optional - Remote username; blank uses SSH default"
 	descHostPort           = "Optional - Port number; blank defaults to 22"
-	descHostIdentity       = "Optional - Key file, password auth, or agent defaults"
+	descHostIdentity       = "Optional - Key, saved password, or OpenSSH defaults"
+	descHostPassword       = "Blank prompts on connect"
 	descHostProxyJump      = "Optional - Route through a jump host (ProxyJump)"
 	descHostRemoteCommand  = "Optional - Command to run after connecting (RemoteCommand)"
 	descHostRequestTTY     = "Optional - Allocate a TTY for the startup command"
@@ -46,7 +48,13 @@ const (
 	descKeyServer          = "Required - Target server; may prompt for password"
 )
 
-const passwordOnlyIdentity = "\x00password-only"
+const (
+	passwordOnlyIdentity = "\x00password-only"
+	passwordKeepValue    = "\x00password-keep"
+	passwordClearValue   = "\x00password-clear"
+	methodFieldLabel     = "Method"
+	passwordFieldLabel   = "Password"
+)
 
 func (m *App) formTextInputActive() bool {
 	f := m.form
@@ -69,10 +77,7 @@ func (m *App) formTextInputActive() bool {
 		}
 		items := hostHubItems(f)
 		if f.hubIndex >= 0 && f.hubIndex < len(items) {
-			switch items[f.hubIndex].id {
-			case "label", "hostname":
-				return true
-			}
+			return hostHubInline(items[f.hubIndex].id)
 		}
 		return false
 	}
@@ -343,7 +348,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		if err := sshconfig.ValidateAdvanced(adv); err != nil {
 			return m.formError(err.Error())
 		}
-		identityFile := values["Identity file"]
+		identityFile := values[methodFieldLabel]
 		passwordOnly := identityFile == passwordOnlyIdentity
 		if passwordOnly {
 			identityFile = ""
@@ -365,15 +370,21 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			meta.Favorite, meta.Hidden, meta.LastUsedAt, meta.ConnectionCount = old.Favorite, old.Hidden, old.LastUsedAt, old.ConnectionCount
 		}
 		var err error
+		var managedID string
 		if f.action == "history_host_add" {
-			err = m.addHistoryHost(input, meta, values["History suggestion"])
+			var added sshconfig.Host
+			added, err = m.addHistoryHost(input, meta, values["History suggestion"])
+			managedID = added.ManagedID
 		} else if f.action == "host_add" {
-			_, err = m.config.Add(input)
+			var added sshconfig.Host
+			added, err = m.config.Add(input)
+			managedID = added.ManagedID
 		} else {
 			host, ok := m.findHost(oldAlias)
 			if !ok {
 				err = fmt.Errorf("host %q no longer exists", oldAlias)
 			} else {
+				managedID = host.ManagedID
 				err = m.config.Update(host.ManagedID, input)
 			}
 		}
@@ -385,6 +396,9 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 				return m.finishMutation(err, "Host saved")
 			}
 			err = m.metadata.SetHost(input.Alias, meta)
+		}
+		if err == nil {
+			err = m.applyHostPassword(managedID, passwordOnly, values[passwordFieldLabel])
 		}
 		if err == nil {
 			if f.action == "history_host_add" {
@@ -450,7 +464,10 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		if !ok {
 			return m.formError("host no longer exists")
 		}
-		err := m.config.Delete(host.ManagedID)
+		err := hostpass.Delete(m.paths.PasswordsDir, host.ManagedID)
+		if err == nil {
+			err = m.config.Delete(host.ManagedID)
+		}
 		if err == nil {
 			err = m.metadata.DeleteHost(alias)
 		}
@@ -509,6 +526,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		if err != nil {
 			return m.formError(err.Error())
 		}
+		m.prepareSSH(cmd, host)
 		hostLabel := m.hostLabel(host)
 		m.form = nil
 		return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
@@ -523,7 +541,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			return m.formValidationError("Name does not match the key name")
 		}
 		return m.finishMutation(m.keyring.Delete(key, values["Type the name to confirm"]), "Key permanently deleted")
-	case "sync_gcp_user", "sync_gcp_projects", "sync_gcp_sa_add", "sync_gcp_sa_remove", "sync_aws_user", "sync_aws_profiles", "sync_aws_regions", "sync_azure_user", "sync_azure_subscriptions", "sync_azure_resource_groups", "sync_hetzner_user", "sync_hetzner_port", "sync_hetzner_contexts", "sync_hetzner_locations", "box_new", "box_stop", "box_fork", "upstash_new", "upstash_stop", "upstash_fork", "upstash_delete", "upstash_key", "hetzner_key", "hetzner_key_remove", "hetzner_stop", "hetzner_restart":
+	case "sync_gcp_user", "sync_gcp_projects", "sync_gcp_sa_add", "sync_gcp_sa_remove", "sync_aws_user", "sync_aws_profiles", "sync_aws_regions", "sync_azure_user", "sync_azure_subscriptions", "sync_azure_resource_groups", "sync_hetzner_user", "sync_hetzner_port", "sync_hetzner_contexts", "sync_hetzner_locations", "box_new", "box_stop", "box_fork", "upstash_new", "upstash_stop", "upstash_fork", "upstash_delete", "upstash_key", "vercel_new", "vercel_stop", "vercel_fork", "vercel_delete", "vercel_cleanup", "vercel_token", "hetzner_key", "hetzner_key_remove", "hetzner_stop", "hetzner_restart":
 		return m, m.submitSyncForm(f.action, values)
 	case "known_delete":
 		alias := values["Alias"]
@@ -704,6 +722,7 @@ func (m *App) openEditHostForm() {
 	}
 	extras, _ := m.config.ManagedExtras(host.ManagedID)
 	adv := sshconfig.ParseAdvanced(extras, emptyIfNone(host.Resolved.ProxyJump))
+	passwordStored := hostpass.Exists(m.paths.PasswordsDir, host.ManagedID)
 	m.openHostForm("Edit host: "+m.hostLabel(host), "host_edit", hostFormFields(m, metadataHostValues{
 		label: labelPath, tags: strings.Join(meta.Tags, ", "),
 		environment: meta.Environment, color: meta.Color, notes: meta.Notes,
@@ -714,6 +733,7 @@ func (m *App) openEditHostForm() {
 		port:              host.Resolved.Port,
 		identity:          identity,
 		passwordOnly:      isPasswordOnly,
+		passwordStored:    passwordStored,
 		advanced:          adv,
 	}, []field{{label: "Original label", value: host.Alias, hidden: true}}))
 }
@@ -874,20 +894,14 @@ func (m *App) openKnownHostForm() {
 	}
 }
 
-func (m *App) identityField(current string, passwordOnly bool) field {
+func (m *App) methodField(current string, passwordOnly bool) field {
 	item := field{
-		label:       "Identity file",
+		label:       methodFieldLabel,
 		description: descHostIdentity,
 		placeholder: "~/.ssh/id_ed25519",
 		optional:    true,
 	}
 	item.options = append(item.options, fieldOption{label: "OpenSSH defaults / agent"})
-	item.options = append(item.options, fieldOption{label: "Password only", value: passwordOnlyIdentity})
-	if passwordOnly {
-		item.selected = len(item.options) - 1
-		item.value = passwordOnlyIdentity
-		current = ""
-	}
 	if current != "" {
 		current = shortPath(current, m.paths.Home)
 	}
@@ -913,7 +927,76 @@ func (m *App) identityField(current string, passwordOnly bool) field {
 		item.customValue = current
 		item.value = current
 	}
+	item.options = append(item.options, fieldOption{label: "Password", value: passwordOnlyIdentity})
+	if passwordOnly {
+		item.selected = len(item.options) - 1
+		item.value = passwordOnlyIdentity
+	}
 	return item
+}
+
+func (m *App) passwordField(stored bool) field {
+	item := field{
+		label:       passwordFieldLabel,
+		section:     formSectionAuth,
+		description: descHostPassword,
+		optional:    true,
+		secret:      true,
+		hidden:      true,
+	}
+	if stored {
+		item.description = ""
+		item.options = []fieldOption{
+			{label: "Keep stored password", value: passwordKeepValue},
+			{label: "Prompt on connect", value: passwordClearValue},
+			{label: "Replace…", custom: true},
+		}
+		item.value = passwordKeepValue
+	}
+	return item
+}
+
+func (m *App) applyHostPassword(managedID string, passwordOnly bool, value string) error {
+	if strings.TrimSpace(managedID) == "" {
+		return nil
+	}
+	dir := m.paths.PasswordsDir
+	if !passwordOnly {
+		return hostpass.Delete(dir, managedID)
+	}
+	switch strings.TrimRight(value, "\r\n") {
+	case passwordKeepValue, "":
+		return nil
+	case passwordClearValue:
+		return hostpass.Delete(dir, managedID)
+	default:
+		return hostpass.Save(dir, managedID, value)
+	}
+}
+
+func (m *App) syncHostPasswordField() {
+	f := m.form
+	if f == nil || !isHostForm(f) {
+		return
+	}
+	method := f.fieldByLabel(methodFieldLabel)
+	pwd := f.fieldByLabel(passwordFieldLabel)
+	if method == nil || pwd == nil {
+		return
+	}
+	show := method.value == passwordOnlyIdentity
+	pwd.hidden = !show
+	if pwd.hidden && f.index >= 0 && f.index < len(f.fields) && f.fields[f.index].label == passwordFieldLabel {
+		if idx := f.fieldIndex(methodFieldLabel); idx >= 0 {
+			f.index = idx
+			f.selecting = false
+			m.focusFormField()
+		}
+	}
+}
+
+func (m *App) hostPasswordStored(h sshconfig.Host) bool {
+	return h.Managed && h.ManagedID != "" && hostpass.Exists(m.paths.PasswordsDir, h.ManagedID)
 }
 
 func passwordOnly(resolved sshconfig.Resolved) bool {
@@ -978,7 +1061,11 @@ func (m *App) commitFormField() {
 	if len(item.options) > 0 {
 		option := item.options[item.selected]
 		if option.custom {
-			item.customValue = strings.TrimSpace(m.form.input.Value())
+			if item.secret {
+				item.customValue = m.form.input.Value()
+			} else {
+				item.customValue = strings.TrimSpace(m.form.input.Value())
+			}
 			item.value = item.customValue
 		} else {
 			item.value = option.value
@@ -987,6 +1074,9 @@ func (m *App) commitFormField() {
 		item.value = m.form.input.Value()
 	} else {
 		item.value = strings.TrimSpace(m.form.input.Value())
+	}
+	if item.label == methodFieldLabel {
+		m.syncHostPasswordField()
 	}
 }
 

@@ -29,6 +29,8 @@ func (m *App) providerEnabled(kind cloud.Kind) bool {
 		return m.metadata.Box().Enabled
 	case cloud.Upstash:
 		return m.metadata.Upstash().Enabled
+	case cloud.Vercel:
+		return m.metadata.Vercel().Enabled
 	case cloud.Hetzner:
 		return m.metadata.Hetzner().Enabled
 	default:
@@ -40,10 +42,23 @@ func (m *App) shouldInjectProviderRoot(kind cloud.Kind) bool {
 	if _, ok := cloud.DescriptorForKind(kind); !ok {
 		return false
 	}
-	// Create-capable providers keep an empty group so n can mint a VM.
-	// Hetzner and the hyperscalers only appear when a visible host exists;
-	// stopped-only inventory stays hidden until `.`.
-	return cloud.CapabilitiesFor(kind).Create && m.providerEnabled(kind)
+	// Visible hosts already create the group. An empty header is only useful
+	// when `.` is revealing stopped or user-hidden hosts that would otherwise
+	// have no parent row. Create still lives on the Sync tab.
+	if !m.showHidden || m.searchText() != "" {
+		return false
+	}
+	hostMetadata := m.hostMetadata()
+	for _, host := range m.hosts {
+		if !host.Synced || host.SyncSource != string(kind) {
+			continue
+		}
+		meta := hostMetadata[host.Alias]
+		if meta.Hidden || hostLooksStopped(host, meta) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *App) providerGroupStats(group string) (running, stopped int) {
@@ -66,6 +81,9 @@ func (m *App) providerGroupPrimaryAction(kind cloud.Kind) string {
 	if cloud.CapabilitiesFor(kind).Create {
 		if kind == cloud.Box || kind == cloud.Upstash {
 			return " New box "
+		}
+		if kind == cloud.Vercel {
+			return " New sandbox "
 		}
 		return " New "
 	}
@@ -106,38 +124,14 @@ func (m *App) stopSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 		m.openUpstashStopForm(host)
 	case "box":
 		m.openBoxStopForm(host)
+	case "vercel":
+		m.openVercelStopForm(host)
 	case "hetzner":
 		m.openHetznerStopForm(host)
 	default:
 		return m, nil
 	}
 	return m, nil
-}
-
-func (m *App) forkSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
-	if !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Fork }) {
-		return m, nil
-	}
-	if m.syncingProviders[host.SyncSource] {
-		return m, m.setNotice("Operation already in progress")
-	}
-	switch host.SyncSource {
-	case "upstash":
-		m.openUpstashForkForm(host)
-	case "box":
-		m.openBoxForkForm(host)
-	default:
-		return m, nil
-	}
-	return m, nil
-}
-
-func (m *App) deleteSyncedHost(host sshconfig.Host) bool {
-	if !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Delete }) {
-		return false
-	}
-	m.openUpstashDeleteForm(host)
-	return true
 }
 
 func (m *App) restartSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
@@ -157,6 +151,41 @@ func (m *App) restartSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *App) forkSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
+	if !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Fork }) {
+		return m, nil
+	}
+	if m.syncingProviders[host.SyncSource] {
+		return m, m.setNotice("Operation already in progress")
+	}
+	switch host.SyncSource {
+	case "upstash":
+		m.openUpstashForkForm(host)
+	case "box":
+		m.openBoxForkForm(host)
+	case "vercel":
+		m.openVercelForkForm(host)
+	default:
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *App) deleteSyncedHost(host sshconfig.Host) bool {
+	if !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Delete }) {
+		return false
+	}
+	switch host.SyncSource {
+	case "upstash":
+		m.openUpstashDeleteForm(host)
+	case "vercel":
+		m.openVercelDeleteForm(host)
+	default:
+		return false
+	}
+	return true
+}
+
 func (m *App) resumeSyncedHost(host sshconfig.Host, thenConnect bool) tea.Cmd {
 	if !m.hostLooksStopped(host) || !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Start }) {
 		return nil
@@ -166,6 +195,8 @@ func (m *App) resumeSyncedHost(host sshconfig.Host, thenConnect bool) tea.Cmd {
 		return m.resumeSelectedUpstash(host, thenConnect)
 	case "box":
 		return m.resumeSelectedBox(host, thenConnect)
+	case "vercel":
+		return m.resumeSelectedVercel(host, thenConnect)
 	case "hetzner":
 		return m.startSelectedHetzner(host, thenConnect)
 	default:
@@ -197,6 +228,16 @@ func (m *App) runProviderGroupCreate(kind cloud.Kind) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.openUpstashNewForm()
+		return m, nil
+	case cloud.Vercel:
+		if m.syncingProviders["vercel"] {
+			return m, m.setNotice("Vercel operation already in progress")
+		}
+		if !m.vercelReady() {
+			m.openVercelTokenForm()
+			return m, nil
+		}
+		m.openVercelNewForm()
 		return m, nil
 	default:
 		return m, m.setNotice("Create is not available for this provider yet")

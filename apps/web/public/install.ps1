@@ -74,6 +74,97 @@ function Add-UserPath([string]$Directory) {
     }
 }
 
+function Update-BastCompletionBlock([string]$Path, [string]$Block) {
+    $begin = "# >>> bast completions >>>"
+    $end = "# <<< bast completions <<<"
+    $directory = Split-Path -Parent $Path
+    if ($directory -and -not (Test-Path -LiteralPath $directory)) {
+        New-Item -ItemType Directory -Force $directory | Out-Null
+    }
+    $existing = ""
+    if (Test-Path -LiteralPath $Path) {
+        try {
+            $existing = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
+            if ($null -eq $existing) {
+                $existing = ""
+            }
+        } catch {
+            return
+        }
+        $pattern = "(?s)\r?\n?" + [regex]::Escape($begin) + ".*?" + [regex]::Escape($end) + "\r?\n?"
+        $existing = [regex]::Replace($existing, $pattern, "`n").TrimEnd()
+        if ($existing) {
+            $existing += "`r`n`r`n"
+        }
+    }
+    try {
+        Set-Content -LiteralPath $Path -Value ($existing + $Block.TrimEnd() + "`r`n") -Encoding UTF8
+    } catch {
+        return
+    }
+}
+
+function Install-BastCompletions([string]$Binary) {
+    if ($env:BAST_NO_COMPLETIONS) {
+        return
+    }
+    if (-not $Binary -or -not (Test-Path -LiteralPath $Binary)) {
+        return
+    }
+
+    $script = $null
+    try {
+        $script = & $Binary completion powershell 2>$null | Out-String
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($script)) {
+            return
+        }
+    } catch {
+        return
+    }
+
+    Write-Step "Enabling shell completions..."
+    $completionDir = Join-Path $installDirectory "completions"
+    New-Item -ItemType Directory -Force $completionDir | Out-Null
+    $ps1Path = Join-Path $completionDir "bast.ps1"
+    Set-Content -LiteralPath $ps1Path -Value $script.TrimEnd() -Encoding UTF8
+
+    $escaped = $ps1Path.Replace("'", "''")
+    $block = @"
+# >>> bast completions >>>
+if (Test-Path -LiteralPath '$escaped') {
+  . '$escaped'
+}
+# <<< bast completions <<<
+"@
+
+    $documents = [Environment]::GetFolderPath("MyDocuments")
+    $profiles = @(
+        (Join-Path $documents "WindowsPowerShell\Microsoft.PowerShell_profile.ps1"),
+        (Join-Path $documents "PowerShell\Microsoft.PowerShell_profile.ps1")
+    )
+    if ($PROFILE -and ($profiles -notcontains $PROFILE)) {
+        $profiles += $PROFILE
+    }
+    foreach ($profilePath in $profiles) {
+        if ($profilePath) {
+            Update-BastCompletionBlock $profilePath $block
+        }
+    }
+
+    try {
+        . $ps1Path
+    } catch {
+        # The current session may not allow Register-ArgumentCompleter.
+    }
+
+    if ((Get-ExecutionPolicy) -eq "Restricted") {
+        Write-Info "PowerShell execution policy is Restricted. Tab completion loads after Set-ExecutionPolicy -Scope CurrentUser RemoteSigned."
+    }
+
+    Write-Success "Enabled shell completions"
+    Write-Info "Open a new PowerShell window, then press Tab after bast."
+}
+
 function Install-StagedBinary(
     [string]$Source,
     [string]$Destination,
@@ -138,28 +229,61 @@ $wasInstalled = Test-Path $destination
 Write-Info "Platform: windows/$goArchitecture"
 Write-Info "Install location: $destination"
 Write-Host ""
-Write-Step "Checking for the latest release..."
-
 $headers = @{ Accept = "application/vnd.github+json"; "User-Agent" = "bast-installer" }
+$pinned = $false
 if ($Channel -eq "nightly") {
+    if ($env:BAST_VERSION) {
+        throw "BAST_VERSION is for the stable installer; set BAST_NIGHTLY_VERSION instead"
+    }
     if ($env:BAST_NIGHTLY_VERSION) {
-        $version = $env:BAST_NIGHTLY_VERSION
+        $version = $env:BAST_NIGHTLY_VERSION.Trim()
+        if ($version -notmatch '^nightly\.[0-9]{8}\.[0-9a-f]{7}$') {
+            throw "invalid BAST_NIGHTLY_VERSION: $($env:BAST_NIGHTLY_VERSION) (expected nightly.YYYYMMDD.<sha>)"
+        }
+        $pinned = $true
+        Write-Step "Using BAST_NIGHTLY_VERSION $version..."
     } else {
+        Write-Step "Checking for the latest release..."
         $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases?per_page=50" -Headers $headers -TimeoutSec 30
         $release = $releases | Where-Object { $_.prerelease -and -not $_.draft -and $_.tag_name -match '^nightly\.[0-9]{8}\.[0-9a-f]{7}$' } | Sort-Object published_at -Descending | Select-Object -First 1
         $version = [string]$release.tag_name
-    }
-    if ($version -notmatch '^nightly\.[0-9]{8}\.[0-9a-f]{7}$') {
-        throw "No supported nightly release was found"
+        if ($version -notmatch '^nightly\.[0-9]{8}\.[0-9a-f]{7}$') {
+            throw "No supported nightly release was found"
+        }
     }
 } else {
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers $headers -TimeoutSec 30
-    $version = [string]$release.tag_name
-    if ($version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
-        throw "The latest release has an unsupported version: $version"
+    if ($env:BAST_NIGHTLY_VERSION) {
+        throw "BAST_NIGHTLY_VERSION is for the nightly installer; set BAST_VERSION instead"
+    }
+    if ($env:BAST_VERSION) {
+        $version = $env:BAST_VERSION.Trim()
+        if ($version -notmatch '^v') {
+            $version = "v$version"
+        }
+        if ($version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw "invalid BAST_VERSION: $($env:BAST_VERSION) (expected vX.Y.Z)"
+        }
+        $pinned = $true
+        Write-Step "Using BAST_VERSION $version..."
+        try {
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/tags/$version" -Headers $headers -TimeoutSec 30
+        } catch {
+            throw "could not find GitHub release $version"
+        }
+    } else {
+        Write-Step "Checking for the latest release..."
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers $headers -TimeoutSec 30
+        $version = [string]$release.tag_name
+        if ($version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') {
+            throw "The latest release has an unsupported version: $version"
+        }
     }
 }
-Write-Success "Latest release: $version"
+if ($pinned) {
+    Write-Success "Requested version: $version"
+} else {
+    Write-Success "Latest release: $version"
+}
 
 $cleanVersion = $version.TrimStart("v")
 $bundle = "bast_${cleanVersion}_windows_${goArchitecture}"
@@ -179,6 +303,7 @@ if ((Test-Path $destination) -and (Test-Path $receipt)) {
     $installedVersion = (& $destination --version 2>$null) -join "`n"
     if ($installedReceipt -eq $InstallerUrl -and $installedVersion -match [regex]::Escape($version)) {
         Add-UserPath $installDirectory
+        Install-BastCompletions $destination
         Write-Host ""
         Write-Success "Bast $version is already up to date."
         Write-RunHint
@@ -267,6 +392,7 @@ try {
         $arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$helperPath`" `"$helperConfigPath`""
         Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -WindowStyle Hidden
         Add-UserPath $installDirectory
+        Install-BastCompletions $staged
         Write-Success "Bast $version will finish installing after this process exits."
         Write-RunHint
         $temporaryDirectory = $null
@@ -275,6 +401,7 @@ try {
         Install-StagedBinary $staged $destination $receipt $version $temporaryDirectory
         $temporaryDirectory = $null
         Add-UserPath $installDirectory
+        Install-BastCompletions $destination
         if ($wasInstalled) {
             Write-Success "Updated Bast to $version."
             Send-Telemetry "update" $version $goArchitecture

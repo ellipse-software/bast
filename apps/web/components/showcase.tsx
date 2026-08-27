@@ -36,7 +36,7 @@ const features: {
   {
     title: "Cloud sync",
     description:
-      "Pull live hosts from GCP, AWS, Azure, Hetzner Cloud, box.ascii.dev, and Upstash Box. Synced hosts stay read-only and owned by the cloud.",
+      "Pull live hosts from GCP, AWS, Azure, Hetzner Cloud, box.ascii.dev, Upstash Box, and Vercel Sandbox. Synced hosts stay read-only and owned by the cloud.",
     icon: Cloud,
     href: "/docs/features/gcp",
   },

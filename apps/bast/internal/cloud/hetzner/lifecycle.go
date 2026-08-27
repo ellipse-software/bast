@@ -20,7 +20,7 @@ func (c *Client) Start(ctx context.Context, syncID string) error {
 	if err := c.runAction(ctx, token, srv.ID, "poweron"); err != nil {
 		return err
 	}
-	return c.waitGuest(ctx, token, srv.ID, "running", false)
+	return c.waitGuest(ctx, token, srv.ID, "running")
 }
 
 func (c *Client) Stop(ctx context.Context, syncID string, force bool) error {
@@ -38,7 +38,7 @@ func (c *Client) Stop(ctx context.Context, syncID string, force bool) error {
 	if err := c.runAction(ctx, token, srv.ID, command); err != nil {
 		return err
 	}
-	if err := c.waitGuest(ctx, token, srv.ID, "off", false); err != nil {
+	if err := c.waitGuest(ctx, token, srv.ID, "off"); err != nil {
 		if !force {
 			return fmt.Errorf("%w; ACPI shutdown did not power the server off (the guest may ignore it). Retry with --force for a hard poweroff", err)
 		}
@@ -59,15 +59,9 @@ func (c *Client) Restart(ctx context.Context, syncID string, force bool) error {
 		if err := c.runAction(ctx, token, srv.ID, "reset"); err != nil {
 			return err
 		}
-		return c.waitGuest(ctx, token, srv.ID, "running", false)
+		return c.waitGuest(ctx, token, srv.ID, "running")
 	}
-	if err := c.runAction(ctx, token, srv.ID, "reboot"); err != nil {
-		return err
-	}
-	if err := c.waitGuest(ctx, token, srv.ID, "running", true); err != nil {
-		return fmt.Errorf("%w; ACPI reboot did not restart the server. Retry with --force for a hard reset", err)
-	}
-	return nil
+	return c.runAction(ctx, token, srv.ID, "reboot")
 }
 
 func (c *Client) lookup(ctx context.Context, syncID string) (string, apiServer, error) {
@@ -139,20 +133,15 @@ func (c *Client) waitAction(ctx context.Context, token string, actionID int) err
 	}
 }
 
-func (c *Client) waitGuest(ctx context.Context, token string, serverID int, want string, leaveRunningFirst bool) error {
+func (c *Client) waitGuest(ctx context.Context, token string, serverID int, want string) error {
 	want = normalizeState(want)
-	leftRunning := !leaveRunningFirst
 	for {
 		srv, err := c.getServer(ctx, token, serverID)
 		if err != nil {
 			return err
 		}
 		status := normalizeState(srv.Status)
-		if leaveRunningFirst && !leftRunning {
-			if status != "running" {
-				leftRunning = true
-			}
-		} else if status == want {
+		if status == want {
 			return nil
 		}
 		select {

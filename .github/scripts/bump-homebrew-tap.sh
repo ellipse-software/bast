@@ -4,91 +4,74 @@ set -euo pipefail
 tag="${1:?usage: bump-homebrew-tap.sh <tag>}"
 version="${tag#v}"
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/../.." && pwd)"
+template="$repo_root/.github/homebrew/bast.rb.template"
+
 bast_repo="ellipse-software/bast"
 tap_repo="ellipse-software/homebrew-tap"
-tap_dir="$(mktemp -d "${TMPDIR:-/tmp}/homebrew-tap.XXXXXX")"
-
-cleanup() {
-  rm -rf "$tap_dir"
-}
-trap cleanup EXIT
-
-if [[ -z "${GH_TOKEN:-}" ]]; then
-  echo "GH_TOKEN is required" >&2
-  exit 1
-fi
 
 if [[ "$tag" != v* ]]; then
   echo "tag must start with v (got: $tag)" >&2
   exit 1
 fi
 
-sums_url="https://github.com/${bast_repo}/releases/download/${tag}/SHA256SUMS"
-sums_file="$(mktemp)"
-curl -fsSL "$sums_url" -o "$sums_file"
+if [[ ! -f "$template" ]]; then
+  echo "missing formula template: $template" >&2
+  exit 1
+fi
 
-declare -A checksums=()
-while read -r hash archive; do
-  [[ -n "$hash" && -n "$archive" ]] || continue
-  checksums["$archive"]="$hash"
-done < "$sums_file"
+archive="${SOURCE_ARCHIVE:-}"
+cleanup_archive=0
+if [[ -z "$archive" ]]; then
+  archive="$(mktemp "${TMPDIR:-/tmp}/bast-source.XXXXXX")"
+  cleanup_archive=1
+  curl -fsSL "https://github.com/${bast_repo}/archive/refs/tags/${tag}.tar.gz" -o "$archive"
+fi
 
-required=(
-  "bast_${version}_darwin_amd64.tar.gz"
-  "bast_${version}_darwin_arm64.tar.gz"
-  "bast_${version}_linux_amd64.tar.gz"
-  "bast_${version}_linux_arm64.tar.gz"
-)
+cleanup() {
+  if [[ "$cleanup_archive" -eq 1 ]]; then
+    rm -f "$archive"
+  fi
+}
+trap cleanup EXIT
 
-for archive in "${required[@]}"; do
-  if [[ -z "${checksums[$archive]:-}" ]]; then
-    echo "missing checksum for ${archive} in ${sums_url}" >&2
+sha256="$(shasum -a 256 "$archive" | awk '{print $1}')"
+test -n "$sha256"
+
+write_formula() {
+  local outfile="$1"
+  sed \
+    -e "s/{{TAG}}/${tag}/g" \
+    -e "s/{{SHA256}}/${sha256}/g" \
+    "$template" > "$outfile"
+  if grep -q '{{' "$outfile"; then
+    echo "unresolved template placeholder in $template" >&2
     exit 1
   fi
-done
+}
+
+if [[ -n "${TAP_DIR:-}" ]]; then
+  mkdir -p "${TAP_DIR}/Formula"
+  write_formula "${TAP_DIR}/Formula/bast.rb"
+  echo "Wrote ${TAP_DIR}/Formula/bast.rb for ${tag}"
+  exit 0
+fi
+
+if [[ -z "${GH_TOKEN:-}" ]]; then
+  echo "GH_TOKEN is required" >&2
+  exit 1
+fi
+
+tap_dir="$(mktemp -d "${TMPDIR:-/tmp}/homebrew-tap.XXXXXX")"
+cleanup_tap() {
+  cleanup
+  rm -rf "$tap_dir"
+}
+trap cleanup_tap EXIT
 
 git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${tap_repo}.git" "$tap_dir"
-
-cat > "${tap_dir}/Formula/bast.rb" <<EOF
-class Bast < Formula
-  desc "Browse SSH hosts, manage keys, and connect from the terminal"
-  homepage "https://bast.sh"
-  version "${version}"
-  license "MIT"
-
-  conflicts_with "bast-nightly"
-
-  on_macos do
-    on_arm do
-      url "https://github.com/${bast_repo}/releases/download/${tag}/bast_${version}_darwin_arm64.tar.gz"
-      sha256 "${checksums[bast_${version}_darwin_arm64.tar.gz]}"
-    end
-    on_intel do
-      url "https://github.com/${bast_repo}/releases/download/${tag}/bast_${version}_darwin_amd64.tar.gz"
-      sha256 "${checksums[bast_${version}_darwin_amd64.tar.gz]}"
-    end
-  end
-
-  on_linux do
-    on_arm do
-      url "https://github.com/${bast_repo}/releases/download/${tag}/bast_${version}_linux_arm64.tar.gz"
-      sha256 "${checksums[bast_${version}_linux_arm64.tar.gz]}"
-    end
-    on_intel do
-      url "https://github.com/${bast_repo}/releases/download/${tag}/bast_${version}_linux_amd64.tar.gz"
-      sha256 "${checksums[bast_${version}_linux_amd64.tar.gz]}"
-    end
-  end
-
-  def install
-    bin.install "bast"
-  end
-
-  test do
-    assert_match "bast v#{version}", shell_output("#{bin}/bast --version")
-  end
-end
-EOF
+write_formula "${tap_dir}/Formula/bast.rb"
 
 pushd "$tap_dir" >/dev/null
 git config user.name "github-actions[bot]"
@@ -104,4 +87,4 @@ git commit -m "bast ${tag}"
 git push origin HEAD
 popd >/dev/null
 
-echo "Updated ${tap_repo} to ${tag}"
+echo "Updated ${tap_repo} to ${tag} (version ${version})"

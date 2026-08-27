@@ -179,6 +179,12 @@ func packIntegrations(in metadata.Integrations) VaultIntegrations {
 			AutoSync: in.Upstash.AutoSync,
 		}
 	}
+	if in.Vercel != nil {
+		out.Vercel = &VaultVercelIntegration{
+			Enabled:  in.Vercel.Enabled,
+			AutoSync: in.Vercel.AutoSync,
+		}
+	}
 	if in.Hetzner != nil {
 		out.Hetzner = &VaultHetznerIntegration{
 			Enabled:         in.Hetzner.Enabled,

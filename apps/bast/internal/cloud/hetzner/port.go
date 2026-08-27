@@ -23,7 +23,7 @@ func detectSSHPort(ctx context.Context, host, configured string) string {
 			return ""
 		}
 		return strconv.Itoa(preferred)
-	case probeRefused, probeUnknown:
+	case probeRefused, probeUnknown, probeOther:
 		if preferred != 22 && probeSSHPort(ctx, host, 22) == probeSSHBanner {
 			return ""
 		}

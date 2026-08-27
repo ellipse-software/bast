@@ -161,6 +161,14 @@ func applyIntegrations(store *metadata.Store, in VaultIntegrations) error {
 			return err
 		}
 	}
+	if in.Vercel != nil {
+		cur := store.Vercel()
+		cur.Enabled = in.Vercel.Enabled
+		cur.AutoSync = in.Vercel.AutoSync
+		if err := store.SetVercel(cur); err != nil {
+			return err
+		}
+	}
 	if in.Hetzner != nil {
 		cur := store.Hetzner()
 		cur.Enabled = in.Hetzner.Enabled

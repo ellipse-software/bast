@@ -18,6 +18,7 @@ import (
 	"bast/internal/cloud/gcp"
 	hetznercloud "bast/internal/cloud/hetzner"
 	upstashcloud "bast/internal/cloud/upstash"
+	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/metadata"
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
@@ -37,6 +38,7 @@ type Engine struct {
 	azureMu        stdsync.Mutex
 	boxMu          stdsync.Mutex
 	upstashMu      stdsync.Mutex
+	vercelMu       stdsync.Mutex
 	hetznerMu      stdsync.Mutex
 	Paths          paths.Paths
 	Config         sshconfig.Manager
@@ -46,6 +48,7 @@ type Engine struct {
 	Azure          *azurecloud.Client
 	Box            *boxcloud.Client
 	Upstash        *upstashcloud.Client
+	Vercel         *vercelcloud.Client
 	Hetzner        *hetznercloud.Client
 	BastExecutable string
 	Discover       func(ctx context.Context) ([]sshconfig.Host, error)
@@ -68,7 +71,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
 		SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig,
-		SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig,
+		SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig,
 		SyncHetznerConfig: p.SyncHetznerConfig,
 	}
 	return &Engine{
@@ -80,12 +83,23 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		Azure:          azurecloud.New(),
 		Box:            boxcloud.New(),
 		Upstash:        upstashcloud.New(p.UpstashAPIKey),
+		Vercel:         newVercelClient(p, store),
 		Hetzner:        hetznercloud.New(p.HetznerAPIKey, p.HetznerTokenDir, p.Home),
 		BastExecutable: stableExecutablePath(),
 		Discover: func(ctx context.Context) ([]sshconfig.Host, error) {
 			return cfg.Discover()
 		},
 	}
+}
+
+func newVercelClient(p paths.Paths, store *metadata.Store) *vercelcloud.Client {
+	client := vercelcloud.New(p.VercelToken)
+	if store != nil {
+		integration := store.Vercel()
+		client.TeamID = integration.TeamID
+		client.ProjectID = integration.ProjectID
+	}
+	return client
 }
 
 func stableExecutablePath() string {
@@ -998,6 +1012,7 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	azureIntegration := e.Store.Azure()
 	boxIntegration := e.Store.Box()
 	upstashIntegration := e.Store.Upstash()
+	vercelIntegration := e.Store.Vercel()
 	hetznerIntegration := e.Store.Hetzner()
 	status := Status{
 		GCP: GCPStatus{
@@ -1034,6 +1049,14 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			LastSyncAt: upstashIntegration.LastSyncAt, LastSyncError: upstashIntegration.LastSyncError,
 			LastInstanceCount: upstashIntegration.LastInstanceCount, HasKey: e.Upstash.HasKey(),
 		},
+		Vercel: VercelStatus{
+			Enabled: vercelIntegration.Enabled, AutoSync: vercelIntegration.AutoSync, Disabled: vercelIntegration.Disabled,
+			TeamID: vercelIntegration.TeamID, ProjectID: vercelIntegration.ProjectID,
+			LastSyncAt: vercelIntegration.LastSyncAt, LastSyncError: vercelIntegration.LastSyncError,
+			LastInstanceCount: vercelIntegration.LastInstanceCount,
+			Unrestorable:      append([]string(nil), vercelIntegration.Unrestorable...),
+			HasToken:          e.Vercel.HasToken(),
+		},
 		Hetzner: HetznerStatus{
 			Enabled: hetznerIntegration.Enabled, AutoSync: hetznerIntegration.AutoSync,
 			ContextFilter:  append([]string(nil), hetznerIntegration.ContextFilter...),
@@ -1046,7 +1069,7 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	}
 
 	var probes stdsync.WaitGroup
-	probes.Add(6)
+	probes.Add(7)
 	go func() {
 		defer probes.Done()
 		if err := e.GCP.CheckAvailable(ctx); err != nil {
@@ -1128,6 +1151,19 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	}()
 	go func() {
 		defer probes.Done()
+		account, err := e.Vercel.Account(ctx)
+		if err != nil {
+			status.Vercel.Error = err.Error()
+			return
+		}
+		status.Vercel.Authenticated = account.Authenticated
+		status.Vercel.HasToken = e.Vercel.HasToken()
+		if account.Error != "" && !account.Authenticated {
+			status.Vercel.Error = account.Error
+		}
+	}()
+	go func() {
+		defer probes.Done()
 		account, err := e.Hetzner.Account(ctx)
 		if err != nil {
 			status.Hetzner.Error = err.Error()
@@ -1150,6 +1186,7 @@ type Status struct {
 	Azure   AzureStatus   `json:"azure"`
 	Box     BoxStatus     `json:"box"`
 	Upstash UpstashStatus `json:"upstash"`
+	Vercel  VercelStatus  `json:"vercel"`
 	Hetzner HetznerStatus `json:"hetzner"`
 }
 
@@ -1216,6 +1253,21 @@ type UpstashStatus struct {
 	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
 	LastSyncError     string     `json:"lastSyncError,omitempty"`
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Error             string     `json:"error,omitempty"`
+}
+
+type VercelStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	HasToken          bool       `json:"hasToken,omitempty"`
+	TeamID            string     `json:"teamId,omitempty"`
+	ProjectID         string     `json:"projectId,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Unrestorable      []string   `json:"unrestorable,omitempty"`
 	Error             string     `json:"error,omitempty"`
 }
 

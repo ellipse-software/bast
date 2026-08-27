@@ -46,6 +46,20 @@ func TestDetectSSHPort(t *testing.T) {
 	if got := detectSSHPort(context.Background(), "203.0.113.9", "2022"); got != "" {
 		t.Fatalf("default 2022 but 22 open = %q", got)
 	}
+
+	probeSSHPort = func(_ context.Context, _ string, port int) probeResult {
+		switch port {
+		case 22:
+			return probeOther
+		case 2022:
+			return probeSSHBanner
+		default:
+			return probeUnknown
+		}
+	}
+	if got := detectSSHPort(context.Background(), "203.0.113.9", ""); got != "2022" {
+		t.Fatalf("non-SSH banner on 22 = %q", got)
+	}
 }
 
 func TestLabeledAndConfiguredSSHPort(t *testing.T) {

@@ -48,10 +48,7 @@ func (c *Client) TokenContexts() ([]TokenContext, error) {
 	for _, path := range c.hcloudConfigPaths() {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, err
+			continue
 		}
 		for _, item := range parseHCloudTOML(data) {
 			item.Source = "hcloud"

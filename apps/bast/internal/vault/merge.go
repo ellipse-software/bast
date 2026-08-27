@@ -239,6 +239,9 @@ func mergeIntegrations(base, overlay VaultIntegrations) VaultIntegrations {
 	if overlay.Upstash != nil {
 		out.Upstash = overlay.Upstash
 	}
+	if overlay.Vercel != nil {
+		out.Vercel = overlay.Vercel
+	}
 	return out
 }
 

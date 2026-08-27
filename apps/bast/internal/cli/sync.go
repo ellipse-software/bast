@@ -12,7 +12,7 @@ import (
 
 func (r *Runner) sync(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|box|upstash|hetzner|status|disable>")
+		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|box|upstash|vercel|hetzner|status|disable>")
 		return nil
 	}
 	engine := sync.New(r.Paths, r.store)
@@ -27,6 +27,8 @@ func (r *Runner) sync(args []string) error {
 		return r.syncBox(engine, args[1:])
 	case "upstash":
 		return r.syncUpstash(engine, args[1:])
+	case "vercel":
+		return r.syncVercel(engine, args[1:])
 	case "hetzner":
 		return r.syncHetzner(engine, args[1:])
 	case "status":
@@ -78,6 +80,29 @@ func (r *Runner) syncUpstash(engine *sync.Engine, args []string) error {
 	}
 	telemetry.Track("sync_upstash", r.Version)
 	msg := fmt.Sprintf("Synced %d Upstash boxes", result.Count)
+	if result.Error != "" {
+		msg += "\nWarning: " + result.Error
+	}
+	return r.success(result, msg)
+}
+
+func (r *Runner) syncVercel(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync vercel")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync vercel")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	result, err := engine.SyncVercel(ctx)
+	if err != nil {
+		telemetry.Track("sync_vercel_fail", r.Version)
+		return fail("sync_failed", err.Error())
+	}
+	telemetry.Track("sync_vercel", r.Version)
+	msg := fmt.Sprintf("Synced %d Vercel sandboxes", result.Count)
 	if result.Error != "" {
 		msg += "\nWarning: " + result.Error
 	}
@@ -194,6 +219,10 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if upstashAutoErr == nil && upstashRan {
 		telemetry.Track("sync_upstash_auto", r.Version)
 	}
+	_, vercelRan, vercelAutoErr := engine.MaybeAutoConnectVercel(ctx)
+	if vercelAutoErr == nil && vercelRan {
+		telemetry.Track("sync_vercel_auto", r.Version)
+	}
 	status, err := engine.Status(ctx)
 	if err != nil {
 		return fail("sync_status", err.Error())
@@ -203,6 +232,9 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	}
 	if upstashAutoErr != nil {
 		status.Upstash.LastSyncError = upstashAutoErr.Error()
+	}
+	if vercelAutoErr != nil {
+		status.Vercel.LastSyncError = vercelAutoErr.Error()
 	}
 	if r.JSON {
 		return r.success(status, "")
@@ -350,6 +382,39 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if upstash.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", upstash.LastSyncError)
 	}
+	vercel := status.Vercel
+	fmt.Fprintln(r.Out, "Vercel")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", vercel.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", vercel.AutoSync)
+	if vercel.Disabled {
+		fmt.Fprintln(r.Out, "  Disabled: true (sticky; will not auto-connect)")
+	}
+	if vercel.Error != "" {
+		fmt.Fprintf(r.Out, "  API: %s\n", vercel.Error)
+	} else if vercel.Authenticated {
+		fmt.Fprintln(r.Out, "  Account: authenticated")
+	} else if vercel.HasToken {
+		fmt.Fprintln(r.Out, "  Account: token stored")
+	} else {
+		fmt.Fprintln(r.Out, "  Account: no access token")
+	}
+	if vercel.TeamID != "" {
+		fmt.Fprintf(r.Out, "  Team: %s\n", vercel.TeamID)
+	}
+	if vercel.ProjectID != "" {
+		fmt.Fprintf(r.Out, "  Project: %s\n", vercel.ProjectID)
+	}
+	if vercel.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d sandboxes)\n", vercel.LastSyncAt.Local().Format(time.RFC3339), vercel.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if vercel.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", vercel.LastSyncError)
+	}
+	if len(vercel.Unrestorable) > 0 {
+		fmt.Fprintf(r.Out, "  Unrestorable: %s\n", strings.Join(vercel.Unrestorable, ", "))
+	}
 	hetzner := status.Hetzner
 	fmt.Fprintln(r.Out, "Hetzner")
 	fmt.Fprintf(r.Out, "  Enabled: %t\n", hetzner.Enabled)
@@ -398,10 +463,10 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 1 {
-		return usagef("usage: bast sync disable <gcp|aws|azure|box|upstash|hetzner>")
+		return usagef("usage: bast sync disable <gcp|aws|azure|box|upstash|vercel|hetzner>")
 	}
 	provider := fs.Arg(0)
-	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "box" && provider != "upstash" && provider != "hetzner" {
+	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "box" && provider != "upstash" && provider != "vercel" && provider != "hetzner" {
 		return usagef("unknown sync provider %q", provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -418,6 +483,8 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		err = engine.DisableBox(ctx)
 	case "upstash":
 		err = engine.DisableUpstash(ctx)
+	case "vercel":
+		err = engine.DisableVercel(ctx)
 	case "hetzner":
 		err = engine.DisableHetzner(ctx)
 	}

@@ -43,7 +43,7 @@ export const mobaxtermComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud hosts",
-      bast: "GCP, AWS, Azure, Hetzner Cloud, and box.ascii.dev",
+      bast: "CLIs for GCP, AWS, Azure, and Box; APIs for Hetzner, Upstash, and Vercel",
       competitor: "Mostly manual session setup",
     },
     {
@@ -108,9 +108,10 @@ export const mobaxtermComparison: ComparisonCaseStudy = {
       title: "Cloud fleets and agent workflows",
       paragraphs: [
         <>
-          Bast can import live hosts from GCP, AWS, Azure, Hetzner Cloud, and box.ascii.dev through the CLIs you
-          already authenticate. Synced hosts stay read-only reflections of cloud
-          inventory.
+          Bast can import live hosts from GCP, AWS, Azure, and box.ascii.dev
+          through the CLIs you already authenticate, and from Hetzner Cloud,
+          Upstash Box, and Vercel Sandbox over their APIs. Synced hosts stay
+          read-only reflections of cloud inventory.
         </>,
         <>
           The same binary exposes <Code>bast --json</Code> for scripts and AI

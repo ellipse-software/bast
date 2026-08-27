@@ -20,10 +20,13 @@ type Paths struct {
 	SyncAzureConfig   string
 	SyncBoxConfig     string
 	SyncUpstashConfig string
+	SyncVercelConfig  string
 	SyncHetznerConfig string
 	AzureDir          string
 	StateFile         string
 	UpstashAPIKey     string
+	PasswordsDir      string
+	VercelToken       string
 	HetznerAPIKey     string
 	HetznerTokenDir   string
 }
@@ -46,10 +49,13 @@ func ForHome(home string) Paths {
 		SyncAzureConfig:   filepath.Join(syncDir, "azure", "config"),
 		SyncBoxConfig:     filepath.Join(syncDir, "box", "config"),
 		SyncUpstashConfig: filepath.Join(syncDir, "upstash", "config"),
+		SyncVercelConfig:  filepath.Join(syncDir, "vercel", "config"),
 		SyncHetznerConfig: filepath.Join(syncDir, "hetzner", "config"),
 		AzureDir:          filepath.Join(managedDir, "azure"),
 		StateFile:         filepath.Join(configDir, "state.json"),
 		UpstashAPIKey:     filepath.Join(configDir, "upstash-box-api-key"),
+		PasswordsDir:      filepath.Join(configDir, "passwords"),
+		VercelToken:       filepath.Join(configDir, "vercel-token"),
 		HetznerAPIKey:     filepath.Join(configDir, "hetzner-api-token"),
 		HetznerTokenDir:   filepath.Join(configDir, "hetzner", "tokens"),
 	}

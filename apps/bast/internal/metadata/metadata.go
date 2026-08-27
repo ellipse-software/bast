@@ -35,6 +35,13 @@ type Preferences struct {
 	CollapsedGroups []string `json:"collapsedGroups,omitempty"`
 }
 
+// Onboarding is per-machine TUI first-run state. It is not packed into Vault:
+// a new computer should still see a census of that machine.
+type Onboarding struct {
+	Eligible    bool       `json:"eligible,omitempty"`
+	DismissedAt *time.Time `json:"dismissedAt,omitempty"`
+}
+
 type HistorySource struct {
 	Offset   int64    `json:"offset,omitempty"`
 	TailHash string   `json:"tailHash,omitempty"`
@@ -110,6 +117,18 @@ type UpstashIntegration struct {
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 }
 
+type VercelIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	TeamID            string     `json:"teamId,omitempty"`
+	ProjectID         string     `json:"projectId,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Unrestorable      []string   `json:"unrestorable,omitempty"`
+}
+
 type HetznerIntegration struct {
 	Enabled           bool       `json:"enabled"`
 	AutoSync          bool       `json:"autoSync,omitempty"`
@@ -129,6 +148,7 @@ type Integrations struct {
 	Azure   *AzureIntegration   `json:"azure,omitempty"`
 	Box     *BoxIntegration     `json:"box,omitempty"`
 	Upstash *UpstashIntegration `json:"upstash,omitempty"`
+	Vercel  *VercelIntegration  `json:"vercel,omitempty"`
 	Hetzner *HetznerIntegration `json:"hetzner,omitempty"`
 }
 
@@ -138,6 +158,7 @@ type State struct {
 	Preferences  Preferences     `json:"preferences,omitempty"`
 	Integrations Integrations    `json:"integrations,omitempty"`
 	History      HistoryImport   `json:"history,omitempty"`
+	Onboarding   Onboarding      `json:"onboarding,omitempty"`
 }
 
 type Store struct {
@@ -153,6 +174,7 @@ func Open(path string) (*Store, error) {
 	s := &Store{path: path, state: State{Version: CurrentVersion, Hosts: map[string]Host{}}}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
+		s.state.Onboarding.Eligible = true
 		return s, nil
 	}
 	if err != nil {
@@ -408,6 +430,39 @@ func (s *Store) SetCollapsedGroups(groups []string) error {
 	return nil
 }
 
+func (s *Store) Onboarding() Onboarding {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneOnboarding(s.state.Onboarding)
+}
+
+// ShouldOnboard is true for a first TUI session on this machine that has not
+// been dismissed. Existing state files from older Bast versions are ineligible.
+func (s *Store) ShouldOnboard() bool {
+	if os.Getenv("BAST_NO_ONBOARDING") != "" {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.Onboarding.Eligible && s.state.Onboarding.DismissedAt == nil
+}
+
+func (s *Store) DismissOnboarding() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Onboarding.DismissedAt != nil {
+		return nil
+	}
+	previous := s.state.Onboarding
+	now := time.Now().UTC()
+	s.state.Onboarding.DismissedAt = &now
+	if err := s.save(); err != nil {
+		s.state.Onboarding = previous
+		return err
+	}
+	return nil
+}
+
 func (s *Store) HistoryImport() HistoryImport {
 	history, _ := s.HistoryImportSnapshot()
 	return history
@@ -637,6 +692,33 @@ func (s *Store) SetUpstash(upstash UpstashIntegration) error {
 	return nil
 }
 
+func (s *Store) Vercel() VercelIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Vercel == nil {
+		return VercelIntegration{}
+	}
+	return cloneVercel(*s.state.Integrations.Vercel)
+}
+
+func (s *Store) SetVercel(vercel VercelIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Vercel
+	if !vercel.Enabled && !vercel.AutoSync && !vercel.Disabled && vercel.TeamID == "" && vercel.ProjectID == "" &&
+		vercel.LastSyncAt == nil && vercel.LastSyncError == "" && vercel.LastInstanceCount == 0 && len(vercel.Unrestorable) == 0 {
+		s.state.Integrations.Vercel = nil
+	} else {
+		copy := cloneVercel(vercel)
+		s.state.Integrations.Vercel = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Vercel = previous
+		return err
+	}
+	return nil
+}
+
 func (s *Store) Hetzner() HetznerIntegration {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -672,6 +754,14 @@ func cloneHost(host Host) Host {
 		host.LastUsedAt = &lastUsedAt
 	}
 	return host
+}
+
+func cloneOnboarding(onboarding Onboarding) Onboarding {
+	if onboarding.DismissedAt != nil {
+		dismissed := *onboarding.DismissedAt
+		onboarding.DismissedAt = &dismissed
+	}
+	return onboarding
 }
 
 func cloneHistoryImport(history HistoryImport) HistoryImport {
@@ -750,6 +840,15 @@ func cloneUpstash(upstash UpstashIntegration) UpstashIntegration {
 	return upstash
 }
 
+func cloneVercel(vercel VercelIntegration) VercelIntegration {
+	vercel.Unrestorable = append([]string(nil), vercel.Unrestorable...)
+	if vercel.LastSyncAt != nil {
+		lastSyncAt := *vercel.LastSyncAt
+		vercel.LastSyncAt = &lastSyncAt
+	}
+	return vercel
+}
+
 func cloneHetzner(hetzner HetznerIntegration) HetznerIntegration {
 	hetzner.ContextFilter = append([]string(nil), hetzner.ContextFilter...)
 	hetzner.LocationFilter = append([]string(nil), hetzner.LocationFilter...)
@@ -781,6 +880,10 @@ func cloneIntegrations(integrations Integrations) Integrations {
 	if integrations.Upstash != nil {
 		upstash := cloneUpstash(*integrations.Upstash)
 		out.Upstash = &upstash
+	}
+	if integrations.Vercel != nil {
+		vercel := cloneVercel(*integrations.Vercel)
+		out.Vercel = &vercel
 	}
 	if integrations.Hetzner != nil {
 		hetzner := cloneHetzner(*integrations.Hetzner)

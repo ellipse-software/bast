@@ -3,7 +3,7 @@ title: Hetzner Cloud
 description: Import Hetzner Cloud servers into Bast over the Cloud API, then start, stop, and restart them.
 ---
 
-The **Sync** tab (`4`) imports [Hetzner Cloud](https://docs.hetzner.cloud/) servers into Bast. Synced hosts show up in the host picker under **Hetzner Cloud**. Bast talks to Hetzner over the Cloud REST API. There is no `hcloud` CLI to install.
+The **Sync** tab (`4`) imports [Hetzner Cloud](https://docs.hetzner.cloud/) servers into Bast. Synced hosts show up in the host picker under **Hetzner Cloud**. Bast talks to Hetzner over the Cloud REST API and does not require the `hcloud` CLI.
 
 Connection settings, group, and label stay owned by sync. You can start, stop, and restart servers from Bast. Create, rebuild, and delete stay in the Hetzner Console.
 
@@ -89,7 +89,7 @@ Hetzner still bills a Cloud server while it is powered off.
 | Stop (`o` / `bast hetzner stop`) | ACPI `shutdown`. `--force` is a hard `poweroff` |
 | Restart (`R` / `bast hetzner restart`) | ACPI `reboot`. `--force` is a hard `reset` |
 
-ACPI success means the signal was sent, not that the guest finished. Bast waits for the server status to become `off` or `running`. If the guest ignores ACPI, use `--force`. Bast never escalates to a hard poweroff on its own.
+ACPI success means the signal was sent, not that the guest finished. Stop waits until the server is `off`. Reboot returns once Hetzner accepts the ACPI signal. If the guest ignores ACPI, use `--force`. Bast never escalates to a hard poweroff on its own.
 
 ## Hetzner settings
 

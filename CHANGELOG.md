@@ -6,7 +6,28 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- Vercel Sandbox sync and lifecycle: create, stop, resume, fork, and delete through the REST API. Connect uses a WebSocket PTY (`bast connect`), not OpenSSH. The access token is stored in `~/.config/bast/vercel-token`.
+- Host passwords can be stored in Bast and entered on connect. Authentication leads with a key/password picker; User sits on the host hub next to hostname.
+- Files tab preview: press `o` or Enter on a file for a floating peek at text, JSON, and PDF contents.
+- First TUI launch with no hosts shows a skippable start chooser (add, history, Vault, Sync). Machines that already have SSH hosts skip it. `BAST_NO_ONBOARDING=1` disables it. About (`v`) replays it with `o`.
+- About includes a Sponsor chip that opens https://bast.sh/sponsor.
+- `bast doctor` diagnoses SSH config, keys, permissions, and Bast setup. Press `D` in the TUI (not in Files). `--fix` repairs the Bast Include and modes OpenSSH will refuse; `--json` exposes stable finding ids.
+- `bast doctor` uses the TUI palette on a color terminal (purple headers, red failures, green ok findings). Pipes and `NO_COLOR` stay plain.
+- Shell completions via `bast completion` for bash, zsh, fish, PowerShell, Elvish, and Nushell. Tab completes commands, flags, hosts, and keys. The script installers enable this automatically (opt out with `BAST_NO_COMPLETIONS=1`). Homebrew generates bash, zsh, and fish completions on install.
+- Script installers accept `BAST_VERSION` (stable) and `BAST_NIGHTLY_VERSION` (nightly) to install a specific GitHub release.
+- Keys tab: `g` generates a key, `a` adds the selected key to a server. The in-app `?` overlay, footer hints, and detail chips share one keymap.
+- Homebrew formulae compile Bast from source instead of installing prebuilt release archives.
 - Hetzner Cloud sync over the Cloud API: import servers, match attached SSH keys, then start, ACPI-stop, and restart from the TUI and CLI. Named API tokens (one per project) are stored in `~/.config/bast/hetzner/tokens/` and are never written to SSH config or Vault. Private Cloud Network addresses are used for SSH when there is no public IP, or when Prefer private IP is on. Non-22 SSH ports are detected when 22 is closed, and an existing local host with the same IP supplies user, port, and identity. The Hetzner Cloud group stays hidden while every server is off.
+
+### Changed
+
+- Empty Hosts and Keys tabs use the same first-run seal as Vault, without narrating keybindings.
+- Offline Vercel sandboxes without a snapshot stay off the host list. Cleanup on the Vercel Sync page (or `bast vercel cleanup`) deletes them after confirmation.
+- Provider groups with no running hosts stay hidden until `.` reveals stopped or hidden hosts.
+
+### Fixed
+
+- `bast doctor` finds the ASCII Box CLI at `~/.ascii/bin/box` the same way Bast sync does, instead of reporting it missing when `box` is only a shell function.
 
 ## v0.9.3 - 2026-08-23
 

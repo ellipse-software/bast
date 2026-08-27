@@ -332,3 +332,64 @@ func TestOpenRenamesLegacyAWSGroups(t *testing.T) {
 		t.Fatalf("root group = %q", got)
 	}
 }
+
+func TestFreshStoreIsEligibleForOnboarding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.ShouldOnboard() || !store.Onboarding().Eligible {
+		t.Fatal("missing state file should be eligible for onboarding")
+	}
+
+	if err := store.SetHistoryImport(HistoryImport{Pending: []HistorySuggestion{{ID: "one"}}}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reopened.ShouldOnboard() {
+		t.Fatal("history scan save should keep first-run eligibility")
+	}
+
+	if err := reopened.DismissOnboarding(); err != nil {
+		t.Fatal(err)
+	}
+	if reopened.ShouldOnboard() || reopened.Onboarding().DismissedAt == nil {
+		t.Fatalf("dismissed = %+v", reopened.Onboarding())
+	}
+	again, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ShouldOnboard() {
+		t.Fatal("dismissed onboarding should not return")
+	}
+}
+
+func TestExistingStateIsNotEligibleForOnboarding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(path, []byte(`{"version":7,"hosts":{}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.ShouldOnboard() || store.Onboarding().Eligible {
+		t.Fatal("existing state from older Bast should not show onboarding")
+	}
+}
+
+func TestNoOnboardingEnvDisablesCensus(t *testing.T) {
+	t.Setenv("BAST_NO_ONBOARDING", "1")
+	store, err := Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.ShouldOnboard() {
+		t.Fatal("BAST_NO_ONBOARDING should skip the census")
+	}
+}

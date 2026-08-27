@@ -13,6 +13,7 @@ const (
 	Azure   Kind = "azure"
 	Box     Kind = "box"
 	Upstash Kind = "upstash"
+	Vercel  Kind = "vercel"
 	Hetzner Kind = "hetzner"
 )
 
@@ -106,6 +107,11 @@ var descriptors = []Descriptor{
 		BrandColor:  "#00E9A3", NerdIcon: "\uf1b2",
 	},
 	{
+		Kind: Vercel, Title: "Vercel", FullTitle: "Vercel Sandbox", GroupRoot: "Vercel",
+		Description: "Import Vercel Sandboxes into Bast",
+		BrandColor:  "#FFFFFF", NerdIcon: "\u25b2",
+	},
+	{
 		Kind: Hetzner, Title: "Hetzner", FullTitle: "Hetzner Cloud", GroupRoot: "Hetzner Cloud",
 		Description: "Import Hetzner Cloud servers into Bast",
 		BrandColor:  "#D50C2D", NerdIcon: "\uf233",
@@ -118,6 +124,7 @@ var capabilities = map[Kind]Capabilities{
 	Azure:   {},
 	Box:     {Create: true, Stop: true, Start: true, Fork: true},
 	Upstash: {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
+	Vercel:  {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
 	Hetzner: {Stop: true, Start: true, Restart: true},
 }
 

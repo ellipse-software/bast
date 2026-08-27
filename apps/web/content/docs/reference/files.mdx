@@ -53,6 +53,14 @@ ASCII Box sandboxes imported through box.ascii.dev sync are written here. Bast i
 
 Upstash Box sandboxes are written here. The API key is stored separately at `~/.config/bast/upstash-box-api-key` and is not written into SSH config. See [Upstash Box](/docs/features/upstash).
 
+## Vercel Sandbox sync config
+
+```
+~/.ssh/bast/sync/vercel/config
+```
+
+Vercel Sandboxes are written here as picker records (`HostName vercel.sandbox.invalid`). Connect uses Bast’s WebSocket PTY, not OpenSSH. The access token is stored separately at `~/.config/bast/vercel-token`. See [Vercel Sandbox](/docs/features/vercel).
+
 ## Managed keys
 
 ```

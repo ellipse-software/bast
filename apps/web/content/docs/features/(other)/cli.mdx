@@ -5,20 +5,33 @@ description: Manage hosts and keys from the shell, with JSON output for scripts 
 
 Everything in the TUI is also available from the shell. That matters for scripts, automation, and tools that need stable output.
 
+## Doctor
+
+```bash
+bast doctor
+bast doctor --json
+bast doctor --fix
+bast doctor --probe
+```
+
+Diagnoses SSH config, keys, permissions, and Bast setup. Failures exit 1; warnings do not. See [Doctor](/docs/features/doctor).
+
 ## Host commands
 
 ```bash
 bast hosts list --sort group
 bast hosts show production_web
 bast hosts add "Production web" --hostname prod.example.com --user deploy --group Work/Production --tag web
+bast hosts add legacy --hostname legacy.example --user root --password
 bast hosts edit production_web --notes "Primary application server"
+bast hosts edit legacy --clear-password
 bast hosts favorite production_web
 bast hosts hide old_server
 bast hosts known-host remove production_web
 bast hosts delete production_web
 ```
 
-Host edits are patches: fields you omit stay unchanged. Flags like `--clear-group`, `--clear-notes`, and `--clear-identity` remove values on purpose.
+Host edits are patches: fields you omit stay unchanged. Flags like `--clear-group`, `--clear-notes`, `--clear-identity`, and `--clear-password` remove values on purpose. `--password` prompts on the terminal and stores the secret locally for connect.
 
 Advanced connection settings use dedicated flags:
 
@@ -62,15 +75,17 @@ bast sync aws
 bast sync azure
 bast sync box
 bast sync upstash
+bast sync vercel
 bast sync hetzner
 bast sync status
 bast sync disable gcp
 bast sync disable box
 bast sync disable upstash
+bast sync disable vercel
 bast sync disable hetzner
 ```
 
-Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [box.ascii.dev](/docs/features/box), [Upstash Box](/docs/features/upstash), or [Hetzner Cloud](/docs/features/hetzner) for provider setup.
+Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [box.ascii.dev](/docs/features/box), [Upstash Box](/docs/features/upstash), [Vercel Sandbox](/docs/features/vercel), or [Hetzner Cloud](/docs/features/hetzner) for provider setup.
 
 ```bash
 bast upstash new [--name name] [--runtime node] [--size small] [--keep-alive]
@@ -79,6 +94,16 @@ bast upstash stop <host|id>
 bast upstash resume <host|id>
 bast upstash delete <host|id> [--yes]
 bast upstash key [--key-file path]
+```
+
+```bash
+bast vercel token [--token-file path] [--team team_id] [--project project_id]
+bast vercel new [--name name] [--vcpus 1|2|4] [--timeout 15m|1h|5h] [--ephemeral]
+bast vercel fork <host|id> [--name name]
+bast vercel stop <host|id>
+bast vercel resume <host|id>
+bast vercel delete <host|id> [--yes]
+bast vercel cleanup [--yes]
 ```
 
 ```bash
@@ -97,6 +122,7 @@ Pass `--json` anywhere in the command for machine-readable output. It disables p
 bast hosts list --json
 bast --json hosts show production_web
 bast keys generate automation --no-passphrase --json
+bast doctor --json
 ```
 
 Success looks like `{"ok":true,"data":...}`. Errors go to stderr with a non-zero exit code. Commands that need an interactive SSH session or passphrase entry reject `--json` with `interactive_required`.
@@ -104,3 +130,7 @@ Success looks like `{"ok":true,"data":...}`. Errors go to stderr with a non-zero
 ## Prompts and confirmations
 
 Commands prompt for missing input and sensitive confirmations when attached to a terminal. Pass `--yes` to explicitly approve deletion, known-host removal, or private-key export in unattended use. Pass `--no-input` to never prompt (fields must be provided via flags).
+
+## Shell completions
+
+The script installers and Homebrew enable tab completion. Open a new terminal, type `bast`, and press Tab. See [Shell completions](/docs/reference/completions).

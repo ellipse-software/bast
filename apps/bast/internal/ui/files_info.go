@@ -25,11 +25,12 @@ func (m *App) closeFilesInfo() {
 	m.files.info = false
 }
 
-// clearFilesOverlays dismisses chmod/info when leaving the Files section
+// clearFilesOverlays dismisses chmod/info/preview when leaving the Files section
 // so they do not stick over Hosts, Keys, or Sync.
 func (m *App) clearFilesOverlays() {
 	m.closeFilesChmod()
 	m.closeFilesInfo()
+	m.closeFilesPreview()
 }
 
 func (m *App) updateFilesInfo(key string) (tea.Model, tea.Cmd) {
@@ -40,6 +41,9 @@ func (m *App) updateFilesInfo(key string) (tea.Model, tea.Cmd) {
 	case "esc", "i", "q":
 		m.closeFilesInfo()
 		return m, nil
+	case "o":
+		m.closeFilesInfo()
+		return m.openFilesPreview()
 	case "tab":
 		m.files.focus = 1 - m.files.focus
 		return m, nil

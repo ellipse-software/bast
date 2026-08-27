@@ -1,0 +1,69 @@
+---
+title: Doctor
+description: Diagnose SSH config, keys, permissions, and Bast setup with bast doctor.
+---
+
+`bast doctor` inspects the OpenSSH layout Bast actually uses. It reports problems that make hosts disappear, authentication fail, or Bast look empty, then suggests what to do next.
+
+```bash
+bast doctor
+bast doctor --json
+bast doctor --fix
+bast doctor --probe
+bast doctor --category ssh_config
+```
+
+In the TUI, press `D` from Hosts, Keys, Vault, Sync, help, or About. Files keeps `D` for disconnect.
+
+Doctor does not run on every launch. It does not open SSH sessions. It never prints private keys, passphrases, Vault tokens, or the Upstash API key.
+
+On a color terminal the CLI uses the same palette as the TUI: the Bast chip, purple section headers, red failures, and green ok findings. Piped output and `NO_COLOR` stay plain.
+
+## What it checks
+
+| Area | Examples |
+| --- | --- |
+| OpenSSH | `ssh`, `ssh-keygen`, and `ssh-add` on PATH; Git vs Windows OpenSSH |
+| Permissions | `~/.ssh` and private keys that OpenSSH will refuse as too open |
+| SSH config | Include after `Host`/`Match`, missing Bast Include, duplicate aliases, missing identity files, too many identities |
+| Keys | Referenced files that are gone, DSA / short RSA, passphrase-protected keys not in the agent |
+| Agent | No agent, empty agent, or too many agent keys |
+| Known hosts | Duplicate lines |
+| Metadata | Unreadable `state.json`, leftover aliases |
+| Vault | Unreadable session, world-readable passphrase file |
+| Sync | Enabled provider with a missing CLI or stored last-sync error. Box is resolved at `~/.ascii/bin/box` even when `box` is a shell function and not on PATH |
+| Suggestions | `IdentitiesOnly`, keepalives, macOS keychain, groups, updates |
+
+`--probe` adds DNS and TCP checks for configured hostnames. It does not run an SSH handshake or write `known_hosts`.
+
+## Include after Host
+
+OpenSSH treats `Include` as part of the current `Host` or `Match` block until the next `Host`/`Match`. If `Include ~/.ssh/bast/config` sits under a host, Bast-managed hosts never apply.
+
+Doctor flags that as `ssh_config.include_not_toplevel`. `bast doctor --fix` prepends a top-level Include the same way Bast does on first managed write. It does not rewrite your Host blocks.
+
+## Exit codes and JSON
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | No failures (warnings and suggestions still exit 0) |
+| 1 | At least one `fail` finding |
+| 2 | Usage error |
+
+`--json` uses the usual envelope. The command ran when `ok` is true. Look at `data.healthy` and `data.findings` for the diagnosis.
+
+```bash
+bast doctor --json
+```
+
+Finding `id` values are stable. Filter with `--category` (`env`, `permissions`, `ssh_config`, `keys`, `agent`, `known_hosts`, `metadata`, `vault`, `sync`, `suggest`, `probe`).
+
+## `--fix`
+
+`--fix` only repairs things Bast already owns:
+
+- Create `~/.ssh/bast` and prepend `Include ~/.ssh/bast/config` when it is missing or only present inside a Host block
+- Tighten POSIX modes OpenSSH will refuse (`~/.ssh` group/world writable, private keys accessible by others)
+- Re-apply the Windows DACL on Bast-managed paths
+
+It will not rewrite Host blocks, delete keys, start `ssh-agent`, or add `IdentitiesOnly`.

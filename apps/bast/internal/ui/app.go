@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/cloud/sync"
+	"bast/internal/doctor"
 	"bast/internal/history"
 	"bast/internal/keys"
 	"bast/internal/metadata"
@@ -84,6 +85,7 @@ type syncDoneMsg struct {
 	err        error
 	skipped    bool
 	focusAlias string // when set, jump to Hosts with this alias selected
+	notice     string
 	opGen      uint64
 }
 
@@ -181,6 +183,14 @@ type App struct {
 	help                bool
 	helpOffset          int
 	credits             bool
+	onboarding          bool
+	onboardingTracked   bool
+	onboardingReplay    bool
+	onboardingPending   bool
+	doctor              bool
+	doctorOffset        int
+	doctorLoading       bool
+	doctorReport        doctor.Report
 	showHidden          bool
 	loading             bool
 	enriching           bool
@@ -241,7 +251,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncHetznerConfig: p.SyncHetznerConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig,
 		},
 		openSSH:          client,
 		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
@@ -257,6 +267,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 	}
 	app.hostMeta, app.hostMetaRevision = store.HostsSnapshot()
 	app.historySuggestions = store.HistoryImport().Pending
+	app.onboardingPending = store.ShouldOnboard()
 	if pass, err := vault.LoadPassphrase(vault.PassphrasePath(p.StateFile)); err == nil && pass != "" {
 		app.vaultPassphrase = pass
 	}
@@ -310,14 +321,15 @@ func (m *App) syncCompletionNotice(provider string, count int) string {
 	azure := m.metadata.Azure()
 	box := m.metadata.Box()
 	upstash := m.metadata.Upstash()
-	hetzner := m.metadata.Hetzner()
+	vercel := m.metadata.Vercel()
 	providers := []providerCount{
 		{id: "gcp", name: "GCP", enabled: gcp.Enabled, count: gcp.LastInstanceCount},
 		{id: "aws", name: "AWS", enabled: aws.Enabled, count: aws.LastInstanceCount},
 		{id: "azure", name: "Azure", enabled: azure.Enabled, count: azure.LastInstanceCount},
 		{id: "box", name: "Box", enabled: box.Enabled, count: box.LastInstanceCount},
 		{id: "upstash", name: "Upstash", enabled: upstash.Enabled, count: upstash.LastInstanceCount},
-		{id: "hetzner", name: "Hetzner", enabled: hetzner.Enabled, count: hetzner.LastInstanceCount},
+		{id: "vercel", name: "Vercel", enabled: vercel.Enabled, count: vercel.LastInstanceCount},
+		{id: "hetzner", name: "Hetzner", enabled: m.metadata.Hetzner().Enabled, count: m.metadata.Hetzner().LastInstanceCount},
 	}
 	parts := make([]string, 0, len(providers))
 	for _, item := range providers {
@@ -383,6 +395,15 @@ func (m *App) autoSyncCmds() tea.Cmd {
 			autoSyncCmds = append(autoSyncCmds, m.autoConnectUpstashCmd())
 		}
 	}
+	if vercel := m.metadata.Vercel(); !vercel.Disabled && !m.syncingProviders["vercel"] {
+		if vercel.Enabled && vercel.AutoSync {
+			m.beginProviderOp("vercel")
+			autoSyncCmds = append(autoSyncCmds, m.syncVercelCmd())
+		} else if !vercel.Enabled && m.vercelReady() {
+			m.beginProviderOp("vercel")
+			autoSyncCmds = append(autoSyncCmds, m.autoConnectVercelCmd())
+		}
+	}
 	if hetzner := m.metadata.Hetzner(); hetzner.Enabled && hetzner.AutoSync && !m.syncingProviders["hetzner"] {
 		m.beginProviderOp("hetzner")
 		autoSyncCmds = append(autoSyncCmds, m.syncHetznerCmd())
@@ -434,6 +455,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.help {
 			m.clampHelpOffset()
 		}
+		if m.doctor {
+			m.clampDoctorOffset()
+		}
 		return m, nil
 	case tea.BackgroundColorMsg:
 		m.dark = msg.IsDark()
@@ -467,10 +491,19 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.autoSyncCmds(), m.setNotice(fmt.Sprintf("%d host details could not be resolved", msg.enrichmentErrors)))
 		}
 		return m, m.autoSyncCmds()
+	case doctorDoneMsg:
+		if !m.doctor {
+			return m, nil
+		}
+		m.doctorLoading = false
+		m.doctorReport = msg.report
+		m.clampDoctorOffset()
+		return m, nil
 	case discoveredMsg:
 		if msg.err != nil {
 			m.loading = false
 			m.enriching = false
+			m.onboardingPending = false
 			m.setError(msg.err)
 			cmds := []tea.Cmd{tea.RequestBackgroundColor}
 			if cmd := m.postPaintCmds(); cmd != nil {
@@ -500,6 +533,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		// Hosts are usable from config parse; clear loading now and enrich quietly.
 		m.loading = false
 		m.enriching = true
+		m.decideOnboarding()
 		cmds := []tea.Cmd{m.enrichCmd(m.hosts), tea.RequestBackgroundColor}
 		if cmd := m.postPaintCmds(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -558,11 +592,19 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		label := strings.ToUpper(msg.provider)
 		notice := m.syncCompletionNotice(msg.provider, msg.result.Count)
+		if msg.provider == "vercel" {
+			if n := len(m.metadata.Vercel().Unrestorable); n > 0 && msg.notice == "" {
+				notice += fmt.Sprintf(" · %d unrestorable", n)
+			}
+		}
 		connectAfter := m.boxConnectAfter
 		if msg.result.Error == "disabled" {
 			m.boxConnectAfter = ""
 			notice = label + " sync disconnected"
 			telemetry.Track("sync_"+msg.provider+"_disable", m.version)
+		} else if msg.notice != "" {
+			notice = msg.notice
+			telemetry.Track("sync_"+msg.provider, m.version)
 		} else if msg.focusAlias != "" {
 			notice = "Created " + msg.focusAlias
 			m.selectAfterLoadSection = hostsSection
@@ -807,6 +849,8 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleFilesTransferProgress(msg)
 	case filesOpDoneMsg:
 		return m, m.handleFilesOpDone(msg)
+	case filesPreviewMsg:
+		return m, m.handleFilesPreviewMsg(msg)
 	case clearStatusMsg:
 		if uint64(msg) == m.statusID && !m.statusError {
 			m.status = ""
@@ -878,6 +922,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.form != nil {
 			return m.updateForm(msg)
+		}
+		if m.onboarding {
+			return m.updateOnboarding(msg.String())
 		}
 		model, cmd := m.updateKeys(msg)
 		if m.form != nil && isHostForm(m.form) {

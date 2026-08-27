@@ -8,14 +8,19 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"syscall"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/term"
 
+	"bast/internal/askpass"
 	"bast/internal/cli"
 	azurecloud "bast/internal/cloud/azure"
 	upstashcloud "bast/internal/cloud/upstash"
+	vercelcloud "bast/internal/cloud/vercel"
+	"bast/internal/hostpass"
+	"bast/internal/metadata"
 	"bast/internal/openssh"
 	"bast/internal/paths"
 	"bast/internal/telemetry"
@@ -64,15 +69,24 @@ func main() {
 }
 
 func run(args []string) error {
-	if upstashcloud.IsAskPassRequest() {
+	if askpass.IsRequest() {
 		if term.IsTerminal(os.Stdout.Fd()) {
-			return errors.New("upstash askpass refused: stdout is a terminal")
+			return errors.New("askpass refused: stdout is a terminal")
 		}
 		p, err := paths.Default()
 		if err != nil {
 			return err
 		}
-		return upstashcloud.PrintAPIKey(os.Stdout, p.UpstashAPIKey)
+		prompt := ""
+		if len(args) > 0 {
+			prompt = args[0]
+		}
+		switch askpass.Kind() {
+		case askpass.KindHost:
+			return hostpass.Print(os.Stdout, p.PasswordsDir, askpass.HostID(), prompt, askpass.ExpectedHost(), askpass.ExpectedAlias())
+		default:
+			return upstashcloud.PrintAPIKey(os.Stdout, p.UpstashAPIKey)
+		}
 	}
 	if len(args) > 0 && args[0] == "__azure-bastion-proxy" {
 		options, err := azurecloud.ParseProxyOptions(args[1:])
@@ -82,6 +96,34 @@ func run(args []string) error {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 		return azurecloud.RunBastionProxy(ctx, options, os.Stdin, os.Stdout, os.Stderr)
+	}
+	if len(args) > 0 && args[0] == "__vercel-sandbox-shell" {
+		options, err := vercelcloud.ParseShellOptions(args[1:])
+		if err != nil {
+			return err
+		}
+		p, err := paths.Default()
+		if err != nil {
+			return err
+		}
+		client := vercelcloud.New(p.VercelToken)
+		if store, storeErr := metadata.Open(p.StateFile); storeErr == nil {
+			integration := store.Vercel()
+			if options.TeamID == "" {
+				options.TeamID = integration.TeamID
+			}
+			if options.ProjectID == "" {
+				options.ProjectID = integration.ProjectID
+			}
+		}
+		if strings.TrimSpace(options.ProjectID) == "" {
+			return errors.New("vercel project is required")
+		}
+		client.TeamID = options.TeamID
+		client.ProjectID = options.ProjectID
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		return vercelcloud.RunShell(ctx, client, options, os.Stdin, os.Stdout, os.Stderr)
 	}
 	jsonOutput := false
 	for _, arg := range args {
