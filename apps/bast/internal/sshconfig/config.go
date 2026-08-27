@@ -69,6 +69,7 @@ type Manager struct {
 	SyncBoxConfig     string
 	SyncUpstashConfig string
 	SyncVercelConfig  string
+	SyncHetznerConfig string
 }
 
 type SyncHostInput struct {

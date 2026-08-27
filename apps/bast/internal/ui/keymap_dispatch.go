@@ -145,6 +145,13 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 		return m, nil
 	case ActionStopSandbox:
 		return m.actionStopSandbox()
+	case ActionRestartHost:
+		if m.section == hostsSection {
+			if host, ok := m.selectedHost(); ok {
+				return m.restartSyncedHost(host)
+			}
+		}
+		return m, nil
 	case ActionNewOrFork:
 		return m.actionNewOrFork()
 	case ActionFavorite:

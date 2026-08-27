@@ -43,7 +43,7 @@ export const securecrtComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud hosts",
-      bast: "Import via GCP, AWS, Azure, and box.ascii.dev CLIs",
+      bast: "CLIs for GCP, AWS, Azure, and Box; APIs for Hetzner, Upstash, and Vercel",
       competitor: "Manual or scripted session maintenance",
     },
     {

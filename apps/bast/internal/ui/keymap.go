@@ -56,6 +56,7 @@ const (
 	ActionPromote
 	ActionKnownHosts
 	ActionStopSandbox
+	ActionRestartHost
 	ActionNewOrFork
 	ActionFavorite
 	ActionOpenFiles

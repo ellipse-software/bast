@@ -35,4 +35,4 @@ export const cliPath = "/cli";
 export const developersPath = "/developers";
 
 export const trademarkNotice =
-  "Amazon Web Services, AWS, Google, Google Cloud, Microsoft, Azure, Upstash, Stripe, Cloudflare, GitHub, OpenSSH, Termius, PuTTY, MobaXterm, SecureCRT, Vercel, PostHog, Sentry, Better Stack, and other product or company names used on this site are trademarks or registered trademarks of their respective owners. We do not own those marks. Their use is for identification only and does not imply any affiliation, sponsorship, or endorsement.";
+  "Amazon Web Services, AWS, Google, Google Cloud, Microsoft, Azure, Hetzner, Upstash, Stripe, Cloudflare, GitHub, OpenSSH, Termius, PuTTY, MobaXterm, SecureCRT, Vercel, PostHog, Sentry, Better Stack, and other product or company names used on this site are trademarks or registered trademarks of their respective owners. We do not own those marks. Their use is for identification only and does not imply any affiliation, sponsorship, or endorsement.";

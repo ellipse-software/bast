@@ -9,6 +9,7 @@ const (
 	valueBoxHost
 	valueUpstashHost
 	valueVercelHost
+	valueHetznerHost
 	valueFile
 	valueDir
 	valueEnum
@@ -59,7 +60,7 @@ func (n specNode) names() []string {
 
 var completionShells = []string{"bash", "zsh", "fish", "powershell", "elvish", "nushell"}
 
-var syncProviders = []string{"gcp", "aws", "azure", "box", "upstash", "vercel"}
+var syncProviders = []string{"gcp", "aws", "azure", "box", "upstash", "vercel", "hetzner"}
 
 var globalFlagSpecs = []flagSpec{
 	{name: "json", desc: "structured JSON", boolean: true},
@@ -85,6 +86,7 @@ func completionRoot() specNode {
 			boxSpec(),
 			upstashSpec(),
 			vercelSpec(),
+			hetznerSpec(),
 			vaultSpec(),
 			{
 				name: "completion",
@@ -211,6 +213,7 @@ func syncSpec() specNode {
 			{name: "box", desc: "import box.ascii.dev hosts"},
 			{name: "upstash", desc: "import Upstash Box hosts"},
 			{name: "vercel", desc: "import Vercel Sandboxes"},
+			{name: "hetzner", desc: "import Hetzner Cloud servers"},
 			{name: "status", desc: "show sync status"},
 			{
 				name: "disable",
@@ -295,6 +298,24 @@ func vercelSpec() specNode {
 				fileFlag("token-file", "read the access token from a file"),
 				{name: "team", desc: "team ID"},
 				{name: "project", desc: "project ID or name"},
+			}},
+		},
+	}
+}
+
+func hetznerSpec() specNode {
+	hetznerArg := argSpec{kind: valueHetznerHost, desc: "host or id", includeHidden: true}
+	return specNode{
+		name: "hetzner",
+		desc: "start, stop, and restart Hetzner Cloud servers",
+		children: []specNode{
+			{name: "start", desc: "power on a server", args: []argSpec{hetznerArg}},
+			{name: "stop", desc: "ACPI shutdown a server", flags: []flagSpec{boolFlag("force", "hard poweroff")}, args: []argSpec{hetznerArg}},
+			{name: "restart", desc: "ACPI reboot a server", flags: []flagSpec{boolFlag("force", "hard reset")}, args: []argSpec{hetznerArg}},
+			{name: "key", desc: "store a Hetzner Cloud API token", flags: []flagSpec{
+				{name: "name", desc: "project name"},
+				fileFlag("key-file", "read the API token from a file"),
+				{name: "remove", desc: "delete a stored project token"},
 			}},
 		},
 	}

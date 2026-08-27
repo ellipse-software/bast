@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 
 type Section = "hosts" | "keys" | "vault" | "sync" | "files";
-type SyncProvider = "" | "gcp" | "aws" | "azure" | "box" | "upstash" | "vercel";
+type SyncProvider = "" | "gcp" | "aws" | "azure" | "box" | "upstash" | "vercel" | "hetzner";
 
 type DetailRow = { label: string; value: string };
 
@@ -280,6 +280,12 @@ const syncTiles: SyncTile[] = [
     detail: "1 running",
     description: "Import Vercel Sandboxes into Bast",
   },
+  {
+    id: "hetzner",
+    title: "Hetzner Cloud",
+    detail: "1 running",
+    description: "Import Hetzner Cloud servers into Bast",
+  },
 ];
 
 const vaultMenu: SyncMenuItem[] = [
@@ -373,6 +379,18 @@ const providerPages: Record<Exclude<SyncProvider, "">, ProviderPage> = {
     config: [
       { label: "Disconnect" },
       { label: "Disable auto-sync" },
+      { label: "Refresh status" },
+    ],
+  },
+  hetzner: {
+    identity: ["enabled · 1 running", "token stored · auto-sync off"],
+    chips: ["Sync", "API token"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Enable auto-sync" },
+      { label: "Prefer private IP" },
+      { label: "Default SSH user" },
+      { label: "Default SSH port" },
       { label: "Refresh status" },
     ],
   },
@@ -1989,6 +2007,8 @@ function ProviderTitle({
       return <span className="font-bold text-[#00E9A3]">Upstash</span>;
     case "vercel":
       return <span className="font-bold text-[#FFFFFF]">Vercel</span>;
+    case "hetzner":
+      return <span className="font-bold text-[#D50C2D]">Hetzner Cloud</span>;
   }
 }
 

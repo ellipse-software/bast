@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	hetznercloud "bast/internal/cloud/hetzner"
 	"bast/internal/cloud/sync"
 	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/connectbanner"
@@ -826,6 +827,23 @@ func (r *Runner) connect(args []string) error {
 			Alias: host.Alias, Synced: host.Synced, SyncSource: host.SyncSource, SyncID: host.SyncID,
 		}, connectbanner.Status(r.Out)); err != nil {
 			return fail("vercel_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "hetzner" && host.SyncID != "" {
+		timeout := 90 * time.Second
+		if hetznercloud.HostLooksStopped(r.store.Host(host.Alias).Tags) {
+			timeout = 5 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if hetznercloud.HostLooksStopped(r.store.Host(host.Alias).Tags) {
+			if _, err := engine.StartHetzner(ctx, host.SyncID); err != nil {
+				return fail("hetzner_start", err.Error())
+			}
+		}
+		if err := engine.EnsureHetznerAccess(ctx, host.raw, connectbanner.Status(r.Out)); err != nil {
+			return fail("hetzner_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
 	}

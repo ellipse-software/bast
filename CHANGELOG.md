@@ -17,6 +17,7 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 - Script installers accept `BAST_VERSION` (stable) and `BAST_NIGHTLY_VERSION` (nightly) to install a specific GitHub release.
 - Keys tab: `g` generates a key, `a` adds the selected key to a server. The in-app `?` overlay, footer hints, and detail chips share one keymap.
 - Homebrew formulae compile Bast from source instead of installing prebuilt release archives.
+- Hetzner Cloud sync over the Cloud API: import servers, match attached SSH keys, then start, ACPI-stop, and restart from the TUI and CLI. Named API tokens (one per project) are stored in `~/.config/bast/hetzner/tokens/` and are never written to SSH config or Vault. Private Cloud Network addresses are used for SSH when there is no public IP, or when Prefer private IP is on. Non-22 SSH ports are detected when 22 is closed, and an existing local host with the same IP supplies user, port, and identity. The Hetzner Cloud group stays hidden while every server is off.
 
 ### Changed
 

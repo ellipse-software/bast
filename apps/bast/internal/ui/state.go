@@ -10,6 +10,7 @@ import (
 
 	"bast/internal/cloud"
 	boxcloud "bast/internal/cloud/box"
+	hetznercloud "bast/internal/cloud/hetzner"
 	cloudsync "bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
 	vercelcloud "bast/internal/cloud/vercel"
@@ -909,6 +910,9 @@ func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
 	}
 	if kind == cloud.Vercel {
 		return vercelcloud.HostLooksStopped(meta.Tags)
+	}
+	if kind == cloud.Hetzner {
+		return hetznercloud.HostLooksStopped(meta.Tags)
 	}
 	return false
 }

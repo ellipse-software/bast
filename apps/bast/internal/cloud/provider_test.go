@@ -23,6 +23,8 @@ func TestKindForGroup(t *testing.T) {
 		{"Upstash/dev", Upstash, true},
 		{"Vercel", Vercel, true},
 		{"Vercel/app", Vercel, true},
+		{"Hetzner Cloud", Hetzner, true},
+		{"Hetzner Cloud/prod/fsn1", Hetzner, true},
 		{"Work", "", false},
 		{"Boxing", "", false},
 		{"", "", false},
@@ -51,6 +53,10 @@ func TestKindForSource(t *testing.T) {
 	if !ok || kind != Vercel {
 		t.Fatalf("KindForSource(vercel) = %q, %t", kind, ok)
 	}
+	kind, ok = KindForSource("hetzner")
+	if !ok || kind != Hetzner {
+		t.Fatalf("KindForSource(hetzner) = %q, %t", kind, ok)
+	}
 	if _, ok := KindForSource("digitalocean"); ok {
 		t.Fatal("unknown source should not match")
 	}
@@ -69,6 +75,10 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 	if !vercel.Create || !vercel.Stop || !vercel.Start || !vercel.Fork || !vercel.Delete {
 		t.Fatalf("vercel caps = %+v", vercel)
 	}
+	hetzner := CapabilitiesFor(Hetzner)
+	if hetzner.Create || !hetzner.Stop || !hetzner.Start || !hetzner.Restart || hetzner.Fork || hetzner.Delete {
+		t.Fatalf("hetzner caps = %+v", hetzner)
+	}
 	for _, kind := range []Kind{GCP, AWS, Azure} {
 		if caps := CapabilitiesFor(kind); caps != (Capabilities{}) {
 			t.Fatalf("%s caps = %+v; want empty", kind, caps)
@@ -77,7 +87,7 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 }
 
 func TestIsProviderRoot(t *testing.T) {
-	if !IsProviderRoot("Box") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") {
+	if !IsProviderRoot("Box") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") || !IsProviderRoot("Hetzner Cloud") {
 		t.Fatal("expected roots to match")
 	}
 	if IsProviderRoot("Google Cloud/demo") || IsProviderRoot("Box/Running") || IsProviderRoot("Work") {
@@ -96,7 +106,7 @@ func TestDescriptorsCoverEveryKind(t *testing.T) {
 		}
 		seen[d.Kind] = true
 	}
-	for _, kind := range []Kind{GCP, AWS, Azure, Box, Upstash, Vercel} {
+	for _, kind := range []Kind{GCP, AWS, Azure, Box, Upstash, Vercel, Hetzner} {
 		if !seen[kind] {
 			t.Fatalf("missing descriptor for %s", kind)
 		}

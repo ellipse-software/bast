@@ -43,7 +43,7 @@ export const termiusComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud hosts",
-      bast: "Import from GCP, AWS, Azure, and box.ascii.dev via their CLIs",
+      bast: "CLIs for GCP, AWS, Azure, and Box; APIs for Hetzner, Upstash, and Vercel",
       competitor: "Mostly manual host setup",
     },
     {
@@ -129,10 +129,11 @@ export const termiusComparison: ComparisonCaseStudy = {
       title: "Cloud hosts without spreadsheet busywork",
       paragraphs: [
         <>
-          Bast imports live inventory from GCP, AWS, Azure, and box.ascii.dev through each
-          provider&apos;s CLI. Synced hosts stay read-only and owned by the
-          cloud. When an instance disappears upstream, sync removes it locally
-          instead of leaving stale GUI bookmarks behind.
+          Bast imports live inventory from GCP, AWS, Azure, and box.ascii.dev
+          through each provider&apos;s CLI, and from Hetzner Cloud, Upstash Box,
+          and Vercel Sandbox over their APIs. Synced hosts stay read-only and
+          owned by the cloud. When an instance disappears upstream, sync removes
+          it locally instead of leaving stale GUI bookmarks behind.
         </>,
         <>
           Termius can store whatever hosts you type in. Bast treats cloud fleets

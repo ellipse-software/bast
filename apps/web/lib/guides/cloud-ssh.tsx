@@ -3,13 +3,14 @@ import type { GuidePage } from "@/lib/guides/types";
 
 export const cloudSshGuide: GuidePage = {
   slug: "cloud-ssh",
-  title: "SSH into GCP, AWS, Azure, and Box sandboxes",
+  title: "SSH into GCP, AWS, Azure, Hetzner, and Box sandboxes",
   description:
-    "Import live GCP, AWS, and Azure VMs plus box.ascii.dev, Upstash Box, and Vercel Sandboxes into Bast as read-only hosts. Keep OpenSSH as the connection path for cloud VMs, and stop maintaining cloud host spreadsheets.",
+    "Import live GCP, AWS, Azure, and Hetzner Cloud VMs plus box.ascii.dev, Upstash Box, and Vercel Sandboxes into Bast as read-only hosts. Keep OpenSSH as the connection path for cloud VMs, and stop maintaining cloud host spreadsheets.",
   keywords: [
     "GCP SSH",
     "AWS SSH",
     "Azure SSH",
+    "Hetzner SSH",
     "Box SSH",
     "box.ascii.dev",
     "SSH into EC2",
@@ -17,7 +18,7 @@ export const cloudSshGuide: GuidePage = {
     "cloud VM SSH",
     "Bast.sh",
   ],
-  lead: "Cloud consoles and one-off CLI copy-paste are fine until you have dozens of hosts. Bast imports live inventory from GCP, AWS, Azure, box.ascii.dev, Upstash Box, and Vercel Sandbox, then connects from the picker.",
+  lead: "Cloud consoles and one-off CLI copy-paste are fine until you have dozens of hosts. Bast imports live inventory from GCP, AWS, Azure, Hetzner Cloud, box.ascii.dev, Upstash Box, and Vercel Sandbox, then connects from the picker.",
   problemTitle: "Cloud inventory goes stale the moment you bookmark it",
   problem: [
     <>
@@ -30,13 +31,14 @@ export const cloudSshGuide: GuidePage = {
       the way a terminal-first engineer actually works.
     </>,
   ],
-  solutionTitle: "Provider CLIs in, OpenSSH out",
+  solutionTitle: "Provider CLIs and APIs in, OpenSSH out",
   solution: [
     <>
       Bast sync pulls hosts through <Code>gcloud</Code>, AWS CLI v2, Azure CLI,
-      the ASCII Box <Code>box</Code> CLI, the Upstash Box API, or the Vercel
-      Sandbox API. Synced hosts are read-only reflections of cloud inventory.
-      When sync runs again, the list updates instead of rotting.
+      the ASCII Box <Code>box</Code> CLI, the Upstash Box API, the Vercel
+      Sandbox API, or the Hetzner Cloud API. Synced hosts are read-only
+      reflections of cloud inventory. When sync runs again, the list updates
+      instead of rotting.
     </>,
     <>
       Cloud VMs still use your system <Code>ssh</Code> binary. Vercel Sandboxes
@@ -48,14 +50,15 @@ export const cloudSshGuide: GuidePage = {
     <>
       Authenticate the provider CLI on your machine (<Code>gcloud</Code>,{" "}
       <Code>aws</Code>, <Code>az</Code>, or <Code>box</Code>), store an
-      Upstash Box API key with <Code>bast upstash key</Code>, or store a Vercel
-      token with <Code>bast vercel token</Code>.
+      Upstash Box API key with <Code>bast upstash key</Code>, a Vercel token
+      with <Code>bast vercel token</Code>, or a Hetzner Cloud token with{" "}
+      <Code>bast hetzner key</Code>.
     </>,
     <>
       Run <Code>bast sync gcp</Code>, <Code>bast sync aws</Code>,{" "}
       <Code>bast sync azure</Code>, <Code>bast sync box</Code>,{" "}
-      <Code>bast sync upstash</Code>, or <Code>bast sync vercel</Code> (or use
-      the Sync tab in the TUI).
+      <Code>bast sync upstash</Code>, <Code>bast sync vercel</Code>, or{" "}
+      <Code>bast sync hetzner</Code> (or use the Sync tab in the TUI).
     </>,
     <>
       Open Bast, find the imported hosts, and connect. Start with the{" "}
@@ -63,8 +66,9 @@ export const cloudSshGuide: GuidePage = {
       <DocLink href="/docs/features/aws">AWS</DocLink>,{" "}
       <DocLink href="/docs/features/azure">Azure</DocLink>,{" "}
       <DocLink href="/docs/features/box">box.ascii.dev</DocLink>,{" "}
-      <DocLink href="/docs/features/upstash">Upstash Box</DocLink>, or{" "}
-      <DocLink href="/docs/features/vercel">Vercel Sandbox</DocLink> guide for
+      <DocLink href="/docs/features/upstash">Upstash Box</DocLink>,{" "}
+      <DocLink href="/docs/features/vercel">Vercel Sandbox</DocLink>, or{" "}
+      <DocLink href="/docs/features/hetzner">Hetzner Cloud</DocLink> guide for
       provider notes.
     </>,
   ],
@@ -74,9 +78,9 @@ export const cloudSshGuide: GuidePage = {
       paragraphs: [
         <>
           Bast writes local OpenSSH config for imported hosts. GCP, AWS, Azure,
-          and box.ascii.dev authenticate through their CLIs. Upstash Box and
-          Vercel store tokens in local 0600 files, not in SSH config or Vault.
-          Vercel connect is a WebSocket PTY rather than OpenSSH.
+          and box.ascii.dev authenticate through their CLIs. Upstash Box, Vercel,
+          and Hetzner Cloud store tokens in local 0600 files, not in SSH config
+          or Vault. Vercel connect is a WebSocket PTY rather than OpenSSH.
         </>,
       ],
     },

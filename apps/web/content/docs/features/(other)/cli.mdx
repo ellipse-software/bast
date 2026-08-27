@@ -76,14 +76,16 @@ bast sync azure
 bast sync box
 bast sync upstash
 bast sync vercel
+bast sync hetzner
 bast sync status
 bast sync disable gcp
 bast sync disable box
 bast sync disable upstash
 bast sync disable vercel
+bast sync disable hetzner
 ```
 
-Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [box.ascii.dev](/docs/features/box), [Upstash Box](/docs/features/upstash), or [Vercel Sandbox](/docs/features/vercel) for provider setup.
+Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [box.ascii.dev](/docs/features/box), [Upstash Box](/docs/features/upstash), [Vercel Sandbox](/docs/features/vercel), or [Hetzner Cloud](/docs/features/hetzner) for provider setup.
 
 ```bash
 bast upstash new [--name name] [--runtime node] [--size small] [--keep-alive]
@@ -102,6 +104,14 @@ bast vercel stop <host|id>
 bast vercel resume <host|id>
 bast vercel delete <host|id> [--yes]
 bast vercel cleanup [--yes]
+```
+
+```bash
+bast hetzner key [--name project] [--key-file path]
+bast hetzner key --remove project
+bast hetzner start <host|id>
+bast hetzner stop <host|id> [--force]
+bast hetzner restart <host|id> [--force]
 ```
 
 ## JSON mode

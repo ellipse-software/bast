@@ -228,14 +228,22 @@ func UpdateSyncHostAuth(path, alias, user, identityFile, certificateFile string,
 
 // UpdateSyncHostAuthAndHost updates auth fields and optionally HostName when hostname is non-empty.
 func UpdateSyncHostAuthAndHost(path, alias, hostname, user, identityFile, certificateFile string, identitiesOnly bool) error {
+	return UpdateSyncHostDetails(path, alias, hostname, user, identityFile, certificateFile, "", identitiesOnly)
+}
+
+// UpdateSyncHostDetails updates auth, hostname, and port for a synced host.
+func UpdateSyncHostDetails(path, alias, hostname, user, identityFile, certificateFile, port string, identitiesOnly bool) error {
 	if strings.ContainsAny(hostname, "\r\n") {
 		return fmt.Errorf("invalid hostname for synced host %q", alias)
+	}
+	if strings.ContainsAny(port, "\r\n") {
+		return fmt.Errorf("invalid port for synced host %q", alias)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	updated, ok := patchSyncHostAuth(data, alias, hostname, user, identityFile, certificateFile, identitiesOnly)
+	updated, ok := patchSyncHostAuth(data, alias, hostname, user, identityFile, certificateFile, port, identitiesOnly)
 	if !ok {
 		return fmt.Errorf("synced host %q not found in %s", alias, path)
 	}
@@ -245,7 +253,7 @@ func UpdateSyncHostAuthAndHost(path, alias, hostname, user, identityFile, certif
 	return atomicWriteChecked(path, data, updated, 0600)
 }
 
-func patchSyncHostAuth(data []byte, alias, hostnameOverride, user, identityFile, certificateFile string, identitiesOnly bool) ([]byte, bool) {
+func patchSyncHostAuth(data []byte, alias, hostnameOverride, user, identityFile, certificateFile, portOverride string, identitiesOnly bool) ([]byte, bool) {
 	alias = strings.TrimSpace(alias)
 	if alias == "" {
 		return data, false
@@ -330,6 +338,9 @@ func patchSyncHostAuth(data []byte, alias, hostnameOverride, user, identityFile,
 
 	if strings.TrimSpace(hostnameOverride) != "" {
 		hostname = strings.TrimSpace(hostnameOverride)
+	}
+	if strings.TrimSpace(portOverride) != "" {
+		port = strings.TrimSpace(portOverride)
 	}
 	input := SyncHostInput{
 		Alias:           alias,

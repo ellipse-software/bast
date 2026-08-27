@@ -16,6 +16,7 @@ import (
 	azurecloud "bast/internal/cloud/azure"
 	boxcloud "bast/internal/cloud/box"
 	"bast/internal/cloud/gcp"
+	hetznercloud "bast/internal/cloud/hetzner"
 	upstashcloud "bast/internal/cloud/upstash"
 	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/metadata"
@@ -38,6 +39,7 @@ type Engine struct {
 	boxMu          stdsync.Mutex
 	upstashMu      stdsync.Mutex
 	vercelMu       stdsync.Mutex
+	hetznerMu      stdsync.Mutex
 	Paths          paths.Paths
 	Config         sshconfig.Manager
 	Store          *metadata.Store
@@ -47,6 +49,7 @@ type Engine struct {
 	Box            *boxcloud.Client
 	Upstash        *upstashcloud.Client
 	Vercel         *vercelcloud.Client
+	Hetzner        *hetznercloud.Client
 	BastExecutable string
 	Discover       func(ctx context.Context) ([]sshconfig.Host, error)
 
@@ -69,6 +72,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
 		SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig,
 		SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig,
+		SyncHetznerConfig: p.SyncHetznerConfig,
 	}
 	return &Engine{
 		Paths:          p,
@@ -80,6 +84,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		Box:            boxcloud.New(),
 		Upstash:        upstashcloud.New(p.UpstashAPIKey),
 		Vercel:         newVercelClient(p, store),
+		Hetzner:        hetznercloud.New(p.HetznerAPIKey, p.HetznerTokenDir, p.Home),
 		BastExecutable: stableExecutablePath(),
 		Discover: func(ctx context.Context) ([]sshconfig.Host, error) {
 			return cfg.Discover()
@@ -1008,6 +1013,7 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	boxIntegration := e.Store.Box()
 	upstashIntegration := e.Store.Upstash()
 	vercelIntegration := e.Store.Vercel()
+	hetznerIntegration := e.Store.Hetzner()
 	status := Status{
 		GCP: GCPStatus{
 			Enabled:           integration.Enabled,
@@ -1051,10 +1057,19 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			Unrestorable:      append([]string(nil), vercelIntegration.Unrestorable...),
 			HasToken:          e.Vercel.HasToken(),
 		},
+		Hetzner: HetznerStatus{
+			Enabled: hetznerIntegration.Enabled, AutoSync: hetznerIntegration.AutoSync,
+			ContextFilter:  append([]string(nil), hetznerIntegration.ContextFilter...),
+			LocationFilter: append([]string(nil), hetznerIntegration.LocationFilter...),
+			DefaultSSHUser: hetznerIntegration.DefaultSSHUser, DefaultSSHPort: hetznerIntegration.DefaultSSHPort,
+			PreferPrivateIP: hetznerIntegration.PreferPrivateIP, LastSyncAt: hetznerIntegration.LastSyncAt,
+			LastSyncError: hetznerIntegration.LastSyncError, LastInstanceCount: hetznerIntegration.LastInstanceCount,
+			HasToken: e.Hetzner.HasToken(),
+		},
 	}
 
 	var probes stdsync.WaitGroup
-	probes.Add(6)
+	probes.Add(7)
 	go func() {
 		defer probes.Done()
 		if err := e.GCP.CheckAvailable(ctx); err != nil {
@@ -1147,6 +1162,20 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			status.Vercel.Error = account.Error
 		}
 	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Hetzner.Account(ctx)
+		if err != nil {
+			status.Hetzner.Error = err.Error()
+			return
+		}
+		status.Hetzner.Authenticated = account.Authenticated
+		status.Hetzner.HasToken = account.HasToken || e.Hetzner.HasToken()
+		status.Hetzner.Contexts = append([]string(nil), account.Contexts...)
+		if account.Error != "" && !account.Authenticated {
+			status.Hetzner.Error = account.Error
+		}
+	}()
 	probes.Wait()
 	return status, nil
 }
@@ -1158,6 +1187,7 @@ type Status struct {
 	Box     BoxStatus     `json:"box"`
 	Upstash UpstashStatus `json:"upstash"`
 	Vercel  VercelStatus  `json:"vercel"`
+	Hetzner HetznerStatus `json:"hetzner"`
 }
 
 type GCPStatus struct {
@@ -1238,6 +1268,23 @@ type VercelStatus struct {
 	LastSyncError     string     `json:"lastSyncError,omitempty"`
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 	Unrestorable      []string   `json:"unrestorable,omitempty"`
+	Error             string     `json:"error,omitempty"`
+}
+
+type HetznerStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	HasToken          bool       `json:"hasToken,omitempty"`
+	Contexts          []string   `json:"contexts,omitempty"`
+	ContextFilter     []string   `json:"contextFilter,omitempty"`
+	LocationFilter    []string   `json:"locationFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	DefaultSSHPort    string     `json:"defaultSshPort,omitempty"`
+	PreferPrivateIP   bool       `json:"preferPrivateIp,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 	Error             string     `json:"error,omitempty"`
 }
 

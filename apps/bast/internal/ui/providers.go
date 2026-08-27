@@ -31,6 +31,8 @@ func (m *App) providerEnabled(kind cloud.Kind) bool {
 		return m.metadata.Upstash().Enabled
 	case cloud.Vercel:
 		return m.metadata.Vercel().Enabled
+	case cloud.Hetzner:
+		return m.metadata.Hetzner().Enabled
 	default:
 		return false
 	}
@@ -124,7 +126,26 @@ func (m *App) stopSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 		m.openBoxStopForm(host)
 	case "vercel":
 		m.openVercelStopForm(host)
+	case "hetzner":
+		m.openHetznerStopForm(host)
 	default:
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *App) restartSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
+	if !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Restart }) {
+		return m, nil
+	}
+	if m.syncingProviders[host.SyncSource] {
+		return m, m.setNotice("Operation already in progress")
+	}
+	if m.hostLooksStopped(host) {
+		return m, m.setNotice("Start the server before restarting")
+	}
+	if host.SyncSource == "hetzner" {
+		m.openHetznerRestartForm(host)
 		return m, nil
 	}
 	return m, nil
@@ -176,6 +197,8 @@ func (m *App) resumeSyncedHost(host sshconfig.Host, thenConnect bool) tea.Cmd {
 		return m.resumeSelectedBox(host, thenConnect)
 	case "vercel":
 		return m.resumeSelectedVercel(host, thenConnect)
+	case "hetzner":
+		return m.startSelectedHetzner(host, thenConnect)
 	default:
 		return nil
 	}

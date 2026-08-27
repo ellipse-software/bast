@@ -329,6 +329,7 @@ func (m *App) syncCompletionNotice(provider string, count int) string {
 		{id: "box", name: "Box", enabled: box.Enabled, count: box.LastInstanceCount},
 		{id: "upstash", name: "Upstash", enabled: upstash.Enabled, count: upstash.LastInstanceCount},
 		{id: "vercel", name: "Vercel", enabled: vercel.Enabled, count: vercel.LastInstanceCount},
+		{id: "hetzner", name: "Hetzner", enabled: m.metadata.Hetzner().Enabled, count: m.metadata.Hetzner().LastInstanceCount},
 	}
 	parts := make([]string, 0, len(providers))
 	for _, item := range providers {
@@ -402,6 +403,10 @@ func (m *App) autoSyncCmds() tea.Cmd {
 			m.beginProviderOp("vercel")
 			autoSyncCmds = append(autoSyncCmds, m.autoConnectVercelCmd())
 		}
+	}
+	if hetzner := m.metadata.Hetzner(); hetzner.Enabled && hetzner.AutoSync && !m.syncingProviders["hetzner"] {
+		m.beginProviderOp("hetzner")
+		autoSyncCmds = append(autoSyncCmds, m.syncHetznerCmd())
 	}
 	if pull := m.vaultPullCmd(false); pull != nil {
 		autoSyncCmds = append(autoSyncCmds, pull)

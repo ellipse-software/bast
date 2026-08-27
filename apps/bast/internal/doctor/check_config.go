@@ -143,6 +143,8 @@ func (e Engine) checkSyncIncludes(r *Report, ins sshconfig.Inspection, st runSta
 		{e.Paths.SyncAzureConfig, "azure"},
 		{e.Paths.SyncBoxConfig, "box"},
 		{e.Paths.SyncUpstashConfig, "upstash"},
+		{e.Paths.SyncVercelConfig, "vercel"},
+		{e.Paths.SyncHetznerConfig, "hetzner"},
 	}
 	enabled := map[string]bool{}
 	if st.store != nil {
@@ -151,6 +153,8 @@ func (e Engine) checkSyncIncludes(r *Report, ins sshconfig.Inspection, st runSta
 		enabled["azure"] = st.store.Azure().Enabled
 		enabled["box"] = st.store.Box().Enabled
 		enabled["upstash"] = st.store.Upstash().Enabled
+		enabled["vercel"] = st.store.Vercel().Enabled
+		enabled["hetzner"] = st.store.Hetzner().Enabled
 	}
 	for _, t := range targets {
 		var found []sshconfig.InspectInclude

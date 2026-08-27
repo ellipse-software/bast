@@ -129,6 +129,19 @@ type VercelIntegration struct {
 	Unrestorable      []string   `json:"unrestorable,omitempty"`
 }
 
+type HetznerIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	DefaultSSHPort    string     `json:"defaultSshPort,omitempty"`
+	PreferPrivateIP   bool       `json:"preferPrivateIp,omitempty"`
+	ContextFilter     []string   `json:"contextFilter,omitempty"`
+	LocationFilter    []string   `json:"locationFilter,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
 type Integrations struct {
 	GCP     *GCPIntegration     `json:"gcp,omitempty"`
 	AWS     *AWSIntegration     `json:"aws,omitempty"`
@@ -136,6 +149,7 @@ type Integrations struct {
 	Box     *BoxIntegration     `json:"box,omitempty"`
 	Upstash *UpstashIntegration `json:"upstash,omitempty"`
 	Vercel  *VercelIntegration  `json:"vercel,omitempty"`
+	Hetzner *HetznerIntegration `json:"hetzner,omitempty"`
 }
 
 type State struct {
@@ -705,6 +719,34 @@ func (s *Store) SetVercel(vercel VercelIntegration) error {
 	return nil
 }
 
+func (s *Store) Hetzner() HetznerIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Hetzner == nil {
+		return HetznerIntegration{}
+	}
+	return cloneHetzner(*s.state.Integrations.Hetzner)
+}
+
+func (s *Store) SetHetzner(hetzner HetznerIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Hetzner
+	if !hetzner.Enabled && !hetzner.AutoSync && hetzner.DefaultSSHUser == "" && hetzner.DefaultSSHPort == "" && !hetzner.PreferPrivateIP &&
+		len(hetzner.ContextFilter) == 0 && len(hetzner.LocationFilter) == 0 &&
+		hetzner.LastSyncAt == nil && hetzner.LastSyncError == "" && hetzner.LastInstanceCount == 0 {
+		s.state.Integrations.Hetzner = nil
+	} else {
+		copy := cloneHetzner(hetzner)
+		s.state.Integrations.Hetzner = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Hetzner = previous
+		return err
+	}
+	return nil
+}
+
 func cloneHost(host Host) Host {
 	host.Tags = append([]string(nil), host.Tags...)
 	if host.LastUsedAt != nil {
@@ -807,6 +849,16 @@ func cloneVercel(vercel VercelIntegration) VercelIntegration {
 	return vercel
 }
 
+func cloneHetzner(hetzner HetznerIntegration) HetznerIntegration {
+	hetzner.ContextFilter = append([]string(nil), hetzner.ContextFilter...)
+	hetzner.LocationFilter = append([]string(nil), hetzner.LocationFilter...)
+	if hetzner.LastSyncAt != nil {
+		lastSyncAt := *hetzner.LastSyncAt
+		hetzner.LastSyncAt = &lastSyncAt
+	}
+	return hetzner
+}
+
 func cloneIntegrations(integrations Integrations) Integrations {
 	out := Integrations{}
 	if integrations.GCP != nil {
@@ -832,6 +884,10 @@ func cloneIntegrations(integrations Integrations) Integrations {
 	if integrations.Vercel != nil {
 		vercel := cloneVercel(*integrations.Vercel)
 		out.Vercel = &vercel
+	}
+	if integrations.Hetzner != nil {
+		hetzner := cloneHetzner(*integrations.Hetzner)
+		out.Hetzner = &hetzner
 	}
 	return out
 }
