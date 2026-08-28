@@ -6,6 +6,12 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+## v0.10.1 - 2026-08-28
+
+- Minor bug fixes and improvements to Bast's TUI and CLI.
+
+Get started at [https://bast.sh](https://bast.sh) or update with `bast update`.
+
 ## v0.10.0 - 2026-08-28
 
 ### Added
