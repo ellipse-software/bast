@@ -64,7 +64,7 @@ func TestKindForSource(t *testing.T) {
 
 func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 	box := CapabilitiesFor(Box)
-	if !box.Create || !box.Stop || !box.Start || !box.Fork || box.Delete {
+	if !box.Create || !box.Stop || !box.Start || !box.Fork || !box.Delete {
 		t.Fatalf("box caps = %+v", box)
 	}
 	upstash := CapabilitiesFor(Upstash)
