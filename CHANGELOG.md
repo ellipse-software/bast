@@ -4,6 +4,8 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ## Unreleased
 
+## v0.10.0 - 2026-08-28
+
 ### Added
 
 - Vercel Sandbox sync and lifecycle: create, stop, resume, fork, and delete through the REST API. Connect uses a WebSocket PTY (`bast connect`), not OpenSSH. The access token is stored in `~/.config/bast/vercel-token`.
