@@ -114,17 +114,44 @@ func (p Packer) Pack() (Document, error) {
 	}
 
 	doc := Document{
-		Version:   DocumentVersion,
-		UpdatedAt: now,
-		Hosts:     entries,
-		Keys:      keyEntries,
-		Metadata:  metaOut,
+		Version:    DocumentVersion,
+		UpdatedAt:  now,
+		Hosts:      entries,
+		Keys:       keyEntries,
+		Metadata:   metaOut,
+		Tombstones: packTombstones(p.Store, p.Previous.Tombstones, entries, keyEntries),
 	}
 	if p.Store != nil {
 		doc.Preferences = p.Store.Preferences()
 		doc.Integrations = packIntegrations(p.Store.Integrations())
 	}
 	return doc, nil
+}
+
+func packTombstones(store *metadata.Store, previous Tombstones, liveHosts []HostEntry, liveKeys []KeyEntry) Tombstones {
+	hosts := mergeTombstones(previous.Hosts, nil)
+	keys := mergeTombstones(previous.Keys, nil)
+	if store != nil {
+		stored := store.VaultTombstones()
+		hosts = mergeTombstones(hosts, stored.Hosts)
+		keys = mergeTombstones(keys, stored.Keys)
+	}
+	for _, host := range liveHosts {
+		delete(hosts, host.ManagedID)
+	}
+	for _, key := range liveKeys {
+		delete(keys, keyID(key))
+		if key.Name != "" {
+			delete(keys, "name:"+key.Name)
+		}
+	}
+	if len(hosts) == 0 {
+		hosts = nil
+	}
+	if len(keys) == 0 {
+		keys = nil
+	}
+	return Tombstones{Hosts: hosts, Keys: keys}
 }
 
 func hostEntryEqual(a, b HostEntry) bool {

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
@@ -94,6 +95,57 @@ func TestMergeByManagedID(t *testing.T) {
 	}
 	if byFP["fp1"].PrivatePEM != "remote" || byFP["fp2"].Name != "ci" {
 		t.Fatalf("keys = %+v", result.Document.Keys)
+	}
+}
+
+func TestMergeLocalTombstoneDropsRemoteHost(t *testing.T) {
+	local := Document{
+		UpdatedAt:  40,
+		Tombstones: Tombstones{Hosts: map[string]int64{"gone": 40}},
+	}
+	remote := Document{
+		UpdatedAt: 20,
+		Hosts: []HostEntry{
+			{ManagedID: "gone", Alias: "prod", HostName: "prod.example", UpdatedAt: 20},
+			{ManagedID: "keep", Alias: "staging", HostName: "staging.example", UpdatedAt: 15},
+		},
+	}
+	result := Merge(local, remote, MergeModeMerge)
+	byID := map[string]HostEntry{}
+	for _, h := range result.Document.Hosts {
+		byID[h.ManagedID] = h
+	}
+	if _, ok := byID["gone"]; ok {
+		t.Fatalf("deleted host came back after merge: %+v", result.Document.Hosts)
+	}
+	if byID["keep"].Alias != "staging" {
+		t.Fatalf("kept host missing: %+v", result.Document.Hosts)
+	}
+	if result.Document.Tombstones.Hosts["gone"] != 40 {
+		t.Fatalf("tombstone missing: %+v", result.Document.Tombstones)
+	}
+}
+
+func TestMergeLocalTombstoneDropsRemoteKey(t *testing.T) {
+	local := Document{
+		Tombstones: Tombstones{Keys: map[string]int64{"fp-gone": 40}},
+	}
+	remote := Document{
+		Keys: []KeyEntry{
+			{Name: "old", Fingerprint: "fp-gone", PrivatePEM: "gone", UpdatedAt: 20},
+			{Name: "work", Fingerprint: "fp-keep", PrivatePEM: "keep", UpdatedAt: 15},
+		},
+	}
+	result := Merge(local, remote, MergeModeMerge)
+	byFP := map[string]KeyEntry{}
+	for _, k := range result.Document.Keys {
+		byFP[k.Fingerprint] = k
+	}
+	if _, ok := byFP["fp-gone"]; ok {
+		t.Fatalf("deleted key came back after merge: %+v", result.Document.Keys)
+	}
+	if byFP["fp-keep"].Name != "work" {
+		t.Fatalf("kept key missing: %+v", result.Document.Keys)
 	}
 }
 
@@ -211,6 +263,130 @@ func TestApplyRestoresWipedSyncIncludeWhenEnabled(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("enabled box sync should be restored after vault apply: %+v", hosts)
+	}
+}
+
+func TestPackIncludesStoreTombstonesAndLeavesRemoteOnlyHosts(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	cfg := sshconfig.Manager{
+		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
+		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
+	}
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applier := Applier{Paths: p, Config: cfg, Store: store}
+	if err := applier.Apply(Document{
+		Hosts: []HostEntry{
+			{ManagedID: "keep", Alias: "staging", HostName: "staging.example", UpdatedAt: 10},
+			{ManagedID: "gone", Alias: "prod", HostName: "prod.example", UpdatedAt: 10},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Delete("gone"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteHostWithTombstone("prod", "gone"); err != nil {
+		t.Fatal(err)
+	}
+	remote := Document{
+		Hosts: []HostEntry{
+			{ManagedID: "keep", Alias: "staging", HostName: "staging.example", UpdatedAt: 10},
+			{ManagedID: "gone", Alias: "prod", HostName: "prod.example", UpdatedAt: 10},
+			{ManagedID: "other", Alias: "other", HostName: "other.example", UpdatedAt: 12},
+		},
+	}
+	packer := Packer{Paths: p, Config: cfg, Keyring: keys.Manager{Paths: p}, Store: store, Previous: remote}
+	local, err := packer.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local.Tombstones.Hosts["gone"] == 0 {
+		t.Fatalf("pack omitted local delete tombstone: %+v", local.Tombstones)
+	}
+	if _, ok := local.Tombstones.Hosts["other"]; ok {
+		t.Fatalf("pack must not tombstone a host that only exists remotely: %+v", local.Tombstones)
+	}
+	byID := map[string]HostEntry{}
+	for _, h := range local.Hosts {
+		byID[h.ManagedID] = h
+	}
+	if _, ok := byID["gone"]; ok {
+		t.Fatalf("deleted host still packed: %+v", local.Hosts)
+	}
+	if byID["keep"].Alias != "staging" {
+		t.Fatalf("kept host missing from pack: %+v", local.Hosts)
+	}
+
+	merged := Merge(local, remote, MergeModeMerge)
+	byID = map[string]HostEntry{}
+	for _, h := range merged.Document.Hosts {
+		byID[h.ManagedID] = h
+	}
+	if _, ok := byID["gone"]; ok {
+		t.Fatalf("vault push merge restored deleted host: %+v", merged.Document.Hosts)
+	}
+	if byID["other"].Alias != "other" {
+		t.Fatalf("remote-only host should survive merge: %+v", merged.Document.Hosts)
+	}
+	if byID["keep"].Alias != "staging" {
+		t.Fatalf("kept host missing after merge: %+v", merged.Document.Hosts)
+	}
+
+	if err := applier.Apply(merged.Document); err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := cfg.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, host := range hosts {
+		if host.Managed {
+			seen[host.ManagedID] = true
+		}
+	}
+	if seen["gone"] {
+		t.Fatal("deleted host reappeared after applying merged vault document")
+	}
+	if !seen["keep"] || !seen["other"] {
+		t.Fatalf("expected keep+other after apply, got %+v", seen)
+	}
+	if store.VaultTombstones().Hosts["gone"] == 0 {
+		t.Fatalf("apply dropped local tombstone: %+v", store.VaultTombstones())
+	}
+}
+
+func TestPackDropsTombstoneForLiveHost(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	cfg := sshconfig.Manager{
+		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
+		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
+	}
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applier := Applier{Paths: p, Config: cfg, Store: store}
+	if err := applier.Apply(Document{
+		Hosts: []HostEntry{{ManagedID: "keep", Alias: "staging", HostName: "staging.example", UpdatedAt: 20}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetVaultTombstones(metadata.VaultTombstones{Hosts: map[string]int64{"keep": 5}}); err != nil {
+		t.Fatal(err)
+	}
+	packer := Packer{Paths: p, Config: cfg, Keyring: keys.Manager{Paths: p}, Store: store}
+	local, err := packer.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local.Tombstones.Hosts["keep"] != 0 {
+		t.Fatalf("live host should not keep a tombstone: %+v", local.Tombstones)
 	}
 }
 

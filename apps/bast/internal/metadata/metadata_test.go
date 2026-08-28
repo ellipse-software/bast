@@ -204,6 +204,9 @@ func TestFailedHostMutationRestoresStateAndRevision(t *testing.T) {
 		{name: "delete", mutate: func(store *Store) error {
 			return store.DeleteHost("source")
 		}},
+		{name: "delete with tombstone", mutate: func(store *Store) error {
+			return store.DeleteHostWithTombstone("source", "src-id")
+		}},
 		{name: "rename", mutate: func(store *Store) error {
 			return store.RenameHost("source", "destination")
 		}},
@@ -235,6 +238,7 @@ func TestFailedHostMutationRestoresStateAndRevision(t *testing.T) {
 			}
 			beforeHosts, beforeRevision := store.HostsSnapshot()
 			beforePreferences := store.Preferences()
+			beforeTombs := store.VaultTombstones()
 			blockedPath := filepath.Join(root, "blocked")
 			if err := os.Mkdir(blockedPath, 0700); err != nil {
 				t.Fatal(err)
@@ -253,6 +257,9 @@ func TestFailedHostMutationRestoresStateAndRevision(t *testing.T) {
 			}
 			if afterPreferences := store.Preferences(); !reflect.DeepEqual(afterPreferences, beforePreferences) {
 				t.Fatalf("preferences changed after failed save: before=%+v after=%+v", beforePreferences, afterPreferences)
+			}
+			if afterTombs := store.VaultTombstones(); !reflect.DeepEqual(afterTombs, beforeTombs) {
+				t.Fatalf("vault tombstones changed after failed save: before=%+v after=%+v", beforeTombs, afterTombs)
 			}
 		})
 	}
@@ -287,6 +294,44 @@ func TestFailedPreferenceAndIntegrationMutationsRestoreState(t *testing.T) {
 	}
 	if got := store.GCP().DefaultSSHUser; got != "before" {
 		t.Fatalf("GCP state changed after failed save: %q", got)
+	}
+}
+
+func TestVaultTombstoneRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetHost("prod", Host{Label: "Production"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteHostWithTombstone("prod", "abc123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordKeyTombstone("fp1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Host("prod"); got.Label != "" {
+		t.Fatalf("host metadata remained: %+v", got)
+	}
+	tombs := store.VaultTombstones()
+	if tombs.Hosts["abc123"] == 0 || tombs.Keys["fp1"] == 0 {
+		t.Fatalf("tombstones = %+v", tombs)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reopened.VaultTombstones()
+	if got.Hosts["abc123"] != tombs.Hosts["abc123"] || got.Keys["fp1"] != tombs.Keys["fp1"] {
+		t.Fatalf("reopened tombstones = %+v want %+v", got, tombs)
+	}
+	if VaultKeyTombstoneID("fp", "work") != "fp" {
+		t.Fatalf("fingerprint id = %q", VaultKeyTombstoneID("fp", "work"))
+	}
+	if VaultKeyTombstoneID("", "work") != "name:work" {
+		t.Fatalf("name id = %q", VaultKeyTombstoneID("", "work"))
 	}
 }
 

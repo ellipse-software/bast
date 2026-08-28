@@ -175,13 +175,21 @@ type Integrations struct {
 	Hetzner *HetznerIntegration `json:"hetzner,omitempty"`
 }
 
+// VaultTombstones records Bast-managed hosts and keys that were deleted locally
+// so a later vault pack/merge can drop the remote copies instead of restoring them.
+type VaultTombstones struct {
+	Hosts map[string]int64 `json:"hosts,omitempty"` // managedId -> deletedAt
+	Keys  map[string]int64 `json:"keys,omitempty"`  // fingerprint or name:name -> deletedAt
+}
+
 type State struct {
-	Version      int             `json:"version"`
-	Hosts        map[string]Host `json:"hosts"`
-	Preferences  Preferences     `json:"preferences,omitempty"`
-	Integrations Integrations    `json:"integrations,omitempty"`
-	History      HistoryImport   `json:"history,omitempty"`
-	Onboarding   Onboarding      `json:"onboarding,omitempty"`
+	Version         int             `json:"version"`
+	Hosts           map[string]Host `json:"hosts"`
+	Preferences     Preferences     `json:"preferences,omitempty"`
+	Integrations    Integrations    `json:"integrations,omitempty"`
+	History         HistoryImport   `json:"history,omitempty"`
+	Onboarding      Onboarding      `json:"onboarding,omitempty"`
+	VaultTombstones VaultTombstones `json:"vaultTombstones,omitempty"`
 }
 
 type Store struct {
@@ -322,16 +330,85 @@ func (s *Store) UpdateHosts(update func(map[string]Host)) error {
 func (s *Store) DeleteHost(alias string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.deleteHostLocked(alias, "")
+}
+
+// DeleteHostWithTombstone removes host metadata and records a vault tombstone
+// for the managed id in the same state-file write.
+func (s *Store) DeleteHostWithTombstone(alias, managedID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.deleteHostLocked(alias, managedID)
+}
+
+func (s *Store) deleteHostLocked(alias, managedID string) error {
 	previous, existed := s.state.Hosts[alias]
+	previousTombs := cloneVaultTombstones(s.state.VaultTombstones)
 	delete(s.state.Hosts, alias)
+	if id := strings.TrimSpace(managedID); id != "" {
+		if s.state.VaultTombstones.Hosts == nil {
+			s.state.VaultTombstones.Hosts = map[string]int64{}
+		}
+		s.state.VaultTombstones.Hosts[id] = time.Now().UTC().Unix()
+	}
 	if err := s.save(); err != nil {
 		if existed {
 			s.state.Hosts[alias] = previous
 		}
+		s.state.VaultTombstones = previousTombs
 		return err
 	}
 	s.hostRevision.Add(1)
 	return nil
+}
+
+func (s *Store) VaultTombstones() VaultTombstones {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneVaultTombstones(s.state.VaultTombstones)
+}
+
+func (s *Store) SetVaultTombstones(tombs VaultTombstones) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := cloneVaultTombstones(s.state.VaultTombstones)
+	s.state.VaultTombstones = cloneVaultTombstones(tombs)
+	if err := s.save(); err != nil {
+		s.state.VaultTombstones = previous
+		return err
+	}
+	return nil
+}
+
+func (s *Store) RecordKeyTombstone(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := cloneVaultTombstones(s.state.VaultTombstones)
+	if s.state.VaultTombstones.Keys == nil {
+		s.state.VaultTombstones.Keys = map[string]int64{}
+	}
+	s.state.VaultTombstones.Keys[id] = time.Now().UTC().Unix()
+	if err := s.save(); err != nil {
+		s.state.VaultTombstones = previous
+		return err
+	}
+	return nil
+}
+
+func VaultKeyTombstoneID(fingerprint, name string) string {
+	fingerprint = strings.TrimSpace(fingerprint)
+	if fingerprint != "" {
+		return fingerprint
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	return "name:" + name
 }
 
 func (s *Store) RenameHost(from, to string) error {
@@ -816,6 +893,24 @@ func cloneHosts(hosts map[string]Host) map[string]Host {
 		out[alias] = cloneHost(host)
 	}
 	return out
+}
+
+func cloneInt64Map(in map[string]int64) map[string]int64 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneVaultTombstones(in VaultTombstones) VaultTombstones {
+	return VaultTombstones{
+		Hosts: cloneInt64Map(in.Hosts),
+		Keys:  cloneInt64Map(in.Keys),
+	}
 }
 
 func cloneGCP(gcp GCPIntegration) GCPIntegration {

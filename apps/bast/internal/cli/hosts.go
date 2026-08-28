@@ -615,7 +615,7 @@ func (r *Runner) hostDelete(args []string) error {
 	if err := r.config.Delete(host.raw.ManagedID); err != nil {
 		return err
 	}
-	if err := r.store.DeleteHost(host.Alias); err != nil {
+	if err := r.store.DeleteHostWithTombstone(host.Alias, host.raw.ManagedID); err != nil {
 		return err
 	}
 	return r.success(map[string]string{"alias": host.Alias}, "Host deleted: "+host.Alias)

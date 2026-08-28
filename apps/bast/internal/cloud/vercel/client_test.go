@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -234,6 +235,107 @@ func TestCleanupUnrestorableReportsProgress(t *testing.T) {
 	if got := FormatCleanupProgress(last); got != fmt.Sprintf("Cleaning up Vercel %d/%d", n, n) {
 		t.Fatalf("label = %q", got)
 	}
+}
+
+func TestDoJSONRetries429RetryAfter(t *testing.T) {
+	var hits atomicInt
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.NotFound(w, r)
+			return
+		}
+		n := hits.add(1)
+		if n == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "too_many_requests", "message": "Rate limit exceeded"}})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	if err := client.Delete(context.Background(), "prj_1/dev"); err != nil {
+		t.Fatal(err)
+	}
+	if hits.get() != 2 {
+		t.Fatalf("hits = %d, want 2", hits.get())
+	}
+}
+
+func TestDoJSONRetries429RateLimitReset(t *testing.T) {
+	var hits atomicInt
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/sandboxes" {
+			http.NotFound(w, r)
+			return
+		}
+		n := hits.add(1)
+		if n == 1 {
+			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Unix(), 10))
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "too_many_requests", "message": "Rate limit exceeded"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(sandboxListResponse{})
+	})
+	if _, err := client.List(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if hits.get() != 2 {
+		t.Fatalf("hits = %d, want 2", hits.get())
+	}
+}
+
+func TestDoJSONStopsAfterRateLimitRetries(t *testing.T) {
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "too_many_requests", "message": "Rate limit exceeded"}})
+	})
+	err := client.Delete(context.Background(), "prj_1/dev")
+	if err == nil || !strings.Contains(err.Error(), "429") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestParseRetryAfter(t *testing.T) {
+	d, ok := parseRetryAfter("12")
+	if !ok || d != 12*time.Second {
+		t.Fatalf("seconds: %v %v", d, ok)
+	}
+	when := time.Now().UTC().Add(5 * time.Second).Format(http.TimeFormat)
+	d, ok = parseRetryAfter(when)
+	if !ok || d <= 0 || d > 6*time.Second {
+		t.Fatalf("http date: %v %v", d, ok)
+	}
+	if _, ok := parseRetryAfter(""); ok {
+		t.Fatal("empty should be missing")
+	}
+	d, ok = parseRateLimitReset(strconv.FormatInt(time.Now().Add(3*time.Second).Unix(), 10))
+	if !ok || d <= 0 || d > 4*time.Second {
+		t.Fatalf("epoch reset: %v %v", d, ok)
+	}
+	d, ok = parseRateLimitReset("7")
+	if !ok || d != 7*time.Second {
+		t.Fatalf("delta reset: %v %v", d, ok)
+	}
+}
+
+type atomicInt struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (a *atomicInt) add(delta int) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.n += delta
+	return a.n
+}
+
+func (a *atomicInt) get() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.n
 }
 
 func TestUnrestorableOffline(t *testing.T) {

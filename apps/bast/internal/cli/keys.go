@@ -8,6 +8,7 @@ import (
 	"github.com/atotto/clipboard"
 
 	"bast/internal/askpass"
+	"bast/internal/metadata"
 )
 
 func (r *Runner) keys(args []string) error {
@@ -435,6 +436,13 @@ func (r *Runner) keyDelete(args []string) error {
 	}
 	if err := r.keyring.Delete(key.raw, key.Name); err != nil {
 		return err
+	}
+	if key.Managed {
+		if id := metadata.VaultKeyTombstoneID(key.Fingerprint, key.Name); id != "" {
+			if err := r.store.RecordKeyTombstone(id); err != nil {
+				return err
+			}
+		}
 	}
 	return r.success(map[string]string{"name": key.Name}, "Key permanently deleted: "+key.Name)
 }

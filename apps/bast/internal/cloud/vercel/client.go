@@ -9,20 +9,23 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	ProviderName   = "vercel"
-	DefaultBaseURL = "https://api.vercel.com"
-	TokenEnv       = "VERCEL_TOKEN"
-	TeamEnv        = "VERCEL_TEAM_ID"
-	ProjectEnv     = "VERCEL_PROJECT_ID"
-	BaseURLEnv     = "VERCEL_API_URL"
-	StoppedHost    = "vercel.sandbox.invalid"
-	CleanupTimeout = 30 * time.Minute
-	cleanupWorkers = 8
+	ProviderName        = "vercel"
+	DefaultBaseURL      = "https://api.vercel.com"
+	TokenEnv            = "VERCEL_TOKEN"
+	TeamEnv             = "VERCEL_TEAM_ID"
+	ProjectEnv          = "VERCEL_PROJECT_ID"
+	BaseURLEnv          = "VERCEL_API_URL"
+	StoppedHost         = "vercel.sandbox.invalid"
+	CleanupTimeout      = 30 * time.Minute
+	cleanupWorkers      = 8
+	maxRateLimitRetries = 8
+	maxRateLimitWait    = 2 * time.Minute
 )
 
 type Client struct {
@@ -296,17 +299,54 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 	if err != nil {
 		return err
 	}
+	var lastStatus int
+	var lastBody []byte
+	for attempt := 0; attempt <= maxRateLimitRetries; attempt++ {
+		resp, data, err := c.roundTrip(ctx, token, method, path, query, body)
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			lastStatus, lastBody = resp.StatusCode, data
+			if attempt == maxRateLimitRetries {
+				break
+			}
+			wait := c.rateLimitWait(resp.Header)
+			timer := time.NewTimer(wait)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+			continue
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return c.apiError(resp.StatusCode, data, token)
+		}
+		if out == nil || len(bytes.TrimSpace(data)) == 0 {
+			return nil
+		}
+		if err := json.Unmarshal(data, out); err != nil {
+			return fmt.Errorf("vercel sandbox: decode response: %w", err)
+		}
+		return nil
+	}
+	return c.apiError(lastStatus, lastBody, token)
+}
+
+func (c *Client) roundTrip(ctx context.Context, token, method, path string, query url.Values, body any) (*http.Response, []byte, error) {
 	var payload io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		payload = bytes.NewReader(data)
 	}
 	endpoint, err := url.Parse(c.baseURL() + path)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	q := endpoint.Query()
 	if team := c.ResolveTeam(); team != "" {
@@ -320,7 +360,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 	endpoint.RawQuery = q.Encode()
 	req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), payload)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
@@ -329,23 +369,75 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 	}
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
-		return fmt.Errorf("vercel sandbox: %w", err)
+		return nil, nil, fmt.Errorf("vercel sandbox: %w", err)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return fmt.Errorf("vercel sandbox: read response: %w", err)
+		return nil, nil, fmt.Errorf("vercel sandbox: read response: %w", err)
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return c.apiError(resp.StatusCode, data, token)
+	return resp, data, nil
+}
+
+func (c *Client) rateLimitWait(h http.Header) time.Duration {
+	if d, ok := parseRetryAfter(h.Get("Retry-After")); ok {
+		return capRateLimitWait(d)
 	}
-	if out == nil || len(bytes.TrimSpace(data)) == 0 {
-		return nil
+	if d, ok := parseRateLimitReset(h.Get("X-RateLimit-Reset")); ok {
+		return capRateLimitWait(d)
 	}
-	if err := json.Unmarshal(data, out); err != nil {
-		return fmt.Errorf("vercel sandbox: decode response: %w", err)
+	return capRateLimitWait(c.pollEvery())
+}
+
+func parseRetryAfter(raw string) (time.Duration, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
 	}
-	return nil
+	if secs, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		if secs < 0 {
+			secs = 0
+		}
+		return time.Duration(secs) * time.Second, true
+	}
+	when, err := http.ParseTime(raw)
+	if err != nil {
+		return 0, false
+	}
+	d := time.Until(when)
+	if d < 0 {
+		d = 0
+	}
+	return d, true
+}
+
+func parseRateLimitReset(raw string) (time.Duration, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	if n > 1_000_000_000 {
+		d := time.Until(time.Unix(n, 0))
+		if d < 0 {
+			d = 0
+		}
+		return d, true
+	}
+	return time.Duration(n) * time.Second, true
+}
+
+func capRateLimitWait(d time.Duration) time.Duration {
+	if d < 0 {
+		return 0
+	}
+	if d > maxRateLimitWait {
+		return maxRateLimitWait
+	}
+	return d
 }
 
 func (c *Client) apiError(status int, body []byte, token string) error {

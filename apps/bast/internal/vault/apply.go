@@ -120,7 +120,43 @@ func (a Applier) Apply(doc Document) error {
 	if err := applyIntegrations(a.Store, doc.Integrations); err != nil {
 		return err
 	}
+	if err := a.Store.SetVaultTombstones(persistableTombstones(doc)); err != nil {
+		return err
+	}
 	return a.RestoreEnabledSyncIncludes()
+}
+
+func persistableTombstones(doc Document) metadata.VaultTombstones {
+	hosts := map[string]int64{}
+	for id, at := range doc.Tombstones.Hosts {
+		hosts[id] = at
+	}
+	keys := map[string]int64{}
+	for id, at := range doc.Tombstones.Keys {
+		keys[id] = at
+	}
+	for _, host := range doc.Hosts {
+		if host.DeletedAt == 0 && host.ManagedID != "" {
+			delete(hosts, host.ManagedID)
+		}
+	}
+	for _, key := range doc.Keys {
+		if key.DeletedAt != 0 {
+			continue
+		}
+		delete(keys, keyID(key))
+		if key.Name != "" {
+			delete(keys, "name:"+key.Name)
+		}
+	}
+	out := metadata.VaultTombstones{}
+	if len(hosts) > 0 {
+		out.Hosts = hosts
+	}
+	if len(keys) > 0 {
+		out.Keys = keys
+	}
+	return out
 }
 
 func (a Applier) RestoreEnabledSyncIncludes() error {
