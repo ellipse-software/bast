@@ -51,7 +51,7 @@ func (m *App) startSelectedHetzner(host sshconfig.Host, thenConnect bool) tea.Cm
 func (m *App) openHetznerKeyForm() {
 	m.openForm("Add Hetzner API token", "hetzner_key", []field{
 		{label: "Name", description: "Project name for this token; one token per Hetzner Cloud project", placeholder: "prod"},
-		{label: "API token", description: "From Hetzner Console → Security → API Tokens", secret: true, placeholder: "token"},
+		{label: "API token", description: "https://console.hetzner.cloud", secret: true, placeholder: "token"},
 	})
 }
 

@@ -196,6 +196,66 @@ func TestResumeSurfacesRejectedResponse(t *testing.T) {
 	}
 }
 
+func TestDeleteWaitsUntilGone(t *testing.T) {
+	gone := false
+	client := &Client{
+		PollInterval: time.Millisecond,
+		Run: func(_ context.Context, args []string, _ []string) ([]byte, error) {
+			cmd := strings.Join(args, " ")
+			switch {
+			case strings.Contains(cmd, "--version"):
+				return []byte("box 1.0.0"), nil
+			case strings.Contains(cmd, "delete"):
+				gone = true
+				return []byte(`{"ok":true,"id":"bx_gone001"}`), nil
+			case strings.Contains(cmd, "info"):
+				if gone {
+					return nil, fmt.Errorf("box info: not found")
+				}
+				return []byte(`{"box":{"id":"bx_gone001","name":"Gone","state":"idle"}}`), nil
+			default:
+				return nil, fmt.Errorf("unexpected %s", cmd)
+			}
+		},
+	}
+	if err := client.Delete(context.Background(), "bx_gone001"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListAndDeleteSnapshots(t *testing.T) {
+	named := []Snapshot{{ID: "snap_named", BoxID: "bx_source01", Name: "web-stack", Kind: "named"}}
+	snaps := []Snapshot{{ID: "snap_inc", BoxID: "bx_source01", Kind: "incremental", Status: "completed"}}
+	client := &Client{
+		Run: func(_ context.Context, args []string, _ []string) ([]byte, error) {
+			cmd := strings.Join(args, " ")
+			switch {
+			case strings.Contains(cmd, "snapshots"):
+				return json.Marshal(map[string]any{"snapshots": snaps, "named": named})
+			case strings.Contains(cmd, "snapshot delete"):
+				return []byte(`{"ok":true,"id":"snap_inc"}`), nil
+			case strings.Contains(cmd, "snapshot rm"):
+				return []byte(`{"ok":true,"id":"snap_named"}`), nil
+			default:
+				return nil, fmt.Errorf("unexpected %s", cmd)
+			}
+		},
+	}
+	list, err := client.ListSnapshots(context.Background(), "bx_source01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Snapshots) != 1 || len(list.Named) != 1 {
+		t.Fatalf("list = %+v", list)
+	}
+	if err := client.DeleteSnapshot(context.Background(), "snap_inc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.RemoveNamedSnapshot(context.Background(), "web-stack"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestForkRequiresSnapshot(t *testing.T) {
 	client := &Client{
 		PollInterval: time.Millisecond,

@@ -242,6 +242,9 @@ func mergeIntegrations(base, overlay VaultIntegrations) VaultIntegrations {
 	if overlay.Vercel != nil {
 		out.Vercel = overlay.Vercel
 	}
+	if overlay.Hetzner != nil {
+		out.Hetzner = overlay.Hetzner
+	}
 	return out
 }
 

@@ -180,6 +180,8 @@ func (m *App) deleteSyncedHost(host sshconfig.Host) bool {
 		m.openUpstashDeleteForm(host)
 	case "vercel":
 		m.openVercelDeleteForm(host)
+	case "box":
+		m.openBoxDeleteForm(host)
 	default:
 		return false
 	}

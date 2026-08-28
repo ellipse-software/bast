@@ -28,7 +28,7 @@ func (m *App) vercelReady() bool {
 		return false
 	}
 	integration := m.metadata.Vercel()
-	return strings.TrimSpace(integration.TeamID) != ""
+	return strings.TrimSpace(integration.TeamID) != "" && len(integration.Projects()) > 0
 }
 
 func (m *App) resumeSelectedVercel(host sshconfig.Host, thenConnect bool) tea.Cmd {
@@ -96,10 +96,34 @@ func (m *App) openVercelNewForm() {
 
 func (m *App) openVercelTokenForm() {
 	integration := m.metadata.Vercel()
-	m.openForm("Vercel access token", "vercel_token", []field{
+	fields := []field{
 		{label: "Access token", description: "https://vercel.com/account/settings/tokens", secret: true, placeholder: "token"},
 		{label: "Team ID", value: integration.TeamID, placeholder: "team_…"},
-		{label: "Project ID", description: "Optional; comma-separated if team-wide list is unavailable", optional: true, value: strings.Join(integration.Projects(), ","), placeholder: "prj_…"},
+	}
+	if len(integration.Projects()) == 0 {
+		fields = append(fields, field{label: "Project ID", placeholder: "prj_…"})
+	}
+	m.openForm("Vercel access token", "vercel_token", fields)
+}
+
+func (m *App) openVercelProjectAddForm() {
+	m.openForm("Add Vercel project", "vercel_project_add", []field{
+		{label: "Project ID", description: "Project ID or name. Sandboxes in this project are imported on the next sync", placeholder: "prj_…"},
+	})
+}
+
+func (m *App) openVercelProjectRemoveForm() {
+	projects := m.metadata.Vercel().Projects()
+	if len(projects) == 0 {
+		m.setError(errString("no stored Vercel projects to remove"))
+		return
+	}
+	options := make([]fieldOption, 0, len(projects))
+	for _, id := range projects {
+		options = append(options, fieldOption{label: id, value: id})
+	}
+	m.openForm("Remove Vercel project", "vercel_project_remove", []field{
+		{label: "Project", description: "Stops importing sandboxes from this project", options: options},
 	})
 }
 

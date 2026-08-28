@@ -435,6 +435,30 @@ func TestVercelAndHetznerSyncErrorsShowIcon(t *testing.T) {
 	}
 }
 
+func TestProviderConnectClearsStaleSyncErrorImmediately(t *testing.T) {
+	m := testApp(t)
+	m.syncProvider = "vercel"
+	m.syncStatus.Vercel.Error = "team required"
+	if err := m.metadata.SetVercel(metadata.VercelIntegration{Enabled: true, TeamID: "team_1", ProjectID: "prj_1", LastSyncError: "old list error"}); err != nil {
+		t.Fatal(err)
+	}
+	m.beginProviderOp("vercel")
+	if m.syncStatus.Vercel.Error != "" {
+		t.Fatalf("probe error survived begin: %q", m.syncStatus.Vercel.Error)
+	}
+	identity := m.renderProviderIdentity(m.styles(), "vercel")
+	if strings.Contains(identity, "team required") || strings.Contains(identity, "old list error") {
+		t.Fatalf("stale error still visible while connecting:\n%s", identity)
+	}
+	if err := m.metadata.SetVercel(metadata.VercelIntegration{Enabled: true, TeamID: "team_1", ProjectID: "prj_1"}); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(syncDoneMsg{provider: "vercel", opGen: m.providerOpGen("vercel")})
+	if m.syncStatus.Vercel.Error != "" {
+		t.Fatalf("probe error survived success: %q", m.syncStatus.Vercel.Error)
+	}
+}
+
 func TestCloudSyncRootShowsCurrentCLIError(t *testing.T) {
 	m := testApp(t)
 	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Amazon EC2/default/eu-west-2"}); err != nil {
@@ -2073,6 +2097,7 @@ func TestHelpUsesTerminalWidthWithoutWrapping(t *testing.T) {
 func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 	m := testApp(t)
 	m.width = 50
+	m.height = 40
 	m.section = syncSection
 	if !m.isMobileLayout() {
 		t.Fatal("expected mobile layout")
@@ -2086,6 +2111,99 @@ func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 	}
 	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") || !strings.Contains(body, "Upstash") || !strings.Contains(body, "Vercel") || !strings.Contains(body, "Hetzner") {
 		t.Fatalf("mobile grid body:\n%s", body)
+	}
+}
+
+func TestSyncGridScrollsWhenProvidersOverflow(t *testing.T) {
+	m := testApp(t)
+	m.width = 50
+	m.height = 16
+	m.section = syncSection
+	m.syncCursor = 0
+	if !m.isMobileLayout() {
+		t.Fatal("expected mobile layout")
+	}
+	body := m.renderSync(m.styles())
+	if strings.Contains(body, "Hetzner") {
+		t.Fatalf("short mobile view should clip later providers:\n%s", body)
+	}
+	if !strings.Contains(body, "Amazon EC2") {
+		t.Fatalf("first providers should be visible:\n%s", body)
+	}
+
+	m.updateSyncKeys("G")
+	body = m.renderSync(m.styles())
+	if !strings.Contains(body, "Hetzner") {
+		t.Fatalf("jumping to the last provider should reveal it:\n%s", body)
+	}
+	if strings.Contains(body, "Amazon EC2") {
+		t.Fatalf("first providers should scroll away:\n%s", body)
+	}
+
+	m.Update(tea.MouseWheelMsg(tea.Mouse{X: 4, Y: 4, Button: tea.MouseWheelUp}))
+	body = m.renderSync(m.styles())
+	if m.syncCursor != len(m.syncMenuItems())-2 {
+		t.Fatalf("wheel up should move one provider, cursor=%d", m.syncCursor)
+	}
+	if !strings.Contains(body, "Vercel") {
+		t.Fatalf("wheel should keep the focused provider in view:\n%s", body)
+	}
+
+	startRow, _, _ := m.syncGridWindow(m.syncMenuItems())
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: 3, Button: tea.MouseLeft}))
+	if m.syncCursor != startRow {
+		t.Fatalf("click on first visible tile should select row %d, got %d", startRow, m.syncCursor)
+	}
+
+	m.width = 100
+	m.height = 12
+	m.syncCursor = 0
+	if m.isMobileLayout() {
+		t.Fatal("expected desktop layout")
+	}
+	body = m.renderSync(m.styles())
+	if strings.Contains(body, "Hetzner") {
+		t.Fatalf("short desktop view should clip later provider rows:\n%s", body)
+	}
+	m.updateSyncKeys("G")
+	if view := m.render(); !strings.Contains(view, "Hetzner") {
+		t.Fatalf("full view should show the focused provider after scroll:\n%s", view)
+	}
+}
+
+func TestProviderPageScrollsWhenInventoryOverflows(t *testing.T) {
+	m := testApp(t)
+	m.width = 80
+	m.height = 14
+	m.section = syncSection
+	m.syncProvider = "gcp"
+	m.hosts = make([]sshconfig.Host, 0, 24)
+	for i := 0; i < 24; i++ {
+		alias := fmt.Sprintf("gcp_host_%02d", i)
+		m.hosts = append(m.hosts, sshconfig.Host{
+			Alias: alias, Synced: true, SyncSource: "gcp",
+			SyncID: "projects/p/zones/z/instances/" + alias,
+		})
+		if err := m.metadata.SetHost(alias, metadata.Host{Label: alias, Group: "Google Cloud"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.syncCursor = 0
+	body := m.renderSync(m.styles())
+	if strings.Contains(body, "Refresh status") {
+		t.Fatalf("short provider page should clip later config:\n%s", body)
+	}
+	if !strings.Contains(body, "Connect") && !strings.Contains(body, "Sync") {
+		t.Fatalf("top of provider page should stay visible:\n%s", body)
+	}
+
+	m.updateSyncKeys("G")
+	body = m.renderSync(m.styles())
+	if !strings.Contains(body, "Refresh status") {
+		t.Fatalf("last config row should scroll into view:\n%s", body)
+	}
+	if strings.Contains(body, "gcp_host_00") {
+		t.Fatalf("early inventory should scroll away:\n%s", body)
 	}
 }
 
@@ -3427,6 +3545,23 @@ func TestUpstashDeleteUsesRemoteConfirm(t *testing.T) {
 	}
 }
 
+func TestBoxDeleteUsesRemoteConfirm(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "box_dev", Synced: true, SyncSource: "box", SyncID: "bx_dev0001",
+		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"},
+	}}
+	if err := m.metadata.SetHost("box_dev", metadata.Host{Label: "dev", Group: "Box", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.section = hostsSection
+	selectHostAlias(t, m, "box_dev")
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "box_delete" {
+		t.Fatalf("d on box host should confirm remote delete, got %#v", m.form)
+	}
+}
+
 func TestVercelProviderLifecycleRow(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
@@ -3492,6 +3627,67 @@ func TestVercelCleanupAction(t *testing.T) {
 	}
 	if !strings.Contains(m.form.fields[0].description, "idle") || !strings.Contains(m.form.fields[0].description, "temp") {
 		t.Fatalf("cleanup form should list sandboxes, got %q", m.form.fields[0].description)
+	}
+}
+
+func TestUpstashAndHetznerTokenFormsLinkToConsole(t *testing.T) {
+	m := testApp(t)
+	m.openUpstashKeyForm()
+	if m.form == nil || m.form.action != "upstash_key" || len(m.form.fields) == 0 {
+		t.Fatalf("upstash form=%#v", m.form)
+	}
+	if got := m.form.fields[0].description; got != "https://console.upstash.com" {
+		t.Fatalf("upstash key description = %q", got)
+	}
+
+	m.form = nil
+	m.openHetznerKeyForm()
+	if m.form == nil || m.form.action != "hetzner_key" {
+		t.Fatalf("hetzner form=%#v", m.form)
+	}
+	found := false
+	for _, field := range m.form.fields {
+		if strings.Contains(field.description, "~/.config") || strings.Contains(field.description, "stored") {
+			t.Fatalf("token form should not describe local storage: %+v", field)
+		}
+		if field.label == "API token" {
+			found = true
+			if field.description != "https://console.hetzner.cloud" {
+				t.Fatalf("hetzner token description = %q", field.description)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected API token field")
+	}
+}
+
+func TestVercelCleanupProgressUpdatesBusy(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vercel"
+	m.syncOpGen = map[string]uint64{"vercel": 1}
+	m.syncingProviders = map[string]bool{"vercel": true}
+	m.beginSyncBusy("Cleaning up Vercel…")
+	if !m.vaultBusyBlocksBody() {
+		t.Fatal("cleanup should replace the sync body")
+	}
+	_, cmd := m.Update(syncProgressMsg{provider: "vercel", opGen: 1, label: "Cleaning up Vercel 12/340"})
+	if m.syncBusy != "Cleaning up Vercel 12/340" {
+		t.Fatalf("busy = %q", m.syncBusy)
+	}
+	body := m.renderVaultBusy(m.styles())
+	if !strings.Contains(body, "12/340") {
+		t.Fatalf("busy body:\n%s", body)
+	}
+	footer := m.renderFooter(m.styles())
+	if !strings.Contains(footer, "12/340") {
+		t.Fatalf("footer = %q", footer)
+	}
+	_ = cmd
+	_, _ = m.Update(syncDoneMsg{provider: "vercel", opGen: 1, notice: "Deleted 340 unrestorable sandboxes"})
+	if m.syncBusy != "" {
+		t.Fatalf("busy should clear after cleanup, got %q", m.syncBusy)
 	}
 }
 
@@ -3664,6 +3860,11 @@ func TestProviderInventorySandboxLifecycle(t *testing.T) {
 	_, _ = m.updateKeys(press("n"))
 	if m.form == nil || m.form.action != "box_fork" {
 		t.Fatalf("n on running inventory host should fork, got %#v", m.form)
+	}
+	m.form = nil
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "box_delete" {
+		t.Fatalf("d on running inventory host should delete, got %#v", m.form)
 	}
 
 	m.form = nil

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,6 +38,7 @@ func testClient(t *testing.T, handler http.HandlerFunc) *Client {
 
 func TestListAndDiscover(t *testing.T) {
 	pages := 0
+	var deletedMu sync.Mutex
 	deleted := map[string]int{}
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer vercel_test_token" {
@@ -46,6 +48,11 @@ func TestListAndDiscover(t *testing.T) {
 			t.Errorf("query = %s", r.URL.RawQuery)
 		}
 		name := strings.TrimPrefix(r.URL.Path, "/v2/sandboxes/")
+		deletedCount := func(n string) int {
+			deletedMu.Lock()
+			defer deletedMu.Unlock()
+			return deleted[n]
+		}
 		switch {
 		case r.URL.Path == "/v2/sandboxes" && r.Method == http.MethodGet:
 			if r.URL.Query().Get("project") == "" {
@@ -79,7 +86,7 @@ func TestListAndDiscover(t *testing.T) {
 				},
 			})
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v2/sandboxes/"):
-			if deleted[name] > 0 {
+			if deletedCount(name) > 0 {
 				http.NotFound(w, r)
 				return
 			}
@@ -101,7 +108,9 @@ func TestListAndDiscover(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(sandboxSessionResponse{Sandbox: box})
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v2/sandboxes/"):
+			deletedMu.Lock()
 			deleted[name]++
+			deletedMu.Unlock()
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			http.NotFound(w, r)
@@ -150,18 +159,80 @@ func TestListAndDiscover(t *testing.T) {
 		t.Fatalf("sync host = %+v", host)
 	}
 
-	cleaned, err := client.CleanupUnrestorable(context.Background())
+	cleaned, err := client.CleanupUnrestorable(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(cleaned, ",") != "dead,idle,temp" {
 		t.Fatalf("cleaned = %v", cleaned)
 	}
-	if deleted["idle"] == 0 || deleted["temp"] == 0 || deleted["dead"] == 0 {
-		t.Fatalf("cleanup deleted = %v", deleted)
+	deletedMu.Lock()
+	gotDeleted := map[string]int{}
+	for k, v := range deleted {
+		gotDeleted[k] = v
 	}
-	if deleted["paused"] != 0 || deleted["saving"] != 0 || deleted["dev"] != 0 {
-		t.Fatalf("cleanup deleted restorable sandboxes: %v", deleted)
+	deletedMu.Unlock()
+	if gotDeleted["idle"] == 0 || gotDeleted["temp"] == 0 || gotDeleted["dead"] == 0 {
+		t.Fatalf("cleanup deleted = %v", gotDeleted)
+	}
+	if gotDeleted["paused"] != 0 || gotDeleted["saving"] != 0 || gotDeleted["dev"] != 0 {
+		t.Fatalf("cleanup deleted restorable sandboxes: %v", gotDeleted)
+	}
+}
+
+func TestCleanupUnrestorableReportsProgress(t *testing.T) {
+	const n = 20
+	var mu sync.Mutex
+	alive := map[string]bool{}
+	for i := 0; i < n; i++ {
+		alive[fmt.Sprintf("dead_%02d", i)] = true
+	}
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case r.URL.Path == "/v2/sandboxes" && r.Method == http.MethodGet:
+			boxes := make([]Sandbox, 0, n)
+			for i := 0; i < n; i++ {
+				name := fmt.Sprintf("dead_%02d", i)
+				if !alive[name] {
+					continue
+				}
+				boxes = append(boxes, Sandbox{Name: name, Status: "failed"})
+			}
+			_ = json.NewEncoder(w).Encode(sandboxListResponse{Sandboxes: boxes})
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v2/sandboxes/"):
+			name := strings.TrimPrefix(r.URL.Path, "/v2/sandboxes/")
+			delete(alive, name)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	var reports []CleanupProgress
+	cleaned, err := client.CleanupUnrestorable(context.Background(), func(p CleanupProgress) {
+		mu.Lock()
+		reports = append(reports, p)
+		mu.Unlock()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cleaned) != n {
+		t.Fatalf("cleaned = %d, want %d: %v", len(cleaned), n, cleaned)
+	}
+	if len(reports) == 0 || reports[0].Total != n || reports[0].Done != 0 {
+		t.Fatalf("first progress = %+v", reports)
+	}
+	last := reports[len(reports)-1]
+	if last.Done != n || last.Total != n {
+		t.Fatalf("last progress = %+v reports=%d", last, len(reports))
+	}
+	if FormatCleanupProgress(CleanupProgress{}) != "Cleaning up Vercel…" {
+		t.Fatalf("empty label = %q", FormatCleanupProgress(CleanupProgress{}))
+	}
+	if got := FormatCleanupProgress(last); got != fmt.Sprintf("Cleaning up Vercel %d/%d", n, n) {
+		t.Fatalf("label = %q", got)
 	}
 }
 
@@ -287,41 +358,20 @@ func TestParseProjectList(t *testing.T) {
 	}
 }
 
-func TestListTeamWideWhenProjectOmitted(t *testing.T) {
+func TestDiscoverRequiresProject(t *testing.T) {
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v2/sandboxes" || r.Method != http.MethodGet {
-			http.NotFound(w, r)
-			return
-		}
-		if r.URL.Query().Get("project") != "" {
-			t.Errorf("team-wide list should omit project, query=%s", r.URL.RawQuery)
-		}
-		_ = json.NewEncoder(w).Encode(sandboxListResponse{
-			Sandboxes: []Sandbox{
-				{Name: "alpha", Status: "running", Persistent: true, ProjectID: "prj_a", CurrentSessionID: "sbx_a"},
-				{Name: "beta", Status: "running", Persistent: true, ProjectID: "prj_b", CurrentSessionID: "sbx_b"},
-			},
-		})
+		t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 	})
 	client.ProjectID = ""
 	client.ProjectIDs = nil
 	t.Setenv(ProjectEnv, "")
-	discovery, err := client.Discover(context.Background(), struct{}{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(discovery.Instances) != 2 {
-		t.Fatalf("instances = %d", len(discovery.Instances))
-	}
-	if discovery.Instances[0].ProjectID != "prj_a" || discovery.Instances[1].ProjectID != "prj_b" {
-		t.Fatalf("projects = %+v %+v", discovery.Instances[0], discovery.Instances[1])
-	}
-	if GroupPath(discovery.Instances[0]) != "Vercel/prj_a" || GroupPath(discovery.Instances[1]) != "Vercel/prj_b" {
-		t.Fatalf("groups = %s %s", GroupPath(discovery.Instances[0]), GroupPath(discovery.Instances[1]))
+	_, err := client.Discover(context.Background(), struct{}{})
+	if err == nil || !strings.Contains(err.Error(), "project is required") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
-func TestListFallsBackToMultipleProjects(t *testing.T) {
+func TestListMultipleProjects(t *testing.T) {
 	listed := []string{}
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v2/sandboxes" || r.Method != http.MethodGet {
@@ -330,8 +380,8 @@ func TestListFallsBackToMultipleProjects(t *testing.T) {
 		}
 		project := r.URL.Query().Get("project")
 		if project == "" {
+			t.Error("list must send project")
 			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"message": "project required"}})
 			return
 		}
 		listed = append(listed, project)
@@ -355,6 +405,9 @@ func TestListFallsBackToMultipleProjects(t *testing.T) {
 	}
 	if discovery.Instances[0].SyncID != "prj_a/box-prj_a" || discovery.Instances[1].SyncID != "prj_b/box-prj_b" {
 		t.Fatalf("ids = %s %s", discovery.Instances[0].SyncID, discovery.Instances[1].SyncID)
+	}
+	if GroupPath(discovery.Instances[0]) != "Vercel/prj_a" || GroupPath(discovery.Instances[1]) != "Vercel/prj_b" {
+		t.Fatalf("groups = %s %s", GroupPath(discovery.Instances[0]), GroupPath(discovery.Instances[1]))
 	}
 }
 

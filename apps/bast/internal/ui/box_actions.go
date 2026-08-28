@@ -112,6 +112,14 @@ func (m *App) openBoxStopForm(host sshconfig.Host) {
 	})
 }
 
+func (m *App) openBoxDeleteForm(host sshconfig.Host) {
+	label := m.hostLabel(host)
+	m.openForm("Delete Box: "+label, "box_delete", []field{
+		{label: "SyncID", value: host.SyncID, hidden: true},
+		{label: "Type delete to confirm", description: "Permanently deletes the box and its snapshots", placeholder: "delete"},
+	})
+}
+
 func (m *App) openBoxForkForm(host sshconfig.Host) {
 	meta := m.metadata.Host(host.Alias)
 	if !boxcloud.SnapshotAvailableFromTags(meta.Tags) {

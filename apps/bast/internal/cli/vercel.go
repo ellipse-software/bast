@@ -215,7 +215,11 @@ func (r *Runner) vercelCleanup(engine *sync.Engine, args []string) error {
 		return r.success(map[string]any{"deleted": []string{}}, "No unrestorable sandboxes")
 	}
 	if !*yes {
-		fmt.Fprintf(r.Err, "Offline, no snapshot: %s\n", strings.Join(names, ", "))
+		if len(names) <= 8 {
+			fmt.Fprintf(r.Err, "Offline, no snapshot: %s\n", strings.Join(names, ", "))
+		} else {
+			fmt.Fprintf(r.Err, "%d unrestorable sandboxes (offline, no snapshot)\n", len(names))
+		}
 		confirm, err := r.prompt("Type cleanup to confirm", "", true)
 		if err != nil {
 			return err
@@ -224,9 +228,28 @@ func (r *Runner) vercelCleanup(engine *sync.Engine, args []string) error {
 			return fail("vercel_cleanup", "confirmation did not match")
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), vercelcloud.CleanupTimeout)
 	defer cancel()
-	result, deleted, err := engine.CleanupVercel(ctx)
+	var lastLine string
+	result, deleted, err := engine.CleanupVercel(ctx, func(p vercelcloud.CleanupProgress) {
+		if r.JSON {
+			return
+		}
+		line := vercelcloud.FormatCleanupProgress(p)
+		if line == lastLine {
+			return
+		}
+		lastLine = line
+		if p.Total > 0 && p.Done == p.Total {
+			fmt.Fprintf(r.Err, "\r%-40s\n", line)
+			lastLine = ""
+			return
+		}
+		fmt.Fprintf(r.Err, "\r%-40s", line)
+	})
+	if !r.JSON && lastLine != "" {
+		fmt.Fprintln(r.Err)
+	}
 	if err != nil {
 		telemetry.Track("vercel_cleanup_fail", r.Version)
 		return fail("vercel_cleanup", err.Error())
@@ -247,12 +270,37 @@ func (r *Runner) vercelToken(engine *sync.Engine, args []string) error {
 	fs := newFlagSet("vercel token")
 	tokenFile := fs.String("token-file", "", "Read the access token from a file")
 	team := fs.String("team", "", "Vercel team ID")
-	project := fs.String("project", "", "Vercel project ID or name")
+	project := fs.String("project", "", "Vercel project ID or name (comma-separated to add several)")
+	remove := fs.String("remove", "", "Remove a stored project ID")
 	if err := fs.Parse(args); err != nil {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 0 {
-		return usagef("usage: bast vercel token [--token-file path] [--team team_id] [--project id[,id...]]")
+		return usagef("usage: bast vercel token [--token-file path] [--team team_id] [--project id[,id...]]\n       bast vercel token --remove project_id")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if strings.TrimSpace(*remove) != "" {
+		result, err := engine.RemoveVercelProject(ctx, *remove)
+		if err != nil {
+			telemetry.Track("vercel_token_fail", r.Version)
+			return fail("vercel_token", err.Error())
+		}
+		telemetry.Track("vercel_token", r.Version)
+		return r.success(map[string]any{"provider": result.Provider, "count": result.Count, "removed": *remove}, fmt.Sprintf("Removed Vercel project %s (%d synced)", *remove, result.Count))
+	}
+	projectID := strings.TrimSpace(*project)
+	if projectID == "" {
+		projectID = strings.TrimSpace(os.Getenv(vercelcloud.ProjectEnv))
+	}
+	if engine.Vercel.HasToken() && strings.TrimSpace(*tokenFile) == "" && os.Getenv(vercelcloud.TokenEnv) == "" && projectID != "" && strings.TrimSpace(*team) == "" {
+		result, err := engine.AddVercelProject(ctx, projectID)
+		if err != nil {
+			telemetry.Track("vercel_token_fail", r.Version)
+			return fail("vercel_token", err.Error())
+		}
+		telemetry.Track("vercel_token", r.Version)
+		return r.success(map[string]any{"provider": result.Provider, "count": result.Count, "added": projectID}, fmt.Sprintf("Added Vercel project %s (%d synced)", projectID, result.Count))
 	}
 	token := ""
 	if strings.TrimSpace(*tokenFile) != "" {
@@ -284,13 +332,9 @@ func (r *Runner) vercelToken(engine *sync.Engine, args []string) error {
 		}
 		teamID = strings.TrimSpace(value)
 	}
-	projectID := strings.TrimSpace(*project)
-	if projectID == "" {
-		projectID = strings.TrimSpace(os.Getenv(vercelcloud.ProjectEnv))
-	}
 	if projectID == "" {
 		existing := strings.Join(engine.Store.Vercel().Projects(), ",")
-		value, err := r.prompt("Vercel project ID (optional, comma-separated)", existing, false)
+		value, err := r.prompt("Vercel project ID", existing, len(engine.Store.Vercel().Projects()) == 0)
 		if err != nil {
 			return err
 		}
@@ -299,8 +343,9 @@ func (r *Runner) vercelToken(engine *sync.Engine, args []string) error {
 	if teamID == "" {
 		return fail("vercel_token", "team is required")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
+	if projectID == "" && len(engine.Store.Vercel().Projects()) == 0 {
+		return fail("vercel_token", "project is required")
+	}
 	result, err := engine.SaveVercelToken(ctx, token, teamID, projectID)
 	if err != nil {
 		telemetry.Track("vercel_token_fail", r.Version)

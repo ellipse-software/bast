@@ -265,6 +265,52 @@ func (m *App) clearSyncBusy() {
 	m.syncBusy = ""
 }
 
+func (m *App) handleSyncProgress(msg syncProgressMsg) tea.Cmd {
+	if m.staleOpGen(msg.provider, msg.opGen) {
+		return nil
+	}
+	if msg.label != "" {
+		if m.syncBusy != "" {
+			m.syncBusy = msg.label
+		} else {
+			m.syncActivity = msg.label
+		}
+	}
+	return m.listenSyncProgress(msg.provider, msg.opGen)
+}
+
+func (m *App) listenSyncProgress(provider string, opGen uint64) tea.Cmd {
+	ch := m.syncProgressCh
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		label, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return syncProgressMsg{provider: provider, opGen: opGen, label: label}
+	}
+}
+
+func sendSyncProgress(ch chan string, label string) {
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- label:
+	default:
+		select {
+		case <-ch:
+		default:
+		}
+		select {
+		case ch <- label:
+		default:
+		}
+	}
+}
+
 func (m *App) openVaultConflictForm(msg vaultConflictMsg) {
 	state := &vaultConflictState{
 		count:       msg.count,

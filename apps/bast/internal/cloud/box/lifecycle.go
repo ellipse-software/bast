@@ -37,6 +37,20 @@ type ActionResult struct {
 	Status string
 }
 
+type Snapshot struct {
+	ID        string `json:"id"`
+	BoxID     string `json:"boxId"`
+	Kind      string `json:"kind"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"createdAt"`
+	Name      string `json:"name"`
+}
+
+type SnapshotList struct {
+	Snapshots []Snapshot
+	Named     []Snapshot
+}
+
 func (c *Client) pollEvery() time.Duration {
 	if c.PollInterval > 0 {
 		return c.PollInterval
@@ -195,6 +209,74 @@ func (c *Client) Stop(ctx context.Context, id string) error {
 	return c.WaitStopped(ctx, id, 90*time.Second)
 }
 
+func (c *Client) Delete(ctx context.Context, id string) error {
+	id, err := ParseSyncID(id)
+	if err != nil {
+		return err
+	}
+	out, err := c.run(ctx, "delete", id, "--yes")
+	if err != nil {
+		return err
+	}
+	if _, err := parseActionID(out, "delete"); err != nil && !errors.Is(err, errMissingActionID) {
+		return err
+	}
+	return c.WaitGone(ctx, id, 3*time.Minute)
+}
+
+func (c *Client) ListSnapshots(ctx context.Context, boxID string) (SnapshotList, error) {
+	args := []string{"snapshots", "--all"}
+	if id := strings.TrimSpace(boxID); id != "" {
+		parsed, err := ParseSyncID(id)
+		if err != nil {
+			return SnapshotList{}, err
+		}
+		args = []string{"snapshots", parsed, "--all"}
+	}
+	out, err := c.run(ctx, args...)
+	if err != nil {
+		return SnapshotList{}, err
+	}
+	var raw struct {
+		Snapshots []Snapshot `json:"snapshots"`
+		Named     []Snapshot `json:"named"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return SnapshotList{}, fmt.Errorf("parse box snapshots: %w", err)
+	}
+	return SnapshotList{Snapshots: raw.Snapshots, Named: raw.Named}, nil
+}
+
+func (c *Client) DeleteSnapshot(ctx context.Context, snapshotID string) error {
+	snapshotID = strings.TrimSpace(snapshotID)
+	if snapshotID == "" {
+		return fmt.Errorf("snapshot id is required")
+	}
+	out, err := c.run(ctx, "snapshot", "delete", snapshotID, "--yes")
+	if err != nil {
+		return err
+	}
+	if _, err := parseActionID(out, "snapshot delete"); err != nil && !errors.Is(err, errMissingActionID) {
+		return err
+	}
+	return nil
+}
+
+func (c *Client) RemoveNamedSnapshot(ctx context.Context, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("snapshot name is required")
+	}
+	out, err := c.run(ctx, "snapshot", "rm", name)
+	if err != nil {
+		return err
+	}
+	if _, err := parseActionID(out, "snapshot rm"); err != nil && !errors.Is(err, errMissingActionID) {
+		return err
+	}
+	return nil
+}
+
 func (c *Client) Resume(ctx context.Context, id string, opts ResumeOpts) error {
 	id, err := ParseSyncID(id)
 	if err != nil {
@@ -328,4 +410,42 @@ func (c *Client) WaitStopped(ctx context.Context, id string, timeout time.Durati
 		case <-time.After(c.pollEvery()):
 		}
 	}
+}
+
+func (c *Client) WaitGone(ctx context.Context, id string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		_, err := c.Info(ctx, id)
+		if err != nil {
+			if boxMissing(err) {
+				return nil
+			}
+			lastErr = err
+		} else {
+			lastErr = nil
+		}
+		if time.Now().After(deadline) {
+			if lastErr != nil {
+				return fmt.Errorf("timed out waiting for box %s to be deleted: %w", id, lastErr)
+			}
+			return fmt.Errorf("timed out waiting for box %s to be deleted", id)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(c.pollEvery()):
+		}
+	}
+}
+
+func boxMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "unknown box") || strings.Contains(msg, "no such")
 }

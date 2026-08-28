@@ -285,6 +285,12 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 	}
 	if provider == "vercel" {
 		life = append(life, syncMenuItem{label: "Token", action: "vercel_token"})
+		if m.vercelHasToken() && strings.TrimSpace(m.metadata.Vercel().TeamID) != "" {
+			life = append(life, syncMenuItem{label: "Add project", action: "vercel_project_add"})
+			if len(m.metadata.Vercel().Projects()) > 0 {
+				life = append(life, syncMenuItem{label: "Remove project", action: "vercel_project_remove"})
+			}
+		}
 	}
 	if provider == "hetzner" {
 		life = append(life, syncMenuItem{label: "Add API token", action: "hetzner_key"})
@@ -588,20 +594,103 @@ func (m *App) syncTileWidth() int {
 
 func (m *App) renderSync(s styleSet) string {
 	if m.syncProvider != "" {
-		return m.renderProviderPage(s)
+		content := m.renderProviderPage(s)
+		return windowLines(content, m.providerFocusLine(), m.syncBodyHeight())
 	}
 	return m.renderSyncGrid(s, m.syncMenuItems())
 }
 
-const syncTileHeight = 4
+func (m *App) syncBodyHeight() int {
+	return max(1, m.terminalHeight()-3)
+}
+
+const (
+	syncTileHeight  = 4
+	syncGridTopPad  = 1
+	syncGridDescPad = 2
+)
+
+func (m *App) syncGridWindow(items []syncMenuItem) (startRow, visibleRows, gridRows int) {
+	cols := max(1, m.syncGridCols())
+	n := len(items)
+	gridRows = (n + cols - 1) / cols
+	if gridRows == 0 {
+		return 0, 0, 0
+	}
+	descH := 0
+	if m.syncCursor >= 0 && m.syncCursor < n && items[m.syncCursor].description != "" {
+		descH = syncGridDescPad
+	}
+	avail := m.syncBodyHeight() - syncGridTopPad - descH
+	if avail < syncTileHeight {
+		avail = m.syncBodyHeight() - syncGridTopPad
+	}
+	visibleRows = max(1, avail/syncTileHeight)
+	if visibleRows > gridRows {
+		visibleRows = gridRows
+	}
+	cursorRow := 0
+	if m.syncCursor > 0 {
+		cursorRow = m.syncCursor / cols
+	}
+	return scrollStart(cursorRow, gridRows, visibleRows), visibleRows, gridRows
+}
+
+func (m *App) providerFocusLine() int {
+	life, _ := m.providerActionLayout()
+	inv := m.providerInventoryRows()
+	L, I := len(life), len(inv)
+	for _, h := range m.providerPageHits() {
+		switch h.kind {
+		case "chip":
+			if m.syncCursor == h.index {
+				return max(0, h.y0-2)
+			}
+		case "inv":
+			if m.syncCursor == L+h.index {
+				return max(0, h.y0-2)
+			}
+		case "config":
+			if m.syncCursor == L+I+h.index {
+				return max(0, h.y0-2)
+			}
+		}
+	}
+	return 0
+}
+
+func (m *App) providerViewOffset() int {
+	n := visualLineCount(m.renderProviderPage(m.styles()))
+	return scrollStart(m.providerFocusLine(), n, m.syncBodyHeight())
+}
+
+func windowLines(content string, focus, height int) string {
+	content = strings.TrimRight(content, "\n")
+	if content == "" || height <= 0 {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	if focus < 0 {
+		focus = 0
+	}
+	if focus >= len(lines) {
+		focus = len(lines) - 1
+	}
+	start := scrollStart(focus, len(lines), height)
+	end := min(len(lines), start+height)
+	return strings.Join(lines[start:end], "\n")
+}
 
 func (m *App) renderSyncGrid(s styleSet, items []syncMenuItem) string {
 	cols := m.syncGridCols()
 	gap := 2
 	tileWidth := m.syncTileWidth()
+	startRow, visibleRows, gridRows := m.syncGridWindow(items)
 	var b strings.Builder
 	b.WriteString("\n")
-	for i := 0; i < len(items); i += cols {
+	endRow := min(gridRows, startRow+visibleRows)
+	for row := startRow; row < endRow; row++ {
+		i := row * cols
 		tiles := make([]string, 0, cols)
 		for c := 0; c < cols; c++ {
 			idx := i + c
@@ -611,11 +700,11 @@ func (m *App) renderSyncGrid(s styleSet, items []syncMenuItem) string {
 			}
 			tiles = append(tiles, m.renderSyncTile(s, idx, items[idx], tileWidth))
 		}
-		row := tiles[0]
+		joined := tiles[0]
 		for _, tile := range tiles[1:] {
-			row = lipgloss.JoinHorizontal(lipgloss.Top, row, strings.Repeat(" ", gap), tile)
+			joined = lipgloss.JoinHorizontal(lipgloss.Top, joined, strings.Repeat(" ", gap), tile)
 		}
-		b.WriteString(indentLines(row, "  ") + "\n")
+		b.WriteString(indentLines(joined, "  ") + "\n")
 	}
 	if m.syncCursor >= 0 && m.syncCursor < len(items) && items[m.syncCursor].description != "" {
 		desc := truncate(items[m.syncCursor].description, max(20, m.terminalWidth()-8))
@@ -944,11 +1033,13 @@ func (m *App) renderProviderIdentity(s styleSet, provider string) string {
 	if len(bits) > 0 {
 		b.WriteString("  " + s.muted.Render(strings.Join(bits, " · ")) + "\n")
 	}
-	if errBit != "" {
-		b.WriteString("  " + s.error.Render(errBit) + "\n")
-	}
-	if detail.lastSyncError != "" {
-		b.WriteString("  " + s.error.Render(detail.lastSyncError) + "\n")
+	if !m.providerSyncing(provider) {
+		if errBit != "" {
+			b.WriteString("  " + s.error.Render(errBit) + "\n")
+		}
+		if detail.lastSyncError != "" {
+			b.WriteString("  " + s.error.Render(detail.lastSyncError) + "\n")
+		}
 	}
 	return b.String()
 }
@@ -1245,17 +1336,18 @@ func (m *App) updateSyncMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	cols := m.syncGridCols()
 	gap := 2
 	tileWidth := m.syncTileWidth()
+	startRow, visibleRows, _ := m.syncGridWindow(items)
 	idx := -1
 	x := mouse.X - 2
-	y := mouse.Y - 3
-	if y >= 0 && x >= 0 {
+	y := mouse.Y - 2 - syncGridTopPad
+	if y >= 0 && y < visibleRows*syncTileHeight && x >= 0 {
 		col := 0
 		if cols > 1 && x >= tileWidth+gap {
 			col = 1
 			x -= tileWidth + gap
 		}
 		if x < tileWidth {
-			idx = (y / syncTileHeight * cols) + col
+			idx = ((startRow + y/syncTileHeight) * cols) + col
 		}
 	}
 	if idx < 0 || idx >= len(items) {
@@ -1280,10 +1372,11 @@ func (m *App) updateProviderMouse(mouse tea.Mouse) (tea.Model, tea.Cmd) {
 	inv := m.providerInventoryRows()
 	L, I := len(life), len(inv)
 	hits := m.providerPageHits()
+	y := mouse.Y + m.providerViewOffset()
 	var hit *providerPageHit
 	for i := range hits {
 		h := hits[i]
-		if mouse.Y < h.y0 || mouse.Y >= h.y1 || mouse.X < h.x0 || mouse.X >= h.x1 {
+		if y < h.y0 || y >= h.y1 || mouse.X < h.x0 || mouse.X >= h.x1 {
 			continue
 		}
 		hit = &hits[i]
@@ -1511,6 +1604,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "vercel_token":
 		m.openVercelTokenForm()
+		return m, nil
+	case "vercel_project_add":
+		m.openVercelProjectAddForm()
+		return m, nil
+	case "vercel_project_remove":
+		m.openVercelProjectRemoveForm()
 		return m, nil
 	case "upstash_key":
 		m.openUpstashKeyForm()
@@ -1917,6 +2016,26 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			result, err := m.syncer.StopBox(ctx, syncID)
 			return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
 		}
+	case "box_delete":
+		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
+			if m.form != nil {
+				m.form.validationError = "type delete to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["box"] {
+			return m.setNotice("Box operation already in progress")
+		}
+		opGen := m.beginProviderOp("box")
+		m.syncActivity = "deleting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteBox(ctx, syncID)
+			return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
+		}
 	case "box_fork":
 		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
 			if m.form != nil {
@@ -2061,6 +2180,12 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			}
 			return nil
 		}
+		if projectID == "" && len(m.metadata.Vercel().Projects()) == 0 {
+			if m.form != nil {
+				m.form.validationError = "project is required"
+			}
+			return nil
+		}
 		m.form = nil
 		if m.syncingProviders["vercel"] {
 			return m.setNotice("Vercel operation already in progress")
@@ -2197,15 +2322,21 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			return m.setNotice("Vercel operation already in progress")
 		}
 		opGen := m.beginProviderOp("vercel")
+		ch := make(chan string, 1)
+		m.syncProgressCh = ch
+		label := vercelcloud.FormatCleanupProgress(vercelcloud.CleanupProgress{})
 		if m.section == syncSection {
-			m.beginSyncBusy("Cleaning up Vercel…")
+			m.beginSyncBusy(label)
 		} else {
-			m.syncActivity = "cleaning up…"
+			m.syncActivity = label
 		}
-		return func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		return tea.Batch(m.listenSyncProgress("vercel", opGen), func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), vercelcloud.CleanupTimeout)
 			defer cancel()
-			result, deleted, err := m.syncer.CleanupVercel(ctx)
+			result, deleted, err := m.syncer.CleanupVercel(ctx, func(p vercelcloud.CleanupProgress) {
+				sendSyncProgress(ch, vercelcloud.FormatCleanupProgress(p))
+			})
+			close(ch)
 			if err != nil {
 				return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
 			}
@@ -2219,7 +2350,7 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 				}
 			}
 			return syncDoneMsg{provider: "vercel", result: result, err: nil, opGen: opGen, notice: notice}
-		}
+		})
 	case "sync_hetzner_user":
 		hetzner := m.metadata.Hetzner()
 		hetzner.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
@@ -2268,6 +2399,46 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		m.form = nil
 		return m.setNotice("Hetzner location filter updated")
+	case "vercel_project_add":
+		projectID := strings.TrimSpace(values["Project ID"])
+		if projectID == "" {
+			if m.form != nil {
+				m.form.validationError = "project is required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		m.beginSyncBusy("Adding Vercel project…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.AddVercelProject(ctx, projectID)
+			return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+		}
+	case "vercel_project_remove":
+		projectID := strings.TrimSpace(values["Project"])
+		if projectID == "" {
+			if m.form != nil {
+				m.form.validationError = "choose a project"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		m.beginSyncBusy("Removing Vercel project…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.RemoveVercelProject(ctx, projectID)
+			return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+		}
 	case "hetzner_key":
 		name := strings.TrimSpace(values["Name"])
 		if name == "" {

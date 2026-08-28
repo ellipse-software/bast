@@ -21,6 +21,8 @@ const (
 	ProjectEnv     = "VERCEL_PROJECT_ID"
 	BaseURLEnv     = "VERCEL_API_URL"
 	StoppedHost    = "vercel.sandbox.invalid"
+	CleanupTimeout = 30 * time.Minute
+	cleanupWorkers = 8
 )
 
 type Client struct {
@@ -32,9 +34,6 @@ type Client struct {
 	ProjectIDs []string
 	HTTP       *http.Client
 	PollWait   time.Duration
-	// teamWideFailed is set after GET /v2/sandboxes without project is rejected,
-	// so later list/create in this process skip that extra round trip.
-	teamWideFailed bool
 }
 
 type Sandbox struct {
@@ -137,6 +136,9 @@ func (c *Client) Account(ctx context.Context) (AccountStatus, error) {
 	if c.ResolveTeam() == "" {
 		return AccountStatus{Error: "team is required"}, nil
 	}
+	if len(c.ResolveProjects()) == 0 {
+		return AccountStatus{Error: "project is required"}, nil
+	}
 	sandboxes, err := c.List(ctx)
 	if err != nil {
 		msg := err.Error()
@@ -150,19 +152,9 @@ func (c *Client) Account(ctx context.Context) (AccountStatus, error) {
 }
 
 func (c *Client) List(ctx context.Context) ([]Sandbox, error) {
-	if !c.teamWideFailed {
-		all, err := c.listProject(ctx, "")
-		if err == nil {
-			return all, nil
-		}
-		if !isProjectRequiredError(err) {
-			return nil, err
-		}
-		c.teamWideFailed = true
-	}
 	projects := c.ResolveProjects()
 	if len(projects) == 0 {
-		return nil, fmt.Errorf("vercel list requires a project; team-wide list was rejected. Set %s to one or more project IDs (comma-separated)", ProjectEnv)
+		return nil, fmt.Errorf("vercel project is required; set %s to one or more project IDs (comma-separated)", ProjectEnv)
 	}
 	var all []Sandbox
 	seen := map[string]bool{}
@@ -283,17 +275,6 @@ func (c *Client) requireProject() (string, error) {
 		return "", fmt.Errorf("vercel project is required to create a sandbox")
 	}
 	return project, nil
-}
-
-func isProjectRequiredError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	if !strings.Contains(msg, "project") {
-		return false
-	}
-	return strings.Contains(msg, "400") || strings.Contains(msg, "required") || strings.Contains(msg, "invalid")
 }
 
 func (c *Client) parseScopedID(syncID string) (project, name string, err error) {

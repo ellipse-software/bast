@@ -82,7 +82,7 @@ func (m *App) openUpstashNewForm() {
 
 func (m *App) openUpstashKeyForm() {
 	m.openForm("Upstash Box API key", "upstash_key", []field{
-		{label: "API key", description: "From the Upstash Console; stored in ~/.config/bast/upstash-box-api-key", secret: true, placeholder: "box_…"},
+		{label: "API key", description: "https://console.upstash.com", secret: true, placeholder: "box_…"},
 	})
 }
 

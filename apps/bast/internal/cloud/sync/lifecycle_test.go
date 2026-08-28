@@ -164,7 +164,7 @@ func TestVercelEngineLifecycle(t *testing.T) {
 	if strings.Join(deleted, ",") != "prj_1/dead" {
 		t.Fatalf("unrestorable = %v", deleted)
 	}
-	result, cleaned, err := engine.CleanupVercel(ctx)
+	result, cleaned, err := engine.CleanupVercel(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,10 +411,29 @@ func TestBoxEngineLifecycle(t *testing.T) {
 		t.Fatalf("fork result=%+v alias=%q", result, forkAlias)
 	}
 
-	if caps.Delete {
-		t.Fatal("box should not advertise Delete")
+	if !caps.Delete {
+		t.Fatal("box must advertise Delete")
 	}
-	if exercised != (cloud.Capabilities{Create: true, Stop: true, Start: true, Fork: true}) {
+	var forkID string
+	for id := range fake.Boxes {
+		if id != syncID {
+			forkID = id
+			break
+		}
+	}
+	result, err = engine.DeleteBox(ctx, forkID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exercised.Delete = true
+	if fake.Get(forkID) != nil {
+		t.Fatal("deleted fork still in fake")
+	}
+	if hostBySyncID(loadProviderConfig(t, p.SyncBoxConfig), forkID).Alias != "" {
+		t.Fatal("deleted fork still in SSH config")
+	}
+
+	if exercised != (cloud.Capabilities{Create: true, Stop: true, Start: true, Fork: true, Delete: true}) {
 		t.Fatalf("exercised %+v", exercised)
 	}
 	if exercised != caps {
@@ -463,7 +482,7 @@ func TestAdvertisedLifecycleOpsMatchEngineCoverage(t *testing.T) {
 		cloud.Vercel:  {"Create": "NewVercel", "Stop": "StopVercel", "Start": "ResumeVercel", "Fork": "ForkVercel", "Delete": "DeleteVercel"},
 		cloud.Upstash: {"Create": "NewUpstash", "Stop": "StopUpstash", "Start": "ResumeUpstash", "Fork": "ForkUpstash", "Delete": "DeleteUpstash"},
 		cloud.Hetzner: {"Start": "StartHetzner", "Stop": "StopHetzner", "Restart": "RestartHetzner"},
-		cloud.Box:     {"Create": "NewBox", "Stop": "StopBox", "Start": "ResumeBox", "Fork": "ForkBox"},
+		cloud.Box:     {"Create": "NewBox", "Stop": "StopBox", "Start": "ResumeBox", "Fork": "ForkBox", "Delete": "DeleteBox"},
 	}
 	for _, kind := range []cloud.Kind{cloud.Box, cloud.Upstash, cloud.Vercel, cloud.Hetzner} {
 		caps := cloud.CapabilitiesFor(kind)
@@ -518,5 +537,49 @@ func TestDisableVercelRemovesSSHAndMetadata(t *testing.T) {
 	}
 	if _, ok := store.Hosts()["vercel_gone"]; ok {
 		t.Fatal("disable left host metadata")
+	}
+}
+
+func TestAddAndRemoveVercelProject(t *testing.T) {
+	engine, p, store := testEngine(t)
+	api := sandboxfake.NewVercel(t)
+	api.Put(sandboxfake.VercelSandbox{Name: "one", Status: "running", Persistent: true, Project: "prj_1"})
+	api.Put(sandboxfake.VercelSandbox{Name: "two", Status: "running", Persistent: true, Project: "prj_2"})
+	engine.Vercel.BaseURL = api.URL()
+	engine.Vercel.Token = sandboxfake.VercelToken
+	engine.Vercel.TeamID = sandboxfake.VercelTeam
+	engine.Vercel.HTTP = api.Server.Client()
+	engine.Vercel.PollWait = time.Millisecond
+	if err := store.SetVercel(metadata.VercelIntegration{TeamID: sandboxfake.VercelTeam, ProjectID: "prj_1"}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	first, err := engine.SyncVercel(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Count != 1 {
+		t.Fatalf("one project count = %d", first.Count)
+	}
+	added, err := engine.AddVercelProject(ctx, "prj_2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added.Count != 2 {
+		t.Fatalf("two project count = %d", added.Count)
+	}
+	if got := strings.Join(store.Vercel().Projects(), ","); got != "prj_1,prj_2" {
+		t.Fatalf("stored = %s", got)
+	}
+	removed, err := engine.RemoveVercelProject(ctx, "prj_2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed.Count != 1 {
+		t.Fatalf("after remove count = %d", removed.Count)
+	}
+	blocks := loadProviderConfig(t, p.SyncVercelConfig)
+	if hostBySyncID(blocks, "prj_2/two").Alias != "" {
+		t.Fatalf("removed project host still present: %+v", blocks)
 	}
 }

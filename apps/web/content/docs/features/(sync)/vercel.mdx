@@ -11,9 +11,8 @@ Connect is **not** OpenSSH. Vercel Sandboxes expose a WebSocket PTY, not an SSH 
 
 - A Vercel [access token](https://vercel.com/account/settings/tokens)
 - The team ID (`team_…`)
+- At least one project ID or name (`prj_…`)
 - Network access to `https://api.vercel.com`
-
-A project ID is optional for sync. Bast first lists sandboxes for the whole team. If Vercel rejects that, set one or more project IDs (`prj_…` or names, comma-separated). Creating a sandbox still needs a project.
 
 Hobby sandboxes time out after 45 minutes. Bast’s supported session timeout is 15m, 1h, or 5h. Vercel Pro/Enterprise can run up to 24 hours; Bast caps create at 5 hours.
 
@@ -21,24 +20,26 @@ Hobby sandboxes time out after 45 minutes. Bast’s supported session timeout is
 
 1. Open Bast and press `4` for Sync.
 2. Select **Vercel Sandbox** and press Enter.
-3. Choose **Connect**. Paste the token and team ID. Project is optional.
+3. Choose **Connect**. Paste the token, team ID, and a project ID.
 
-Bast writes the token to `~/.config/bast/vercel-token` (mode `0600`). Team and project stay in `state.json`. The token is not stored in SSH config or Vault. Disconnect leaves the token file in place.
+After connect, **Add project** and **Remove project** import extra Vercel projects the same way Hetzner tokens work: one chip to add, a picker to remove.
+
+Bast writes the token to `~/.config/bast/vercel-token` (mode `0600`). Team and project IDs stay in `state.json`. The token is not stored in SSH config or Vault. Disconnect leaves the token file in place.
 
 You can also set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID`. `VERCEL_PROJECT_ID` accepts several IDs separated by commas. The first successful sync copies the token into the local file.
 
 CLI:
 
 ```bash
-bast vercel token --team team_xxx
 bast vercel token --team team_xxx --project prj_xxx
-bast vercel token --team team_xxx --project prj_app,prj_api
+bast vercel token --project prj_api
+bast vercel token --remove prj_api
 bast sync vercel
 bast sync status
 bast sync disable vercel
 ```
 
-If a token and team are already stored, Bast **auto-connects** on TUI start and `bast sync status`, unless you previously chose **Disconnect**.
+If a token, team, and project are already stored, Bast **auto-connects** on TUI start and `bast sync status`, unless you previously chose **Disconnect**.
 
 ## What gets created
 
@@ -55,7 +56,7 @@ Host vercel_dev
 
 That hostname is a sentinel so the host appears in Bast. It is not a reachable SSH target. Connection settings, group, and label are owned by sync.
 
-Stopped sandboxes with a snapshot stay in the **Vercel** group and are hidden from the host list until you press `.`. If no sandboxes are running, the group is hidden too; `.` brings it back when stopped sandboxes remain. Offline sandboxes without a snapshot cannot be resumed, so they stay off the host list. **Cleanup** on the Vercel Sync page (or `bast vercel cleanup`) deletes them after you confirm.
+Stopped sandboxes with a snapshot stay in the **Vercel** group and are hidden from the host list until you press `.`. If no sandboxes are running, the group is hidden too; `.` brings it back when stopped sandboxes remain. Offline sandboxes without a snapshot cannot be resumed, so they stay off the host list. **Cleanup** on the Vercel Sync page (or `bast vercel cleanup`) deletes them after you confirm. Large cleanups show `n/total` progress and delete several sandboxes at a time.
 
 ## Lifecycle
 

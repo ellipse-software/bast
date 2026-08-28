@@ -297,13 +297,13 @@ func (m *App) renderHosts(s styleSet) string {
 	activeRow := s.active.Width(rowWidth)
 	plainRow := s.plain.Width(rowWidth)
 	hostMeta := m.hostMetadata()
-	gcpErr := m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != ""
-	awsErr := m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != ""
-	azureErr := m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != ""
-	boxErr := m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != ""
-	upstashErr := m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != ""
-	vercelErr := m.metadata.Vercel().LastSyncError != "" || m.syncStatus.Vercel.Error != ""
-	hetznerErr := m.metadata.Hetzner().LastSyncError != "" || m.syncStatus.Hetzner.Error != ""
+	gcpErr := m.providerShowsSyncError("gcp", m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != "")
+	awsErr := m.providerShowsSyncError("aws", m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != "")
+	azureErr := m.providerShowsSyncError("azure", m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != "")
+	boxErr := m.providerShowsSyncError("box", m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != "")
+	upstashErr := m.providerShowsSyncError("upstash", m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != "")
+	vercelErr := m.providerShowsSyncError("vercel", m.metadata.Vercel().LastSyncError != "" || m.syncStatus.Vercel.Error != "")
+	hetznerErr := m.providerShowsSyncError("hetzner", m.metadata.Hetzner().LastSyncError != "" || m.syncStatus.Hetzner.Error != "")
 	start := scrollStart(m.cursor, len(rowsData), listHeight)
 	var list strings.Builder
 	list.Grow(listHeight * (rowWidth + 8))
@@ -492,16 +492,20 @@ func (m *App) renderHistorySuggestionDetail(s styleSet, suggestion metadata.Hist
 	return b.String()
 }
 
+func (m *App) providerShowsSyncError(provider string, hasError bool) bool {
+	return hasError && !m.providerSyncing(provider)
+}
+
 func (m *App) cloudSyncGroupHasError(group string) bool {
 	return cloudSyncGroupHasErrorCached(
 		group,
-		m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != "",
-		m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != "",
-		m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != "",
-		m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != "",
-		m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != "",
-		m.metadata.Vercel().LastSyncError != "" || m.syncStatus.Vercel.Error != "",
-		m.metadata.Hetzner().LastSyncError != "" || m.syncStatus.Hetzner.Error != "",
+		m.providerShowsSyncError("gcp", m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != ""),
+		m.providerShowsSyncError("aws", m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != ""),
+		m.providerShowsSyncError("azure", m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != ""),
+		m.providerShowsSyncError("box", m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != ""),
+		m.providerShowsSyncError("upstash", m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != ""),
+		m.providerShowsSyncError("vercel", m.metadata.Vercel().LastSyncError != "" || m.syncStatus.Vercel.Error != ""),
+		m.providerShowsSyncError("hetzner", m.metadata.Hetzner().LastSyncError != "" || m.syncStatus.Hetzner.Error != ""),
 	)
 }
 

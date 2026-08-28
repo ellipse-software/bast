@@ -122,7 +122,7 @@ var capabilities = map[Kind]Capabilities{
 	GCP:     {},
 	AWS:     {},
 	Azure:   {},
-	Box:     {Create: true, Stop: true, Start: true, Fork: true},
+	Box:     {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
 	Upstash: {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
 	Vercel:  {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
 	Hetzner: {Stop: true, Start: true, Restart: true},

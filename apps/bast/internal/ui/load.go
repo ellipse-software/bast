@@ -12,6 +12,7 @@ import (
 
 	"bast/internal/sshconfig"
 	"bast/internal/updater"
+	"bast/internal/vault"
 )
 
 func (m *App) checkForUpdateCmd() tea.Cmd {
@@ -38,6 +39,7 @@ func (m *App) checkForUpdateCmd() tea.Cmd {
 
 func (m *App) loadCmd() tea.Cmd {
 	return func() tea.Msg {
+		_ = (vault.Applier{Paths: m.paths, Config: m.config, Store: m.metadata}).RestoreEnabledSyncIncludes()
 		hosts, err := m.config.Discover()
 		if err != nil {
 			return discoveredMsg{err: err}

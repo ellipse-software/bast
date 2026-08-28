@@ -18,10 +18,19 @@ type BoxRec struct {
 	Snapshot bool
 }
 
+type BoxSnap struct {
+	ID    string
+	BoxID string
+	Kind  string
+	Name  string
+}
+
 type Box struct {
-	mu    sync.Mutex
-	seq   int
-	Boxes map[string]*BoxRec
+	mu        sync.Mutex
+	seq       int
+	Boxes     map[string]*BoxRec
+	Snapshots []BoxSnap
+	Named     []BoxSnap
 }
 
 func NewBox() *Box {
@@ -69,6 +78,14 @@ func (b *Box) Runner() func(ctx context.Context, args []string, env []string) ([
 			return b.resume(args)
 		case containsArg(args, "fork"):
 			return b.fork(args)
+		case containsArg(args, "snapshots"):
+			return b.listSnapshots(args)
+		case containsArg(args, "snapshot") && containsArg(args, "delete"):
+			return b.deleteSnapshot(args)
+		case containsArg(args, "snapshot") && containsArg(args, "rm"):
+			return b.removeNamedSnapshot(args)
+		case containsArg(args, "delete"):
+			return b.deleteBox(args)
 		default:
 			return nil, fmt.Errorf("unexpected box command %s", joined)
 		}
@@ -170,6 +187,73 @@ func (b *Box) fork(args []string) ([]byte, error) {
 	newID := "bx_fork" + strconv.Itoa(b.seq)
 	b.Boxes[newID] = &BoxRec{ID: newID, Name: src.Name + "-fork", State: "idle", IP: "203.0.113.22", Type: src.Type, Snapshot: false}
 	return json.Marshal(map[string]any{"ok": true, "id": newID})
+}
+
+func (b *Box) deleteBox(args []string) ([]byte, error) {
+	id := argAfter(args, "delete")
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.Boxes[id] == nil {
+		return nil, fmt.Errorf("box delete: not found")
+	}
+	delete(b.Boxes, id)
+	kept := b.Snapshots[:0]
+	for _, snap := range b.Snapshots {
+		if snap.BoxID != id {
+			kept = append(kept, snap)
+		}
+	}
+	b.Snapshots = kept
+	return json.Marshal(map[string]any{"ok": true, "id": id})
+}
+
+func (b *Box) listSnapshots(args []string) ([]byte, error) {
+	id := argAfter(args, "snapshots")
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	snaps := make([]map[string]any, 0)
+	for _, snap := range b.Snapshots {
+		if id != "" && snap.BoxID != id {
+			continue
+		}
+		snaps = append(snaps, map[string]any{
+			"id": snap.ID, "boxId": snap.BoxID, "kind": snap.Kind, "status": "completed",
+		})
+	}
+	named := make([]map[string]any, 0, len(b.Named))
+	for _, snap := range b.Named {
+		if id != "" && snap.BoxID != id {
+			continue
+		}
+		named = append(named, map[string]any{"id": snap.ID, "boxId": snap.BoxID, "name": snap.Name, "kind": "named"})
+	}
+	return json.Marshal(map[string]any{"snapshots": snaps, "named": named})
+}
+
+func (b *Box) deleteSnapshot(args []string) ([]byte, error) {
+	id := argAfter(args, "delete")
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i, snap := range b.Snapshots {
+		if snap.ID == id {
+			b.Snapshots = append(b.Snapshots[:i], b.Snapshots[i+1:]...)
+			return json.Marshal(map[string]any{"ok": true, "id": id})
+		}
+	}
+	return nil, fmt.Errorf("box snapshot delete: not found")
+}
+
+func (b *Box) removeNamedSnapshot(args []string) ([]byte, error) {
+	name := argAfter(args, "rm")
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i, snap := range b.Named {
+		if snap.Name == name {
+			b.Named = append(b.Named[:i], b.Named[i+1:]...)
+			return json.Marshal(map[string]any{"ok": true, "id": snap.ID})
+		}
+	}
+	return nil, fmt.Errorf("box snapshot rm: not found")
 }
 
 func argAfter(args []string, command string) string {

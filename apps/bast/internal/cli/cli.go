@@ -59,7 +59,7 @@ Sync commands:
   gcp, aws, azure, box, upstash, vercel, hetzner, status, disable
 
 Box commands:
-  new, fork, stop, resume
+  new, fork, stop, resume, delete, snapshots, snapshot
 
 Upstash commands:
   new, fork, stop, resume, delete, key
@@ -314,11 +314,14 @@ Commands: list, show, generate, import, promote, comment, export, install,
 		"sync status":       "Usage: bast sync status",
 		"sync disable":      "Usage: bast sync disable <gcp|aws|azure|box|upstash|vercel|hetzner>",
 		"sync --help":       "Usage: bast sync <gcp|aws|azure|box|upstash|vercel|hetzner|status|disable>",
-		"box --help":        "Usage: bast box <new|fork|stop|resume>",
+		"box --help":        "Usage: bast box <new|fork|stop|resume|delete|snapshots|snapshot>",
 		"box new":           "Usage: bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
 		"box fork":          "Usage: bast box fork <host|id> [--type small|default|large] [--no-env]",
 		"box stop":          "Usage: bast box stop <host|id>",
 		"box resume":        "Usage: bast box resume <host|id> [--type small|default|large] [--no-env]",
+		"box delete":        "Usage: bast box delete <host|id> [--yes]",
+		"box snapshots":     "Usage: bast box snapshots [host|id]",
+		"box snapshot":      "Usage: bast box snapshot delete <snapshot-id> [--yes]\n       bast box snapshot rm <name>",
 		"upstash --help":    "Usage: bast upstash <new|fork|stop|resume|delete|key>",
 		"upstash new":       "Usage: bast upstash new [--name name] [--runtime node|python|golang|ruby|rust] [--size small|medium|large] [--keep-alive]",
 		"upstash fork":      "Usage: bast upstash fork <host|id>",
@@ -333,7 +336,7 @@ Commands: list, show, generate, import, promote, comment, export, install,
 		"vercel resume":     "Usage: bast vercel resume <host|id>",
 		"vercel delete":     "Usage: bast vercel delete <host|id> [--yes]",
 		"vercel cleanup":    "Usage: bast vercel cleanup [--yes]",
-		"vercel token":      "Usage: bast vercel token [--token-file path] [--team team_id] [--project id[,id...]]",
+		"vercel token":      "Usage: bast vercel token [--token-file path] [--team team_id] [--project id[,id...]]\n       bast vercel token --remove project_id",
 		"hetzner --help":    "Usage: bast hetzner <start|stop|restart|key>",
 		"hetzner start":     "Usage: bast hetzner start <host|id>",
 		"hetzner stop":      "Usage: bast hetzner stop <host|id> [--force]",

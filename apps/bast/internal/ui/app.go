@@ -94,6 +94,12 @@ type syncStatusMsg struct {
 	err    error
 }
 
+type syncProgressMsg struct {
+	provider string
+	opGen    uint64
+	label    string
+}
+
 type processDoneMsg struct {
 	name       string
 	err        error
@@ -229,6 +235,7 @@ type App struct {
 	vaultConflict       *vaultConflictState
 	syncBusy            string          // full-screen Sync overlay for long ops (e.g. box create)
 	syncActivity        string          // footer label while a provider op runs (e.g. "resuming…")
+	syncProgressCh      chan string     // live labels for long Sync ops (Vercel cleanup)
 	boxConnectAfter     string          // after box resume+reload, SSH into this alias
 	syncInvCollapsed    map[string]bool // session-only status-group collapse on provider pages
 
@@ -249,7 +256,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig,
 		},
 		openSSH:          client,
 		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
@@ -290,7 +297,29 @@ func (m *App) beginProviderOp(provider string) uint64 {
 	}
 	m.syncOpGen[provider]++
 	m.syncingProviders[provider] = true
+	m.clearProviderProbeError(provider)
 	return m.syncOpGen[provider]
+}
+
+func (m *App) clearProviderProbeError(provider string) {
+	switch provider {
+	case "gcp":
+		m.syncStatus.GCP.GCloudError = ""
+	case "aws":
+		m.syncStatus.AWS.AWSCLIError = ""
+	case "azure":
+		m.syncStatus.Azure.AzureCLIError = ""
+		m.syncStatus.Azure.SSHExtensionError = ""
+		m.syncStatus.Azure.BastionExtensionError = ""
+	case "box":
+		m.syncStatus.Box.BoxCLIError = ""
+	case "upstash":
+		m.syncStatus.Upstash.Error = ""
+	case "vercel":
+		m.syncStatus.Vercel.Error = ""
+	case "hetzner":
+		m.syncStatus.Hetzner.Error = ""
+	}
 }
 
 func (m *App) providerOpGen(provider string) uint64 {
@@ -300,11 +329,12 @@ func (m *App) providerOpGen(provider string) uint64 {
 	return m.syncOpGen[provider]
 }
 
+func (m *App) staleOpGen(provider string, opGen uint64) bool {
+	return opGen != 0 && m.providerOpGen(provider) != opGen
+}
+
 func (m *App) staleProviderOp(msg syncDoneMsg) bool {
-	if msg.opGen == 0 {
-		return false
-	}
-	return m.providerOpGen(msg.provider) != msg.opGen
+	return m.staleOpGen(msg.provider, msg.opGen)
 }
 
 func (m *App) syncCompletionNotice(provider string, count int) string {
@@ -570,11 +600,14 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.setNotice("Couldn't send report")
 		}
 		return m, m.setNotice("Report sent")
+	case syncProgressMsg:
+		return m, m.handleSyncProgress(msg)
 	case syncDoneMsg:
 		if m.staleProviderOp(msg) {
 			return m, nil
 		}
 		delete(m.syncingProviders, msg.provider)
+		m.syncProgressCh = nil
 		m.clearSyncBusy()
 		m.syncActivity = ""
 		m.clampSyncCursor(m.syncMenuItems())
@@ -588,6 +621,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.setError(msg.err)
 			return m, m.syncStatusCmd()
 		}
+		m.clearProviderProbeError(msg.provider)
 		label := strings.ToUpper(msg.provider)
 		notice := m.syncCompletionNotice(msg.provider, msg.result.Count)
 		if msg.provider == "vercel" {

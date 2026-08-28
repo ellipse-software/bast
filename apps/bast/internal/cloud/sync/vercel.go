@@ -7,6 +7,7 @@ import (
 	"time"
 
 	vercelcloud "bast/internal/cloud/vercel"
+	"bast/internal/metadata"
 	"bast/internal/sshconfig"
 )
 
@@ -84,7 +85,7 @@ func (e *Engine) MaybeAutoConnectVercel(ctx context.Context) (Result, bool, erro
 	if !e.Vercel.HasToken() {
 		return Result{}, false, nil
 	}
-	if strings.TrimSpace(e.Vercel.ResolveTeam()) == "" {
+	if strings.TrimSpace(e.Vercel.ResolveTeam()) == "" || len(e.Vercel.ResolveProjects()) == 0 {
 		return Result{}, false, nil
 	}
 	if integration.Enabled && integration.AutoSync {
@@ -110,13 +111,64 @@ func (e *Engine) SaveVercelToken(ctx context.Context, token, teamID, projectID s
 		integration.TeamID = team
 	}
 	if projects := vercelcloud.ParseProjectList(projectID); len(projects) > 0 {
-		integration.ProjectID = projects[0]
-		if len(projects) > 1 {
-			integration.ProjectIDs = projects
-		} else {
-			integration.ProjectIDs = nil
+		setVercelProjects(&integration, mergeVercelProjects(integration.Projects(), projects))
+	}
+	if err := e.Store.SetVercel(integration); err != nil {
+		return Result{}, err
+	}
+	return e.SyncVercel(ctx)
+}
+
+func setVercelProjects(integration *metadata.VercelIntegration, projects []string) {
+	if len(projects) == 0 {
+		integration.ProjectID = ""
+		integration.ProjectIDs = nil
+		return
+	}
+	integration.ProjectID = projects[0]
+	if len(projects) == 1 {
+		integration.ProjectIDs = nil
+		return
+	}
+	integration.ProjectIDs = append([]string(nil), projects...)
+}
+
+func mergeVercelProjects(existing, added []string) []string {
+	return vercelcloud.ParseProjectList(strings.Join(existing, ","), strings.Join(added, ","))
+}
+
+func (e *Engine) AddVercelProject(ctx context.Context, projectID string) (Result, error) {
+	projects := vercelcloud.ParseProjectList(projectID)
+	if len(projects) == 0 {
+		return Result{}, fmt.Errorf("vercel project is required")
+	}
+	integration := e.Store.Vercel()
+	setVercelProjects(&integration, mergeVercelProjects(integration.Projects(), projects))
+	if err := e.Store.SetVercel(integration); err != nil {
+		return Result{}, err
+	}
+	return e.SyncVercel(ctx)
+}
+
+func (e *Engine) RemoveVercelProject(ctx context.Context, projectID string) (Result, error) {
+	remove := map[string]bool{}
+	for _, id := range vercelcloud.ParseProjectList(projectID) {
+		remove[id] = true
+	}
+	if len(remove) == 0 {
+		return Result{}, fmt.Errorf("vercel project is required")
+	}
+	integration := e.Store.Vercel()
+	var kept []string
+	for _, id := range integration.Projects() {
+		if !remove[id] {
+			kept = append(kept, id)
 		}
 	}
+	if len(kept) == len(integration.Projects()) {
+		return Result{}, fmt.Errorf("vercel project %s is not stored", strings.TrimSpace(projectID))
+	}
+	setVercelProjects(&integration, kept)
 	if err := e.Store.SetVercel(integration); err != nil {
 		return Result{}, err
 	}
@@ -200,13 +252,13 @@ func (e *Engine) ListVercelUnrestorable(ctx context.Context) ([]string, error) {
 	return e.Vercel.Unrestorable(ctx)
 }
 
-func (e *Engine) CleanupVercel(ctx context.Context) (Result, []string, error) {
+func (e *Engine) CleanupVercel(ctx context.Context, progress func(vercelcloud.CleanupProgress)) (Result, []string, error) {
 	if err := lockCtx(ctx, &e.vercelMu); err != nil {
 		return Result{}, nil, err
 	}
 	defer e.vercelMu.Unlock()
 	e.applyVercelScope()
-	deleted, err := e.Vercel.CleanupUnrestorable(ctx)
+	deleted, err := e.Vercel.CleanupUnrestorable(ctx, progress)
 	result, syncErr := e.syncVercelLocked(ctx)
 	if err != nil {
 		return result, deleted, err

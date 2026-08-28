@@ -86,6 +86,95 @@ func TestWriteAndDiscoverSyncBlocks(t *testing.T) {
 	}
 }
 
+func TestRewriteManagedHostsKeepsSyncIncludes(t *testing.T) {
+	m := testManager(t)
+	m.SyncGCPConfig = filepath.Join(m.ManagedDir, "sync", "gcp", "config")
+	m.SyncBoxConfig = filepath.Join(m.ManagedDir, "sync", "box", "config")
+	if err := m.EnsureManaged(); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.EnsureSyncInclude(m.SyncGCPConfig); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.EnsureSyncInclude(m.SyncBoxConfig); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSyncConfig(m.SyncGCPConfig, []SyncHostInput{{
+		Alias: "gcp_proj_web", SyncSource: "gcp", SyncID: "projects/p/zones/z/instances/web",
+		HostName: "web", User: "ubuntu",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSyncConfig(m.SyncBoxConfig, []SyncHostInput{{
+		Alias: "box_dev", SyncSource: "box", SyncID: "bx_dev0001",
+		HostName: "203.0.113.10", User: "user",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RewriteManagedHosts(RenderManagedBlock("abc123", HostInput{
+		Alias: "prod", HostName: "prod.example", User: "deploy",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(m.ManagedConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "sync/gcp/config") || !strings.Contains(text, "sync/box/config") {
+		t.Fatalf("vault rewrite dropped sync includes:\n%s", text)
+	}
+	if !strings.Contains(text, "Host prod") {
+		t.Fatalf("managed host missing:\n%s", text)
+	}
+	hosts, err := m.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byAlias := map[string]Host{}
+	for _, host := range hosts {
+		byAlias[host.Alias] = host
+	}
+	if !byAlias["gcp_proj_web"].Synced || !byAlias["box_dev"].Synced || byAlias["prod"].Alias == "" {
+		t.Fatalf("discover after rewrite: %+v", byAlias)
+	}
+}
+
+func TestRestoreSyncIncludesAfterWipedManagedConfig(t *testing.T) {
+	m := testManager(t)
+	m.SyncBoxConfig = filepath.Join(m.ManagedDir, "sync", "box", "config")
+	if err := m.EnsureManaged(); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSyncConfig(m.SyncBoxConfig, []SyncHostInput{{
+		Alias: "box_dev", SyncSource: "box", SyncID: "bx_dev0001",
+		HostName: "203.0.113.10", User: "user",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteManagedConfig(m.ManagedConfig, RenderManagedBlock("abc123", HostInput{
+		Alias: "prod", HostName: "prod.example",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RestoreSyncIncludes(); err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := m.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, host := range hosts {
+		if host.Alias == "box_dev" && host.Synced {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("restored include should expose synced box: %+v", hosts)
+	}
+}
+
 func TestEnsureSyncIncludeIsBeforeHostBlocks(t *testing.T) {
 	m := testManager(t)
 	m.SyncGCPConfig = filepath.Join(m.ManagedDir, "sync", "gcp", "config")

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -37,6 +38,9 @@ func (c *Client) Discover(ctx context.Context, _ struct{}) (Discovery, error) {
 	}
 	if c.ResolveTeam() == "" {
 		return Discovery{}, fmt.Errorf("team is required")
+	}
+	if len(c.ResolveProjects()) == 0 {
+		return Discovery{}, fmt.Errorf("vercel project is required")
 	}
 	sandboxes, err := c.List(ctx)
 	if err != nil {
@@ -107,14 +111,33 @@ func (c *Client) Unrestorable(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-func (c *Client) CleanupUnrestorable(ctx context.Context) ([]string, error) {
+type CleanupProgress struct {
+	Done    int
+	Total   int
+	Current string
+}
+
+func FormatCleanupProgress(p CleanupProgress) string {
+	if p.Total <= 0 {
+		return "Cleaning up Vercel…"
+	}
+	return fmt.Sprintf("Cleaning up Vercel %d/%d", p.Done, p.Total)
+}
+
+func (c *Client) CleanupUnrestorable(ctx context.Context, progress func(CleanupProgress)) ([]string, error) {
 	sandboxes, err := c.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var deleted []string
-	var first error
+	type target struct {
+		name   string
+		syncID string
+	}
+	var targets []target
 	for _, box := range sandboxes {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		box, drop := c.confirmUnrestorable(ctx, box)
 		if !drop {
 			continue
@@ -127,15 +150,64 @@ func (c *Client) CleanupUnrestorable(ctx context.Context) ([]string, error) {
 		if project == "" {
 			project = c.ResolveProject()
 		}
-		if err := c.Delete(ctx, SyncID(project, name)); err != nil && !isAPINotFound(err) {
-			if first == nil {
-				first = fmt.Errorf("delete %s: %w", name, err)
-			}
-			continue
-		}
-		deleted = append(deleted, name)
+		targets = append(targets, target{name: name, syncID: SyncID(project, name)})
 	}
+	report := func(p CleanupProgress) {
+		if progress != nil {
+			progress(p)
+		}
+	}
+	total := len(targets)
+	report(CleanupProgress{Total: total})
+	if total == 0 {
+		return nil, nil
+	}
+
+	workers := cleanupWorkers
+	if workers > total {
+		workers = total
+	}
+	jobs := make(chan target)
+	var (
+		mu      sync.Mutex
+		deleted []string
+		first   error
+		done    int
+	)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for item := range jobs {
+				delErr := c.Delete(ctx, item.syncID)
+				mu.Lock()
+				if delErr != nil && !isAPINotFound(delErr) {
+					if first == nil {
+						first = fmt.Errorf("delete %s: %w", item.name, delErr)
+					}
+				} else {
+					deleted = append(deleted, item.name)
+				}
+				done++
+				p := CleanupProgress{Done: done, Total: total, Current: item.name}
+				report(p)
+				mu.Unlock()
+			}
+		}()
+	}
+	for _, item := range targets {
+		if ctx.Err() != nil {
+			break
+		}
+		jobs <- item
+	}
+	close(jobs)
+	wg.Wait()
 	sort.Strings(deleted)
+	if first == nil {
+		return deleted, ctx.Err()
+	}
 	return deleted, first
 }
 

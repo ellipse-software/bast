@@ -84,7 +84,7 @@ func (a Applier) Apply(doc Document) error {
 		}
 		body.Write(sshconfig.RenderManagedBlock(host.ManagedID, input))
 	}
-	if err := sshconfig.WriteManagedConfig(a.Paths.ManagedConfig, []byte(body.String())); err != nil {
+	if err := a.Config.RewriteManagedHosts([]byte(body.String())); err != nil {
 		return err
 	}
 
@@ -117,7 +117,37 @@ func (a Applier) Apply(doc Document) error {
 	if err := a.Store.SetCollapsedGroups(doc.Preferences.CollapsedGroups); err != nil {
 		return err
 	}
-	return applyIntegrations(a.Store, doc.Integrations)
+	if err := applyIntegrations(a.Store, doc.Integrations); err != nil {
+		return err
+	}
+	return a.RestoreEnabledSyncIncludes()
+}
+
+func (a Applier) RestoreEnabledSyncIncludes() error {
+	if a.Store == nil {
+		return nil
+	}
+	type item struct {
+		on   bool
+		path string
+	}
+	for _, it := range []item{
+		{a.Store.GCP().Enabled, a.Paths.SyncGCPConfig},
+		{a.Store.AWS().Enabled, a.Paths.SyncAWSConfig},
+		{a.Store.Azure().Enabled, a.Paths.SyncAzureConfig},
+		{a.Store.Box().Enabled, a.Paths.SyncBoxConfig},
+		{a.Store.Upstash().Enabled, a.Paths.SyncUpstashConfig},
+		{a.Store.Vercel().Enabled, a.Paths.SyncVercelConfig},
+		{a.Store.Hetzner().Enabled, a.Paths.SyncHetznerConfig},
+	} {
+		if !it.on {
+			continue
+		}
+		if err := a.Config.IncludeExistingSyncConfig(it.path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func applyIntegrations(store *metadata.Store, in VaultIntegrations) error {

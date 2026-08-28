@@ -244,6 +244,16 @@ func boxSpec() specNode {
 			{name: "fork", desc: "fork a box", flags: []flagSpec{typeFlag, boolFlag("no-env", "fork as no-env")}, args: []argSpec{boxArg}},
 			{name: "stop", desc: "stop a box", args: []argSpec{boxArg}},
 			{name: "resume", desc: "resume a box", flags: []flagSpec{typeFlag, boolFlag("no-env", "resume as no-env")}, args: []argSpec{boxArg}},
+			{name: "delete", desc: "delete a box and its snapshots", flags: []flagSpec{boolFlag("yes", "skip confirmation")}, args: []argSpec{boxArg}},
+			{name: "snapshots", desc: "list snapshots", args: []argSpec{{kind: valueBoxHost, desc: "host or id", includeHidden: true, optional: true}}},
+			{
+				name: "snapshot",
+				desc: "delete a filesystem or named snapshot",
+				children: []specNode{
+					{name: "delete", desc: "delete a filesystem snapshot by id", flags: []flagSpec{boolFlag("yes", "skip confirmation")}, args: []argSpec{{kind: valueFree, desc: "snapshot id"}}},
+					{name: "rm", desc: "remove a named snapshot", args: []argSpec{{kind: valueFree, desc: "name"}}},
+				},
+			},
 		},
 	}
 }
@@ -298,7 +308,8 @@ func vercelSpec() specNode {
 			{name: "token", desc: "store a Vercel access token", flags: []flagSpec{
 				fileFlag("token-file", "read the access token from a file"),
 				{name: "team", desc: "team ID"},
-				{name: "project", desc: "project ID or name, comma-separated for several"},
+				{name: "project", desc: "add project ID or name, comma-separated for several"},
+				{name: "remove", desc: "remove a stored project ID"},
 			}},
 		},
 	}

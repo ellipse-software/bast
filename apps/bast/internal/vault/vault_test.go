@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"bast/internal/metadata"
+	"bast/internal/paths"
+	"bast/internal/sshconfig"
 )
 
 func TestEncryptDecryptRoundTrip(t *testing.T) {
@@ -114,6 +116,110 @@ func TestMergeReplaceModes(t *testing.T) {
 	got = Merge(local, remote, MergeModeReplaceRemote)
 	if len(got.Document.Hosts) != 1 || got.Document.Hosts[0].Alias != "local" {
 		t.Fatalf("replace remote: %+v", got.Document.Hosts)
+	}
+}
+
+func TestApplyKeepsCloudSyncIncludes(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	cfg := sshconfig.Manager{
+		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
+		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
+		SyncBoxConfig: p.SyncBoxConfig, SyncGCPConfig: p.SyncGCPConfig,
+	}
+	if err := cfg.EnsureManaged(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.EnsureSyncInclude(p.SyncBoxConfig); err != nil {
+		t.Fatal(err)
+	}
+	if err := sshconfig.WriteSyncConfig(p.SyncBoxConfig, []sshconfig.SyncHostInput{{
+		Alias: "box_dev", SyncSource: "box", SyncID: "bx_dev0001",
+		HostName: "203.0.113.10", User: "user",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applier := Applier{Paths: p, Config: cfg, Store: store}
+	if err := applier.Apply(Document{
+		Hosts: []HostEntry{{
+			ManagedID: "abc123", Alias: "prod", HostName: "prod.example", User: "deploy", UpdatedAt: 1,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := cfg.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byAlias := map[string]sshconfig.Host{}
+	for _, host := range hosts {
+		byAlias[host.Alias] = host
+	}
+	if byAlias["prod"].Alias == "" || byAlias["prod"].Resolved.HostName != "prod.example" {
+		t.Fatalf("managed host missing: %+v", byAlias)
+	}
+	if !byAlias["box_dev"].Synced {
+		t.Fatalf("synced box disappeared after vault apply: %+v", byAlias)
+	}
+}
+
+func TestApplyRestoresWipedSyncIncludeWhenEnabled(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	cfg := sshconfig.Manager{
+		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
+		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
+		SyncBoxConfig: p.SyncBoxConfig,
+	}
+	if err := cfg.EnsureManaged(); err != nil {
+		t.Fatal(err)
+	}
+	if err := sshconfig.WriteSyncConfig(p.SyncBoxConfig, []sshconfig.SyncHostInput{{
+		Alias: "box_dev", SyncSource: "box", SyncID: "bx_dev0001",
+		HostName: "203.0.113.10", User: "user",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	applier := Applier{Paths: p, Config: cfg, Store: store}
+	if err := applier.Apply(Document{
+		Hosts: []HostEntry{{
+			ManagedID: "abc123", Alias: "prod", HostName: "prod.example", UpdatedAt: 1,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := cfg.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, host := range hosts {
+		if host.Alias == "box_dev" && host.Synced {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("enabled box sync should be restored after vault apply: %+v", hosts)
+	}
+}
+
+func TestMergeIntegrationsKeepsHetzner(t *testing.T) {
+	local := VaultIntegrations{Hetzner: &VaultHetznerIntegration{Enabled: true, AutoSync: true, DefaultSSHUser: "root"}}
+	remote := VaultIntegrations{GCP: &VaultGCPIntegration{Enabled: true}}
+	got := mergeIntegrations(remote, local)
+	if got.Hetzner == nil || !got.Hetzner.Enabled || got.GCP == nil {
+		t.Fatalf("merge = %+v", got)
 	}
 }
 

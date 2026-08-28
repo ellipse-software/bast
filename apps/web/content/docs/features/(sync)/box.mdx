@@ -63,7 +63,7 @@ SSH user is always `user`. There is no default-user setting for Box.
 
 ## Stopping and archiving
 
-Stopping a box snapshots it and pauses billing (`archiving` → `archived`). That can take a few minutes. Stopped and stopping boxes drop off the visible host list (press `.` to show them) and stay under **Box** so you can resume later. If no boxes are running, the **Box** group is hidden until you press `.`.
+Stopping a box snapshots it and pauses billing (`archiving` → `archived`). That can take a few minutes. Stopped boxes cost nothing and can be resumed later. Delete (`d` / `bast box delete`) force-stops the box and permanently removes the snapshots it exclusively owns. Named snapshots stay until you run `bast box snapshot rm`. List snapshots with `bast box snapshots [host]`.
 
 ## box.ascii.dev settings
 
@@ -98,6 +98,7 @@ With a Box host selected:
 | `r` | Resume only (when stopped) |
 | `o` | Stop (when running; confirms with `stop`) |
 | `n` | Fork from the latest snapshot (confirms with `fork`) |
+| `d` | Delete the box and its snapshots (confirms with `delete`) |
 | `F` | Open Files (SFTP) when the box is reachable |
 
 ## CLI
@@ -112,6 +113,10 @@ bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no
 bast box fork <host|id> [--type small|default|large] [--no-env]
 bast box stop <host|id>
 bast box resume <host|id> [--type small|default|large] [--no-env]
+bast box delete <host|id> [--yes]
+bast box snapshots [host|id]
+bast box snapshot delete <snapshot-id> [--yes]
+bast box snapshot rm <name>
 
 bast connect box_mybox        # banner + Box access prepare, then ssh
 ```

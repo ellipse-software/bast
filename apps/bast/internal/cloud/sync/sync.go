@@ -708,6 +708,29 @@ func (e *Engine) ResumeBox(ctx context.Context, syncID string, opts boxcloud.Res
 	return e.syncBoxLocked(ctx)
 }
 
+func (e *Engine) DeleteBox(ctx context.Context, syncID string) (Result, error) {
+	if err := lockCtx(ctx, &e.boxMu); err != nil {
+		return Result{}, err
+	}
+	defer e.boxMu.Unlock()
+	if err := e.Box.Delete(ctx, syncID); err != nil {
+		return Result{}, err
+	}
+	return e.syncBoxLocked(ctx)
+}
+
+func (e *Engine) ListBoxSnapshots(ctx context.Context, boxID string) (boxcloud.SnapshotList, error) {
+	return e.Box.ListSnapshots(ctx, boxID)
+}
+
+func (e *Engine) DeleteBoxSnapshot(ctx context.Context, snapshotID string) error {
+	return e.Box.DeleteSnapshot(ctx, snapshotID)
+}
+
+func (e *Engine) RemoveBoxNamedSnapshot(ctx context.Context, name string) error {
+	return e.Box.RemoveNamedSnapshot(ctx, name)
+}
+
 func (e *Engine) ResolveBoxSyncID(ctx context.Context, hostOrID string) (string, error) {
 	hostOrID = strings.TrimSpace(hostOrID)
 	if id, err := boxcloud.ParseSyncID(hostOrID); err == nil {
