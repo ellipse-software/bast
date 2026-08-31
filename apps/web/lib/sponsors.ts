@@ -18,8 +18,13 @@ export const sponsors: Sponsor[] = [
 	},
 	{
 		href: "https://x.com/trylle",
-		message: "Trylle ❤️ Bast",
+		message: "trylle ❤️ bast",
 		amount: 100,
+	},
+	{
+		href: "https://x.com/leodev",
+		message: "glad to be supporting such a good project. 🙏",
+		amount: 20,
 	},
 ];
 
