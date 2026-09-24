@@ -48,7 +48,7 @@ jobs:
           WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WINGET_TOKEN)) {
-            throw "Set the WINGET_TOKEN Actions secret to a classic GitHub PAT with public_repo scope. See CONTRIBUTING.md."
+            throw "Set the WINGET_TOKEN Actions secret to a classic GitHub PAT with public_repo and workflow scopes. See CONTRIBUTING.md."
           }
       - uses: actions/setup-dotnet@v5
         if: steps.prepare.outputs.submit == 'true'
