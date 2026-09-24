@@ -93,6 +93,22 @@ irm https://bast.sh/install.ps1 | iex
 
 Bast requires the Windows OpenSSH Client commands `ssh`, `ssh-keygen`, and `ssh-add` on `PATH`. Install OpenSSH Client from Windows Optional Features if those commands are unavailable.
 
+### WinGet
+
+```powershell
+winget install EllipseSoftware.Bast
+```
+
+WinGet installs the stable portable package for x64 or ARM64. New releases become available after review in the [WinGet community repository](https://github.com/microsoft/winget-pkgs/tree/master/manifests/e/EllipseSoftware/Bast), so they can lag behind GitHub releases. Use the PowerShell installer for the latest GitHub release.
+
+Update with WinGet:
+
+```powershell
+winget upgrade --id EllipseSoftware.Bast --exact
+```
+
+`bast update` does not update WinGet installs. To switch to the PowerShell installer or nightly channel, first run `winget uninstall --id EllipseSoftware.Bast --exact`. For tab completion, see [Shell completions](/docs/reference/completions).
+
 ### WSL
 
 Run the Linux installer inside WSL. Native Windows and WSL have separate home directories, SSH configuration, and Bast state. Use [Vault](/docs/features/vault) when you want Bast-managed hosts and keys on both sides.
@@ -158,6 +174,6 @@ The Windows installer needs PowerShell 5.1 or later.
 
 ## After install
 
-Run `bast` to open the host picker. Run `bast update` to update copies installed via the script. Package-managed copies update with `apt`, `dnf`, `pacman`, or `apk` (see [Updates](/docs/reference/updates)).
+Run `bast` to open the host picker. Run `bast update` to update copies installed via the script. Package-managed copies update with Homebrew, WinGet, `apt`, `dnf`, `pacman`, or `apk` (see [Updates](/docs/reference/updates)).
 
 The script installers and Homebrew enable tab completion. Open a new terminal after install. Opt out with `BAST_NO_COMPLETIONS=1`. See [Shell completions](/docs/reference/completions).

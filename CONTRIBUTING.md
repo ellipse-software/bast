@@ -64,3 +64,17 @@ User-facing product changes (CLI, installers, updater, and behavior) add a bulle
 4. Tag and push `vX.Y.Z`
 
 The tag workflow publishes the GitHub release body from that changelog section. Publishing fails if the section is missing or empty. Nightly notes are unchanged.
+
+### WinGet submissions
+
+After publishing a stable GitHub release, `release.yml` calls `winget.yml` to submit its attached `EllipseSoftware.Bast` manifests to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs). Both Windows architectures use the signed release archives. Nightly and prerelease tags are excluded. Submission opens a pull request; availability in WinGet depends on Microsoft's validation and review.
+
+Set the repository Actions secret `WINGET_TOKEN` to a classic GitHub personal access token with only the `public_repo` scope. Use a maintainer or release account that can fork and submit to `microsoft/winget-pkgs`, and complete Microsoft's CLA if requested. The default `GITHUB_TOKEN` cannot submit to another repository. See [WinGet Create token setup](https://github.com/microsoft/winget-create/blob/main/doc/token.md). The token is passed through the environment, never a command-line argument. Missing or expired credentials fail the submission job without undoing the published GitHub release.
+
+To submit an existing release or retry independently of the build, run **Submit to WinGet** from the Actions tab with its `vX.Y.Z` tag, or:
+
+```sh
+gh workflow run winget.yml -f tag=vX.Y.Z
+```
+
+The workflow skips versions already merged or with an open submission. If Microsoft closes a submission without merging it, address the reported problem before retrying. It downloads the manifests attached to that release, so changes to the templates alone do not change a retry's contents. WinGet Create is pinned by version and SHA-256 in `winget.yml`; update both together when upgrading it.

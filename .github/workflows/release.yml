@@ -299,6 +299,16 @@ jobs:
           PACKAGES_R2_BUCKET: ${{ secrets.PACKAGES_R2_BUCKET }}
         run: bash .github/scripts/publish-linux-repo.sh "$GITHUB_REF_NAME" dist
 
+  submit-winget:
+    name: Submit to WinGet
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    needs: release
+    uses: ./.github/workflows/winget.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+
   bump-homebrew:
     name: Bump Homebrew formula
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')

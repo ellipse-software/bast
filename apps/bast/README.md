@@ -20,3 +20,5 @@ The application is in `apps/bast`. Run `bun run check` from the repository root 
 ## Releases
 
 Stable and nightly binaries are built for supported macOS, Linux, and Windows architectures by the repository's release workflows. Windows executables are Authenticode-signed before packaging. Installation options and channel behavior are documented in the [installation guide](https://bast.sh/docs/install).
+
+Stable Windows releases are submitted to WinGet as `EllipseSoftware.Bast` after GitHub publication. WinGet installs update with `winget upgrade --id EllipseSoftware.Bast --exact`. Submission setup and retries are documented in [CONTRIBUTING.md](../../CONTRIBUTING.md#winget-submissions).

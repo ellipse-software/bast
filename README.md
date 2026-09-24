@@ -73,6 +73,14 @@ brew install ellipse-software/tap/bast
 irm https://bast.sh/install.ps1 | iex
 ```
 
+Or with WinGet:
+
+```powershell
+winget install EllipseSoftware.Bast
+```
+
+Update WinGet installs with `winget upgrade --id EllipseSoftware.Bast --exact`. New releases become available after review in the WinGet community repository.
+
 Requires the Windows OpenSSH Client (`ssh`, `ssh-keygen`, `ssh-add`).
 
 </details>

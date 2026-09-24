@@ -16,6 +16,10 @@ Health checks:
 
 Status page (`/status`) reads three Better Stack Uptime monitors via the authenticated API (`BETTERSTACK_API_TOKEN` plus `BETTERSTACK_MONITOR_MARKETING`, `BETTERSTACK_MONITOR_DOCS`, `BETTERSTACK_MONITOR_VAULT`). Point those monitors at the health endpoints above. A public Better Stack status page is not required.
 
+Windows scripts are served from `public/install.ps1` and `public/install-nightly.ps1`. Stable Windows builds are also distributed as the portable WinGet package `EllipseSoftware.Bast`; those installs update through `winget upgrade --id EllipseSoftware.Bast --exact` and do not receive a script installation receipt. WinGet availability can lag behind GitHub releases while Microsoft reviews the submission.
+
+The server-evaluated Vercel flag `winget` controls WinGet in every installation selector, including the footer, guide, and comparison pages. Configure `FLAGS` in the deployment and enable `winget` in Vercel. The selector uses the same flag for its menu options and selected-method validation; it defaults to PowerShell when disabled.
+
 ## Development
 
 From the repository root:

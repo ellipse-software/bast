@@ -1,0 +1,74 @@
+name: Submit to WinGet
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Published stable release tag
+        required: true
+        type: string
+    secrets:
+      WINGET_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable release tag (vX.Y.Z)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: winget-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    name: Submit release manifests
+    runs-on: blacksmith-4vcpu-windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Prepare submission
+        id: prepare
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: bash .github/scripts/prepare-winget-submission.sh "$RELEASE_TAG" winget-manifests
+      - name: Require submission token
+        if: steps.prepare.outputs.submit == 'true'
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINGET_TOKEN)) {
+            throw "Set the WINGET_TOKEN Actions secret to a classic GitHub PAT with public_repo scope. See CONTRIBUTING.md."
+          }
+      - uses: actions/setup-dotnet@v5
+        if: steps.prepare.outputs.submit == 'true'
+        with:
+          dotnet-version: '9.0.x'
+      - name: Install WinGet Create
+        if: steps.prepare.outputs.submit == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Invoke-WebRequest -Uri "https://github.com/microsoft/winget-create/releases/download/v1.12.13.0/wingetcreate.exe" -OutFile "$env:RUNNER_TEMP/wingetcreate.exe"
+          $hash = (Get-FileHash "$env:RUNNER_TEMP/wingetcreate.exe" -Algorithm SHA256).Hash
+          if ($hash -ne "24042BD37915805615E6CF969AC57C6439124C3FE85823327F5F3FB24BD9FFEA") {
+            throw "WinGet Create checksum mismatch"
+          }
+      - name: Validate and submit manifests
+        if: steps.prepare.outputs.submit == 'true'
+        shell: pwsh
+        env:
+          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          & "$env:RUNNER_TEMP/wingetcreate.exe" submit --no-open winget-manifests
+          if ($LASTEXITCODE -ne 0) { throw "WinGet submission failed with exit code $LASTEXITCODE" }

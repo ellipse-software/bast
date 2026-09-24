@@ -1,4 +1,5 @@
 import { InstallCommand } from "@/components/install-command";
+import { winget } from "@/flags";
 import {
   MarketingBreadcrumb,
   MarketingShell,
@@ -13,7 +14,8 @@ type GuidePageViewProps = {
   version?: string | null;
 };
 
-export function GuidePageView({ content, version }: GuidePageViewProps) {
+export async function GuidePageView({ content, version }: GuidePageViewProps) {
+  const wingetAvailable = await winget();
   const pageUrl = `${siteUrl}/${content.slug}`;
   const platforms = supportsWindowsRelease(version)
     ? "macOS, Linux, and Windows 11"
@@ -107,7 +109,11 @@ export function GuidePageView({ content, version }: GuidePageViewProps) {
               {platforms}. Then run <Code>bast</Code> and work from your existing
               OpenSSH setup.
             </p>
-            <InstallCommand version={version} className="w-full" />
+            <InstallCommand
+              version={version}
+              wingetAvailable={wingetAvailable}
+              className="w-full"
+            />
           </div>
         </div>
       </section>
