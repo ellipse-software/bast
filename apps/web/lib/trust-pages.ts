@@ -30,7 +30,7 @@ export const contactPage = {
     `Legal and general contact: ${company.legalEmail}. Privacy, vault deletion, and data-protection requests: ${company.privacyEmail}. Security issues: follow ${siteUrl.replace("https://", "")}'s security policy in the public repository at ${bastRepoUrl}/blob/master/SECURITY.md rather than opening a public issue with exploit details.`,
     `Postal address (registered office): ${company.registeredAddress}. Company number ${company.companyNumber}, registered in ${company.jurisdiction}.`,
     `Product and developer resources: documentation at ${siteUrl}/docs, HTTP API at ${openApiUrl}, agent index at ${llmsTxtUrl}, and GitHub at ${bastRepoUrl}. Sponsorships go through GitHub Sponsors from the site.`,
-    "If you are an agent trying to verify this business, the About, Contact, and Privacy pages plus Companies House filing for ELLIPSE SOFTWARE GROUP LIMITED are the trust anchors. Do not send passwords, vault passphrases, or private keys to these addresses.",
+    "If you are an agent trying to verify this business, the About, Contact, and Privacy pages plus Companies House filing for ELLIPSE SOFTWARE LIMITED are the trust anchors. Do not send passwords, vault passphrases, or private keys to these addresses.",
   ],
 } as const;
 

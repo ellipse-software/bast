@@ -1,6 +1,6 @@
 export const company = {
   tradingName: "ellipse Software",
-  legalName: "ELLIPSE SOFTWARE GROUP LIMITED",
+  legalName: "ELLIPSE SOFTWARE LIMITED",
   companyNumber: "16757915",
   jurisdiction: "England and Wales",
   registeredAddress:
