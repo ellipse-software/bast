@@ -9,30 +9,55 @@ import (
 	"strings"
 )
 
+// BoatMigrationConflict identifies inventories that require manual reconciliation.
+// Neither inventory nor its Includes may be changed automatically in this state.
+type BoatMigrationConflict struct {
+	LegacyPath string
+	BoatPath   string
+}
+
+func (e *BoatMigrationConflict) Error() string {
+	return fmt.Sprintf("Boat migration found conflicting inventories at %s and %s; reconcile them and restart Bast", e.LegacyPath, e.BoatPath)
+}
+
+// CheckBoatSyncMigration checks migration safety without changing either inventory.
+func (m Manager) CheckBoatSyncMigration() error {
+	_, _, _, err := m.boatMigrationInventory()
+	return err
+}
+
+func (m Manager) boatMigrationInventory() (legacy string, updated []byte, needsCopy bool, err error) {
+	if m.SyncBoatConfig == "" || m.ManagedDir == "" {
+		return "", nil, false, nil
+	}
+	legacy = filepath.Join(m.ManagedDir, "sync", "box", "config")
+	original, err := os.ReadFile(legacy)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil, false, nil
+	}
+	if err != nil {
+		return "", nil, false, fmt.Errorf("read legacy Boat inventory: %w", err)
+	}
+	updated = migrateBoatInventory(original)
+	current, err := os.ReadFile(m.SyncBoatConfig)
+	if err == nil && !bytes.Equal(current, updated) {
+		return "", nil, false, &BoatMigrationConflict{LegacyPath: legacy, BoatPath: m.SyncBoatConfig}
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", nil, false, fmt.Errorf("read Boat inventory: %w", err)
+	}
+	return legacy, updated, errors.Is(err, os.ErrNotExist), nil
+}
+
 // MigrateBoatSync copies the inventory before switching Includes, then removes
 // the old file. Each step can be retried after interruption. Disabled inventories
 // stay disabled, and conflicting inventories are never overwritten.
 func (m Manager) MigrateBoatSync() error {
-	if m.SyncBoatConfig == "" || m.ManagedDir == "" {
-		return nil
+	legacy, updated, needsCopy, err := m.boatMigrationInventory()
+	if err != nil || legacy == "" {
+		return err
 	}
-	legacy := filepath.Join(m.ManagedDir, "sync", "box", "config")
-	original, err := os.ReadFile(legacy)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read legacy Boat inventory: %w", err)
-	}
-	updated := migrateBoatInventory(original)
-	current, err := os.ReadFile(m.SyncBoatConfig)
-	if err == nil && !bytes.Equal(current, updated) {
-		return fmt.Errorf("Boat migration found conflicting inventories at %s and %s; reconcile them before retrying", legacy, m.SyncBoatConfig)
-	}
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("read Boat inventory: %w", err)
-	}
-	if errors.Is(err, os.ErrNotExist) {
+	if needsCopy {
 		if err := atomicWrite(m.SyncBoatConfig, updated, 0600); err != nil {
 			return fmt.Errorf("write Boat inventory: %w", err)
 		}

@@ -160,6 +160,7 @@ type styleCache struct {
 }
 
 type App struct {
+	boatMigrationConflict       *sshconfig.BoatMigrationConflict
 	paths                       paths.Paths
 	config                      sshconfig.Manager
 	openSSH                     openssh.Client
@@ -270,7 +271,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		syncingProviders: map[string]bool{},
 		syncOpGen:        map[string]uint64{},
 	}
-	if err := app.config.MigrateBoatSync(); err != nil {
+	if err := app.config.MigrateBoatSync(); err != nil && !errors.As(err, &app.boatMigrationConflict) {
 		return nil, err
 	}
 	app.hostMeta, app.hostMetaRevision = store.HostsSnapshot()
@@ -408,7 +409,7 @@ func (m *App) autoSyncCmds() tea.Cmd {
 		m.beginProviderOp("azure")
 		autoSyncCmds = append(autoSyncCmds, m.syncAzureCmd())
 	}
-	if boat := m.metadata.Boat(); !boat.Disabled && !m.syncingProviders["boat"] {
+	if boat := m.metadata.Boat(); !boat.Disabled && m.boatMigrationConflict == nil && !m.syncingProviders["boat"] {
 		if boat.Enabled && boat.AutoSync {
 			m.beginProviderOp("boat")
 			autoSyncCmds = append(autoSyncCmds, m.syncBoatCmd())

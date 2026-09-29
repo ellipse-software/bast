@@ -179,7 +179,11 @@ func (m *App) providerDetail(provider string) providerDetail {
 		if integration.Disabled {
 			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
 		}
-		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
+		lastError := integration.LastSyncError
+		if m.boatMigrationConflict != nil {
+			lastError = m.boatMigrationConflict.Error()
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, lastError, "", statusRows, nil}
 	case "vercel":
 		integration := m.metadata.Vercel()
 		status := m.syncStatus.Vercel
@@ -1497,6 +1501,10 @@ func prevEnabledSyncItem(items []syncMenuItem, current int) int {
 }
 
 func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
+	if m.syncProvider == "boat" && action != "refresh" && m.boatMigrationConflict != nil {
+		m.setError(m.boatMigrationConflict)
+		return m, nil
+	}
 	if m.syncingProviders == nil {
 		m.syncingProviders = map[string]bool{}
 	}

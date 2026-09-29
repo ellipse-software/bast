@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -525,5 +526,45 @@ func TestHostedTermsRequired(t *testing.T) {
 	}
 	if HostedTermsRequired("https://vault.example") || HostedTermsRequired("http://localhost:3000") {
 		t.Fatal("custom API bases should skip Ellipse terms")
+	}
+}
+
+func TestApplyPreservesBoatMigrationConflict(t *testing.T) {
+	p := paths.ForHome(t.TempDir())
+	cfg := sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncBoatConfig: p.SyncBoatConfig}
+	legacy := filepath.Join(p.ManagedDir, "sync", "box", "config")
+	for path, alias := range map[string]string{legacy: "box_old", p.SyncBoatConfig: "boat_new"} {
+		if err := cfg.EnsureSyncInclude(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := sshconfig.WriteSyncConfig(path, []sshconfig.SyncHostInput{{Alias: alias, SyncSource: "boat", SyncID: "bx_" + alias, HostName: "203.0.113.4"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetHost("box_old", metadata.Host{Notes: "preserve me"}); err != nil {
+		t.Fatal(err)
+	}
+	before := map[string][]byte{}
+	for _, path := range []string{legacy, p.SyncBoatConfig, p.MainConfig, p.ManagedConfig, p.StateFile} {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[path] = content
+	}
+	applier := Applier{Paths: p, Config: cfg, Store: store}
+	var conflict *sshconfig.BoatMigrationConflict
+	if err := applier.Apply(Document{Metadata: map[string]metadata.Host{"box_old": {Notes: "overwrite"}}}); !errors.As(err, &conflict) {
+		t.Fatalf("expected migration conflict, got %v", err)
+	}
+	for path, original := range before {
+		after, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(original, after) {
+			t.Fatalf("changed %s during conflict: %v", path, err)
+		}
 	}
 }

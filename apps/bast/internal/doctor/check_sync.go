@@ -1,14 +1,26 @@
 package doctor
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
 
 	boatcloud "bast/internal/cloud/boat"
+	"bast/internal/sshconfig"
 )
 
 func (e Engine) checkSync(r *Report, st runState) {
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		id, title := "sync.boat_migration", "Boat inventory migration could not be checked"
+		fix := "Resolve the inventory error and restart Bast."
+		var conflict *sshconfig.BoatMigrationConflict
+		if errors.As(err, &conflict) {
+			id, title = "sync.boat_migration_conflict", "Boat inventories conflict"
+			fix = "Back up and reconcile both inventories, then restart Bast. Boat operations are blocked to preserve the files and host metadata."
+		}
+		r.add(Finding{ID: id, Severity: SeverityFail, Category: CatSync, Title: title, Detail: err.Error(), Fix: fix})
+	}
 	if st.store == nil {
 		return
 	}

@@ -212,6 +212,9 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 		ensure = m.syncer.EnsureAzureAccess
 	case "boat":
 		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if err := m.syncer.Config.CheckBoatSyncMigration(); err != nil {
+				return err
+			}
 			if m.hostLooksStopped(host) {
 				if status != nil {
 					status("Resuming sandbox…")

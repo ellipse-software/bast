@@ -45,7 +45,7 @@ Boat
   sandbox-name
 ```
 
-Running sandboxes show **Boat synced**. Stopped or archiving sandboxes stay in the same group but are hidden from the host list until you press `.` (the same toggle that shows user-hidden hosts). Search still finds them by name. Selecting the **Boat** group shows running vs stopped counts and **New sandbox**. Connection settings, group, and label are owned by sync, so edit (`e`), delete (`d`), move, favorite, and hide are blocked.
+Running sandboxes show **Boat synced**. Stopped or archiving sandboxes stay in the same group but are hidden from the host list until you press `.` (the same toggle that shows user-hidden hosts). Search still finds them by name. Selecting the **Boat** group shows running vs stopped counts and **New sandbox**. Connection settings, group, and label are owned by sync, so edit (`e`), move, favorite, and hide are blocked. Delete (`d`) removes the upstream sandbox after confirmation.
 
 On the Boat provider page (Sync `4`), sandboxes are listed under **Running** and **Stopped**, the same collapse/expand pattern as the Hosts tab. Stopped starts collapsed. Enter on a host connects (or resumes a stopped sandbox).
 
@@ -130,5 +130,7 @@ Press `r` on the Sync tab (or run `bast sync boat`) after you create, stop, or r
 Install the [Boat CLI](https://boat.dev/install). Your existing login carries over. Bast uses `boat` from `PATH`, `~/.ascii/bin/boat`, or the `BOAT_CLI` override.
 
 Bast migrates the previous sync inventory and Includes to `~/.ssh/bast/sync/boat/config`, preserving host aliases, metadata, and sync preferences, including an explicit disconnect. Existing `bast box`, `bast sync box`, and `bast sync disable box` commands remain aliases. JSON output uses `boat` for the provider and `sandboxId` for snapshot ownership.
+
+If the old and new inventory files conflict, Bast preserves both files and their host metadata. Boat sync, sandbox changes, and vault pulls are blocked until you back up and reconcile the inventories, then restart Bast. Other providers remain available. Run `bast doctor` to see the conflicting paths.
 
 Sandbox IDs (`bx_...`) and the SSH key at `~/.ssh/ascii_box_ed25519` are unchanged. See [Boat's migration guide](https://docs.boat.dev/migrating-from-box).

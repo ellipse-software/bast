@@ -19,6 +19,9 @@ type Applier struct {
 
 // Apply writes a merged document to managed config, keys, and metadata.
 func (a Applier) Apply(doc Document) error {
+	if err := a.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
 	if err := a.Config.EnsureManaged(); err != nil {
 		return err
 	}

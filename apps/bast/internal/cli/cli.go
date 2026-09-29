@@ -134,7 +134,11 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 		reader:  bufio.NewReader(in),
 	}
 	if err := runner.config.MigrateBoatSync(); err != nil {
-		return nil, err
+		// Doctor reports conflicts; the sync engine gates Boat mutations.
+		var conflict *sshconfig.BoatMigrationConflict
+		if !errors.As(err, &conflict) {
+			return nil, err
+		}
 	}
 	return runner, nil
 }

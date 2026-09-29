@@ -296,6 +296,7 @@ func (c *Client) Discover(ctx context.Context, _ DiscoverConfig) (Discovery, err
 	var raw struct {
 		Sandboxes []sandboxRecord `json:"sandboxes"`
 		OK        *bool           `json:"ok"`
+		Error     string          `json:"error"`
 		PageInfo  struct {
 			HasMore bool `json:"hasMore"`
 		} `json:"pageInfo"`
@@ -303,11 +304,14 @@ func (c *Client) Discover(ctx context.Context, _ DiscoverConfig) (Discovery, err
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return Discovery{}, fmt.Errorf("parse boat list: %w", err)
 	}
+	if raw.OK != nil && !*raw.OK {
+		if message := strings.TrimSpace(raw.Error); message != "" {
+			return Discovery{}, fmt.Errorf("boat list failed: %s", message)
+		}
+		return Discovery{}, fmt.Errorf("boat list failed; run boat list --json for details")
+	}
 	if raw.Sandboxes == nil {
 		return Discovery{}, fmt.Errorf("parse boat list: missing sandboxes array; update the Boat CLI from https://boat.dev/install")
-	}
-	if raw.OK != nil && !*raw.OK {
-		return Discovery{}, fmt.Errorf("boat list failed; run boat list --json for details")
 	}
 	instances := make([]Instance, 0, len(raw.Sandboxes))
 	for i, rec := range raw.Sandboxes {

@@ -418,3 +418,28 @@ func TestBoatCLIOverride(t *testing.T) {
 		t.Fatalf("CLI=%q", got)
 	}
 }
+
+func TestDiscoverReportsListFailureBeforeMissingInventory(t *testing.T) {
+	for _, test := range []struct {
+		payload string
+		want    string
+	}{
+		{`{"ok":false,"error":"quota exceeded"}`, "boat list failed: quota exceeded"},
+		{`{"ok":false,"error":"not authorized","sandboxes":[]}`, "boat list failed: not authorized"},
+		{`{"ok":false,"error":"  "}`, "boat list failed; run boat list --json for details"},
+		{`{"ok":true}`, "parse boat list: missing sandboxes array"},
+	} {
+		t.Run(test.payload, func(t *testing.T) {
+			client := &Client{Run: func(_ context.Context, args []string, _ []string) ([]byte, error) {
+				if args[1] == "list" {
+					return []byte(test.payload), nil
+				}
+				return []byte(`{"ok":true,"user":{"login":"test"}}`), nil
+			}}
+			discovery, err := client.Discover(context.Background(), DiscoverConfig{})
+			if err == nil || !strings.HasPrefix(err.Error(), test.want) || discovery.Complete {
+				t.Fatalf("discovery=%+v error=%v, want %q", discovery, err, test.want)
+			}
+		})
+	}
+}

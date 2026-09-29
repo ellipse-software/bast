@@ -2,6 +2,7 @@ package sshconfig
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,12 @@ func TestBoatInventoryMigration(t *testing.T) {
 			}
 			if err := WriteSyncConfig(legacy, []SyncHostInput{{Alias: "box_dev", SyncSource: "box", SyncID: "bx_dev0001", HostName: "box.stopped.invalid", User: "user", IdentityFile: "~/.ssh/ascii_box_ed25519", IdentitiesOnly: true, ExtraOptions: []string{"ServerAliveInterval 30"}}}); err != nil {
 				t.Fatal(err)
+			}
+			if err := m.CheckBoatSyncMigration(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(m.SyncBoatConfig); !os.IsNotExist(err) {
+				t.Fatalf("read-only check created inventory: %v", err)
 			}
 			if err := m.MigrateBoatSync(); err != nil {
 				t.Fatal(err)
@@ -111,7 +118,8 @@ func TestBoatMigrationRecoversAfterCopyAndRejectsConflicts(t *testing.T) {
 			}
 			err = m.MigrateBoatSync()
 			if conflict {
-				if err == nil || !strings.Contains(err.Error(), "conflicting inventories") {
+				var conflictErr *BoatMigrationConflict
+				if !errors.As(err, &conflictErr) || conflictErr.LegacyPath != legacy || conflictErr.BoatPath != m.SyncBoatConfig {
 					t.Fatalf("expected conflict, got %v", err)
 				}
 				left, _ := os.ReadFile(legacy)

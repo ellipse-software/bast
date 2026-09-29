@@ -588,6 +588,9 @@ func (e *Engine) SyncBoat(ctx context.Context) (Result, error) {
 }
 
 func (e *Engine) syncBoatLocked(ctx context.Context) (Result, error) {
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, err
+	}
 	discovery, err := e.Boat.Discover(ctx, boatcloud.DiscoverConfig{})
 	now := time.Now().UTC()
 	if err != nil {
@@ -630,6 +633,9 @@ func (e *Engine) MaybeAutoConnectBoat(ctx context.Context) (Result, bool, error)
 		return Result{}, false, err
 	}
 	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, false, err
+	}
 	integration := e.Store.Boat()
 	if integration.Disabled {
 		return Result{}, false, nil
@@ -657,6 +663,9 @@ func (e *Engine) NewBoat(ctx context.Context, opts boatcloud.NewOpts) (Result, s
 		return Result{}, "", err
 	}
 	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, "", err
+	}
 	id, err := e.Boat.New(ctx, opts)
 	if err != nil && id == "" {
 		return Result{}, "", err
@@ -674,6 +683,9 @@ func (e *Engine) ForkBoat(ctx context.Context, syncID string, opts boatcloud.For
 		return Result{}, "", err
 	}
 	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, "", err
+	}
 	id, err := e.Boat.Fork(ctx, syncID, opts)
 	if err != nil && id == "" {
 		return Result{}, "", err
@@ -691,6 +703,9 @@ func (e *Engine) StopBoat(ctx context.Context, syncID string) (Result, error) {
 		return Result{}, err
 	}
 	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, err
+	}
 	if err := e.Boat.Stop(ctx, syncID); err != nil {
 		return Result{}, err
 	}
@@ -702,6 +717,9 @@ func (e *Engine) ResumeBoat(ctx context.Context, syncID string, opts boatcloud.R
 		return Result{}, err
 	}
 	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, err
+	}
 	if err := e.Boat.Resume(ctx, syncID, opts); err != nil {
 		return Result{}, err
 	}
@@ -713,6 +731,9 @@ func (e *Engine) DeleteBoat(ctx context.Context, syncID string) (Result, error) 
 		return Result{}, err
 	}
 	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, err
+	}
 	if err := e.Boat.Delete(ctx, syncID); err != nil {
 		return Result{}, err
 	}
@@ -724,10 +745,16 @@ func (e *Engine) ListBoatSnapshots(ctx context.Context, boatID string) (boatclou
 }
 
 func (e *Engine) DeleteBoatSnapshot(ctx context.Context, snapshotID string) error {
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
 	return e.Boat.DeleteSnapshot(ctx, snapshotID)
 }
 
 func (e *Engine) RemoveBoatNamedSnapshot(ctx context.Context, name string) error {
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
 	return e.Boat.RemoveNamedSnapshot(ctx, name)
 }
 
@@ -833,6 +860,9 @@ func (e *Engine) EnsureBoatAccess(ctx context.Context, host sshconfig.Host, stat
 	if !host.Synced || host.SyncSource != boatcloud.ProviderName || host.SyncID == "" {
 		return nil
 	}
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
 	result, err := e.Boat.EnsureAccess(ctx, host.SyncID, boatcloud.EnsureConfig{
 		Home: e.Paths.Home, Status: status,
 	})
@@ -916,6 +946,9 @@ func (e *Engine) DisableBoat(ctx context.Context) error {
 		return err
 	}
 	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
 	existing, err := e.Discover(ctx)
 	if err != nil {
 		return err
@@ -1051,6 +1084,10 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	}()
 	go func() {
 		defer probes.Done()
+		if err := e.Config.CheckBoatSyncMigration(); err != nil {
+			status.Boat.LastSyncError = err.Error()
+			return
+		}
 		account, err := e.Boat.Account(ctx)
 		if err != nil {
 			status.Boat.BoatCLIError = err.Error()
