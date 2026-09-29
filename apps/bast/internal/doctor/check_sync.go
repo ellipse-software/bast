@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"strings"
 
-	boxcloud "bast/internal/cloud/box"
+	boatcloud "bast/internal/cloud/boat"
 )
 
 func (e Engine) checkSync(r *Report, st runState) {
@@ -22,7 +22,7 @@ func (e Engine) checkSync(r *Report, st runState) {
 		{"gcp", st.store.GCP().Enabled, "gcloud", st.store.GCP().LastSyncError},
 		{"aws", st.store.AWS().Enabled, "aws", st.store.AWS().LastSyncError},
 		{"azure", st.store.Azure().Enabled, "az", st.store.Azure().LastSyncError},
-		{"box", st.store.Box().Enabled, "box", st.store.Box().LastSyncError},
+		{"boat", st.store.Boat().Enabled, "boat", st.store.Boat().LastSyncError},
 	}
 	for _, p := range providers {
 		if !p.enabled {
@@ -32,10 +32,10 @@ func (e Engine) checkSync(r *Report, st runState) {
 			title := p.name + " sync is enabled but " + p.cli + " is not on PATH"
 			fix := "Install the " + p.cli + " CLI, or run bast sync disable " + p.name + "."
 			detail := ""
-			if p.name == "box" {
-				title = "box sync is enabled but the Box CLI was not found"
-				detail = "The ASCII Box installer puts the binary at ~/.ascii/bin/box and a shell function named box. That function is not on PATH, so Bast looks at ~/.ascii/bin/box, ~/.local/bin/box, and BOX_CLI."
-				fix = "Install from https://box.ascii.dev/, set BOX_CLI to the binary, or run bast sync disable box."
+			if p.name == "boat" {
+				title = "boat sync is enabled but the Boat CLI was not found"
+				detail = "The Boat installer puts the binary at ~/.ascii/bin/boat and a shell function named boat. That function is not on PATH, so Bast looks at ~/.ascii/bin/boat, ~/.local/bin/boat, and BOAT_CLI."
+				fix = "Install from https://boat.dev/, set BOAT_CLI to the binary, or run bast sync disable boat."
 			}
 			r.add(Finding{
 				ID: "sync.cli_missing", Severity: SeverityFail, Category: CatSync,
@@ -67,15 +67,15 @@ func (e Engine) checkSync(r *Report, st runState) {
 }
 
 func providerCLIPresent(name, cli string) bool {
-	if name == "box" {
-		return boxCLIPresent()
+	if name == "boat" {
+		return boatCLIPresent()
 	}
 	_, err := exec.LookPath(cli)
 	return err == nil
 }
 
-func boxCLIPresent() bool {
-	bin := boxcloud.New().Box
+func boatCLIPresent() bool {
+	bin := boatcloud.New().Boat
 	if bin == "" {
 		return false
 	}

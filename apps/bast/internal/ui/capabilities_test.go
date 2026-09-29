@@ -45,7 +45,7 @@ func TestCloudGroupNamesUseNerdFontIconsWhenEnabled(t *testing.T) {
 		{name: "GCP", group: "Google Cloud", icon: "\ue7f1"},
 		{name: "AWS", group: "Amazon EC2", icon: "\ue7ad"},
 		{name: "Azure", group: "Microsoft Azure", icon: "\ue754"},
-		{name: "Box", group: "Box", icon: "\uf1b2"},
+		{name: "Boat", group: "Boat", icon: "\U000f0ec8"},
 		{name: "Upstash", group: "Upstash", icon: "\uf1b2"},
 		{name: "Vercel", group: "Vercel", icon: "\u25b2"},
 		{name: "Hetzner", group: "Hetzner Cloud", icon: "\uf233"},

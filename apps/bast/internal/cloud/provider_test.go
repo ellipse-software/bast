@@ -17,8 +17,8 @@ func TestKindForGroup(t *testing.T) {
 		{"AWS/default", AWS, true},
 		{"Microsoft Azure", Azure, true},
 		{"Microsoft Azure/Production/apps", Azure, true},
-		{"Box", Box, true},
-		{"Box/Running", Box, true},
+		{"Boat", Boat, true},
+		{"Boat/Running", Boat, true},
 		{"Upstash", Upstash, true},
 		{"Upstash/dev", Upstash, true},
 		{"Vercel", Vercel, true},
@@ -41,9 +41,9 @@ func TestKindForGroup(t *testing.T) {
 }
 
 func TestKindForSource(t *testing.T) {
-	kind, ok := KindForSource("box")
-	if !ok || kind != Box {
-		t.Fatalf("KindForSource(box) = %q, %t", kind, ok)
+	kind, ok := KindForSource("boat")
+	if !ok || kind != Boat {
+		t.Fatalf("KindForSource(boat) = %q, %t", kind, ok)
 	}
 	kind, ok = KindForSource("upstash")
 	if !ok || kind != Upstash {
@@ -63,9 +63,9 @@ func TestKindForSource(t *testing.T) {
 }
 
 func TestCapabilitiesForLifecycleProviders(t *testing.T) {
-	box := CapabilitiesFor(Box)
-	if !box.Create || !box.Stop || !box.Start || !box.Fork || !box.Delete {
-		t.Fatalf("box caps = %+v", box)
+	boat := CapabilitiesFor(Boat)
+	if !boat.Create || !boat.Stop || !boat.Start || !boat.Fork || !boat.Delete {
+		t.Fatalf("boat caps = %+v", boat)
 	}
 	upstash := CapabilitiesFor(Upstash)
 	if !upstash.Create || !upstash.Stop || !upstash.Start || !upstash.Fork || !upstash.Delete {
@@ -87,10 +87,10 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 }
 
 func TestIsProviderRoot(t *testing.T) {
-	if !IsProviderRoot("Box") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") || !IsProviderRoot("Hetzner Cloud") {
+	if !IsProviderRoot("Boat") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") || !IsProviderRoot("Hetzner Cloud") {
 		t.Fatal("expected roots to match")
 	}
-	if IsProviderRoot("Google Cloud/demo") || IsProviderRoot("Box/Running") || IsProviderRoot("Work") {
+	if IsProviderRoot("Google Cloud/demo") || IsProviderRoot("Boat/Running") || IsProviderRoot("Work") {
 		t.Fatal("subgroups and user groups are not provider roots")
 	}
 }
@@ -106,7 +106,7 @@ func TestDescriptorsCoverEveryKind(t *testing.T) {
 		}
 		seen[d.Kind] = true
 	}
-	for _, kind := range []Kind{GCP, AWS, Azure, Box, Upstash, Vercel, Hetzner} {
+	for _, kind := range []Kind{GCP, AWS, Azure, Boat, Upstash, Vercel, Hetzner} {
 		if !seen[kind] {
 			t.Fatalf("missing descriptor for %s", kind)
 		}

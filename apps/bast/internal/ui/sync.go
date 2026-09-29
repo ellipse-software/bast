@@ -12,7 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"bast/internal/cloud"
-	boxcloud "bast/internal/cloud/box"
+	boatcloud "bast/internal/cloud/boat"
 	"bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
 	vercelcloud "bast/internal/cloud/vercel"
@@ -65,7 +65,7 @@ func (m *App) syncProviders() []syncMenuItem {
 	for _, d := range cloud.Descriptors() {
 		detail := m.providerDetail(string(d.Kind))
 		text := "disabled"
-		if d.Kind == cloud.Box || d.Kind == cloud.Upstash || d.Kind == cloud.Vercel {
+		if d.Kind == cloud.Boat || d.Kind == cloud.Upstash || d.Kind == cloud.Vercel {
 			running, stopped := m.providerGroupStats(d.GroupRoot)
 			if !detail.enabled && running+stopped == 0 {
 				text = "disabled"
@@ -158,12 +158,12 @@ func (m *App) providerDetail(provider string) providerDetail {
 			resourceGroups = strings.Join(integration.ResourceGroupFilter, ", ")
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, statusRows, []providerRow{{"Subscription filter", subscriptions}, {"Resource groups", resourceGroups}}}
-	case "box":
-		integration := m.metadata.Box()
-		status := m.syncStatus.Box
+	case "boat":
+		integration := m.metadata.Boat()
+		status := m.syncStatus.Boat
 		accountLabel, accountValue := "Account", "not logged in"
-		if status.BoxCLIError != "" {
-			accountLabel, accountValue = "box", status.BoxCLIError
+		if status.BoatCLIError != "" {
+			accountLabel, accountValue = "boat", status.BoatCLIError
 		} else if status.Authenticated {
 			accountValue = status.Login
 			if accountValue == "" {
@@ -268,8 +268,8 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 		life = append(life, syncMenuItem{label: "Connect", action: "enable"})
 	}
 	caps := cloud.CapabilitiesFor(cloud.Kind(provider))
-	if caps.Create && provider == "box" && m.syncStatus.Box.Authenticated {
-		life = append(life, syncMenuItem{label: "New box", action: "box_new"})
+	if caps.Create && provider == "boat" && m.syncStatus.Boat.Authenticated {
+		life = append(life, syncMenuItem{label: "New sandbox", action: "boat_new"})
 	}
 	if caps.Create && provider == "upstash" && m.upstashHasKey() {
 		life = append(life, syncMenuItem{label: "New box", action: "upstash_new"})
@@ -439,26 +439,26 @@ func (m *App) autoConnectUpstashCmd() tea.Cmd {
 	}
 }
 
-func (m *App) syncBoxCmd() tea.Cmd {
-	opGen := m.providerOpGen("box")
+func (m *App) syncBoatCmd() tea.Cmd {
+	opGen := m.providerOpGen("boat")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		result, err := m.syncer.SyncBox(ctx)
-		return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
+		result, err := m.syncer.SyncBoat(ctx)
+		return syncDoneMsg{provider: "boat", result: result, err: err, opGen: opGen}
 	}
 }
 
-func (m *App) autoConnectBoxCmd() tea.Cmd {
-	opGen := m.providerOpGen("box")
+func (m *App) autoConnectBoatCmd() tea.Cmd {
+	opGen := m.providerOpGen("boat")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		result, ran, err := m.syncer.MaybeAutoConnectBox(ctx)
+		result, ran, err := m.syncer.MaybeAutoConnectBoat(ctx)
 		if !ran {
-			return syncDoneMsg{provider: "box", result: result, err: nil, skipped: true, opGen: opGen}
+			return syncDoneMsg{provider: "boat", result: result, err: nil, skipped: true, opGen: opGen}
 		}
-		return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
+		return syncDoneMsg{provider: "boat", result: result, err: err, opGen: opGen}
 	}
 }
 
@@ -564,15 +564,15 @@ func (m *App) disableHetznerCmd() tea.Cmd {
 	}
 }
 
-func (m *App) disableBoxCmd() tea.Cmd {
-	opGen := m.providerOpGen("box")
+func (m *App) disableBoatCmd() tea.Cmd {
+	opGen := m.providerOpGen("boat")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := m.syncer.DisableBox(ctx); err != nil {
-			return syncDoneMsg{provider: "box", err: err, opGen: opGen}
+		if err := m.syncer.DisableBoat(ctx); err != nil {
+			return syncDoneMsg{provider: "boat", err: err, opGen: opGen}
 		}
-		return syncDoneMsg{provider: "box", result: sync.Result{Provider: "box", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+		return syncDoneMsg{provider: "boat", result: sync.Result{Provider: "boat", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
@@ -982,8 +982,8 @@ func (m *App) renderProviderIdentity(s styleSet, provider string) string {
 		stateStyle = s.success
 	}
 	facts := make([]string, 0, 4)
-	if kind == cloud.Box || kind == cloud.Upstash || kind == cloud.Vercel {
-		group := "Box"
+	if kind == cloud.Boat || kind == cloud.Upstash || kind == cloud.Vercel {
+		group := "Boat"
 		if d, ok := cloud.DescriptorForKind(kind); ok {
 			group = d.GroupRoot
 		}
@@ -1013,7 +1013,7 @@ func (m *App) renderProviderIdentity(s styleSet, provider string) string {
 	var errBit string
 	for _, row := range detail.status {
 		switch row.label {
-		case "gcloud", "aws", "az", "box", "API":
+		case "gcloud", "aws", "az", "boat", "API":
 			errBit = row.value
 		default:
 			if row.value != "" && row.value != "none" && row.value != "not logged in" {
@@ -1278,7 +1278,7 @@ func (m *App) updateProviderKeys(key string) (tea.Model, tea.Cmd) {
 			return m.forkSyncedHost(host)
 		}
 		for _, item := range life {
-			if item.action == "box_new" || item.action == "upstash_new" || item.action == "vercel_new" {
+			if item.action == "boat_new" || item.action == "upstash_new" || item.action == "vercel_new" {
 				return m.runSyncAction(item.action)
 			}
 		}
@@ -1511,19 +1511,19 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.syncAWSCmd(), m.setNotice("Syncing AWS…"))
 		case "azure":
 			return m, tea.Batch(m.syncAzureCmd(), m.setNotice("Syncing Azure…"))
-		case "box":
-			box := m.metadata.Box()
-			box.Disabled = false
-			box.Enabled = true
+		case "boat":
+			boat := m.metadata.Boat()
+			boat.Disabled = false
+			boat.Enabled = true
 			if action == "enable" {
-				box.AutoSync = true
+				boat.AutoSync = true
 			}
-			if err := m.metadata.SetBox(box); err != nil {
-				delete(m.syncingProviders, "box")
+			if err := m.metadata.SetBoat(boat); err != nil {
+				delete(m.syncingProviders, "boat")
 				m.setError(err)
 				return m, nil
 			}
-			return m, tea.Batch(m.syncBoxCmd(), m.setNotice("Syncing Box…"))
+			return m, tea.Batch(m.syncBoatCmd(), m.setNotice("Syncing Boat…"))
 		case "vercel":
 			if action == "enable" && !m.vercelReady() {
 				delete(m.syncingProviders, "vercel")
@@ -1577,8 +1577,8 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "azure" {
 			return m, m.disableAzureCmd()
 		}
-		if m.syncProvider == "box" {
-			return m, m.disableBoxCmd()
+		if m.syncProvider == "boat" {
+			return m, m.disableBoatCmd()
 		}
 		if m.syncProvider == "upstash" {
 			return m, m.disableUpstashCmd()
@@ -1590,8 +1590,8 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			return m, m.disableHetznerCmd()
 		}
 		return m, m.disableGCPCmd()
-	case "box_new":
-		m.openBoxNewForm()
+	case "boat_new":
+		m.openBoatNewForm()
 		return m, nil
 	case "upstash_new":
 		m.openUpstashNewForm()
@@ -1639,11 +1639,11 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync enabled")
 		}
-		if m.syncProvider == "box" {
-			box := m.metadata.Box()
-			box.AutoSync = true
-			box.Disabled = false
-			if err := m.metadata.SetBox(box); err != nil {
+		if m.syncProvider == "boat" {
+			boat := m.metadata.Boat()
+			boat.AutoSync = true
+			boat.Disabled = false
+			if err := m.metadata.SetBoat(boat); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1704,10 +1704,10 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync disabled")
 		}
-		if m.syncProvider == "box" {
-			box := m.metadata.Box()
-			box.AutoSync = false
-			if err := m.metadata.SetBox(box); err != nil {
+		if m.syncProvider == "boat" {
+			boat := m.metadata.Boat()
+			boat.AutoSync = false
+			if err := m.metadata.SetBoat(boat); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1760,8 +1760,8 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			})
 			break
 		}
-		if m.syncProvider == "box" {
-			return m, m.setNotice("Box SSH user is always user")
+		if m.syncProvider == "boat" {
+			return m, m.setNotice("Boat SSH user is always user")
 		}
 		if m.syncProvider == "upstash" {
 			return m, m.setNotice("Upstash SSH user is the box id")
@@ -1851,12 +1851,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 	gcp := m.metadata.GCP()
 	switch action {
-	case "box_new":
-		boxType := strings.ToLower(strings.TrimSpace(values["Type"]))
-		if boxType == "" {
-			boxType = "default"
+	case "boat_new":
+		boatType := strings.ToLower(strings.TrimSpace(values["Type"]))
+		if boatType == "" {
+			boatType = "default"
 		}
-		if boxType != "small" && boxType != "default" && boxType != "large" {
+		if boatType != "small" && boatType != "default" && boatType != "large" {
 			if m.form != nil {
 				m.form.validationError = "type must be small, default, or large"
 			}
@@ -1865,25 +1865,25 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		noAutoStop := truthyForm(values["No auto-stop"])
 		noEnv := truthyForm(values["No env"])
 		m.form = nil
-		if m.syncingProviders["box"] {
-			return m.setNotice("Box operation already in progress")
+		if m.syncingProviders["boat"] {
+			return m.setNotice("Boat operation already in progress")
 		}
-		opGen := m.beginProviderOp("box")
+		opGen := m.beginProviderOp("boat")
 		if m.section == syncSection {
-			m.beginSyncBusy("Creating box…")
+			m.beginSyncBusy("Creating sandbox…")
 		} else {
 			m.syncActivity = "creating…"
 		}
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			result, alias, err := m.syncer.NewBox(ctx, boxcloud.NewOpts{
-				Type: boxType, NoAutoStop: noAutoStop, NoEnv: noEnv,
+			result, alias, err := m.syncer.NewBoat(ctx, boatcloud.NewOpts{
+				Type: boatType, NoAutoStop: noAutoStop, NoEnv: noEnv,
 			})
 			if err != nil {
-				return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
+				return syncDoneMsg{provider: "boat", result: result, err: err, opGen: opGen}
 			}
-			return syncDoneMsg{provider: "box", result: result, err: nil, focusAlias: alias, opGen: opGen}
+			return syncDoneMsg{provider: "boat", result: result, err: nil, focusAlias: alias, opGen: opGen}
 		}
 	case "sync_azure_user":
 		azure := m.metadata.Azure()
@@ -1996,7 +1996,7 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		m.form = nil
 		return m.setNotice("Service account key removed")
-	case "box_stop":
+	case "boat_stop":
 		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
 			if m.form != nil {
 				m.form.validationError = "type stop to confirm"
@@ -2005,18 +2005,18 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		syncID := strings.TrimSpace(values["SyncID"])
 		m.form = nil
-		if m.syncingProviders["box"] {
-			return m.setNotice("Box operation already in progress")
+		if m.syncingProviders["boat"] {
+			return m.setNotice("Boat operation already in progress")
 		}
-		opGen := m.beginProviderOp("box")
+		opGen := m.beginProviderOp("boat")
 		m.syncActivity = "stopping…"
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
-			result, err := m.syncer.StopBox(ctx, syncID)
-			return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
+			result, err := m.syncer.StopBoat(ctx, syncID)
+			return syncDoneMsg{provider: "boat", result: result, err: err, opGen: opGen}
 		}
-	case "box_delete":
+	case "boat_delete":
 		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
 			if m.form != nil {
 				m.form.validationError = "type delete to confirm"
@@ -2025,18 +2025,18 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		syncID := strings.TrimSpace(values["SyncID"])
 		m.form = nil
-		if m.syncingProviders["box"] {
-			return m.setNotice("Box operation already in progress")
+		if m.syncingProviders["boat"] {
+			return m.setNotice("Boat operation already in progress")
 		}
-		opGen := m.beginProviderOp("box")
+		opGen := m.beginProviderOp("boat")
 		m.syncActivity = "deleting…"
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			result, err := m.syncer.DeleteBox(ctx, syncID)
-			return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
+			result, err := m.syncer.DeleteBoat(ctx, syncID)
+			return syncDoneMsg{provider: "boat", result: result, err: err, opGen: opGen}
 		}
-	case "box_fork":
+	case "boat_fork":
 		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
 			if m.form != nil {
 				m.form.validationError = "type fork to confirm"
@@ -2045,18 +2045,18 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		syncID := strings.TrimSpace(values["SyncID"])
 		m.form = nil
-		if m.syncingProviders["box"] {
-			return m.setNotice("Box operation already in progress")
+		if m.syncingProviders["boat"] {
+			return m.setNotice("Boat operation already in progress")
 		}
-		opGen := m.beginProviderOp("box")
-		return tea.Batch(m.setNotice("Forking box…"), func() tea.Msg {
+		opGen := m.beginProviderOp("boat")
+		return tea.Batch(m.setNotice("Forking sandbox…"), func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			result, alias, err := m.syncer.ForkBox(ctx, syncID, boxcloud.ForkOpts{})
+			result, alias, err := m.syncer.ForkBoat(ctx, syncID, boatcloud.ForkOpts{})
 			if err != nil {
-				return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
+				return syncDoneMsg{provider: "boat", result: result, err: err, opGen: opGen}
 			}
-			return syncDoneMsg{provider: "box", result: result, focusAlias: alias, opGen: opGen}
+			return syncDoneMsg{provider: "boat", result: result, focusAlias: alias, opGen: opGen}
 		})
 	case "upstash_key":
 		key := strings.TrimSpace(values["API key"])

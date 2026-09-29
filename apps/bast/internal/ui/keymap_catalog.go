@@ -169,7 +169,7 @@ func buildCatalog() []Binding {
 		bind(ActionSyncEnter, []string{"enter"}, ScopeSync, "Open provider, run action, or connect", ""),
 		bind(ActionToggleGroup, []string{"space"}, ScopeSync, "Collapse or expand status group", "").chord("␣"),
 		bind(ActionSyncNow, []string{"s"}, ScopeSync, "Sync", "sync"),
-		bind(ActionNewOrFork, []string{"n"}, ScopeSync, "New box, or fork selected sandbox", "fork"),
+		bind(ActionNewOrFork, []string{"n"}, ScopeSync, "New sandbox, or fork selected sandbox", "fork"),
 		bind(ActionStopSandbox, []string{"o"}, ScopeSync, "Stop or pause selected sandbox", "stop"),
 		bind(ActionDelete, []string{"d"}, ScopeSync, "Delete selected sandbox", "delete"),
 		bind(ActionSyncBack, []string{"esc", "backspace", "ctrl+h"}, ScopeSync, "Back", "back").when(func(m *App) bool { return m.syncProvider != "" }),
@@ -289,7 +289,7 @@ func selectedSandboxHost(m *App) (sshconfig.Host, bool) {
 	if !ok || !host.Synced {
 		return host, false
 	}
-	return host, host.SyncSource == "box" || host.SyncSource == "upstash" || host.SyncSource == "vercel"
+	return host, host.SyncSource == "boat" || host.SyncSource == "upstash" || host.SyncSource == "vercel"
 }
 
 func hostsFooterSandbox(m *App) bool {
@@ -324,7 +324,7 @@ func hostsFooterHetznerStopped(m *App) bool {
 
 func hostsFooterSandboxDelete(m *App) bool {
 	host, ok := selectedSandboxHost(m)
-	return ok && (host.SyncSource == "upstash" || host.SyncSource == "vercel" || host.SyncSource == "box")
+	return ok && (host.SyncSource == "upstash" || host.SyncSource == "vercel" || host.SyncSource == "boat")
 }
 
 func hostsFooterSandboxDesktop(m *App) bool {
@@ -456,7 +456,7 @@ func syncFooterInvSandboxStopped(m *App) bool {
 
 func syncFooterInvSandboxDelete(m *App) bool {
 	row, ok := syncInvIndex(m)
-	return ok && syncFooterInvSandbox(m) && (row.host.SyncSource == "upstash" || row.host.SyncSource == "vercel" || row.host.SyncSource == "box")
+	return ok && syncFooterInvSandbox(m) && (row.host.SyncSource == "upstash" || row.host.SyncSource == "vercel" || row.host.SyncSource == "boat")
 }
 
 func syncFooterConfig(m *App) bool {

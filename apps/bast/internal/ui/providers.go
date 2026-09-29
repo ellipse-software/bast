@@ -25,8 +25,8 @@ func (m *App) providerEnabled(kind cloud.Kind) bool {
 		return m.metadata.AWS().Enabled
 	case cloud.Azure:
 		return m.metadata.Azure().Enabled
-	case cloud.Box:
-		return m.metadata.Box().Enabled
+	case cloud.Boat:
+		return m.metadata.Boat().Enabled
 	case cloud.Upstash:
 		return m.metadata.Upstash().Enabled
 	case cloud.Vercel:
@@ -79,10 +79,10 @@ func (m *App) providerGroupStats(group string) (running, stopped int) {
 
 func (m *App) providerGroupPrimaryAction(kind cloud.Kind) string {
 	if cloud.CapabilitiesFor(kind).Create {
-		if kind == cloud.Box || kind == cloud.Upstash {
+		if kind == cloud.Upstash {
 			return " New box "
 		}
-		if kind == cloud.Vercel {
+		if kind == cloud.Boat || kind == cloud.Vercel {
 			return " New sandbox "
 		}
 		return " New "
@@ -122,8 +122,8 @@ func (m *App) stopSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	switch host.SyncSource {
 	case "upstash":
 		m.openUpstashStopForm(host)
-	case "box":
-		m.openBoxStopForm(host)
+	case "boat":
+		m.openBoatStopForm(host)
 	case "vercel":
 		m.openVercelStopForm(host)
 	case "hetzner":
@@ -161,8 +161,8 @@ func (m *App) forkSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	switch host.SyncSource {
 	case "upstash":
 		m.openUpstashForkForm(host)
-	case "box":
-		m.openBoxForkForm(host)
+	case "boat":
+		m.openBoatForkForm(host)
 	case "vercel":
 		m.openVercelForkForm(host)
 	default:
@@ -180,8 +180,8 @@ func (m *App) deleteSyncedHost(host sshconfig.Host) bool {
 		m.openUpstashDeleteForm(host)
 	case "vercel":
 		m.openVercelDeleteForm(host)
-	case "box":
-		m.openBoxDeleteForm(host)
+	case "boat":
+		m.openBoatDeleteForm(host)
 	default:
 		return false
 	}
@@ -195,8 +195,8 @@ func (m *App) resumeSyncedHost(host sshconfig.Host, thenConnect bool) tea.Cmd {
 	switch host.SyncSource {
 	case "upstash":
 		return m.resumeSelectedUpstash(host, thenConnect)
-	case "box":
-		return m.resumeSelectedBox(host, thenConnect)
+	case "boat":
+		return m.resumeSelectedBoat(host, thenConnect)
 	case "vercel":
 		return m.resumeSelectedVercel(host, thenConnect)
 	case "hetzner":
@@ -215,11 +215,11 @@ func (m *App) runProviderGroupPrimary(kind cloud.Kind) (tea.Model, tea.Cmd) {
 
 func (m *App) runProviderGroupCreate(kind cloud.Kind) (tea.Model, tea.Cmd) {
 	switch kind {
-	case cloud.Box:
-		if m.syncingProviders["box"] {
-			return m, m.setNotice("Box operation already in progress")
+	case cloud.Boat:
+		if m.syncingProviders["boat"] {
+			return m, m.setNotice("Boat operation already in progress")
 		}
-		m.openBoxNewForm()
+		m.openBoatNewForm()
 		return m, nil
 	case cloud.Upstash:
 		if m.syncingProviders["upstash"] {

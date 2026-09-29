@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"bast/internal/cloud"
-	boxcloud "bast/internal/cloud/box"
+	boatcloud "bast/internal/cloud/boat"
 	hetznercloud "bast/internal/cloud/hetzner"
 	"bast/internal/cloud/sandboxfake"
 	upstashcloud "bast/internal/cloud/upstash"
@@ -348,61 +348,61 @@ func TestHetznerEngineLifecycle(t *testing.T) {
 	}
 }
 
-func TestBoxEngineLifecycle(t *testing.T) {
+func TestBoatEngineLifecycle(t *testing.T) {
 	engine, p, store := testEngine(t)
-	fake := sandboxfake.NewBox()
-	engine.Box.Run = fake.Runner()
-	engine.Box.PollInterval = time.Millisecond
+	fake := sandboxfake.NewBoat()
+	engine.Boat.Run = fake.Runner()
+	engine.Boat.PollInterval = time.Millisecond
 
-	caps := cloud.CapabilitiesFor(cloud.Box)
+	caps := cloud.CapabilitiesFor(cloud.Boat)
 	exercised := cloud.Capabilities{}
 	ctx := context.Background()
 
-	result, alias, err := engine.NewBox(ctx, boxcloud.NewOpts{})
+	result, alias, err := engine.NewBoat(ctx, boatcloud.NewOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	exercised.Create = true
-	if alias == "" || result.Count != 1 || result.Provider != boxcloud.ProviderName {
+	if alias == "" || result.Count != 1 || result.Provider != boatcloud.ProviderName {
 		t.Fatalf("create result=%+v alias=%q", result, alias)
 	}
 	var syncID string
-	for id := range fake.Boxes {
+	for id := range fake.Sandboxes {
 		syncID = id
 	}
-	block := hostBySyncID(loadProviderConfig(t, p.SyncBoxConfig), syncID)
-	if block.Alias != alias || block.SyncSource != "box" {
+	block := hostBySyncID(loadProviderConfig(t, p.SyncBoatConfig), syncID)
+	if block.Alias != alias || block.SyncSource != "boat" {
 		t.Fatalf("ssh block = %+v", block)
 	}
-	if boxcloud.HostLooksStopped(block.HostName, store.Host(alias).Tags) {
-		t.Fatal("new box looks stopped")
+	if boatcloud.HostLooksStopped(block.HostName, store.Host(alias).Tags) {
+		t.Fatal("new sandbox looks stopped")
 	}
 
-	result, err = engine.StopBox(ctx, syncID)
+	result, err = engine.StopBoat(ctx, syncID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	exercised.Stop = true
 	meta := store.Host(alias)
-	stoppedHost := hostBySyncID(loadProviderConfig(t, p.SyncBoxConfig), syncID)
-	if !boxcloud.HostLooksStopped(stoppedHost.HostName, meta.Tags) {
+	stoppedHost := hostBySyncID(loadProviderConfig(t, p.SyncBoatConfig), syncID)
+	if !boatcloud.HostLooksStopped(stoppedHost.HostName, meta.Tags) {
 		t.Fatalf("stopped host=%+v tags=%v", stoppedHost, meta.Tags)
 	}
 
-	result, err = engine.ResumeBox(ctx, syncID, boxcloud.ResumeOpts{})
+	result, err = engine.ResumeBoat(ctx, syncID, boatcloud.ResumeOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	exercised.Start = true
-	if boxcloud.HostLooksStopped(hostBySyncID(loadProviderConfig(t, p.SyncBoxConfig), syncID).HostName, store.Host(alias).Tags) {
-		t.Fatal("resume left box stopped")
+	if boatcloud.HostLooksStopped(hostBySyncID(loadProviderConfig(t, p.SyncBoatConfig), syncID).HostName, store.Host(alias).Tags) {
+		t.Fatal("resume left boat stopped")
 	}
 
-	result, err = engine.StopBox(ctx, syncID)
+	result, err = engine.StopBoat(ctx, syncID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, forkAlias, err := engine.ForkBox(ctx, syncID, boxcloud.ForkOpts{})
+	result, forkAlias, err := engine.ForkBoat(ctx, syncID, boatcloud.ForkOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,16 +412,16 @@ func TestBoxEngineLifecycle(t *testing.T) {
 	}
 
 	if !caps.Delete {
-		t.Fatal("box must advertise Delete")
+		t.Fatal("boat must advertise Delete")
 	}
 	var forkID string
-	for id := range fake.Boxes {
+	for id := range fake.Sandboxes {
 		if id != syncID {
 			forkID = id
 			break
 		}
 	}
-	result, err = engine.DeleteBox(ctx, forkID)
+	result, err = engine.DeleteBoat(ctx, forkID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +429,7 @@ func TestBoxEngineLifecycle(t *testing.T) {
 	if fake.Get(forkID) != nil {
 		t.Fatal("deleted fork still in fake")
 	}
-	if hostBySyncID(loadProviderConfig(t, p.SyncBoxConfig), forkID).Alias != "" {
+	if hostBySyncID(loadProviderConfig(t, p.SyncBoatConfig), forkID).Alias != "" {
 		t.Fatal("deleted fork still in SSH config")
 	}
 
@@ -455,7 +455,7 @@ func TestAdvertisedLifecycleOpsMatchEngineCoverage(t *testing.T) {
 		strings.Join([]string{"t", "Skip"}, "."),
 		strings.Join([]string{"api", "vercel", "com"}, "."),
 		strings.Join([]string{"api", "hetzner", "cloud"}, "."),
-		strings.Join([]string{"box", "upstash", "com"}, "."),
+		strings.Join([]string{"boat", "upstash", "com"}, "."),
 		vercelcloud.DefaultBaseURL,
 		hetznercloud.DefaultBaseURL,
 		upstashcloud.DefaultBaseURL,
@@ -474,17 +474,17 @@ func TestAdvertisedLifecycleOpsMatchEngineCoverage(t *testing.T) {
 	if !strings.Contains(body, "engine.Hetzner.BaseURL = api.URL()") {
 		t.Fatal("Hetzner engine tests must point the shipped client at the fake BaseURL")
 	}
-	if !strings.Contains(body, "engine.Box.Run = fake.Runner()") {
-		t.Fatal("Box engine tests must drive the shipped client through the fake runner")
+	if !strings.Contains(body, "engine.Boat.Run = fake.Runner()") {
+		t.Fatal("Boat engine tests must drive the shipped client through the fake runner")
 	}
 
 	methods := map[cloud.Kind]map[string]string{
 		cloud.Vercel:  {"Create": "NewVercel", "Stop": "StopVercel", "Start": "ResumeVercel", "Fork": "ForkVercel", "Delete": "DeleteVercel"},
 		cloud.Upstash: {"Create": "NewUpstash", "Stop": "StopUpstash", "Start": "ResumeUpstash", "Fork": "ForkUpstash", "Delete": "DeleteUpstash"},
 		cloud.Hetzner: {"Start": "StartHetzner", "Stop": "StopHetzner", "Restart": "RestartHetzner"},
-		cloud.Box:     {"Create": "NewBox", "Stop": "StopBox", "Start": "ResumeBox", "Fork": "ForkBox", "Delete": "DeleteBox"},
+		cloud.Boat:    {"Create": "NewBoat", "Stop": "StopBoat", "Start": "ResumeBoat", "Fork": "ForkBoat", "Delete": "DeleteBoat"},
 	}
-	for _, kind := range []cloud.Kind{cloud.Box, cloud.Upstash, cloud.Vercel, cloud.Hetzner} {
+	for _, kind := range []cloud.Kind{cloud.Boat, cloud.Upstash, cloud.Vercel, cloud.Hetzner} {
 		caps := cloud.CapabilitiesFor(kind)
 		want, ok := methods[kind]
 		if !ok {

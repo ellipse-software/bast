@@ -149,8 +149,8 @@ func (e *Engine) aliasFromHosts(ctx context.Context, provider, syncID string) st
 
 func (e *Engine) syncConfigPath(provider string) string {
 	switch provider {
-	case "box":
-		return e.Paths.SyncBoxConfig
+	case "boat":
+		return e.Paths.SyncBoatConfig
 	case "upstash":
 		return e.Paths.SyncUpstashConfig
 	case "vercel":

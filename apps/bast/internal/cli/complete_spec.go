@@ -6,7 +6,7 @@ const (
 	valueFree valueKind = iota
 	valueHost
 	valueKey
-	valueBoxHost
+	valueBoatHost
 	valueUpstashHost
 	valueVercelHost
 	valueHetznerHost
@@ -60,7 +60,7 @@ func (n specNode) names() []string {
 
 var completionShells = []string{"bash", "zsh", "fish", "powershell", "elvish", "nushell"}
 
-var syncProviders = []string{"gcp", "aws", "azure", "box", "upstash", "vercel", "hetzner"}
+var syncProviders = []string{"gcp", "aws", "azure", "boat", "upstash", "vercel", "hetzner"}
 
 var globalFlagSpecs = []flagSpec{
 	{name: "json", desc: "structured JSON", boolean: true},
@@ -83,7 +83,7 @@ func completionRoot() specNode {
 			hostsSpec(),
 			keysSpec(),
 			syncSpec(),
-			boxSpec(),
+			boatSpec(),
 			upstashSpec(),
 			vercelSpec(),
 			hetznerSpec(),
@@ -210,7 +210,7 @@ func syncSpec() specNode {
 			{name: "gcp", desc: "import GCP VMs"},
 			{name: "aws", desc: "import Amazon EC2 instances"},
 			{name: "azure", desc: "import Azure Linux VMs"},
-			{name: "box", desc: "import box.ascii.dev hosts"},
+			{name: "boat", aliases: []string{"box"}, desc: "import boat.dev hosts"},
 			{name: "upstash", desc: "import Upstash Box hosts"},
 			{name: "vercel", desc: "import Vercel Sandboxes"},
 			{name: "hetzner", desc: "import Hetzner Cloud servers"},
@@ -224,28 +224,29 @@ func syncSpec() specNode {
 	}
 }
 
-func boxSpec() specNode {
-	boxArg := argSpec{kind: valueBoxHost, desc: "host or id", includeHidden: true}
+func boatSpec() specNode {
+	boatArg := argSpec{kind: valueBoatHost, desc: "host or id", includeHidden: true}
 	typeFlag := enumFlag("type", "machine size", "small", "default", "large")
 	return specNode{
-		name: "box",
-		desc: "create and manage ASCII Box sandboxes",
+		name:    "boat",
+		aliases: []string{"box"},
+		desc:    "create and manage Boat sandboxes",
 		children: []specNode{
 			{
 				name: "new",
-				desc: "create a box",
+				desc: "create a sandbox",
 				flags: []flagSpec{
 					typeFlag,
 					{name: "ttl", desc: "auto-stop TTL in seconds"},
 					boolFlag("no-auto-stop", "disable automatic stop"),
-					boolFlag("no-env", "create a no-env box"),
+					boolFlag("no-env", "create a no-env sandbox"),
 				},
 			},
-			{name: "fork", desc: "fork a box", flags: []flagSpec{typeFlag, boolFlag("no-env", "fork as no-env")}, args: []argSpec{boxArg}},
-			{name: "stop", desc: "stop a box", args: []argSpec{boxArg}},
-			{name: "resume", desc: "resume a box", flags: []flagSpec{typeFlag, boolFlag("no-env", "resume as no-env")}, args: []argSpec{boxArg}},
-			{name: "delete", desc: "delete a box and its snapshots", flags: []flagSpec{boolFlag("yes", "skip confirmation")}, args: []argSpec{boxArg}},
-			{name: "snapshots", desc: "list snapshots", args: []argSpec{{kind: valueBoxHost, desc: "host or id", includeHidden: true, optional: true}}},
+			{name: "fork", desc: "fork a sandbox", flags: []flagSpec{typeFlag, boolFlag("no-env", "fork as no-env")}, args: []argSpec{boatArg}},
+			{name: "stop", desc: "stop a sandbox", args: []argSpec{boatArg}},
+			{name: "resume", desc: "resume a sandbox", flags: []flagSpec{typeFlag, boolFlag("no-env", "resume as no-env")}, args: []argSpec{boatArg}},
+			{name: "delete", desc: "delete a sandbox and its snapshots", flags: []flagSpec{boolFlag("yes", "skip confirmation")}, args: []argSpec{boatArg}},
+			{name: "snapshots", desc: "list snapshots", args: []argSpec{{kind: valueBoatHost, desc: "host or id", includeHidden: true, optional: true}}},
 			{
 				name: "snapshot",
 				desc: "delete a filesystem or named snapshot",

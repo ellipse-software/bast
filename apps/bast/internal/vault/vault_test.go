@@ -177,16 +177,16 @@ func TestApplyKeepsCloudSyncIncludes(t *testing.T) {
 	cfg := sshconfig.Manager{
 		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-		SyncBoxConfig: p.SyncBoxConfig, SyncGCPConfig: p.SyncGCPConfig,
+		SyncBoatConfig: p.SyncBoatConfig, SyncGCPConfig: p.SyncGCPConfig,
 	}
 	if err := cfg.EnsureManaged(); err != nil {
 		t.Fatal(err)
 	}
-	if err := cfg.EnsureSyncInclude(p.SyncBoxConfig); err != nil {
+	if err := cfg.EnsureSyncInclude(p.SyncBoatConfig); err != nil {
 		t.Fatal(err)
 	}
-	if err := sshconfig.WriteSyncConfig(p.SyncBoxConfig, []sshconfig.SyncHostInput{{
-		Alias: "box_dev", SyncSource: "box", SyncID: "bx_dev0001",
+	if err := sshconfig.WriteSyncConfig(p.SyncBoatConfig, []sshconfig.SyncHostInput{{
+		Alias: "boat_dev", SyncSource: "boat", SyncID: "bx_dev0001",
 		HostName: "203.0.113.10", User: "user",
 	}}); err != nil {
 		t.Fatal(err)
@@ -214,8 +214,8 @@ func TestApplyKeepsCloudSyncIncludes(t *testing.T) {
 	if byAlias["prod"].Alias == "" || byAlias["prod"].Resolved.HostName != "prod.example" {
 		t.Fatalf("managed host missing: %+v", byAlias)
 	}
-	if !byAlias["box_dev"].Synced {
-		t.Fatalf("synced box disappeared after vault apply: %+v", byAlias)
+	if !byAlias["boat_dev"].Synced {
+		t.Fatalf("synced boat disappeared after vault apply: %+v", byAlias)
 	}
 }
 
@@ -225,13 +225,13 @@ func TestApplyRestoresWipedSyncIncludeWhenEnabled(t *testing.T) {
 	cfg := sshconfig.Manager{
 		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-		SyncBoxConfig: p.SyncBoxConfig,
+		SyncBoatConfig: p.SyncBoatConfig,
 	}
 	if err := cfg.EnsureManaged(); err != nil {
 		t.Fatal(err)
 	}
-	if err := sshconfig.WriteSyncConfig(p.SyncBoxConfig, []sshconfig.SyncHostInput{{
-		Alias: "box_dev", SyncSource: "box", SyncID: "bx_dev0001",
+	if err := sshconfig.WriteSyncConfig(p.SyncBoatConfig, []sshconfig.SyncHostInput{{
+		Alias: "boat_dev", SyncSource: "boat", SyncID: "bx_dev0001",
 		HostName: "203.0.113.10", User: "user",
 	}}); err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestApplyRestoresWipedSyncIncludeWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+	if err := store.SetBoat(metadata.BoatIntegration{Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	applier := Applier{Paths: p, Config: cfg, Store: store}
@@ -257,12 +257,12 @@ func TestApplyRestoresWipedSyncIncludeWhenEnabled(t *testing.T) {
 	}
 	found := false
 	for _, host := range hosts {
-		if host.Alias == "box_dev" && host.Synced {
+		if host.Alias == "boat_dev" && host.Synced {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("enabled box sync should be restored after vault apply: %+v", hosts)
+		t.Fatalf("enabled boat sync should be restored after vault apply: %+v", hosts)
 	}
 }
 

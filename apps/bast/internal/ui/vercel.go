@@ -47,9 +47,9 @@ func (m *App) resumeSelectedVercel(host sshconfig.Host, thenConnect bool) tea.Cm
 	opGen := m.beginProviderOp("vercel")
 	m.syncActivity = "resuming…"
 	if thenConnect {
-		m.boxConnectAfter = host.Alias
+		m.sandboxConnectAfter = host.Alias
 	} else {
-		m.boxConnectAfter = ""
+		m.sandboxConnectAfter = ""
 	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)

@@ -43,7 +43,7 @@ export const termiusComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud hosts",
-      bast: "CLIs for GCP, AWS, Azure, and Box; APIs for Hetzner, Upstash, and Vercel",
+      bast: "CLIs for GCP, AWS, Azure, and Boat; APIs for Hetzner, Upstash, and Vercel",
       competitor: "Mostly manual host setup",
     },
     {
@@ -129,7 +129,7 @@ export const termiusComparison: ComparisonCaseStudy = {
       title: "Cloud hosts without spreadsheet busywork",
       paragraphs: [
         <>
-          Bast imports live inventory from GCP, AWS, Azure, and box.ascii.dev
+          Bast imports live inventory from GCP, AWS, Azure, and Boat
           through each provider&apos;s CLI, and from Hetzner Cloud, Upstash Box,
           and Vercel Sandbox over their APIs. Synced hosts stay read-only and
           owned by the cloud. When an instance disappears upstream, sync removes

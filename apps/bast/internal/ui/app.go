@@ -233,10 +233,10 @@ type App struct {
 	vaultOpGen          uint64
 	vaultRemoteRetry    bool // one-shot auto-recovery after ErrRemoteUpdated
 	vaultConflict       *vaultConflictState
-	syncBusy            string          // full-screen Sync overlay for long ops (e.g. box create)
+	syncBusy            string          // full-screen Sync overlay for long ops (e.g. boat create)
 	syncActivity        string          // footer label while a provider op runs (e.g. "resuming…")
 	syncProgressCh      chan string     // live labels for long Sync ops (Vercel cleanup)
-	boxConnectAfter     string          // after box resume+reload, SSH into this alias
+	sandboxConnectAfter string          // after sandbox resume+reload, SSH into this alias
 	syncInvCollapsed    map[string]bool // session-only status-group collapse on provider pages
 
 	files filesState
@@ -256,7 +256,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig,
 		},
 		openSSH:          client,
 		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
@@ -269,6 +269,9 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		collapsedGroups:  collapsedGroupsFromPrefs(store.Preferences().CollapsedGroups),
 		syncingProviders: map[string]bool{},
 		syncOpGen:        map[string]uint64{},
+	}
+	if err := app.config.MigrateBoatSync(); err != nil {
+		return nil, err
 	}
 	app.hostMeta, app.hostMetaRevision = store.HostsSnapshot()
 	app.historySuggestions = store.HistoryImport().Pending
@@ -311,8 +314,8 @@ func (m *App) clearProviderProbeError(provider string) {
 		m.syncStatus.Azure.AzureCLIError = ""
 		m.syncStatus.Azure.SSHExtensionError = ""
 		m.syncStatus.Azure.BastionExtensionError = ""
-	case "box":
-		m.syncStatus.Box.BoxCLIError = ""
+	case "boat":
+		m.syncStatus.Boat.BoatCLIError = ""
 	case "upstash":
 		m.syncStatus.Upstash.Error = ""
 	case "vercel":
@@ -347,14 +350,14 @@ func (m *App) syncCompletionNotice(provider string, count int) string {
 	gcp := m.metadata.GCP()
 	aws := m.metadata.AWS()
 	azure := m.metadata.Azure()
-	box := m.metadata.Box()
+	boat := m.metadata.Boat()
 	upstash := m.metadata.Upstash()
 	vercel := m.metadata.Vercel()
 	providers := []providerCount{
 		{id: "gcp", name: "GCP", enabled: gcp.Enabled, count: gcp.LastInstanceCount},
 		{id: "aws", name: "AWS", enabled: aws.Enabled, count: aws.LastInstanceCount},
 		{id: "azure", name: "Azure", enabled: azure.Enabled, count: azure.LastInstanceCount},
-		{id: "box", name: "Box", enabled: box.Enabled, count: box.LastInstanceCount},
+		{id: "boat", name: "Boat", enabled: boat.Enabled, count: boat.LastInstanceCount},
 		{id: "upstash", name: "Upstash", enabled: upstash.Enabled, count: upstash.LastInstanceCount},
 		{id: "vercel", name: "Vercel", enabled: vercel.Enabled, count: vercel.LastInstanceCount},
 		{id: "hetzner", name: "Hetzner", enabled: m.metadata.Hetzner().Enabled, count: m.metadata.Hetzner().LastInstanceCount},
@@ -405,13 +408,13 @@ func (m *App) autoSyncCmds() tea.Cmd {
 		m.beginProviderOp("azure")
 		autoSyncCmds = append(autoSyncCmds, m.syncAzureCmd())
 	}
-	if box := m.metadata.Box(); !box.Disabled && !m.syncingProviders["box"] {
-		if box.Enabled && box.AutoSync {
-			m.beginProviderOp("box")
-			autoSyncCmds = append(autoSyncCmds, m.syncBoxCmd())
-		} else if !box.Enabled {
-			m.beginProviderOp("box")
-			autoSyncCmds = append(autoSyncCmds, m.autoConnectBoxCmd())
+	if boat := m.metadata.Boat(); !boat.Disabled && !m.syncingProviders["boat"] {
+		if boat.Enabled && boat.AutoSync {
+			m.beginProviderOp("boat")
+			autoSyncCmds = append(autoSyncCmds, m.syncBoatCmd())
+		} else if !boat.Enabled {
+			m.beginProviderOp("boat")
+			autoSyncCmds = append(autoSyncCmds, m.autoConnectBoatCmd())
 		}
 	}
 	if upstash := m.metadata.Upstash(); !upstash.Disabled && !m.syncingProviders["upstash"] {
@@ -502,13 +505,13 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.sortHosts()
 		}
 		if msg.err != nil {
-			m.boxConnectAfter = ""
+			m.sandboxConnectAfter = ""
 			m.setError(msg.err)
 			return m, m.autoSyncCmds()
 		}
 		m.keys = msg.keys
 		m.selectAfterLoad()
-		if cmd := m.connectAfterBoxResume(); cmd != nil {
+		if cmd := m.connectAfterSandboxResume(); cmd != nil {
 			cmds := []tea.Cmd{cmd}
 			if msg.enrichmentErrors > 0 {
 				cmds = append(cmds, m.setNotice(fmt.Sprintf("%d host details could not be resolved", msg.enrichmentErrors)))
@@ -612,11 +615,11 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncActivity = ""
 		m.clampSyncCursor(m.syncMenuItems())
 		if msg.skipped {
-			m.boxConnectAfter = ""
+			m.sandboxConnectAfter = ""
 			return m, m.syncStatusCmd()
 		}
 		if msg.err != nil {
-			m.boxConnectAfter = ""
+			m.sandboxConnectAfter = ""
 			telemetry.Track("sync_"+msg.provider+"_fail", m.version)
 			m.setError(msg.err)
 			return m, m.syncStatusCmd()
@@ -629,9 +632,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				notice += fmt.Sprintf(" · %d unrestorable", n)
 			}
 		}
-		connectAfter := m.boxConnectAfter
+		connectAfter := m.sandboxConnectAfter
 		if msg.result.Error == "disabled" {
-			m.boxConnectAfter = ""
+			m.sandboxConnectAfter = ""
 			notice = label + " sync disconnected"
 			telemetry.Track("sync_"+msg.provider+"_disable", m.version)
 		} else if msg.notice != "" {
@@ -660,7 +663,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if notice != "" {
 				notice = "Created " + notice
 			} else {
-				notice = "Box created"
+				notice = "Sandbox created"
 			}
 			telemetry.Track("sync_"+msg.provider, m.version)
 		} else {

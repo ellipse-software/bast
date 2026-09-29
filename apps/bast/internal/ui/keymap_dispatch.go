@@ -492,7 +492,7 @@ func (m *App) actionFavorite() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash" || host.SyncSource == "vercel") {
+	if host.Synced && (host.SyncSource == "boat" || host.SyncSource == "upstash" || host.SyncSource == "vercel") {
 		return m, m.setNotice("Synced sandbox hosts are read-only")
 	}
 	_, err := m.metadata.ToggleFavorite(host.Alias)
@@ -513,7 +513,7 @@ func (m *App) actionHideHost() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash" || host.SyncSource == "vercel") {
+	if host.Synced && (host.SyncSource == "boat" || host.SyncSource == "upstash" || host.SyncSource == "vercel") {
 		return m, m.setNotice("Synced sandbox hosts are read-only")
 	}
 	hidden, err := m.metadata.ToggleHidden(host.Alias)

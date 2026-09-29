@@ -15,7 +15,7 @@ import (
 	"bast/internal/platform"
 )
 
-const CurrentVersion = 7
+const CurrentVersion = 8
 
 type Host struct {
 	Label           string     `json:"label,omitempty"`
@@ -99,7 +99,7 @@ type AzureIntegration struct {
 	LastInstanceCount   int        `json:"lastInstanceCount,omitempty"`
 }
 
-type BoxIntegration struct {
+type BoatIntegration struct {
 	Enabled           bool       `json:"enabled"`
 	AutoSync          bool       `json:"autoSync,omitempty"`
 	Disabled          bool       `json:"disabled,omitempty"` // sticky user opt-out; blocks auto-connect
@@ -169,10 +169,28 @@ type Integrations struct {
 	GCP     *GCPIntegration     `json:"gcp,omitempty"`
 	AWS     *AWSIntegration     `json:"aws,omitempty"`
 	Azure   *AzureIntegration   `json:"azure,omitempty"`
-	Box     *BoxIntegration     `json:"box,omitempty"`
+	Boat    *BoatIntegration    `json:"boat,omitempty"`
 	Upstash *UpstashIntegration `json:"upstash,omitempty"`
 	Vercel  *VercelIntegration  `json:"vercel,omitempty"`
 	Hetzner *HetznerIntegration `json:"hetzner,omitempty"`
+}
+
+// Read the former provider name without writing it back into new state files.
+// A Boat setting, including an explicit opt-out, takes precedence.
+func (i *Integrations) UnmarshalJSON(data []byte) error {
+	type current Integrations
+	var decoded struct {
+		current
+		Box *BoatIntegration `json:"box"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*i = Integrations(decoded.current)
+	if i.Boat == nil {
+		i.Boat = decoded.Box
+	}
+	return nil
 }
 
 // VaultTombstones records Bast-managed hosts and keys that were deleted locally
@@ -230,10 +248,22 @@ func Open(path string) (*Store, error) {
 		} else if strings.HasPrefix(host.Group, "AWS/") {
 			host.Group = "Amazon EC2/" + strings.TrimPrefix(host.Group, "AWS/")
 		}
+		host.Group = migrateBoatGroup(host.Group)
 		s.state.Hosts[alias] = host
 	}
+	for i, group := range s.state.Preferences.CollapsedGroups {
+		s.state.Preferences.CollapsedGroups[i] = migrateBoatGroup(group)
+	}
+	s.state.Preferences.CollapsedGroups = cleanCollapsedGroups(s.state.Preferences.CollapsedGroups)
 	s.state.Version = CurrentVersion
 	return s, nil
+}
+
+func migrateBoatGroup(group string) string {
+	if group == "Box" || strings.HasPrefix(group, "Box/") {
+		return "Boat" + strings.TrimPrefix(group, "Box")
+	}
+	return group
 }
 
 func (s *Store) Host(alias string) Host {
@@ -738,28 +768,28 @@ func (s *Store) SetAzure(azure AzureIntegration) error {
 	return nil
 }
 
-func (s *Store) Box() BoxIntegration {
+func (s *Store) Boat() BoatIntegration {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.state.Integrations.Box == nil {
-		return BoxIntegration{}
+	if s.state.Integrations.Boat == nil {
+		return BoatIntegration{}
 	}
-	return cloneBox(*s.state.Integrations.Box)
+	return cloneBoat(*s.state.Integrations.Boat)
 }
 
-func (s *Store) SetBox(box BoxIntegration) error {
+func (s *Store) SetBoat(boat BoatIntegration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous := s.state.Integrations.Box
-	if !box.Enabled && !box.AutoSync && !box.Disabled && box.LastSyncAt == nil &&
-		box.LastSyncError == "" && box.LastInstanceCount == 0 {
-		s.state.Integrations.Box = nil
+	previous := s.state.Integrations.Boat
+	if !boat.Enabled && !boat.AutoSync && !boat.Disabled && boat.LastSyncAt == nil &&
+		boat.LastSyncError == "" && boat.LastInstanceCount == 0 {
+		s.state.Integrations.Boat = nil
 	} else {
-		copy := cloneBox(box)
-		s.state.Integrations.Box = &copy
+		copy := cloneBoat(boat)
+		s.state.Integrations.Boat = &copy
 	}
 	if err := s.save(); err != nil {
-		s.state.Integrations.Box = previous
+		s.state.Integrations.Boat = previous
 		return err
 	}
 	return nil
@@ -943,12 +973,12 @@ func cloneAzure(azure AzureIntegration) AzureIntegration {
 	return azure
 }
 
-func cloneBox(box BoxIntegration) BoxIntegration {
-	if box.LastSyncAt != nil {
-		lastSyncAt := *box.LastSyncAt
-		box.LastSyncAt = &lastSyncAt
+func cloneBoat(boat BoatIntegration) BoatIntegration {
+	if boat.LastSyncAt != nil {
+		lastSyncAt := *boat.LastSyncAt
+		boat.LastSyncAt = &lastSyncAt
 	}
-	return box
+	return boat
 }
 
 func cloneUpstash(upstash UpstashIntegration) UpstashIntegration {
@@ -993,9 +1023,9 @@ func cloneIntegrations(integrations Integrations) Integrations {
 		azure := cloneAzure(*integrations.Azure)
 		out.Azure = &azure
 	}
-	if integrations.Box != nil {
-		box := cloneBox(*integrations.Box)
-		out.Box = &box
+	if integrations.Boat != nil {
+		boat := cloneBoat(*integrations.Boat)
+		out.Boat = &boat
 	}
 	if integrations.Upstash != nil {
 		upstash := cloneUpstash(*integrations.Upstash)

@@ -1,4 +1,4 @@
-package box
+package boat
 
 import (
 	"bytes"
@@ -9,17 +9,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
 )
 
-const ProviderName = "box"
+const ProviderName = "boat"
 
 const (
 	SSHUser         = "user"
 	IdentityFile    = "~/.ssh/ascii_box_ed25519"
-	StoppedHostName = "box.stopped.invalid"
+	StoppedHostName = "boat.stopped.invalid"
 )
 
 // stoppedHostName keeps internal call sites on the exported constant.
@@ -28,8 +29,8 @@ const stoppedHostName = StoppedHostName
 type Runner func(ctx context.Context, args []string, env []string) ([]byte, error)
 
 type Client struct {
-	Box string
-	Run Runner
+	Boat string
+	Run  Runner
 	// PollInterval overrides WaitReady/WaitStopped sleep; zero uses 1s.
 	PollInterval time.Duration
 }
@@ -60,11 +61,11 @@ type Instance struct {
 	IdentitiesOnly    bool
 	Running           bool
 	SnapshotAvailable bool
-	BoxType           string
+	SandboxType       string
 	Tags              []string
 }
 
-type boxRecord struct {
+type sandboxRecord struct {
 	ID                string  `json:"id"`
 	Name              string  `json:"name"`
 	State             string  `json:"state"`
@@ -73,22 +74,26 @@ type boxRecord struct {
 	SnapshotAvailable bool    `json:"snapshotAvailable"`
 }
 
-func New() *Client { return &Client{Box: resolveBoxBin(), Run: defaultRunner} }
+func New() *Client { return &Client{Boat: resolveBoatBin(), Run: defaultRunner} }
 
-// resolveBoxBin finds the Box CLI. The installer puts it at ~/.ascii/bin/box and
-// exposes a shell function named box, so LookPath("box") often fails for GUI/TUI launches.
-func resolveBoxBin() string {
-	if env := strings.TrimSpace(os.Getenv("BOX_CLI")); env != "" {
+// resolveBoatBin finds the Boat CLI. The installer puts it at ~/.ascii/bin/boat and
+// exposes a shell function named boat, so LookPath("boat") often fails for GUI/TUI launches.
+func resolveBoatBin() string {
+	if env := strings.TrimSpace(os.Getenv("BOAT_CLI")); env != "" {
 		return env
 	}
-	if found, err := exec.LookPath("box"); err == nil {
+	if found, err := exec.LookPath("boat"); err == nil {
 		return found
 	}
 	home, err := os.UserHomeDir()
 	if err == nil {
+		name := "boat"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
 		candidates := []string{
-			filepath.Join(home, ".ascii", "bin", "box"),
-			filepath.Join(home, ".local", "bin", "box"),
+			filepath.Join(home, ".ascii", "bin", name),
+			filepath.Join(home, ".local", "bin", name),
 		}
 		for _, candidate := range candidates {
 			if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
@@ -96,12 +101,12 @@ func resolveBoxBin() string {
 			}
 		}
 	}
-	for _, candidate := range []string{"/opt/homebrew/bin/box", "/usr/local/bin/box"} {
+	for _, candidate := range []string{"/opt/homebrew/bin/boat", "/usr/local/bin/boat"} {
 		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
 			return candidate
 		}
 	}
-	return "box"
+	return "boat"
 }
 
 func defaultRunner(ctx context.Context, args []string, env []string) ([]byte, error) {
@@ -116,28 +121,28 @@ func defaultRunner(ctx context.Context, args []string, env []string) ([]byte, er
 		if msg == "" {
 			msg = err.Error()
 		}
-		return nil, fmt.Errorf("box: %s", msg)
+		return nil, fmt.Errorf("boat: %s", msg)
 	}
 	return out, nil
 }
 
 func (c *Client) bin() string {
-	if c.Box != "" {
-		return c.Box
+	if c.Boat != "" {
+		return c.Boat
 	}
-	return "box"
+	return "boat"
 }
 
-const boxCLIProbeTimeout = 20 * time.Second
+const boatCLIProbeTimeout = 20 * time.Second
 
-func boundBoxCmd(ctx context.Context, args []string) (context.Context, context.CancelFunc) {
+func boundBoatCmd(ctx context.Context, args []string) (context.Context, context.CancelFunc) {
 	cmd := ""
 	if len(args) > 0 {
 		cmd = args[0]
 	}
 	switch cmd {
 	case "info", "list", "status", "--version":
-		return context.WithTimeout(ctx, boxCLIProbeTimeout)
+		return context.WithTimeout(ctx, boatCLIProbeTimeout)
 	default:
 		return ctx, func() {}
 	}
@@ -148,7 +153,7 @@ func (c *Client) runRaw(ctx context.Context, args ...string) ([]byte, error) {
 	if run == nil {
 		run = defaultRunner
 	}
-	ctx, cancel := boundBoxCmd(ctx, args)
+	ctx, cancel := boundBoatCmd(ctx, args)
 	defer cancel()
 	full := append([]string{c.bin()}, args...)
 	return run(ctx, full, nil)
@@ -167,12 +172,12 @@ func (c *Client) CheckAvailable(ctx context.Context) error {
 	msg := err.Error()
 	if errors.Is(err, exec.ErrNotFound) || strings.Contains(msg, "executable file not found") ||
 		strings.Contains(msg, "command not found") || strings.Contains(msg, "not found in $PATH") {
-		return fmt.Errorf("Box CLI not found; install from https://box.ascii.dev/ and run box login")
+		return fmt.Errorf("Boat CLI not found; install from https://boat.dev/ and run boat login")
 	}
 	if _, lookErr := exec.LookPath(c.bin()); lookErr == nil {
 		return nil
 	}
-	return fmt.Errorf("Box CLI is not usable: %w", err)
+	return fmt.Errorf("Boat CLI is not usable: %w", err)
 }
 
 func (c *Client) Account(ctx context.Context) (AccountStatus, error) {
@@ -185,17 +190,17 @@ func (c *Client) Account(ctx context.Context) (AccountStatus, error) {
 		lower := strings.ToLower(msg)
 		if strings.Contains(lower, "unauthor") || strings.Contains(lower, "not logged") ||
 			strings.Contains(lower, "login") || strings.Contains(lower, "401") {
-			return AccountStatus{Authenticated: false, Error: "not logged in; run box login"}, nil
+			return AccountStatus{Authenticated: false, Error: "not logged in; run boat login"}, nil
 		}
 		return AccountStatus{Error: msg}, err
 	}
 	var raw map[string]any
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return AccountStatus{Authenticated: false, Error: "could not parse box status"}, nil
+		return AccountStatus{Authenticated: false, Error: "could not parse boat status"}, nil
 	}
 	login, email, plan := parseStatusIdentity(raw)
 	if !statusLooksAuthenticated(raw) && login == "" && email == "" {
-		return AccountStatus{Authenticated: false, Error: "not logged in; run box login"}, nil
+		return AccountStatus{Authenticated: false, Error: "not logged in; run boat login"}, nil
 	}
 	if login == "" {
 		login = email
@@ -221,7 +226,7 @@ func parseStatusIdentity(raw map[string]any) (login, email, plan string) {
 		if email == "" {
 			email, _ = account["email"].(string)
 		}
-		// Real box status uses identifier for email-style accounts.
+		// Real boat status uses identifier for email-style accounts.
 		if email == "" && strings.Contains(login, "@") {
 			email = login
 		}
@@ -278,26 +283,38 @@ func (c *Client) Discover(ctx context.Context, _ DiscoverConfig) (Discovery, err
 	if !account.Authenticated {
 		msg := account.Error
 		if msg == "" {
-			msg = "not logged in; run box login"
+			msg = "not logged in; run boat login"
 		}
 		return Discovery{}, fmt.Errorf("%s", msg)
 	}
-	// Include stopping/archiving (t): Box snapshotting can take minutes, and
+	// Include stopping/archiving (t): Boat snapshotting can take minutes, and
 	// omitting that group makes Bast delete the host until it becomes stopped.
 	out, err := c.run(ctx, "list", "--filter", "srt")
 	if err != nil {
 		return Discovery{}, err
 	}
 	var raw struct {
-		Boxes []boxRecord `json:"boxes"`
+		Sandboxes []sandboxRecord `json:"sandboxes"`
+		OK        *bool           `json:"ok"`
+		PageInfo  struct {
+			HasMore bool `json:"hasMore"`
+		} `json:"pageInfo"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return Discovery{}, fmt.Errorf("parse box list: %w", err)
+		return Discovery{}, fmt.Errorf("parse boat list: %w", err)
 	}
-	instances := make([]Instance, 0, len(raw.Boxes))
-	for _, rec := range raw.Boxes {
+	if raw.Sandboxes == nil {
+		return Discovery{}, fmt.Errorf("parse boat list: missing sandboxes array; update the Boat CLI from https://boat.dev/install")
+	}
+	if raw.OK != nil && !*raw.OK {
+		return Discovery{}, fmt.Errorf("boat list failed; run boat list --json for details")
+	}
+	instances := make([]Instance, 0, len(raw.Sandboxes))
+	for i, rec := range raw.Sandboxes {
 		if inst, ok := instanceFromRecord(rec); ok {
 			instances = append(instances, inst)
+		} else {
+			return Discovery{}, fmt.Errorf("parse boat list: sandbox %d has no id", i+1)
 		}
 	}
 	sort.Slice(instances, func(i, j int) bool {
@@ -306,10 +323,14 @@ func (c *Client) Discover(ctx context.Context, _ DiscoverConfig) (Discovery, err
 		}
 		return instances[i].Name < instances[j].Name
 	})
-	return Discovery{Instances: instances, Complete: true}, nil
+	discovery := Discovery{Instances: instances, Complete: !raw.PageInfo.HasMore}
+	if raw.PageInfo.HasMore {
+		discovery.Warnings = []string{"Boat CLI returned a partial inventory; previously synced hosts were retained"}
+	}
+	return discovery, nil
 }
 
-func instanceFromRecord(rec boxRecord) (Instance, bool) {
+func instanceFromRecord(rec sandboxRecord) (Instance, bool) {
 	id := strings.TrimSpace(rec.ID)
 	if id == "" {
 		return Instance{}, false
@@ -322,7 +343,7 @@ func instanceFromRecord(rec boxRecord) (Instance, bool) {
 	}
 	hostName := ip
 	if hostName == "" {
-		// Keep running boxes with no IP yet so sync does not delete metadata
+		// Keep running sandboxes with no IP yet so sync does not delete metadata
 		// during the brief post-start/clone window. EnsureAccess rejects the
 		// placeholder until a real IP appears.
 		hostName = stoppedHostName
@@ -348,7 +369,7 @@ func instanceFromRecord(rec boxRecord) (Instance, bool) {
 		IdentitiesOnly:    true,
 		Running:           running,
 		SnapshotAvailable: rec.SnapshotAvailable,
-		BoxType:           strings.TrimSpace(rec.Type),
+		SandboxType:       strings.TrimSpace(rec.Type),
 		Tags:              tags,
 	}, true
 }
@@ -389,21 +410,21 @@ func IsTerminalStoppedState(state string) bool {
 	return normalizeState(state) == "stopped"
 }
 
-// HostLooksStopped reports whether a synced Box host should be treated as
+// HostLooksStopped reports whether a synced Boat host should be treated as
 // stopped (state tags from the last sync, or the placeholder hostname when
-// state is unknown). A running box with no IP yet keeps the placeholder
+// state is unknown). A running sandbox with no IP yet keeps the placeholder
 // hostname but must not look stopped.
 func HostLooksStopped(hostName string, tags []string) bool {
 	if state := StateFromTags(tags); state != "" {
 		return IsStoppedState(state)
 	}
-	return strings.TrimSpace(hostName) == StoppedHostName
+	return strings.TrimSpace(hostName) == StoppedHostName || strings.TrimSpace(hostName) == "box.stopped.invalid"
 }
 
 func ParseSyncID(syncID string) (string, error) {
 	id := strings.TrimSpace(syncID)
 	if !strings.HasPrefix(id, "bx_") || len(id) < 5 {
-		return "", fmt.Errorf("invalid Box sync id %q", syncID)
+		return "", fmt.Errorf("invalid Boat sync id %q", syncID)
 	}
 	return id, nil
 }

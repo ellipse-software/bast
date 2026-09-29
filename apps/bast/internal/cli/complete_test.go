@@ -97,7 +97,7 @@ func TestCompleteQuery(t *testing.T) {
 	if directive != "nofiles" {
 		t.Fatalf("directive=%q", directive)
 	}
-	for _, want := range []string{"hosts", "keys", "connect", "completion", "visible", "Visible host", "Production_web", "Production web", "ascii_box_dev"} {
+	for _, want := range []string{"hosts", "keys", "connect", "completion", "visible", "Visible host", "Production_web", "Production web", "ascii_boat_dev"} {
 		if !containsValue(values, want) {
 			t.Fatalf("first token missing %q: %v", want, values)
 		}
@@ -162,9 +162,9 @@ func TestCompleteQuery(t *testing.T) {
 		t.Fatalf("global flag after subcommand = %v", values)
 	}
 
-	values, _ = runComplete(t, home, "box", "fork", "")
-	if !containsValue(values, "ascii_box_dev") || !containsValue(values, "box-123") {
-		t.Fatalf("box fork = %v", values)
+	values, _ = runComplete(t, home, "boat", "fork", "")
+	if !containsValue(values, "ascii_boat_dev") || !containsValue(values, "boat-123") {
+		t.Fatalf("boat fork = %v", values)
 	}
 
 	_, directive = runComplete(t, home, "keys", "import", "--private", "")
@@ -272,9 +272,9 @@ Host hidden
     HostName hidden.example
 Host Production_web
     HostName prod.example
-# bast:sync:box=box-123
-Host ascii_box_dev
-    HostName box.example
+# bast:sync:boat=boat-123
+Host ascii_boat_dev
+    HostName boat.example
 # bast:sync:end
 `
 	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(config), 0600); err != nil {

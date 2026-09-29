@@ -11,7 +11,7 @@ const (
 	GCP     Kind = "gcp"
 	AWS     Kind = "aws"
 	Azure   Kind = "azure"
-	Box     Kind = "box"
+	Boat    Kind = "boat"
 	Upstash Kind = "upstash"
 	Vercel  Kind = "vercel"
 	Hetzner Kind = "hetzner"
@@ -22,7 +22,7 @@ const (
 type Descriptor struct {
 	Kind        Kind
 	Title       string // short chooser label, e.g. "GCP"
-	FullTitle   string // detail title, e.g. "box.ascii.dev"
+	FullTitle   string // detail title, e.g. "boat.dev"
 	GroupRoot   string // host-list group, e.g. "Google Cloud"
 	LegacyRoots []string
 	Description string
@@ -63,7 +63,7 @@ type Instance struct {
 	Tags                []string
 	CredentialAccount   string // account used to discover the instance
 	CredentialFile      string // credential file used to discover the instance
-	State               string // provider state when known (box, later hyperscalers)
+	State               string // provider state when known (boat, later hyperscalers)
 	Running             bool
 }
 
@@ -97,9 +97,9 @@ var descriptors = []Descriptor{
 		BrandColor:  "#0078D4", NerdIcon: "\ue754",
 	},
 	{
-		Kind: Box, Title: "Box", FullTitle: "box.ascii.dev", GroupRoot: "Box",
-		Description: "Import ASCII Box sandboxes into Bast",
-		BrandColor:  "#FFFFFF", NerdIcon: "\uf1b2",
+		Kind: Boat, Title: "Boat", FullTitle: "boat.dev", GroupRoot: "Boat",
+		LegacyRoots: []string{"Box"}, Description: "Import Boat sandboxes into Bast",
+		BrandColor: "#FFFFFF", NerdIcon: "\U000f0ec8",
 	},
 	{
 		Kind: Upstash, Title: "Upstash", FullTitle: "Upstash Box", GroupRoot: "Upstash",
@@ -122,7 +122,7 @@ var capabilities = map[Kind]Capabilities{
 	GCP:     {},
 	AWS:     {},
 	Azure:   {},
-	Box:     {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
+	Boat:    {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
 	Upstash: {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
 	Vercel:  {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
 	Hetzner: {Stop: true, Start: true, Restart: true},

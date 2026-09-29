@@ -799,14 +799,14 @@ func (r *Runner) connect(args []string) error {
 			return fail("azure_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
-	} else if host.Synced && host.SyncSource == "box" && host.SyncID != "" {
+	} else if host.Synced && host.SyncSource == "boat" && host.SyncID != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
 		engine := sync.New(r.Paths, r.store)
-		if err := engine.EnsureBoxAccess(ctx, sshconfig.Host{
+		if err := engine.EnsureBoatAccess(ctx, sshconfig.Host{
 			Alias: host.Alias, Synced: host.Synced, SyncSource: host.SyncSource, SyncID: host.SyncID,
 		}, connectbanner.Status(r.Out)); err != nil {
-			return fail("box_access", err.Error())
+			return fail("boat_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
 	} else if host.Synced && host.SyncSource == "upstash" && host.SyncID != "" {

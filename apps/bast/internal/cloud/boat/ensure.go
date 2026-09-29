@@ -1,4 +1,4 @@
-package box
+package boat
 
 import (
 	"context"
@@ -39,28 +39,28 @@ func (c *Client) EnsureAccess(ctx context.Context, syncID string, cfg EnsureConf
 	if err := c.CheckAvailable(ctx); err != nil {
 		return EnsureResult{}, err
 	}
-	reportStatus(cfg.Status, "Checking Box access…")
+	reportStatus(cfg.Status, "Checking Boat access…")
 	info, err := c.Info(ctx, id)
 	if err != nil {
 		return EnsureResult{}, err
 	}
 	if !info.Running {
 		if IsStoppedState(info.State) {
-			return EnsureResult{}, fmt.Errorf("box %s is stopped; resume it first with bast box resume %s", id, id)
+			return EnsureResult{}, fmt.Errorf("sandbox %s is stopped; resume it first with bast boat resume %s", id, id)
 		}
-		return EnsureResult{}, fmt.Errorf("box %s is not ready for SSH (state %s)", id, info.State)
+		return EnsureResult{}, fmt.Errorf("sandbox %s is not ready for SSH (state %s)", id, info.State)
 	}
 	if info.HostName == "" || info.HostName == stoppedHostName {
-		return EnsureResult{}, fmt.Errorf("box %s has no IP yet; wait a moment and retry", id)
+		return EnsureResult{}, fmt.Errorf("sandbox %s has no IP yet; wait a moment and retry", id)
 	}
 	home := cfg.Home
 	if home == "" {
 		home, _ = os.UserHomeDir()
 	}
-	if err := ensureBoxIdentity(ctx, home, cfg.SSHKeygen, cfg.Status); err != nil {
+	if err := ensureBoatIdentity(ctx, home, cfg.SSHKeygen, cfg.Status); err != nil {
 		return EnsureResult{}, err
 	}
-	reportStatus(cfg.Status, "Authorizing SSH key on Box…")
+	reportStatus(cfg.Status, "Authorizing SSH key on Boat…")
 	var lastErr error
 	for attempt := 0; attempt < 5; attempt++ {
 		if attempt > 0 {
@@ -75,15 +75,15 @@ func (c *Client) EnsureAccess(ctx context.Context, syncID string, cfg EnsureConf
 				continue
 			}
 			if info.HostName == "" || info.HostName == stoppedHostName {
-				lastErr = fmt.Errorf("box %s has no IP yet", id)
+				lastErr = fmt.Errorf("sandbox %s has no IP yet", id)
 				continue
 			}
 		}
 		if err := c.authorizeKey(ctx, id, home); err != nil {
 			lastErr = err
 			lower := strings.ToLower(err.Error())
-			if strings.Contains(lower, "box_restoring") || strings.Contains(lower, "restoring") {
-				reportStatus(cfg.Status, "Box is restoring; retrying…")
+			if strings.Contains(lower, "sandbox_restoring") || strings.Contains(lower, "restoring") {
+				reportStatus(cfg.Status, "Sandbox is restoring; retrying…")
 				continue
 			}
 			return EnsureResult{}, err
@@ -99,7 +99,7 @@ func (c *Client) EnsureAccess(ctx context.Context, syncID string, cfg EnsureConf
 	if lastErr != nil {
 		return EnsureResult{}, lastErr
 	}
-	return EnsureResult{}, fmt.Errorf("could not authorize SSH access to box %s", id)
+	return EnsureResult{}, fmt.Errorf("could not authorize SSH access to sandbox %s", id)
 }
 
 func (c *Client) Info(ctx context.Context, id string) (Instance, error) {
@@ -108,19 +108,22 @@ func (c *Client) Info(ctx context.Context, id string) (Instance, error) {
 		return Instance{}, err
 	}
 	var raw struct {
-		Box boxRecord `json:"box"`
+		Sandbox sandboxRecord `json:"sandbox"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
-		// Some CLI versions may return the box object at the top level.
-		var direct boxRecord
-		if err2 := json.Unmarshal(out, &direct); err2 != nil || direct.ID == "" {
-			return Instance{}, fmt.Errorf("parse box info: %w", err)
-		}
-		raw.Box = direct
+		return Instance{}, fmt.Errorf("parse boat info: %w", err)
 	}
-	inst, ok := instanceFromRecord(raw.Box)
+	if raw.Sandbox.ID == "" {
+		// Some CLI versions may return the sandbox object at the top level.
+		var direct sandboxRecord
+		if err := json.Unmarshal(out, &direct); err != nil {
+			return Instance{}, fmt.Errorf("parse boat info: %w", err)
+		}
+		raw.Sandbox = direct
+	}
+	inst, ok := instanceFromRecord(raw.Sandbox)
 	if !ok {
-		return Instance{}, fmt.Errorf("box %s info was incomplete", id)
+		return Instance{}, fmt.Errorf("sandbox %s info was incomplete", id)
 	}
 	return inst, nil
 }
@@ -148,7 +151,7 @@ func (c *Client) authorizeKey(ctx context.Context, id, home string) error {
 	return nil
 }
 
-func ensureBoxIdentity(ctx context.Context, home, sshKeygen string, status func(string)) error {
+func ensureBoatIdentity(ctx context.Context, home, sshKeygen string, status func(string)) error {
 	dir := filepath.Join(home, ".ssh")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -165,22 +168,22 @@ func ensureBoxIdentity(ctx context.Context, home, sshKeygen string, status func(
 		}
 		out, err := exec.CommandContext(ctx, bin, "-y", "-f", priv, "-P", "").Output()
 		if err != nil {
-			return fmt.Errorf("derive Box public key: %w", err)
+			return fmt.Errorf("derive Boat public key: %w", err)
 		}
 		return os.WriteFile(pub, out, 0644)
 	}
-	reportStatus(status, "Generating Box SSH key (~/.ssh/ascii_box_ed25519)…")
+	reportStatus(status, "Generating Boat SSH key (~/.ssh/ascii_box_ed25519)…")
 	bin := sshKeygen
 	if bin == "" {
 		bin = "ssh-keygen"
 	}
-	cmd := exec.CommandContext(ctx, bin, "-t", "ed25519", "-f", priv, "-N", "", "-C", "bast-box")
+	cmd := exec.CommandContext(ctx, bin, "-t", "ed25519", "-f", priv, "-N", "", "-C", "bast-boat")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg == "" {
 			msg = err.Error()
 		}
-		return fmt.Errorf("generate Box SSH key: %s", msg)
+		return fmt.Errorf("generate Boat SSH key: %s", msg)
 	}
 	return nil
 }

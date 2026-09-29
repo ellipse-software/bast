@@ -189,30 +189,30 @@ func TestCategoryFilter(t *testing.T) {
 	}
 }
 
-func TestBoxCLIFoundAtAsciiInstallWithoutPATH(t *testing.T) {
+func TestBoatCLIFoundAtAsciiInstallWithoutPATH(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("uses a POSIX Box CLI fixture")
+		t.Skip("uses a POSIX Boat CLI fixture")
 	}
 	e, p := testEngine(t)
 	store, err := metadata.Open(p.StateFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+	if err := store.SetBoat(metadata.BoatIntegration{Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	boxBin := filepath.Join(p.Home, ".ascii", "bin", "box")
-	write(t, boxBin, "#!/bin/sh\n", 0755)
+	boatBin := filepath.Join(p.Home, ".ascii", "bin", "boat")
+	write(t, boatBin, "#!/bin/sh\n", 0755)
 	t.Setenv("HOME", p.Home)
-	t.Setenv("BOX_CLI", "")
+	t.Setenv("BOAT_CLI", "")
 	t.Setenv("PATH", "/nonexistent")
 	r := e.Run(context.Background(), Options{Categories: []string{"sync"}})
 	if hasID(r, "sync.cli_missing") {
-		t.Fatalf("Box CLI at ~/.ascii/bin/box should be found without PATH: %v", findingIDs(r))
+		t.Fatalf("Boat CLI at ~/.ascii/bin/boat should be found without PATH: %v", findingIDs(r))
 	}
 }
 
-func TestBoxCLIMissingWhenEnabled(t *testing.T) {
+func TestBoatCLIMissingWhenEnabled(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses POSIX HOME/PATH isolation")
 	}
@@ -221,15 +221,15 @@ func TestBoxCLIMissingWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+	if err := store.SetBoat(metadata.BoatIntegration{Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", p.Home)
-	t.Setenv("BOX_CLI", "")
+	t.Setenv("BOAT_CLI", "")
 	t.Setenv("PATH", "/nonexistent")
 	r := e.Run(context.Background(), Options{Categories: []string{"sync"}})
 	if !hasID(r, "sync.cli_missing") {
-		t.Fatalf("expected box CLI missing, got %v", findingIDs(r))
+		t.Fatalf("expected boat CLI missing, got %v", findingIDs(r))
 	}
 }
 

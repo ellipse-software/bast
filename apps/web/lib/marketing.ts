@@ -35,7 +35,7 @@ export const guideNavItems = [
   {
     href: "/cloud-ssh",
     label: "Cloud SSH",
-    blurb: "GCP, AWS, Azure, Box, Vercel, and Hetzner",
+    blurb: "GCP, AWS, Azure, Boat, Vercel, and Hetzner",
   },
   {
     href: "/ssh-sftp",

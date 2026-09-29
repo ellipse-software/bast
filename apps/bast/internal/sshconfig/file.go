@@ -115,7 +115,7 @@ func leadingSyncHeader(data []byte) []byte {
 
 func (m Manager) RestoreSyncIncludes() error {
 	for _, path := range []string{
-		m.SyncGCPConfig, m.SyncAWSConfig, m.SyncAzureConfig, m.SyncBoxConfig,
+		m.SyncGCPConfig, m.SyncAWSConfig, m.SyncAzureConfig, m.SyncBoatConfig,
 		m.SyncUpstashConfig, m.SyncVercelConfig, m.SyncHetznerConfig,
 	} {
 		if err := m.IncludeExistingSyncConfig(path); err != nil {
@@ -258,7 +258,7 @@ func LoadSyncHosts(path string) ([]SyncHostInput, error) {
 		}
 		input := SyncHostInput{
 			Alias:      aliasParts[1],
-			SyncSource: strings.TrimSpace(source),
+			SyncSource: canonicalSyncSource(source),
 			SyncID:     strings.TrimSpace(syncID),
 		}
 		for _, line := range lines[hostIdx+1 : endIdx] {
@@ -455,7 +455,7 @@ func patchSyncHostAuth(data []byte, alias, hostnameOverride, user, identityFile,
 		if strings.HasPrefix(prev, syncMarkerPrefix) && prev != syncMarkerEnd {
 			rest := strings.TrimPrefix(prev, syncMarkerPrefix)
 			if source, id, ok := strings.Cut(rest, "="); ok {
-				syncSource = strings.TrimSpace(source)
+				syncSource = canonicalSyncSource(source)
 				syncID = strings.TrimSpace(id)
 			}
 		}

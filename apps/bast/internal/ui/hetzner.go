@@ -36,9 +36,9 @@ func (m *App) startSelectedHetzner(host sshconfig.Host, thenConnect bool) tea.Cm
 	opGen := m.beginProviderOp("hetzner")
 	m.syncActivity = "starting…"
 	if thenConnect {
-		m.boxConnectAfter = host.Alias
+		m.sandboxConnectAfter = host.Alias
 	} else {
-		m.boxConnectAfter = ""
+		m.sandboxConnectAfter = ""
 	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)

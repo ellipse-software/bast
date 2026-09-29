@@ -1,4 +1,4 @@
-package box
+package boat
 
 import (
 	"bufio"
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// errMissingActionID means the CLI response did not include an action/box id.
+// errMissingActionID means the CLI response did not include an action/sandbox id.
 // Stop/Resume may still have started, so callers can continue waiting.
 var errMissingActionID = errors.New("missing action id")
 
@@ -39,16 +39,23 @@ type ActionResult struct {
 
 type Snapshot struct {
 	ID        string `json:"id"`
-	BoxID     string `json:"boxId"`
+	SandboxID string `json:"sandboxId"`
 	Kind      string `json:"kind"`
 	Status    string `json:"status"`
 	CreatedAt string `json:"createdAt"`
-	Name      string `json:"name"`
 }
 
 type SnapshotList struct {
 	Snapshots []Snapshot
-	Named     []Snapshot
+	Named     []NamedSnapshot
+}
+
+type NamedSnapshot struct {
+	Name            string `json:"name"`
+	SnapshotID      string `json:"snapshotId"`
+	SourceSandboxID string `json:"sourceSandboxId"`
+	Status          string `json:"status"`
+	CreatedAt       string `json:"createdAt"`
 }
 
 func (c *Client) pollEvery() time.Duration {
@@ -98,13 +105,13 @@ func parseNewJSONL(out []byte) (string, error) {
 			continue
 		}
 		var event struct {
-			Event string `json:"event"`
-			ID    string `json:"id"`
-			Error string `json:"error"`
-			Ok    *bool  `json:"ok"`
-			Box   *struct {
+			Event   string `json:"event"`
+			ID      string `json:"id"`
+			Error   string `json:"error"`
+			Ok      *bool  `json:"ok"`
+			Sandbox *struct {
 				ID string `json:"id"`
-			} `json:"box"`
+			} `json:"sandbox"`
 			Type   string `json:"type"`
 			Status string `json:"status"`
 		}
@@ -114,8 +121,8 @@ func parseNewJSONL(out []byte) (string, error) {
 		if event.ID != "" {
 			id = event.ID
 		}
-		if event.Box != nil && event.Box.ID != "" {
-			id = event.Box.ID
+		if event.Sandbox != nil && event.Sandbox.ID != "" {
+			id = event.Sandbox.ID
 		}
 		switch event.Event {
 		case "ready":
@@ -129,36 +136,42 @@ func parseNewJSONL(out []byte) (string, error) {
 				lastErr = line
 			}
 		}
-		if event.Type == "box.created" && id != "" {
+		if event.Type == "sandbox.created" && id != "" {
 			// Async create accepted; caller will WaitReady.
 			continue
 		}
-		if event.Ok != nil && !*event.Ok && event.Error != "" {
+		if (event.Ok != nil && !*event.Ok) || event.Type == "sandbox.error" {
 			lastErr = event.Error
+			if lastErr == "" {
+				lastErr = "sandbox creation failed"
+			}
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return id, fmt.Errorf("parse boat new: %w", err)
 	}
 	if id != "" && lastErr == "" {
 		return id, nil
 	}
 	if lastErr != "" {
-		return id, fmt.Errorf("box new: %s", lastErr)
+		return id, fmt.Errorf("boat new: %s", lastErr)
 	}
 	// Single JSON object fallback (non-JSONL).
 	var single struct {
-		ID  string `json:"id"`
-		Box *struct {
+		ID      string `json:"id"`
+		Sandbox *struct {
 			ID string `json:"id"`
-		} `json:"box"`
+		} `json:"sandbox"`
 	}
 	if err := json.Unmarshal(out, &single); err == nil {
 		if single.ID != "" {
 			return single.ID, nil
 		}
-		if single.Box != nil && single.Box.ID != "" {
-			return single.Box.ID, nil
+		if single.Sandbox != nil && single.Sandbox.ID != "" {
+			return single.Sandbox.ID, nil
 		}
 	}
-	return "", fmt.Errorf("box new: no box id in CLI output")
+	return "", fmt.Errorf("boat new: no sandbox id in CLI output")
 }
 
 func (c *Client) Fork(ctx context.Context, id string, opts ForkOpts) (string, error) {
@@ -171,7 +184,7 @@ func (c *Client) Fork(ctx context.Context, id string, opts ForkOpts) (string, er
 		return "", err
 	}
 	if !info.SnapshotAvailable {
-		return "", fmt.Errorf("box %s has no snapshot yet; stop it once to create one before forking", id)
+		return "", fmt.Errorf("sandbox %s has no snapshot yet; stop it once to create one before forking", id)
 	}
 	args := []string{"fork", id}
 	if t := strings.TrimSpace(opts.Type); t != "" {
@@ -224,9 +237,9 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 	return c.WaitGone(ctx, id, 3*time.Minute)
 }
 
-func (c *Client) ListSnapshots(ctx context.Context, boxID string) (SnapshotList, error) {
+func (c *Client) ListSnapshots(ctx context.Context, sandboxID string) (SnapshotList, error) {
 	args := []string{"snapshots", "--all"}
-	if id := strings.TrimSpace(boxID); id != "" {
+	if id := strings.TrimSpace(sandboxID); id != "" {
 		parsed, err := ParseSyncID(id)
 		if err != nil {
 			return SnapshotList{}, err
@@ -238,11 +251,11 @@ func (c *Client) ListSnapshots(ctx context.Context, boxID string) (SnapshotList,
 		return SnapshotList{}, err
 	}
 	var raw struct {
-		Snapshots []Snapshot `json:"snapshots"`
-		Named     []Snapshot `json:"named"`
+		Snapshots []Snapshot      `json:"snapshots"`
+		Named     []NamedSnapshot `json:"named"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return SnapshotList{}, fmt.Errorf("parse box snapshots: %w", err)
+		return SnapshotList{}, fmt.Errorf("parse boat snapshots: %w", err)
 	}
 	return SnapshotList{Snapshots: raw.Snapshots, Named: raw.Named}, nil
 }
@@ -301,30 +314,30 @@ func (c *Client) Resume(ctx context.Context, id string, opts ResumeOpts) error {
 
 func parseActionID(out []byte, action string) (string, error) {
 	var raw struct {
-		ID  string `json:"id"`
-		Box *struct {
+		ID      string `json:"id"`
+		Sandbox *struct {
 			ID string `json:"id"`
-		} `json:"box"`
+		} `json:"sandbox"`
 		Ok    *bool  `json:"ok"`
 		Error string `json:"error"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return "", fmt.Errorf("parse box %s: %w", action, err)
+		return "", fmt.Errorf("parse sandbox %s: %w", action, err)
 	}
 	if raw.Ok != nil && !*raw.Ok {
 		msg := raw.Error
 		if msg == "" {
 			msg = string(out)
 		}
-		return "", fmt.Errorf("box %s: %s", action, msg)
+		return "", fmt.Errorf("sandbox %s: %s", action, msg)
 	}
 	if raw.ID != "" {
 		return raw.ID, nil
 	}
-	if raw.Box != nil && raw.Box.ID != "" {
-		return raw.Box.ID, nil
+	if raw.Sandbox != nil && raw.Sandbox.ID != "" {
+		return raw.Sandbox.ID, nil
 	}
-	return "", fmt.Errorf("box %s: %w", action, errMissingActionID)
+	return "", fmt.Errorf("sandbox %s: %w", action, errMissingActionID)
 }
 
 func (c *Client) WaitReady(ctx context.Context, id string, timeout time.Duration) error {
@@ -337,15 +350,15 @@ func (c *Client) WaitReady(ctx context.Context, id string, timeout time.Duration
 		}
 		if time.Now().After(deadline) {
 			if lastState == "" && lastErr != nil {
-				return fmt.Errorf("timed out waiting for box %s to become ready: %w", id, lastErr)
+				return fmt.Errorf("timed out waiting for sandbox %s to become ready: %w", id, lastErr)
 			}
 			if lastState == "" {
-				return fmt.Errorf("timed out waiting for box %s to become ready", id)
+				return fmt.Errorf("timed out waiting for sandbox %s to become ready", id)
 			}
 			if lastErr != nil {
-				return fmt.Errorf("timed out waiting for box %s to become ready (last state %s): %w", id, lastState, lastErr)
+				return fmt.Errorf("timed out waiting for sandbox %s to become ready (last state %s): %w", id, lastState, lastErr)
 			}
-			return fmt.Errorf("timed out waiting for box %s to become ready (last state %s)", id, lastState)
+			return fmt.Errorf("timed out waiting for sandbox %s to become ready (last state %s)", id, lastState)
 		}
 		info, err := c.Info(ctx, id)
 		if err == nil {
@@ -355,7 +368,7 @@ func (c *Client) WaitReady(ctx context.Context, id string, timeout time.Duration
 				return nil
 			}
 			if info.State == "error" {
-				return fmt.Errorf("box %s entered error state", id)
+				return fmt.Errorf("sandbox %s entered error state", id)
 			}
 		} else {
 			lastErr = err
@@ -378,28 +391,28 @@ func (c *Client) WaitStopped(ctx context.Context, id string, timeout time.Durati
 		}
 		if time.Now().After(deadline) {
 			if lastState == "" && lastErr != nil {
-				return fmt.Errorf("timed out waiting for box %s to stop: %w", id, lastErr)
+				return fmt.Errorf("timed out waiting for sandbox %s to stop: %w", id, lastErr)
 			}
 			if lastState == "" {
-				return fmt.Errorf("timed out waiting for box %s to stop", id)
+				return fmt.Errorf("timed out waiting for sandbox %s to stop", id)
 			}
 			if lastErr != nil {
-				return fmt.Errorf("timed out waiting for box %s to stop (last state %s): %w", id, lastState, lastErr)
+				return fmt.Errorf("timed out waiting for sandbox %s to stop (last state %s): %w", id, lastState, lastErr)
 			}
-			return fmt.Errorf("timed out waiting for box %s to stop (last state %s)", id, lastState)
+			return fmt.Errorf("timed out waiting for sandbox %s to stop (last state %s)", id, lastState)
 		}
 		info, err := c.Info(ctx, id)
 		if err == nil {
 			lastErr = nil
 			lastState = info.State
-			// Discover lists stopping/archiving boxes, so the follow-up sync
+			// Discover lists stopping/archiving sandboxes, so the follow-up sync
 			// still sees the host. Waiting for a finished snapshot can take
 			// many minutes and looks like a stuck sync.
 			if IsStoppedState(info.State) {
 				return nil
 			}
 			if info.State == "error" {
-				return fmt.Errorf("box %s entered error state while stopping", id)
+				return fmt.Errorf("sandbox %s entered error state while stopping", id)
 			}
 		} else {
 			lastErr = err
@@ -421,7 +434,7 @@ func (c *Client) WaitGone(ctx context.Context, id string, timeout time.Duration)
 		}
 		_, err := c.Info(ctx, id)
 		if err != nil {
-			if boxMissing(err) {
+			if sandboxMissing(err) {
 				return nil
 			}
 			lastErr = err
@@ -430,9 +443,9 @@ func (c *Client) WaitGone(ctx context.Context, id string, timeout time.Duration)
 		}
 		if time.Now().After(deadline) {
 			if lastErr != nil {
-				return fmt.Errorf("timed out waiting for box %s to be deleted: %w", id, lastErr)
+				return fmt.Errorf("timed out waiting for sandbox %s to be deleted: %w", id, lastErr)
 			}
-			return fmt.Errorf("timed out waiting for box %s to be deleted", id)
+			return fmt.Errorf("timed out waiting for sandbox %s to be deleted", id)
 		}
 		select {
 		case <-ctx.Done():
@@ -442,10 +455,10 @@ func (c *Client) WaitGone(ctx context.Context, id string, timeout time.Duration)
 	}
 }
 
-func boxMissing(err error) bool {
+func sandboxMissing(err error) bool {
 	if err == nil {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "not found") || strings.Contains(msg, "unknown box") || strings.Contains(msg, "no such")
+	return strings.Contains(msg, "sandbox_not_found") || strings.Contains(msg, "not found") || strings.Contains(msg, "unknown sandbox") || strings.Contains(msg, "no such")
 }
