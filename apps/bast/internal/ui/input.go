@@ -372,8 +372,8 @@ func (m *App) connectSelected() (tea.Model, tea.Cmd) {
 }
 
 func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
-	if host.Synced && host.SyncSource == "box" && m.hostLooksStopped(host) {
-		return m, m.resumeSelectedBox(host, true)
+	if host.Synced && host.SyncSource == "boat" && m.hostLooksStopped(host) {
+		return m, m.resumeSelectedBoat(host, true)
 	}
 	if host.Synced && host.SyncSource == "upstash" && m.hostLooksStopped(host) {
 		return m, m.resumeSelectedUpstash(host, true)
@@ -390,8 +390,8 @@ func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 			ensure = m.syncer.EnsureAWSAccess
 		case "azure":
 			ensure = m.syncer.EnsureAzureAccess
-		case "box":
-			ensure = m.syncer.EnsureBoxAccess
+		case "boat":
+			ensure = m.syncer.EnsureBoatAccess
 		case "upstash":
 			ensure = m.syncer.EnsureUpstashAccess
 		case "hetzner":

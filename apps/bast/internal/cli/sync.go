@@ -12,7 +12,7 @@ import (
 
 func (r *Runner) sync(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|box|upstash|vercel|hetzner|status|disable>")
+		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|boat|upstash|vercel|hetzner|status|disable>")
 		return nil
 	}
 	engine := sync.New(r.Paths, r.store)
@@ -23,8 +23,8 @@ func (r *Runner) sync(args []string) error {
 		return r.syncAWS(engine, args[1:])
 	case "azure":
 		return r.syncAzure(engine, args[1:])
-	case "box":
-		return r.syncBox(engine, args[1:])
+	case "boat":
+		return r.syncBoat(engine, args[1:])
 	case "upstash":
 		return r.syncUpstash(engine, args[1:])
 	case "vercel":
@@ -40,23 +40,23 @@ func (r *Runner) sync(args []string) error {
 	}
 }
 
-func (r *Runner) syncBox(engine *sync.Engine, args []string) error {
-	fs := newFlagSet("sync box")
+func (r *Runner) syncBoat(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync boat")
 	if err := fs.Parse(args); err != nil {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 0 {
-		return usagef("usage: bast sync box")
+		return usagef("usage: bast sync boat")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	result, err := engine.SyncBox(ctx)
+	result, err := engine.SyncBoat(ctx)
 	if err != nil {
-		telemetry.Track("sync_box_fail", r.Version)
+		telemetry.Track("sync_boat_fail", r.Version)
 		return fail("sync_failed", err.Error())
 	}
-	telemetry.Track("sync_box", r.Version)
-	msg := fmt.Sprintf("Synced %d boxes", result.Count)
+	telemetry.Track("sync_boat", r.Version)
+	msg := fmt.Sprintf("Synced %d sandboxes", result.Count)
 	if result.Error != "" {
 		msg += "\nWarning: " + result.Error
 	}
@@ -79,7 +79,7 @@ func (r *Runner) syncUpstash(engine *sync.Engine, args []string) error {
 		return fail("sync_failed", err.Error())
 	}
 	telemetry.Track("sync_upstash", r.Version)
-	msg := fmt.Sprintf("Synced %d Upstash boxes", result.Count)
+	msg := fmt.Sprintf("Synced %d Upstash sandboxes", result.Count)
 	if result.Error != "" {
 		msg += "\nWarning: " + result.Error
 	}
@@ -211,9 +211,9 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	_, ran, autoSyncErr := engine.MaybeAutoConnectBox(ctx)
+	_, ran, autoSyncErr := engine.MaybeAutoConnectBoat(ctx)
 	if autoSyncErr == nil && ran {
-		telemetry.Track("sync_box_auto", r.Version)
+		telemetry.Track("sync_boat_auto", r.Version)
 	}
 	_, upstashRan, upstashAutoErr := engine.MaybeAutoConnectUpstash(ctx)
 	if upstashAutoErr == nil && upstashRan {
@@ -228,7 +228,7 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 		return fail("sync_status", err.Error())
 	}
 	if autoSyncErr != nil {
-		status.Box.LastSyncError = autoSyncErr.Error()
+		status.Boat.LastSyncError = autoSyncErr.Error()
 	}
 	if upstashAutoErr != nil {
 		status.Upstash.LastSyncError = upstashAutoErr.Error()
@@ -329,34 +329,34 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if azure.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", azure.LastSyncError)
 	}
-	box := status.Box
-	fmt.Fprintln(r.Out, "Box")
-	fmt.Fprintf(r.Out, "  Enabled: %t\n", box.Enabled)
-	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", box.AutoSync)
-	if box.Disabled {
+	boat := status.Boat
+	fmt.Fprintln(r.Out, "Boat")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", boat.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", boat.AutoSync)
+	if boat.Disabled {
 		fmt.Fprintln(r.Out, "  Disabled: true (sticky; will not auto-connect)")
 	}
-	if box.BoxCLIError != "" {
-		fmt.Fprintf(r.Out, "  box: %s\n", box.BoxCLIError)
-	} else if box.Authenticated {
-		login := box.Login
+	if boat.BoatCLIError != "" {
+		fmt.Fprintf(r.Out, "  boat: %s\n", boat.BoatCLIError)
+	} else if boat.Authenticated {
+		login := boat.Login
 		if login == "" {
 			login = "authenticated"
 		}
 		fmt.Fprintf(r.Out, "  Account: %s\n", login)
-		if box.Plan != "" {
-			fmt.Fprintf(r.Out, "  Plan: %s\n", box.Plan)
+		if boat.Plan != "" {
+			fmt.Fprintf(r.Out, "  Plan: %s\n", boat.Plan)
 		}
 	} else {
 		fmt.Fprintln(r.Out, "  Account: not logged in")
 	}
-	if box.LastSyncAt != nil {
-		fmt.Fprintf(r.Out, "  Last sync: %s (%d boxes)\n", box.LastSyncAt.Local().Format(time.RFC3339), box.LastInstanceCount)
+	if boat.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d sandboxes)\n", boat.LastSyncAt.Local().Format(time.RFC3339), boat.LastInstanceCount)
 	} else {
 		fmt.Fprintln(r.Out, "  Last sync: never")
 	}
-	if box.LastSyncError != "" {
-		fmt.Fprintf(r.Out, "  Last error: %s\n", box.LastSyncError)
+	if boat.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", boat.LastSyncError)
 	}
 	upstash := status.Upstash
 	fmt.Fprintln(r.Out, "Upstash")
@@ -375,7 +375,7 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 		fmt.Fprintln(r.Out, "  Account: no API key")
 	}
 	if upstash.LastSyncAt != nil {
-		fmt.Fprintf(r.Out, "  Last sync: %s (%d boxes)\n", upstash.LastSyncAt.Local().Format(time.RFC3339), upstash.LastInstanceCount)
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d sandboxes)\n", upstash.LastSyncAt.Local().Format(time.RFC3339), upstash.LastInstanceCount)
 	} else {
 		fmt.Fprintln(r.Out, "  Last sync: never")
 	}
@@ -465,10 +465,10 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 1 {
-		return usagef("usage: bast sync disable <gcp|aws|azure|box|upstash|vercel|hetzner>")
+		return usagef("usage: bast sync disable <gcp|aws|azure|boat|upstash|vercel|hetzner>")
 	}
 	provider := fs.Arg(0)
-	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "box" && provider != "upstash" && provider != "vercel" && provider != "hetzner" {
+	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "boat" && provider != "upstash" && provider != "vercel" && provider != "hetzner" {
 		return usagef("unknown sync provider %q", provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -481,8 +481,8 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		err = engine.DisableAWS(ctx)
 	case "azure":
 		err = engine.DisableAzure(ctx)
-	case "box":
-		err = engine.DisableBox(ctx)
+	case "boat":
+		err = engine.DisableBoat(ctx)
 	case "upstash":
 		err = engine.DisableUpstash(ctx)
 	case "vercel":

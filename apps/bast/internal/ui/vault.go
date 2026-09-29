@@ -88,7 +88,7 @@ func (m *App) cancelVaultOp() {
 }
 
 // vaultBusyBlocksBody replaces Vault or Sync content while a network step or
-// long Sync op (e.g. box create from the Sync tab) runs. Other sections keep
+// long Sync op (e.g. boat create from the Sync tab) runs. Other sections keep
 // their normal body and only show the footer busy hint.
 func (m *App) vaultBusyBlocksBody() bool {
 	if m.vaultBusy != "" && m.section == vaultSection {

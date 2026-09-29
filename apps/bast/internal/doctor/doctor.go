@@ -79,7 +79,7 @@ func New(p paths.Paths, client openssh.Client, version string) Engine {
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
 			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig,
-			SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig,
+			SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig,
 			SyncUpstashConfig: p.SyncUpstashConfig,
 		},
 		Keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},

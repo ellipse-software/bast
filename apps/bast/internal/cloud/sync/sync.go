@@ -14,7 +14,7 @@ import (
 	"bast/internal/cloud"
 	awscloud "bast/internal/cloud/aws"
 	azurecloud "bast/internal/cloud/azure"
-	boxcloud "bast/internal/cloud/box"
+	boatcloud "bast/internal/cloud/boat"
 	"bast/internal/cloud/gcp"
 	hetznercloud "bast/internal/cloud/hetzner"
 	upstashcloud "bast/internal/cloud/upstash"
@@ -36,7 +36,7 @@ type Engine struct {
 	gcpMu          stdsync.Mutex
 	awsMu          stdsync.Mutex
 	azureMu        stdsync.Mutex
-	boxMu          stdsync.Mutex
+	boatMu         stdsync.Mutex
 	upstashMu      stdsync.Mutex
 	vercelMu       stdsync.Mutex
 	hetznerMu      stdsync.Mutex
@@ -46,7 +46,7 @@ type Engine struct {
 	GCP            *gcp.Client
 	AWS            *awscloud.Client
 	Azure          *azurecloud.Client
-	Box            *boxcloud.Client
+	Boat           *boatcloud.Client
 	Upstash        *upstashcloud.Client
 	Vercel         *vercelcloud.Client
 	Hetzner        *hetznercloud.Client
@@ -71,7 +71,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
 		SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig,
-		SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig,
+		SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig,
 		SyncHetznerConfig: p.SyncHetznerConfig,
 	}
 	return &Engine{
@@ -81,7 +81,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		GCP:            gcp.New(),
 		AWS:            awscloud.New(),
 		Azure:          azurecloud.New(),
-		Box:            boxcloud.New(),
+		Boat:           boatcloud.New(),
 		Upstash:        upstashcloud.New(p.UpstashAPIKey),
 		Vercel:         newVercelClient(p, store),
 		Hetzner:        hetznercloud.New(p.HetznerAPIKey, p.HetznerTokenDir, p.Home),
@@ -579,178 +579,205 @@ func (e *Engine) SyncAzure(ctx context.Context) (Result, error) {
 	return result, nil
 }
 
-func (e *Engine) SyncBox(ctx context.Context) (Result, error) {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+func (e *Engine) SyncBoat(ctx context.Context) (Result, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return Result{}, err
 	}
-	defer e.boxMu.Unlock()
-	return e.syncBoxLocked(ctx)
+	defer e.boatMu.Unlock()
+	return e.syncBoatLocked(ctx)
 }
 
-func (e *Engine) syncBoxLocked(ctx context.Context) (Result, error) {
-	discovery, err := e.Box.Discover(ctx, boxcloud.DiscoverConfig{})
+func (e *Engine) syncBoatLocked(ctx context.Context) (Result, error) {
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, err
+	}
+	discovery, err := e.Boat.Discover(ctx, boatcloud.DiscoverConfig{})
 	now := time.Now().UTC()
 	if err != nil {
-		latest := e.Store.Box()
+		latest := e.Store.Boat()
 		latest.Enabled = true
 		latest.Disabled = false
 		latest.LastSyncAt = &now
 		latest.LastSyncError = err.Error()
-		_ = e.Store.SetBox(latest)
-		return Result{Provider: boxcloud.ProviderName, SyncedAt: now, Error: err.Error()}, err
+		_ = e.Store.SetBoat(latest)
+		return Result{Provider: boatcloud.ProviderName, SyncedAt: now, Error: err.Error()}, err
 	}
 
 	rows := make([]sandboxRow, 0, len(discovery.Instances))
 	for _, inst := range discovery.Instances {
 		rows = append(rows, sandboxRow{
 			Name:  inst.Name,
-			Group: boxcloud.GroupPath(inst),
+			Group: boatcloud.GroupPath(inst),
 			Tags:  append([]string(nil), inst.Tags...),
-			Block: boxcloud.ToSyncHost(inst, boxcloud.AliasFor(inst)),
+			Block: boatcloud.ToSyncHost(inst, boatcloud.AliasFor(inst)),
 		})
 	}
-	result, err := e.reconcileSyncedHosts(ctx, boxcloud.ProviderName, e.Paths.SyncBoxConfig, rows, discovery.Complete, discovery.Warnings)
+	result, err := e.reconcileSyncedHosts(ctx, boatcloud.ProviderName, e.Paths.SyncBoatConfig, rows, discovery.Complete, discovery.Warnings)
 	if err != nil {
 		return result, err
 	}
-	latest := e.Store.Box()
+	latest := e.Store.Boat()
 	latest.Enabled = true
 	latest.Disabled = false
 	latest.LastSyncAt = &result.SyncedAt
 	latest.LastSyncError = strings.Join(discovery.Warnings, "; ")
 	latest.LastInstanceCount = result.Count
-	if err := e.Store.SetBox(latest); err != nil {
-		return Result{Provider: boxcloud.ProviderName}, err
+	if err := e.Store.SetBoat(latest); err != nil {
+		return Result{Provider: boatcloud.ProviderName}, err
 	}
 	return result, nil
 }
 
-func (e *Engine) MaybeAutoConnectBox(ctx context.Context) (Result, bool, error) {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+func (e *Engine) MaybeAutoConnectBoat(ctx context.Context) (Result, bool, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return Result{}, false, err
 	}
-	defer e.boxMu.Unlock()
-	integration := e.Store.Box()
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, false, err
+	}
+	integration := e.Store.Boat()
 	if integration.Disabled {
 		return Result{}, false, nil
 	}
-	account, err := e.Box.Account(ctx)
+	account, err := e.Boat.Account(ctx)
 	if err != nil || !account.Authenticated {
 		return Result{}, false, nil
 	}
 	if integration.Enabled && integration.AutoSync {
-		result, syncErr := e.syncBoxLocked(ctx)
+		result, syncErr := e.syncBoatLocked(ctx)
 		return result, true, syncErr
 	}
 	integration.Enabled = true
 	integration.AutoSync = true
 	integration.Disabled = false
-	if err := e.Store.SetBox(integration); err != nil {
+	if err := e.Store.SetBoat(integration); err != nil {
 		return Result{}, false, err
 	}
-	result, syncErr := e.syncBoxLocked(ctx)
+	result, syncErr := e.syncBoatLocked(ctx)
 	return result, true, syncErr
 }
 
-func (e *Engine) NewBox(ctx context.Context, opts boxcloud.NewOpts) (Result, string, error) {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+func (e *Engine) NewBoat(ctx context.Context, opts boatcloud.NewOpts) (Result, string, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return Result{}, "", err
 	}
-	defer e.boxMu.Unlock()
-	id, err := e.Box.New(ctx, opts)
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, "", err
+	}
+	id, err := e.Boat.New(ctx, opts)
 	if err != nil && id == "" {
 		return Result{}, "", err
 	}
-	result, syncErr := e.syncBoxLocked(ctx)
-	alias := e.AliasForBoxSyncID(ctx, id)
+	result, syncErr := e.syncBoatLocked(ctx)
+	alias := e.AliasForBoatSyncID(ctx, id)
 	if err != nil {
 		return result, alias, err
 	}
 	return result, alias, syncErr
 }
 
-func (e *Engine) ForkBox(ctx context.Context, syncID string, opts boxcloud.ForkOpts) (Result, string, error) {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+func (e *Engine) ForkBoat(ctx context.Context, syncID string, opts boatcloud.ForkOpts) (Result, string, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return Result{}, "", err
 	}
-	defer e.boxMu.Unlock()
-	id, err := e.Box.Fork(ctx, syncID, opts)
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, "", err
+	}
+	id, err := e.Boat.Fork(ctx, syncID, opts)
 	if err != nil && id == "" {
 		return Result{}, "", err
 	}
-	result, syncErr := e.syncBoxLocked(ctx)
-	alias := e.AliasForBoxSyncID(ctx, id)
+	result, syncErr := e.syncBoatLocked(ctx)
+	alias := e.AliasForBoatSyncID(ctx, id)
 	if err != nil {
 		return result, alias, err
 	}
 	return result, alias, syncErr
 }
 
-func (e *Engine) StopBox(ctx context.Context, syncID string) (Result, error) {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+func (e *Engine) StopBoat(ctx context.Context, syncID string) (Result, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return Result{}, err
 	}
-	defer e.boxMu.Unlock()
-	if err := e.Box.Stop(ctx, syncID); err != nil {
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
 		return Result{}, err
 	}
-	return e.syncBoxLocked(ctx)
-}
-
-func (e *Engine) ResumeBox(ctx context.Context, syncID string, opts boxcloud.ResumeOpts) (Result, error) {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+	if err := e.Boat.Stop(ctx, syncID); err != nil {
 		return Result{}, err
 	}
-	defer e.boxMu.Unlock()
-	if err := e.Box.Resume(ctx, syncID, opts); err != nil {
+	return e.syncBoatLocked(ctx)
+}
+
+func (e *Engine) ResumeBoat(ctx context.Context, syncID string, opts boatcloud.ResumeOpts) (Result, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return Result{}, err
 	}
-	return e.syncBoxLocked(ctx)
-}
-
-func (e *Engine) DeleteBox(ctx context.Context, syncID string) (Result, error) {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
 		return Result{}, err
 	}
-	defer e.boxMu.Unlock()
-	if err := e.Box.Delete(ctx, syncID); err != nil {
+	if err := e.Boat.Resume(ctx, syncID, opts); err != nil {
 		return Result{}, err
 	}
-	return e.syncBoxLocked(ctx)
+	return e.syncBoatLocked(ctx)
 }
 
-func (e *Engine) ListBoxSnapshots(ctx context.Context, boxID string) (boxcloud.SnapshotList, error) {
-	return e.Box.ListSnapshots(ctx, boxID)
+func (e *Engine) DeleteBoat(ctx context.Context, syncID string) (Result, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
+		return Result{}, err
+	}
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, err
+	}
+	if err := e.Boat.Delete(ctx, syncID); err != nil {
+		return Result{}, err
+	}
+	return e.syncBoatLocked(ctx)
 }
 
-func (e *Engine) DeleteBoxSnapshot(ctx context.Context, snapshotID string) error {
-	return e.Box.DeleteSnapshot(ctx, snapshotID)
+func (e *Engine) ListBoatSnapshots(ctx context.Context, boatID string) (boatcloud.SnapshotList, error) {
+	return e.Boat.ListSnapshots(ctx, boatID)
 }
 
-func (e *Engine) RemoveBoxNamedSnapshot(ctx context.Context, name string) error {
-	return e.Box.RemoveNamedSnapshot(ctx, name)
+func (e *Engine) DeleteBoatSnapshot(ctx context.Context, snapshotID string) error {
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
+	return e.Boat.DeleteSnapshot(ctx, snapshotID)
 }
 
-func (e *Engine) ResolveBoxSyncID(ctx context.Context, hostOrID string) (string, error) {
+func (e *Engine) RemoveBoatNamedSnapshot(ctx context.Context, name string) error {
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
+	return e.Boat.RemoveNamedSnapshot(ctx, name)
+}
+
+func (e *Engine) ResolveBoatSyncID(ctx context.Context, hostOrID string) (string, error) {
 	hostOrID = strings.TrimSpace(hostOrID)
-	if id, err := boxcloud.ParseSyncID(hostOrID); err == nil {
+	if id, err := boatcloud.ParseSyncID(hostOrID); err == nil {
 		return id, nil
 	}
 	hosts, err := e.Discover(ctx)
 	if err != nil {
 		return "", err
 	}
-	if aliasID, labels := e.matchSyncedID(hosts, boxcloud.ProviderName, hostOrID); aliasID != "" {
+	if aliasID, labels := e.matchSyncedID(hosts, boatcloud.ProviderName, hostOrID); aliasID != "" {
 		return aliasID, nil
 	} else if len(labels) == 1 {
 		return labels[0], nil
 	} else {
-		return "", resolveMatchError("box", hostOrID, "pass an alias or a bx_ id", "sync with bast sync box or pass a bx_ id", labels)
+		return "", resolveMatchError("boat", hostOrID, "pass an alias or a bx_ id", "sync with bast sync boat or pass a bx_ id", labels)
 	}
 }
 
-func (e *Engine) AliasForBoxSyncID(ctx context.Context, syncID string) string {
-	return e.aliasFromHosts(ctx, boxcloud.ProviderName, syncID)
+func (e *Engine) AliasForBoatSyncID(ctx context.Context, syncID string) string {
+	return e.aliasFromHosts(ctx, boatcloud.ProviderName, syncID)
 }
 
 func (e *Engine) EnsureGCPAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
@@ -825,22 +852,25 @@ func (e *Engine) EnsureAzureAccess(ctx context.Context, host sshconfig.Host, sta
 	return sshconfig.UpdateSyncHostAuth(e.Paths.SyncAzureConfig, host.Alias, result.User, result.IdentityFile, result.CertificateFile, result.IdentitiesOnly)
 }
 
-func (e *Engine) EnsureBoxAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+func (e *Engine) EnsureBoatAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return err
 	}
-	defer e.boxMu.Unlock()
-	if !host.Synced || host.SyncSource != boxcloud.ProviderName || host.SyncID == "" {
+	defer e.boatMu.Unlock()
+	if !host.Synced || host.SyncSource != boatcloud.ProviderName || host.SyncID == "" {
 		return nil
 	}
-	result, err := e.Box.EnsureAccess(ctx, host.SyncID, boxcloud.EnsureConfig{
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
+	result, err := e.Boat.EnsureAccess(ctx, host.SyncID, boatcloud.EnsureConfig{
 		Home: e.Paths.Home, Status: status,
 	})
 	if err != nil {
 		return err
 	}
 	return sshconfig.UpdateSyncHostAuthAndHost(
-		e.Paths.SyncBoxConfig, host.Alias, result.HostName, result.User, result.IdentityFile, "", result.IdentitiesOnly,
+		e.Paths.SyncBoatConfig, host.Alias, result.HostName, result.User, result.IdentityFile, "", result.IdentitiesOnly,
 	)
 }
 
@@ -911,35 +941,38 @@ func (e *Engine) DisableAzure(ctx context.Context) error {
 	return e.Store.SetAzure(integration)
 }
 
-func (e *Engine) DisableBox(ctx context.Context) error {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+func (e *Engine) DisableBoat(ctx context.Context) error {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return err
 	}
-	defer e.boxMu.Unlock()
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
 	existing, err := e.Discover(ctx)
 	if err != nil {
 		return err
 	}
-	if err := e.deleteSyncedHostMetadata(existing, boxcloud.ProviderName); err != nil {
+	if err := e.deleteSyncedHostMetadata(existing, boatcloud.ProviderName); err != nil {
 		return err
 	}
-	if err := e.Config.RemoveSyncInclude(e.Paths.SyncBoxConfig); err != nil {
+	if err := e.Config.RemoveSyncInclude(e.Paths.SyncBoatConfig); err != nil {
 		return err
 	}
-	integration := e.Store.Box()
+	integration := e.Store.Boat()
 	integration.Enabled = false
 	integration.AutoSync = false
 	integration.Disabled = true
 	integration.LastSyncError = ""
 	integration.LastInstanceCount = 0
-	return e.Store.SetBox(integration)
+	return e.Store.SetBoat(integration)
 }
 
 func (e *Engine) Status(ctx context.Context) (Status, error) {
 	integration := e.Store.GCP()
 	awsIntegration := e.Store.AWS()
 	azureIntegration := e.Store.Azure()
-	boxIntegration := e.Store.Box()
+	boatIntegration := e.Store.Boat()
 	upstashIntegration := e.Store.Upstash()
 	vercelIntegration := e.Store.Vercel()
 	hetznerIntegration := e.Store.Hetzner()
@@ -968,10 +1001,10 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			DefaultSSHUser:      azureIntegration.DefaultSSHUser, LastSyncAt: azureIntegration.LastSyncAt,
 			LastSyncError: azureIntegration.LastSyncError, LastInstanceCount: azureIntegration.LastInstanceCount,
 		},
-		Box: BoxStatus{
-			Enabled: boxIntegration.Enabled, AutoSync: boxIntegration.AutoSync, Disabled: boxIntegration.Disabled,
-			LastSyncAt: boxIntegration.LastSyncAt, LastSyncError: boxIntegration.LastSyncError,
-			LastInstanceCount: boxIntegration.LastInstanceCount,
+		Boat: BoatStatus{
+			Enabled: boatIntegration.Enabled, AutoSync: boatIntegration.AutoSync, Disabled: boatIntegration.Disabled,
+			LastSyncAt: boatIntegration.LastSyncAt, LastSyncError: boatIntegration.LastSyncError,
+			LastInstanceCount: boatIntegration.LastInstanceCount,
 		},
 		Upstash: UpstashStatus{
 			Enabled: upstashIntegration.Enabled, AutoSync: upstashIntegration.AutoSync, Disabled: upstashIntegration.Disabled,
@@ -1051,20 +1084,24 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	}()
 	go func() {
 		defer probes.Done()
-		account, err := e.Box.Account(ctx)
+		if err := e.Config.CheckBoatSyncMigration(); err != nil {
+			status.Boat.LastSyncError = err.Error()
+			return
+		}
+		account, err := e.Boat.Account(ctx)
 		if err != nil {
-			status.Box.BoxCLIError = err.Error()
+			status.Boat.BoatCLIError = err.Error()
 			return
 		}
 		if account.Error != "" && !account.Authenticated {
-			status.Box.BoxCLIError = account.Error
+			status.Boat.BoatCLIError = account.Error
 		}
-		status.Box.Authenticated = account.Authenticated
-		status.Box.Login = account.Login
-		if status.Box.Login == "" {
-			status.Box.Login = account.Email
+		status.Boat.Authenticated = account.Authenticated
+		status.Boat.Login = account.Login
+		if status.Boat.Login == "" {
+			status.Boat.Login = account.Email
 		}
-		status.Box.Plan = account.Plan
+		status.Boat.Plan = account.Plan
 	}()
 	go func() {
 		defer probes.Done()
@@ -1114,7 +1151,7 @@ type Status struct {
 	GCP     GCPStatus     `json:"gcp"`
 	AWS     AWSStatus     `json:"aws"`
 	Azure   AzureStatus   `json:"azure"`
-	Box     BoxStatus     `json:"box"`
+	Boat    BoatStatus    `json:"boat"`
 	Upstash UpstashStatus `json:"upstash"`
 	Vercel  VercelStatus  `json:"vercel"`
 	Hetzner HetznerStatus `json:"hetzner"`
@@ -1161,7 +1198,7 @@ type AzureStatus struct {
 	BastionExtensionError string     `json:"bastionExtensionError,omitempty"`
 }
 
-type BoxStatus struct {
+type BoatStatus struct {
 	Enabled           bool       `json:"enabled"`
 	AutoSync          bool       `json:"autoSync"`
 	Disabled          bool       `json:"disabled,omitempty"`
@@ -1171,7 +1208,7 @@ type BoxStatus struct {
 	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
 	LastSyncError     string     `json:"lastSyncError,omitempty"`
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
-	BoxCLIError       string     `json:"boxCliError,omitempty"`
+	BoatCLIError      string     `json:"boatCliError,omitempty"`
 }
 
 type UpstashStatus struct {

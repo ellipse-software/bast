@@ -62,7 +62,7 @@ export function softwareApplicationJsonLd() {
       "OpenSSH key manager",
       "SFTP dual-pane file browser",
       "Encrypted vault sync",
-      "Cloud VM import from GCP, AWS, Azure, box.ascii.dev, Upstash Box, and Hetzner Cloud",
+      "Cloud VM import from GCP, AWS, Azure, Boat, Upstash Box, and Hetzner Cloud",
       "JSON CLI for scripts and agents",
     ],
     offers: {

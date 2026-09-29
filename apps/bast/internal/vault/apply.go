@@ -19,6 +19,9 @@ type Applier struct {
 
 // Apply writes a merged document to managed config, keys, and metadata.
 func (a Applier) Apply(doc Document) error {
+	if err := a.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
 	if err := a.Config.EnsureManaged(); err != nil {
 		return err
 	}
@@ -171,7 +174,7 @@ func (a Applier) RestoreEnabledSyncIncludes() error {
 		{a.Store.GCP().Enabled, a.Paths.SyncGCPConfig},
 		{a.Store.AWS().Enabled, a.Paths.SyncAWSConfig},
 		{a.Store.Azure().Enabled, a.Paths.SyncAzureConfig},
-		{a.Store.Box().Enabled, a.Paths.SyncBoxConfig},
+		{a.Store.Boat().Enabled, a.Paths.SyncBoatConfig},
 		{a.Store.Upstash().Enabled, a.Paths.SyncUpstashConfig},
 		{a.Store.Vercel().Enabled, a.Paths.SyncVercelConfig},
 		{a.Store.Hetzner().Enabled, a.Paths.SyncHetznerConfig},

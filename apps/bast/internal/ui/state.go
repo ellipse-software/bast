@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/cloud"
-	boxcloud "bast/internal/cloud/box"
+	boatcloud "bast/internal/cloud/boat"
 	hetznercloud "bast/internal/cloud/hetzner"
 	cloudsync "bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
@@ -900,8 +900,8 @@ func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
 	if !ok || !cloud.CapabilitiesFor(kind).Stop {
 		return false
 	}
-	if kind == cloud.Box {
-		return boxcloud.HostLooksStopped(host.Resolved.HostName, meta.Tags)
+	if kind == cloud.Boat {
+		return boatcloud.HostLooksStopped(host.Resolved.HostName, meta.Tags)
 	}
 	if kind == cloud.Upstash {
 		return upstashcloud.HostLooksStopped(meta.Tags)
@@ -955,11 +955,11 @@ func hostStatusLine(h sshconfig.Host, meta metadata.Host) string {
 		parts = append(parts, "AWS synced")
 	case h.Synced && h.SyncSource == "azure":
 		parts = append(parts, "Azure synced")
-	case h.Synced && h.SyncSource == "box":
+	case h.Synced && h.SyncSource == "boat":
 		if hostLooksStopped(h, meta) {
-			parts = append(parts, "Box stopped")
+			parts = append(parts, "Boat stopped")
 		} else {
-			parts = append(parts, "Box synced")
+			parts = append(parts, "Boat synced")
 		}
 	case h.Synced && h.SyncSource == "upstash":
 		if hostLooksStopped(h, meta) {

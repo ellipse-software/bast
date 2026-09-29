@@ -2109,7 +2109,7 @@ func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 	if strings.Count(body, "┌") != 7 {
 		t.Fatalf("mobile should keep one boxed tile per provider:\n%s", body)
 	}
-	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") || !strings.Contains(body, "Upstash") || !strings.Contains(body, "Vercel") || !strings.Contains(body, "Hetzner") {
+	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Boat") || !strings.Contains(body, "Upstash") || !strings.Contains(body, "Vercel") || !strings.Contains(body, "Hetzner") {
 		t.Fatalf("mobile grid body:\n%s", body)
 	}
 }
@@ -2962,11 +2962,11 @@ func TestMicrosoftAzureGroupNameUsesOneBrandColor(t *testing.T) {
 	}
 }
 
-func TestBoxGroupNameIsWhite(t *testing.T) {
-	rendered := renderManagedGroupName("Box", lipgloss.NewStyle(), false)
-	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Box")
+func TestBoatGroupNameIsWhite(t *testing.T) {
+	rendered := renderManagedGroupName("Boat", lipgloss.NewStyle(), false)
+	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Boat")
 	if rendered != provider {
-		t.Fatalf("Box brand colour was not applied: %q", rendered)
+		t.Fatalf("Boat brand colour was not applied: %q", rendered)
 	}
 }
 
@@ -3124,29 +3124,29 @@ func TestProviderGroupRowsUseBrandColor(t *testing.T) {
 	}
 }
 
-func TestBoxCreateBusyThenSelectsHost(t *testing.T) {
+func TestBoatCreateBusyThenSelectsHost(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
-	m.beginSyncBusy("Creating box…")
-	m.syncingProviders = map[string]bool{"box": true}
+	m.syncProvider = "boat"
+	m.beginSyncBusy("Creating sandbox…")
+	m.syncingProviders = map[string]bool{"boat": true}
 	if !m.vaultBusyBlocksBody() {
 		t.Fatal("expected create busy to replace the sync body")
 	}
 	busy := m.renderVaultBusy(m.styles())
-	if !strings.Contains(busy, "box.ascii.dev") || !strings.Contains(busy, "Creating box…") {
+	if !strings.Contains(busy, "boat.dev") || !strings.Contains(busy, "Creating sandbox…") {
 		t.Fatalf("create busy body:\n%s", busy)
 	}
 
-	if err := m.metadata.SetHost("box_sunny", metadata.Host{Label: "sunny", Group: "Box"}); err != nil {
+	if err := m.metadata.SetHost("boat_sunny", metadata.Host{Label: "sunny", Group: "Boat"}); err != nil {
 		t.Fatal(err)
 	}
-	m.collapsedGroups = map[string]bool{"Box": true}
+	m.collapsedGroups = map[string]bool{"Boat": true}
 
 	_, _ = m.Update(syncDoneMsg{
-		provider:   "box",
-		result:     cloudsync.Result{Provider: "box", Count: 1},
-		focusAlias: "box_sunny",
+		provider:   "boat",
+		result:     cloudsync.Result{Provider: "boat", Count: 1},
+		focusAlias: "boat_sunny",
 	})
 	if m.syncBusy != "" {
 		t.Fatalf("busy should clear after create, got %q", m.syncBusy)
@@ -3154,39 +3154,39 @@ func TestBoxCreateBusyThenSelectsHost(t *testing.T) {
 	if m.section != hostsSection || m.syncProvider != "" {
 		t.Fatalf("expected Hosts after create, section=%v provider=%q", m.section, m.syncProvider)
 	}
-	if m.selectAfterLoadName != "box_sunny" {
+	if m.selectAfterLoadName != "boat_sunny" {
 		t.Fatalf("selectAfterLoadName = %q", m.selectAfterLoadName)
 	}
 
 	_, _ = m.Update(loadedMsg{hosts: []sshconfig.Host{{
-		Alias: "box_sunny", Synced: true, SyncSource: "box",
+		Alias: "boat_sunny", Synced: true, SyncSource: "boat",
 		Resolved: sshconfig.Resolved{HostName: "1.2.3.4", User: "user"},
 	}}})
 	host, ok := m.selectedHost()
-	if !ok || host.Alias != "box_sunny" {
-		t.Fatalf("new box was not selected: ok=%v host=%+v cursor=%d", ok, host, m.cursor)
+	if !ok || host.Alias != "boat_sunny" {
+		t.Fatalf("new sandbox was not selected: ok=%v host=%+v cursor=%d", ok, host, m.cursor)
 	}
-	if m.collapsedGroups["Box"] {
-		t.Fatalf("Box group should be expanded for selection: %v", m.collapsedGroups)
+	if m.collapsedGroups["Boat"] {
+		t.Fatalf("Boat group should be expanded for selection: %v", m.collapsedGroups)
 	}
 }
 
-func TestStoppedBoxHiddenUntilToggled(t *testing.T) {
+func TestStoppedBoatHiddenUntilToggled(t *testing.T) {
 	m := testApp(t)
 	m.hosts = []sshconfig.Host{
 		{
-			Alias: "box_live", Synced: true, SyncSource: "box",
+			Alias: "boat_live", Synced: true, SyncSource: "boat",
 			Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"},
 		},
 		{
-			Alias: "box_idle", Synced: true, SyncSource: "box",
-			Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"},
+			Alias: "boat_idle", Synced: true, SyncSource: "boat",
+			Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"},
 		},
 	}
-	if err := m.metadata.SetHost("box_live", metadata.Host{Label: "live", Group: "Box", Tags: []string{"state:idle"}}); err != nil {
+	if err := m.metadata.SetHost("boat_live", metadata.Host{Label: "live", Group: "Boat", Tags: []string{"state:idle"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+	if err := m.metadata.SetHost("boat_idle", metadata.Host{Label: "idle", Group: "Boat", Tags: []string{"state:stopped"}}); err != nil {
 		t.Fatal(err)
 	}
 	m.collapsedGroups = map[string]bool{}
@@ -3197,17 +3197,17 @@ func TestStoppedBoxHiddenUntilToggled(t *testing.T) {
 			continue
 		}
 		switch row.host.Alias {
-		case "box_live":
+		case "boat_live":
 			sawRunning = true
-		case "box_idle":
+		case "boat_idle":
 			sawStopped = true
 		}
 	}
 	if !sawRunning {
-		t.Fatal("running box should stay visible")
+		t.Fatal("running boat should stay visible")
 	}
 	if sawStopped {
-		t.Fatal("stopped box should be hidden by default")
+		t.Fatal("stopped boat should be hidden by default")
 	}
 
 	m.showHidden = true
@@ -3217,33 +3217,33 @@ func TestStoppedBoxHiddenUntilToggled(t *testing.T) {
 			continue
 		}
 		switch row.host.Alias {
-		case "box_live":
+		case "boat_live":
 			sawRunning = true
-		case "box_idle":
+		case "boat_idle":
 			sawStopped = true
 			if !m.hostLooksStopped(row.host) {
-				t.Fatal("stopped box should look stopped")
+				t.Fatal("stopped boat should look stopped")
 			}
 		}
 	}
 	if !sawRunning || !sawStopped {
-		t.Fatalf("expected both boxes after ., running=%v stopped=%v", sawRunning, sawStopped)
+		t.Fatalf("expected both sandboxes after ., running=%v stopped=%v", sawRunning, sawStopped)
 	}
 
 	m.showHidden = false
 	m.search = "idle"
 	sawStopped = false
 	for _, row := range m.hostRows() {
-		if !row.header && row.host.Alias == "box_idle" {
+		if !row.header && row.host.Alias == "boat_idle" {
 			sawStopped = true
 		}
 	}
 	if !sawStopped {
-		t.Fatal("search should reveal matching stopped boxes")
+		t.Fatal("search should reveal matching stopped sandboxes")
 	}
 
 	detail := m.renderHostDetail(m.styles(), m.hosts[1], 60)
-	if !strings.Contains(detail, "stopped") || !strings.Contains(detail, "Box stopped") {
+	if !strings.Contains(detail, "stopped") || !strings.Contains(detail, "Boat stopped") {
 		t.Fatalf("stopped detail:\n%s", detail)
 	}
 	if !strings.Contains(detail, resumeAction) || strings.Contains(detail, connectAction) {
@@ -3316,21 +3316,21 @@ func TestHetznerGroupHiddenWhenEveryServerIsOff(t *testing.T) {
 	}
 }
 
-func TestBoxResumeActionsAreStateAware(t *testing.T) {
+func TestBoatResumeActionsAreStateAware(t *testing.T) {
 	m := testApp(t)
 	running := sshconfig.Host{
-		Alias: "box_live", Synced: true, SyncSource: "box", SyncID: "bx_live01",
+		Alias: "boat_live", Synced: true, SyncSource: "boat", SyncID: "bx_live01",
 		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"},
 	}
 	stopped := sshconfig.Host{
-		Alias: "box_idle", Synced: true, SyncSource: "box", SyncID: "bx_idle01",
-		Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"},
+		Alias: "boat_idle", Synced: true, SyncSource: "boat", SyncID: "bx_idle01",
+		Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"},
 	}
 	m.hosts = []sshconfig.Host{running, stopped}
-	if err := m.metadata.SetHost("box_live", metadata.Host{Label: "live", Group: "Box", Tags: []string{"state:idle"}}); err != nil {
+	if err := m.metadata.SetHost("boat_live", metadata.Host{Label: "live", Group: "Boat", Tags: []string{"state:idle"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+	if err := m.metadata.SetHost("boat_idle", metadata.Host{Label: "idle", Group: "Boat", Tags: []string{"state:stopped"}}); err != nil {
 		t.Fatal(err)
 	}
 	m.collapsedGroups = map[string]bool{}
@@ -3348,7 +3348,7 @@ func TestBoxResumeActionsAreStateAware(t *testing.T) {
 		t.Fatalf("host %q not found", alias)
 	}
 
-	selectHost("box_live")
+	selectHost("boat_live")
 	footer := m.browseFooterHint(80)
 	if strings.Contains(footer, "resume") || !strings.Contains(footer, "o stop") {
 		t.Fatalf("running footer = %q", footer)
@@ -3356,17 +3356,17 @@ func TestBoxResumeActionsAreStateAware(t *testing.T) {
 	if m.hostPrimaryAction(running) != connectAction {
 		t.Fatalf("running primary action = %q", m.hostPrimaryAction(running))
 	}
-	if cmd := m.resumeSelectedBox(running, false); cmd == nil {
-		t.Fatal("expected notice cmd when resuming a running box")
+	if cmd := m.resumeSelectedBoat(running, false); cmd == nil {
+		t.Fatal("expected notice cmd when resuming a running boat")
 	}
-	// r on a running box should reload, not resume
+	// r on a running boat should reload, not resume
 	m.syncingProviders = map[string]bool{}
 	_, _ = m.updateKeys(press("r"))
-	if m.syncingProviders["box"] {
-		t.Fatal("r on running box should not start resume")
+	if m.syncingProviders["boat"] {
+		t.Fatal("r on running boat should not start resume")
 	}
 
-	selectHost("box_idle")
+	selectHost("boat_idle")
 	footer = m.browseFooterHint(80)
 	if !strings.Contains(footer, "enter connect") || !strings.Contains(footer, "r resume") || strings.Contains(footer, "o stop") {
 		t.Fatalf("stopped footer = %q", footer)
@@ -3375,11 +3375,11 @@ func TestBoxResumeActionsAreStateAware(t *testing.T) {
 		t.Fatalf("stopped primary action = %q", m.hostPrimaryAction(stopped))
 	}
 	_, cmd := m.connectSelected()
-	if !m.syncingProviders["box"] || m.syncActivity != "resuming…" {
-		t.Fatalf("enter should resume with activity label, syncing=%v activity=%q", m.syncingProviders["box"], m.syncActivity)
+	if !m.syncingProviders["boat"] || m.syncActivity != "resuming…" {
+		t.Fatalf("enter should resume with activity label, syncing=%v activity=%q", m.syncingProviders["boat"], m.syncActivity)
 	}
-	if m.boxConnectAfter != "box_idle" {
-		t.Fatalf("enter should queue SSH after resume, got %q", m.boxConnectAfter)
+	if m.sandboxConnectAfter != "boat_idle" {
+		t.Fatalf("enter should queue SSH after resume, got %q", m.sandboxConnectAfter)
 	}
 	if cmd == nil {
 		t.Fatal("expected resume command")
@@ -3389,20 +3389,20 @@ func TestBoxResumeActionsAreStateAware(t *testing.T) {
 		t.Fatalf("footer during resume = %q", footerLeft)
 	}
 
-	// After a successful resume reload, connect into the woken box.
+	// After a successful resume reload, connect into the woken boat.
 	m.syncingProviders = map[string]bool{}
 	m.syncActivity = ""
 	m.hosts = []sshconfig.Host{{
-		Alias: "box_idle", Synced: true, SyncSource: "box", SyncID: "bx_idle01",
+		Alias: "boat_idle", Synced: true, SyncSource: "boat", SyncID: "bx_idle01",
 		Resolved: sshconfig.Resolved{HostName: "203.0.113.20", User: "user"},
 	}}
-	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:idle"}}); err != nil {
+	if err := m.metadata.SetHost("boat_idle", metadata.Host{Label: "idle", Group: "Boat", Tags: []string{"state:idle"}}); err != nil {
 		t.Fatal(err)
 	}
-	m.selectAfterLoadSection, m.selectAfterLoadName = hostsSection, "box_idle"
+	m.selectAfterLoadSection, m.selectAfterLoadName = hostsSection, "boat_idle"
 	_, cmd = m.Update(loadedMsg{hosts: m.hosts})
-	if m.boxConnectAfter != "" {
-		t.Fatal("boxConnectAfter should clear once connect is queued")
+	if m.sandboxConnectAfter != "" {
+		t.Fatal("sandboxConnectAfter should clear once connect is queued")
 	}
 	if cmd == nil {
 		t.Fatal("expected SSH connect command after resume reload")
@@ -3417,7 +3417,7 @@ func TestSyncTabRenders(t *testing.T) {
 		t.Fatalf("sync grid should not include Vault:\n%s", body)
 	}
 	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Amazon EC2") ||
-		!strings.Contains(body, "Microsoft Azure") || !strings.Contains(body, "Box") {
+		!strings.Contains(body, "Microsoft Azure") || !strings.Contains(body, "Boat") {
 		t.Fatalf("sync grid body:\n%s", body)
 	}
 	if strings.Contains(body, "Sync now") {
@@ -3433,7 +3433,7 @@ func TestSyncTabRenders(t *testing.T) {
 	}
 	m.updateSyncKeys("j")
 	if m.syncCursor != 3 {
-		t.Fatalf("j should move to Box tile, cursor=%d", m.syncCursor)
+		t.Fatalf("j should move to Boat tile, cursor=%d", m.syncCursor)
 	}
 	m.updateSyncKeys("h")
 	if m.syncCursor != 2 {
@@ -3472,36 +3472,36 @@ func TestSyncTabRenders(t *testing.T) {
 	}
 }
 
-func TestBoxProviderLifecycleRow(t *testing.T) {
+func TestBoatProviderLifecycleRow(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
+	m.syncProvider = "boat"
 	m.syncCursor = 0
-	m.syncStatus.Box.Authenticated = true
+	m.syncStatus.Boat.Authenticated = true
 	body := m.renderSync(m.styles())
-	if !strings.Contains(body, "New box") {
-		t.Fatalf("box page should offer New box:\n%s", body)
+	if !strings.Contains(body, "New sandbox") {
+		t.Fatalf("boat page should offer New sandbox:\n%s", body)
 	}
 	if !strings.Contains(body, "disabled") && !strings.Contains(body, "enabled") {
-		t.Fatalf("box page should show status:\n%s", body)
+		t.Fatalf("boat page should show status:\n%s", body)
 	}
 	sameRow := false
 	for _, line := range strings.Split(body, "\n") {
-		if strings.Contains(line, "New box") && (strings.Contains(line, "Sync") || strings.Contains(line, "Connect")) {
+		if strings.Contains(line, "New sandbox") && (strings.Contains(line, "Sync") || strings.Contains(line, "Connect")) {
 			sameRow = true
 			break
 		}
 	}
 	if !sameRow {
-		t.Fatalf("Sync/Connect and New box should share a row:\n%s", body)
+		t.Fatalf("Sync/Connect and New sandbox should share a row:\n%s", body)
 	}
 	m.updateSyncKeys("l")
 	if m.syncCursor != 1 {
-		t.Fatalf("l should move to New box, cursor=%d", m.syncCursor)
+		t.Fatalf("l should move to New sandbox, cursor=%d", m.syncCursor)
 	}
 	m.updateSyncKeys("enter")
-	if m.form == nil || m.form.action != "box_new" {
-		t.Fatalf("enter on New box should open form, got %#v", m.form)
+	if m.form == nil || m.form.action != "boat_new" {
+		t.Fatalf("enter on New sandbox should open form, got %#v", m.form)
 	}
 }
 
@@ -3545,20 +3545,20 @@ func TestUpstashDeleteUsesRemoteConfirm(t *testing.T) {
 	}
 }
 
-func TestBoxDeleteUsesRemoteConfirm(t *testing.T) {
+func TestBoatDeleteUsesRemoteConfirm(t *testing.T) {
 	m := testApp(t)
 	m.hosts = []sshconfig.Host{{
-		Alias: "box_dev", Synced: true, SyncSource: "box", SyncID: "bx_dev0001",
+		Alias: "boat_dev", Synced: true, SyncSource: "boat", SyncID: "bx_dev0001",
 		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"},
 	}}
-	if err := m.metadata.SetHost("box_dev", metadata.Host{Label: "dev", Group: "Box", Tags: []string{"state:running"}}); err != nil {
+	if err := m.metadata.SetHost("boat_dev", metadata.Host{Label: "dev", Group: "Boat", Tags: []string{"state:running"}}); err != nil {
 		t.Fatal(err)
 	}
 	m.section = hostsSection
-	selectHostAlias(t, m, "box_dev")
+	selectHostAlias(t, m, "boat_dev")
 	_, _ = m.updateKeys(press("d"))
-	if m.form == nil || m.form.action != "box_delete" {
-		t.Fatalf("d on box host should confirm remote delete, got %#v", m.form)
+	if m.form == nil || m.form.action != "boat_delete" {
+		t.Fatalf("d on boat host should confirm remote delete, got %#v", m.form)
 	}
 }
 
@@ -3780,26 +3780,26 @@ func TestVaultTermsFormMouse(t *testing.T) {
 func TestProviderInventoryGroupsByStatus(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
+	m.syncProvider = "boat"
 	m.syncCursor = -1
 	m.hosts = []sshconfig.Host{
-		{Alias: "box_run", Synced: true, SyncSource: "box", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"}},
-		{Alias: "box_stop", Synced: true, SyncSource: "box", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"}},
+		{Alias: "boat_run", Synced: true, SyncSource: "boat", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"}},
+		{Alias: "boat_stop", Synced: true, SyncSource: "boat", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"}},
 	}
-	if err := m.metadata.SetHost("box_run", metadata.Host{Label: "alpha-box", Group: "Box", Tags: []string{"state:running"}}); err != nil {
+	if err := m.metadata.SetHost("boat_run", metadata.Host{Label: "alpha-boat", Group: "Boat", Tags: []string{"state:running"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.metadata.SetHost("box_stop", metadata.Host{Label: "idle-box", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+	if err := m.metadata.SetHost("boat_stop", metadata.Host{Label: "idle-boat", Group: "Boat", Tags: []string{"state:stopped"}}); err != nil {
 		t.Fatal(err)
 	}
 	body := m.renderSync(m.styles())
 	if !strings.Contains(body, "Running") || !strings.Contains(body, "Stopped") {
 		t.Fatalf("expected status groups:\n%s", body)
 	}
-	if !strings.Contains(body, "alpha-box") {
+	if !strings.Contains(body, "alpha-boat") {
 		t.Fatalf("running host should be visible:\n%s", body)
 	}
-	if strings.Contains(body, "idle-box") {
+	if strings.Contains(body, "idle-boat") {
 		t.Fatalf("stopped group should start collapsed:\n%s", body)
 	}
 
@@ -3820,14 +3820,14 @@ func TestProviderInventoryGroupsByStatus(t *testing.T) {
 	}
 	m.updateSyncKeys("space")
 	body = m.renderSync(m.styles())
-	if !strings.Contains(body, "idle-box") {
+	if !strings.Contains(body, "idle-boat") {
 		t.Fatalf("space should expand stopped:\n%s", body)
 	}
 
 	m.updateSyncKeys("j")
 	_, cmd := m.updateSyncKeys("enter")
-	if m.boxConnectAfter != "box_stop" {
-		t.Fatalf("enter on stopped box should resume+connect, after=%q", m.boxConnectAfter)
+	if m.sandboxConnectAfter != "boat_stop" {
+		t.Fatalf("enter on stopped boat should resume+connect, after=%q", m.sandboxConnectAfter)
 	}
 	if cmd == nil {
 		t.Fatal("expected resume command")
@@ -3837,45 +3837,45 @@ func TestProviderInventoryGroupsByStatus(t *testing.T) {
 func TestProviderInventorySandboxLifecycle(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
-	m.syncStatus.Box.Authenticated = true
+	m.syncProvider = "boat"
+	m.syncStatus.Boat.Authenticated = true
 	m.hosts = []sshconfig.Host{
-		{Alias: "box_run", Synced: true, SyncSource: "box", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"}},
-		{Alias: "box_stop", Synced: true, SyncSource: "box", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"}},
+		{Alias: "boat_run", Synced: true, SyncSource: "boat", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"}},
+		{Alias: "boat_stop", Synced: true, SyncSource: "boat", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"}},
 	}
-	if err := m.metadata.SetHost("box_run", metadata.Host{Label: "alpha-box", Group: "Box", Tags: []string{"state:running", "snapshot"}}); err != nil {
+	if err := m.metadata.SetHost("boat_run", metadata.Host{Label: "alpha-boat", Group: "Boat", Tags: []string{"state:running", "snapshot"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.metadata.SetHost("box_stop", metadata.Host{Label: "idle-box", Group: "Box", Tags: []string{"state:stopped", "snapshot"}}); err != nil {
+	if err := m.metadata.SetHost("boat_stop", metadata.Host{Label: "idle-boat", Group: "Boat", Tags: []string{"state:stopped", "snapshot"}}); err != nil {
 		t.Fatal(err)
 	}
 	m.toggleProviderInv(invGroupStopped)
 
-	selectProviderHost(t, m, "box_run")
+	selectProviderHost(t, m, "boat_run")
 	_, _ = m.updateKeys(press("o"))
-	if m.form == nil || m.form.action != "box_stop" {
+	if m.form == nil || m.form.action != "boat_stop" {
 		t.Fatalf("o on running inventory host should stop, got %#v", m.form)
 	}
 	m.form = nil
 	_, _ = m.updateKeys(press("n"))
-	if m.form == nil || m.form.action != "box_fork" {
+	if m.form == nil || m.form.action != "boat_fork" {
 		t.Fatalf("n on running inventory host should fork, got %#v", m.form)
 	}
 	m.form = nil
 	_, _ = m.updateKeys(press("d"))
-	if m.form == nil || m.form.action != "box_delete" {
+	if m.form == nil || m.form.action != "boat_delete" {
 		t.Fatalf("d on running inventory host should delete, got %#v", m.form)
 	}
 
 	m.form = nil
 	m.syncCursor = 0
 	_, _ = m.updateKeys(press("n"))
-	if m.form == nil || m.form.action != "box_new" {
-		t.Fatalf("n on chips should still create a box, got %#v", m.form)
+	if m.form == nil || m.form.action != "boat_new" {
+		t.Fatalf("n on chips should still create a sandbox, got %#v", m.form)
 	}
 
 	m.form = nil
-	selectProviderHost(t, m, "box_stop")
+	selectProviderHost(t, m, "boat_stop")
 	footer := m.browseFooterHint(80)
 	if !strings.Contains(footer, "r resume") || strings.Contains(footer, "o stop") {
 		t.Fatalf("stopped inventory footer = %q", footer)
@@ -3884,8 +3884,8 @@ func TestProviderInventorySandboxLifecycle(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("r on stopped inventory host should resume")
 	}
-	if m.boxConnectAfter != "" {
-		t.Fatalf("r should resume without connecting, after=%q", m.boxConnectAfter)
+	if m.sandboxConnectAfter != "" {
+		t.Fatalf("r should resume without connecting, after=%q", m.sandboxConnectAfter)
 	}
 	if m.syncActivity != "resuming…" {
 		t.Fatalf("resume activity = %q", m.syncActivity)
@@ -3922,7 +3922,7 @@ func TestProviderInventorySandboxLifecycle(t *testing.T) {
 	m.syncCursor = 0
 	_, _ = m.updateKeys(press("n"))
 	if m.form == nil || m.form.action != "upstash_new" {
-		t.Fatalf("n on upstash chips should create a box, got %#v", m.form)
+		t.Fatalf("n on upstash chips should create a sandbox, got %#v", m.form)
 	}
 
 	m.form = nil
@@ -3984,18 +3984,18 @@ func TestProviderInstancesGroup(t *testing.T) {
 func TestProviderNavChipThenInventory(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
+	m.syncProvider = "boat"
 	m.syncCursor = -1
-	m.syncStatus.Box.Authenticated = true
+	m.syncStatus.Boat.Authenticated = true
 	m.hosts = []sshconfig.Host{
-		{Alias: "box_run", Synced: true, SyncSource: "box", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10"}},
+		{Alias: "boat_run", Synced: true, SyncSource: "boat", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10"}},
 	}
-	if err := m.metadata.SetHost("box_run", metadata.Host{Label: "alpha-box", Group: "Box", Tags: []string{"state:running"}}); err != nil {
+	if err := m.metadata.SetHost("boat_run", metadata.Host{Label: "alpha-boat", Group: "Boat", Tags: []string{"state:running"}}); err != nil {
 		t.Fatal(err)
 	}
 	m.updateSyncKeys("l")
 	if m.syncCursor != 1 {
-		t.Fatalf("l from Sync/Connect should hit New box, cursor=%d", m.syncCursor)
+		t.Fatalf("l from Sync/Connect should hit New sandbox, cursor=%d", m.syncCursor)
 	}
 	m.updateSyncKeys("j")
 	if m.syncCursor != 2 {
@@ -4030,22 +4030,22 @@ func TestProviderPageMouse(t *testing.T) {
 	}
 }
 
-func TestBoxLifecycleChipMouse(t *testing.T) {
+func TestBoatLifecycleChipMouse(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
+	m.syncProvider = "boat"
 	m.syncCursor = -1
-	m.syncStatus.Box.Authenticated = true
+	m.syncStatus.Boat.Authenticated = true
 	life, _ := m.providerActionLayout()
 	newIdx := -1
 	for i, item := range life {
-		if item.action == "box_new" {
+		if item.action == "boat_new" {
 			newIdx = i
 			break
 		}
 	}
 	if newIdx < 0 {
-		t.Fatal("expected New box action")
+		t.Fatal("expected New sandbox action")
 	}
 	var chip providerPageHit
 	found := false
@@ -4057,30 +4057,30 @@ func TestBoxLifecycleChipMouse(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("expected New box chip")
+		t.Fatal("expected New sandbox chip")
 	}
 	m.Update(tea.MouseClickMsg(tea.Mouse{X: chip.x0 + 1, Y: chip.y0, Button: tea.MouseLeft}))
 	if m.syncCursor != newIdx {
-		t.Fatalf("first click should select New box, cursor=%d", m.syncCursor)
+		t.Fatalf("first click should select New sandbox, cursor=%d", m.syncCursor)
 	}
 	m.Update(tea.MouseClickMsg(tea.Mouse{X: chip.x0 + 1, Y: chip.y0, Button: tea.MouseLeft}))
-	if m.form == nil || m.form.action != "box_new" {
-		t.Fatalf("second click should open New box, form=%#v", m.form)
+	if m.form == nil || m.form.action != "boat_new" {
+		t.Fatalf("second click should open New sandbox, form=%#v", m.form)
 	}
 }
 
 func TestProviderInventoryMouseToggle(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
+	m.syncProvider = "boat"
 	m.syncCursor = -1
 	m.hosts = []sshconfig.Host{
-		{Alias: "box_stop", Synced: true, SyncSource: "box", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"}},
+		{Alias: "boat_stop", Synced: true, SyncSource: "boat", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"}},
 	}
-	if err := m.metadata.SetHost("box_stop", metadata.Host{Label: "idle-box", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+	if err := m.metadata.SetHost("boat_stop", metadata.Host{Label: "idle-boat", Group: "Boat", Tags: []string{"state:stopped"}}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(m.renderSync(m.styles()), "idle-box") {
+	if strings.Contains(m.renderSync(m.styles()), "idle-boat") {
 		t.Fatal("stopped host should start hidden")
 	}
 	var header providerPageHit
@@ -4096,7 +4096,7 @@ func TestProviderInventoryMouseToggle(t *testing.T) {
 		t.Fatal("expected stopped header hit")
 	}
 	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: header.y0, Button: tea.MouseLeft}))
-	if !strings.Contains(m.renderSync(m.styles()), "idle-box") {
+	if !strings.Contains(m.renderSync(m.styles()), "idle-boat") {
 		t.Fatal("clicking Stopped should expand the group")
 	}
 }
@@ -4336,7 +4336,7 @@ func TestInitDefersProviderAutoSyncUntilHostsDiscovered(t *testing.T) {
 	if err := m.metadata.SetAzure(metadata.AzureIntegration{Enabled: true, AutoSync: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.metadata.SetBox(metadata.BoxIntegration{Disabled: true}); err != nil {
+	if err := m.metadata.SetBoat(metadata.BoatIntegration{Disabled: true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -4394,50 +4394,50 @@ func TestAutoSyncDoesNotRestartAfterSyncReload(t *testing.T) {
 	}
 }
 
-func TestBoxAutoConnectSkipsExplicitAutoSyncOff(t *testing.T) {
+func TestBoatAutoConnectSkipsExplicitAutoSyncOff(t *testing.T) {
 	m := testApp(t)
-	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true, AutoSync: false}); err != nil {
+	if err := m.metadata.SetBoat(metadata.BoatIntegration{Enabled: true, AutoSync: false}); err != nil {
 		t.Fatal(err)
 	}
 	if cmd := m.autoSyncCmds(); cmd != nil {
-		t.Fatal("enabled Box with auto-sync off should not auto-connect or sync")
+		t.Fatal("enabled Boat with auto-sync off should not auto-connect or sync")
 	}
-	if m.syncingProviders["box"] {
-		t.Fatal("Box should not be marked syncing")
+	if m.syncingProviders["boat"] {
+		t.Fatal("Boat should not be marked syncing")
 	}
 }
 
-func TestBoxAutoConnectRunsWhenNotEnabled(t *testing.T) {
+func TestBoatAutoConnectRunsWhenNotEnabled(t *testing.T) {
 	m := testApp(t)
-	if err := m.metadata.SetBox(metadata.BoxIntegration{}); err != nil {
+	if err := m.metadata.SetBoat(metadata.BoatIntegration{}); err != nil {
 		t.Fatal(err)
 	}
 	if cmd := m.autoSyncCmds(); cmd == nil {
-		t.Fatal("unconfigured Box should schedule auto-connect")
+		t.Fatal("unconfigured Boat should schedule auto-connect")
 	}
-	if !m.syncingProviders["box"] {
-		t.Fatal("Box should be marked syncing for auto-connect")
+	if !m.syncingProviders["boat"] {
+		t.Fatal("Boat should be marked syncing for auto-connect")
 	}
 }
 
-func TestStaleBoxSyncDoneDoesNotClearNewerOp(t *testing.T) {
+func TestStaleBoatSyncDoneDoesNotClearNewerOp(t *testing.T) {
 	m := testApp(t)
-	old := m.beginProviderOp("box")
+	old := m.beginProviderOp("boat")
 	m.syncActivity = "stopping…"
-	newer := m.beginProviderOp("box")
+	newer := m.beginProviderOp("boat")
 	if newer == old {
 		t.Fatal("expected a new op generation")
 	}
-	m.Update(syncDoneMsg{provider: "box", opGen: old})
-	if !m.syncingProviders["box"] {
-		t.Fatal("stale completion cleared an in-flight box op")
+	m.Update(syncDoneMsg{provider: "boat", opGen: old})
+	if !m.syncingProviders["boat"] {
+		t.Fatal("stale completion cleared an in-flight boat op")
 	}
 	if m.syncActivity != "stopping…" {
 		t.Fatalf("stale completion cleared activity: %q", m.syncActivity)
 	}
-	m.Update(syncDoneMsg{provider: "box", opGen: newer})
-	if m.syncingProviders["box"] {
-		t.Fatal("current completion should clear the box op")
+	m.Update(syncDoneMsg{provider: "boat", opGen: newer})
+	if m.syncingProviders["boat"] {
+		t.Fatal("current completion should clear the sandbox op")
 	}
 }
 
@@ -4469,8 +4469,8 @@ func TestSyncCompletionNoticeIncludesEveryEnabledProvider(t *testing.T) {
 }
 
 func TestPrepareTimeoutForHost(t *testing.T) {
-	if got := prepareTimeoutForHost(sshconfig.Host{Synced: true, SyncSource: "box"}); got != boxPrepareTimeout {
-		t.Fatalf("box timeout = %v, want %v", got, boxPrepareTimeout)
+	if got := prepareTimeoutForHost(sshconfig.Host{Synced: true, SyncSource: "boat"}); got != boatPrepareTimeout {
+		t.Fatalf("boat timeout = %v, want %v", got, boatPrepareTimeout)
 	}
 	if got := prepareTimeoutForHost(sshconfig.Host{Synced: true, SyncSource: "gcp"}); got != cloudPrepareTimeout {
 		t.Fatalf("gcp timeout = %v, want %v", got, cloudPrepareTimeout)
@@ -4478,23 +4478,23 @@ func TestPrepareTimeoutForHost(t *testing.T) {
 	if got := prepareTimeoutForHost(sshconfig.Host{}); got != cloudPrepareTimeout {
 		t.Fatalf("local timeout = %v, want %v", got, cloudPrepareTimeout)
 	}
-	if boxPrepareTimeout <= 3*time.Minute {
-		t.Fatalf("box prepare timeout %v must exceed Resume WaitReady (3m)", boxPrepareTimeout)
+	if boatPrepareTimeout <= 3*time.Minute {
+		t.Fatalf("boat prepare timeout %v must exceed Resume WaitReady (3m)", boatPrepareTimeout)
 	}
 }
 
-func TestFavoriteAndHiddenAllowedForNonBoxSyncedHosts(t *testing.T) {
+func TestFavoriteAndHiddenAllowedForNonBoatSyncedHosts(t *testing.T) {
 	m := testApp(t)
 	m.hosts = []sshconfig.Host{{
 		Alias: "gcp_demo_web", Synced: true, SyncSource: "gcp",
 		SyncID:   "projects/demo/zones/us-central1-a/instances/web",
 		Resolved: sshconfig.Resolved{HostName: "web", User: "ubuntu"},
 	}, {
-		Alias: "box_sunny", Synced: true, SyncSource: "box", SyncID: "bx_sunny01",
+		Alias: "boat_sunny", Synced: true, SyncSource: "boat", SyncID: "bx_sunny01",
 		Resolved: sshconfig.Resolved{HostName: "1.2.3.4", User: "user"},
 	}}
 	_ = m.metadata.SetHost("gcp_demo_web", metadata.Host{Label: "web"})
-	_ = m.metadata.SetHost("box_sunny", metadata.Host{Label: "sunny"})
+	_ = m.metadata.SetHost("boat_sunny", metadata.Host{Label: "sunny"})
 
 	selectHostAlias(t, m, "gcp_demo_web")
 	m.updateKeys(press("f"))
@@ -4506,22 +4506,22 @@ func TestFavoriteAndHiddenAllowedForNonBoxSyncedHosts(t *testing.T) {
 		t.Fatal("GCP synced host should allow hidden toggle")
 	}
 
-	selectHostAlias(t, m, "box_sunny")
+	selectHostAlias(t, m, "boat_sunny")
 	m.status = ""
 	m.updateKeys(press("f"))
-	if m.metadata.Host("box_sunny").Favorite {
-		t.Fatal("Box host should not toggle favorite")
+	if m.metadata.Host("boat_sunny").Favorite {
+		t.Fatal("Boat host should not toggle favorite")
 	}
 	if !strings.Contains(m.status, "Synced sandbox hosts are read-only") {
-		t.Fatalf("box favorite status = %q", m.status)
+		t.Fatalf("boat favorite status = %q", m.status)
 	}
 	m.status = ""
 	m.updateKeys(press("h"))
-	if m.metadata.Host("box_sunny").Hidden {
-		t.Fatal("Box host should not toggle hidden")
+	if m.metadata.Host("boat_sunny").Hidden {
+		t.Fatal("Boat host should not toggle hidden")
 	}
 	if !strings.Contains(m.status, "Synced sandbox hosts are read-only") {
-		t.Fatalf("box hidden status = %q", m.status)
+		t.Fatalf("boat hidden status = %q", m.status)
 	}
 }
 
@@ -4549,47 +4549,47 @@ func TestProviderGroupShowsCreate(t *testing.T) {
 	m := testApp(t)
 	m.hosts = []sshconfig.Host{
 		{
-			Alias: "box_live", Synced: true, SyncSource: "box",
+			Alias: "boat_live", Synced: true, SyncSource: "boat",
 			Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"},
 		},
 	}
-	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+	if err := m.metadata.SetBoat(metadata.BoatIntegration{Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.metadata.SetHost("box_live", metadata.Host{Label: "live", Group: "Box", Tags: []string{"state:idle"}}); err != nil {
+	if err := m.metadata.SetHost("boat_live", metadata.Host{Label: "live", Group: "Boat", Tags: []string{"state:idle"}}); err != nil {
 		t.Fatal(err)
 	}
 	m.collapsedGroups = map[string]bool{}
 	rows := m.hostRows()
-	if len(rows) == 0 || !rows[0].header || rows[0].group != "Box" {
-		t.Fatalf("expected Box group, rows=%+v", rows)
+	if len(rows) == 0 || !rows[0].header || rows[0].group != "Boat" {
+		t.Fatalf("expected Boat group, rows=%+v", rows)
 	}
 	m.cursor = 0
 	detail := m.renderGroupDetail(m.styles(), rows[0], 60)
-	if !strings.Contains(detail, "New box") {
-		t.Fatalf("Box group should offer New box:\n%s", detail)
+	if !strings.Contains(detail, "New sandbox") {
+		t.Fatalf("Boat group should offer New sandbox:\n%s", detail)
 	}
 	lines := strings.Split(detail, "\n")
-	if len(lines) < 3 || !strings.Contains(lines[0], "Box") || strings.Contains(lines[0], "New box") {
-		t.Fatalf("New box should sit under the Box title:\n%s", detail)
+	if len(lines) < 3 || !strings.Contains(lines[0], "Boat") || strings.Contains(lines[0], "New sandbox") {
+		t.Fatalf("New sandbox should sit under the Boat title:\n%s", detail)
 	}
-	if !strings.Contains(lines[2], "New box") {
-		t.Fatalf("New box chip should be on the action row:\n%s", detail)
+	if !strings.Contains(lines[2], "New sandbox") {
+		t.Fatalf("New sandbox chip should be on the action row:\n%s", detail)
 	}
 	_, cmd := m.updateKeys(press("n"))
 	_ = cmd
-	if m.form == nil || m.form.action != "box_new" {
-		t.Fatalf("n on Box group should open new form, got %#v", m.form)
+	if m.form == nil || m.form.action != "boat_new" {
+		t.Fatalf("n on Boat group should open new form, got %#v", m.form)
 	}
 	if len(m.form.fields) < 3 || len(m.form.fields[0].options) != 3 || m.form.fields[0].selected != 1 {
-		t.Fatalf("new box form should offer constrained type options, got %#v", m.form.fields)
+		t.Fatalf("new sandbox form should offer constrained type options, got %#v", m.form.fields)
 	}
 }
 
 func TestProviderGroupHiddenWhenNoActiveHosts(t *testing.T) {
 	m := testApp(t)
 	m.hosts = nil
-	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+	if err := m.metadata.SetBoat(metadata.BoatIntegration{Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.metadata.SetVercel(metadata.VercelIntegration{Enabled: true, TeamID: "team_1", ProjectID: "prj_1"}); err != nil {
@@ -4602,8 +4602,8 @@ func TestProviderGroupHiddenWhenNoActiveHosts(t *testing.T) {
 
 	m.hosts = []sshconfig.Host{
 		{
-			Alias: "box_idle", Synced: true, SyncSource: "box",
-			Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"},
+			Alias: "boat_idle", Synced: true, SyncSource: "boat",
+			Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"},
 		},
 		{
 			Alias: "vercel_idle", Synced: true, SyncSource: "vercel",
@@ -4611,7 +4611,7 @@ func TestProviderGroupHiddenWhenNoActiveHosts(t *testing.T) {
 		},
 		{Alias: "alpha"},
 	}
-	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+	if err := m.metadata.SetHost("boat_idle", metadata.Host{Label: "idle", Group: "Boat", Tags: []string{"state:stopped"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.metadata.SetHost("vercel_idle", metadata.Host{Label: "idle", Group: "Vercel", Tags: []string{"state:stopped"}}); err != nil {
@@ -4623,28 +4623,28 @@ func TestProviderGroupHiddenWhenNoActiveHosts(t *testing.T) {
 			groups[row.group] = true
 		}
 	}
-	if groups["Box"] || groups["Vercel"] {
+	if groups["Boat"] || groups["Vercel"] {
 		t.Fatalf("stopped-only provider groups should stay hidden, groups=%v rows=%+v", groups, m.hostRows())
 	}
 
 	m.showHidden = true
 	groups = map[string]bool{}
-	var sawBox, sawVercel bool
+	var sawBoat, sawVercel bool
 	for _, row := range m.hostRows() {
 		if row.header {
 			groups[row.group] = true
 		}
-		if row.host.Alias == "box_idle" {
-			sawBox = true
+		if row.host.Alias == "boat_idle" {
+			sawBoat = true
 		}
 		if row.host.Alias == "vercel_idle" {
 			sawVercel = true
 		}
 	}
-	if !groups["Box"] || !groups["Vercel"] {
+	if !groups["Boat"] || !groups["Vercel"] {
 		t.Fatalf(". should reveal stopped-only groups, groups=%v", groups)
 	}
-	if !sawBox || !sawVercel {
-		t.Fatalf(". should reveal stopped hosts, box=%v vercel=%v", sawBox, sawVercel)
+	if !sawBoat || !sawVercel {
+		t.Fatalf(". should reveal stopped hosts, boat=%v vercel=%v", sawBoat, sawVercel)
 	}
 }

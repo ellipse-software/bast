@@ -141,7 +141,7 @@ func (e Engine) checkSyncIncludes(r *Report, ins sshconfig.Inspection, st runSta
 		{e.Paths.SyncGCPConfig, "gcp"},
 		{e.Paths.SyncAWSConfig, "aws"},
 		{e.Paths.SyncAzureConfig, "azure"},
-		{e.Paths.SyncBoxConfig, "box"},
+		{e.Paths.SyncBoatConfig, "boat"},
 		{e.Paths.SyncUpstashConfig, "upstash"},
 		{e.Paths.SyncVercelConfig, "vercel"},
 		{e.Paths.SyncHetznerConfig, "hetzner"},
@@ -151,7 +151,7 @@ func (e Engine) checkSyncIncludes(r *Report, ins sshconfig.Inspection, st runSta
 		enabled["gcp"] = st.store.GCP().Enabled
 		enabled["aws"] = st.store.AWS().Enabled
 		enabled["azure"] = st.store.Azure().Enabled
-		enabled["box"] = st.store.Box().Enabled
+		enabled["boat"] = st.store.Boat().Enabled
 		enabled["upstash"] = st.store.Upstash().Enabled
 		enabled["vercel"] = st.store.Vercel().Enabled
 		enabled["hetzner"] = st.store.Hetzner().Enabled

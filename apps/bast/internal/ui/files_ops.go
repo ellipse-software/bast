@@ -12,7 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/askpass"
-	boxcloud "bast/internal/cloud/box"
+	boatcloud "bast/internal/cloud/boat"
 	"bast/internal/files"
 	"bast/internal/openssh"
 	"bast/internal/sshconfig"
@@ -133,12 +133,12 @@ func (m *App) disconnectFilesPane(index int) tea.Cmd {
 // cloudPrepareTimeout is the access-prep budget for GCP/AWS/Azure.
 const cloudPrepareTimeout = 90 * time.Second
 
-// boxPrepareTimeout covers resume (up to 3m), sync, and EnsureBoxAccess.
-const boxPrepareTimeout = 5 * time.Minute
+// boatPrepareTimeout covers resume (up to 3m), sync, and EnsureBoatAccess.
+const boatPrepareTimeout = 5 * time.Minute
 
 func prepareTimeoutForHost(host sshconfig.Host) time.Duration {
-	if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash" || host.SyncSource == "vercel" || host.SyncSource == "hetzner") {
-		return boxPrepareTimeout
+	if host.Synced && (host.SyncSource == "boat" || host.SyncSource == "upstash" || host.SyncSource == "vercel" || host.SyncSource == "hetzner") {
+		return boatPrepareTimeout
 	}
 	return cloudPrepareTimeout
 }
@@ -210,20 +210,23 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 		ensure = m.syncer.EnsureAWSAccess
 	case "azure":
 		ensure = m.syncer.EnsureAzureAccess
-	case "box":
+	case "boat":
 		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if err := m.syncer.Config.CheckBoatSyncMigration(); err != nil {
+				return err
+			}
 			if m.hostLooksStopped(host) {
 				if status != nil {
-					status("Resuming box…")
+					status("Resuming sandbox…")
 				}
 				// Resume and sync are separate so a post-resume sync failure
-				// does not skip EnsureBoxAccess (which refreshes the SSH host).
-				if err := m.syncer.Box.Resume(ctx, host.SyncID, boxcloud.ResumeOpts{}); err != nil {
+				// does not skip EnsureBoatAccess (which refreshes the SSH host).
+				if err := m.syncer.Boat.Resume(ctx, host.SyncID, boatcloud.ResumeOpts{}); err != nil {
 					return err
 				}
-				_, _ = m.syncer.SyncBox(ctx)
+				_, _ = m.syncer.SyncBoat(ctx)
 			}
-			return m.syncer.EnsureBoxAccess(ctx, host, status)
+			return m.syncer.EnsureBoatAccess(ctx, host, status)
 		}
 	case "upstash":
 		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {

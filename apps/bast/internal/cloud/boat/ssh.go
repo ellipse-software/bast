@@ -1,4 +1,4 @@
-package box
+package boat
 
 import (
 	"bast/internal/cloud/sshutil"
@@ -21,20 +21,20 @@ func ToSyncHost(inst Instance, alias string) sshconfig.SyncHostInput {
 }
 
 func GroupPath(inst Instance) string {
-	// Keep running and stopped boxes in one group so stopping a box does not
+	// Keep running and stopped sandboxes in one group so stopping a sandbox does not
 	// make it jump (or appear to vanish) into a separate subgroup.
-	return "Box"
+	return "Boat"
 }
 
 func AliasFor(inst Instance) string {
 	name := sshutil.SanitizeAliasPart(inst.Name)
-	if name == "" || name == "box" {
+	if name == "" || name == "boat" {
 		name = sshutil.SanitizeAliasPart(inst.SyncID)
 	}
 	if name == "" {
-		name = "box"
+		name = "boat"
 	}
-	return "box_" + name
+	return "boat_" + name
 }
 
 func UniqueAlias(base string, used map[string]bool) string {

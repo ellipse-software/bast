@@ -107,7 +107,7 @@ func TestDoctorKeyDoesNotStealFilesDisconnect(t *testing.T) {
 func TestSyncLMovesRight(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
+	m.syncProvider = "boat"
 	if b, ok := m.matchBinding("l"); !ok || b.ID != ActionMoveRight {
 		t.Fatalf("sync l = %+v ok=%v", b, ok)
 	}

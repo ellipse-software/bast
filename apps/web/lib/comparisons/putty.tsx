@@ -43,7 +43,7 @@ export const puttyComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud hosts",
-      bast: "CLIs for GCP, AWS, Azure, and Box; APIs for Hetzner, Upstash, and Vercel",
+      bast: "CLIs for GCP, AWS, Azure, and Boat; APIs for Hetzner, Upstash, and Vercel",
       competitor: "Not built in",
     },
     {
@@ -122,7 +122,7 @@ export const puttyComparison: ComparisonCaseStudy = {
           connections to system <Code>ssh</Code>.
         </>,
         <>
-          Cloud sync pulls live hosts from GCP, AWS, Azure, and box.ascii.dev
+          Cloud sync pulls live hosts from GCP, AWS, Azure, and Boat
           through provider CLIs, and from Hetzner Cloud, Upstash Box, and Vercel
           Sandbox over their APIs. That is a different job from saving a static
           PuTTY session for a box you typed in by hand.

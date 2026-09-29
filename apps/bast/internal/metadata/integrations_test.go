@@ -82,13 +82,13 @@ func TestAzureIntegrationRoundTrip(t *testing.T) {
 	}
 }
 
-func TestBoxIntegrationRoundTrip(t *testing.T) {
+func TestBoatIntegrationRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	store, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetBox(BoxIntegration{
+	if err := store.SetBoat(BoatIntegration{
 		Enabled: true, AutoSync: true, Disabled: false, LastInstanceCount: 2,
 	}); err != nil {
 		t.Fatal(err)
@@ -97,15 +97,15 @@ func TestBoxIntegrationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	box := reopened.Box()
-	if !box.Enabled || !box.AutoSync || box.Disabled || box.LastInstanceCount != 2 {
-		t.Fatalf("box = %+v", box)
+	boat := reopened.Boat()
+	if !boat.Enabled || !boat.AutoSync || boat.Disabled || boat.LastInstanceCount != 2 {
+		t.Fatalf("boat = %+v", boat)
 	}
-	if err := reopened.SetBox(BoxIntegration{Disabled: true}); err != nil {
+	if err := reopened.SetBoat(BoatIntegration{Disabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	if !reopened.Box().Disabled || reopened.Box().Enabled {
-		t.Fatalf("disabled box = %+v", reopened.Box())
+	if !reopened.Boat().Disabled || reopened.Boat().Enabled {
+		t.Fatalf("disabled boat = %+v", reopened.Boat())
 	}
 }
 

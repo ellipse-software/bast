@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 
 type Section = "hosts" | "keys" | "vault" | "sync" | "files";
-type SyncProvider = "" | "gcp" | "aws" | "azure" | "box" | "upstash" | "vercel" | "hetzner";
+type SyncProvider = "" | "gcp" | "aws" | "azure" | "boat" | "upstash" | "vercel" | "hetzner";
 
 type DetailRow = { label: string; value: string };
 
@@ -263,10 +263,10 @@ const syncTiles: SyncTile[] = [
     description: "Import Azure VMs into Bast",
   },
   {
-    id: "box",
-    title: "Box",
+    id: "boat",
+    title: "Boat",
     detail: "2 running",
-    description: "Import ASCII Box sandboxes into Bast",
+    description: "Import Boat sandboxes into Bast",
   },
   {
     id: "upstash",
@@ -356,9 +356,9 @@ const providerPages: Record<Exclude<SyncProvider, "">, ProviderPage> = {
       { label: "Refresh status" },
     ],
   },
-  box: {
+  boat: {
     identity: ["enabled · 2 running", "ted · auto-sync on"],
-    chips: ["Sync", "New box"],
+    chips: ["Sync", "New sandbox"],
     config: [
       { label: "Disconnect" },
       { label: "Refresh status" },
@@ -2001,8 +2001,8 @@ function ProviderTitle({
       return <span className="font-bold text-[#FF9900]">Amazon EC2</span>;
     case "azure":
       return <span className="font-bold text-[#0078D4]">Microsoft Azure</span>;
-    case "box":
-      return <span className="font-bold text-foreground">Box</span>;
+    case "boat":
+      return <span className="font-bold text-foreground">Boat</span>;
     case "upstash":
       return <span className="font-bold text-[#00E9A3]">Upstash</span>;
     case "vercel":

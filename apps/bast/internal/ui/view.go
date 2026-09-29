@@ -300,7 +300,7 @@ func (m *App) renderHosts(s styleSet) string {
 	gcpErr := m.providerShowsSyncError("gcp", m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != "")
 	awsErr := m.providerShowsSyncError("aws", m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != "")
 	azureErr := m.providerShowsSyncError("azure", m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != "")
-	boxErr := m.providerShowsSyncError("box", m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != "")
+	boatErr := m.providerShowsSyncError("boat", m.metadata.Boat().LastSyncError != "" || m.syncStatus.Boat.BoatCLIError != "")
 	upstashErr := m.providerShowsSyncError("upstash", m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != "")
 	vercelErr := m.providerShowsSyncError("vercel", m.metadata.Vercel().LastSyncError != "" || m.syncStatus.Vercel.Error != "")
 	hetznerErr := m.providerShowsSyncError("hetzner", m.metadata.Hetzner().LastSyncError != "" || m.syncStatus.Hetzner.Error != "")
@@ -347,7 +347,7 @@ func (m *App) renderHosts(s styleSet) string {
 					name = name[slash+1:]
 				}
 			}
-			showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boxErr, upstashErr, vercelErr, hetznerErr)
+			showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr)
 			rawPrefix := indent + indicator + " "
 			reservedWidth := lipgloss.Width(rawPrefix) + 1 + lipgloss.Width(fmt.Sprintf("(%d)", row.count)) + lipgloss.Width(managedGroupIcon(name, m.nerdFont))
 			if showError {
@@ -502,14 +502,14 @@ func (m *App) cloudSyncGroupHasError(group string) bool {
 		m.providerShowsSyncError("gcp", m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != ""),
 		m.providerShowsSyncError("aws", m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != ""),
 		m.providerShowsSyncError("azure", m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != ""),
-		m.providerShowsSyncError("box", m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != ""),
+		m.providerShowsSyncError("boat", m.metadata.Boat().LastSyncError != "" || m.syncStatus.Boat.BoatCLIError != ""),
 		m.providerShowsSyncError("upstash", m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != ""),
 		m.providerShowsSyncError("vercel", m.metadata.Vercel().LastSyncError != "" || m.syncStatus.Vercel.Error != ""),
 		m.providerShowsSyncError("hetzner", m.metadata.Hetzner().LastSyncError != "" || m.syncStatus.Hetzner.Error != ""),
 	)
 }
 
-func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boxErr, upstashErr, vercelErr, hetznerErr bool) bool {
+func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr bool) bool {
 	kind, ok := cloud.KindForGroup(group)
 	if !ok {
 		return false
@@ -521,8 +521,8 @@ func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boxErr
 		return awsErr
 	case cloud.Azure:
 		return azureErr
-	case cloud.Box:
-		return boxErr
+	case cloud.Boat:
+		return boatErr
 	case cloud.Upstash:
 		return upstashErr
 	case cloud.Vercel:
@@ -642,8 +642,8 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool
 		return suffix("Google Cloud", b.String())
 	case name == "Microsoft Azure" || strings.HasPrefix(name, "Microsoft Azure/"):
 		return suffix("Microsoft Azure", brandText("#0078D4", icon("Microsoft Azure")+"Microsoft Azure", restStyle))
-	case name == "Box" || strings.HasPrefix(name, "Box/"):
-		return suffix("Box", brandText("#FFFFFF", icon("Box")+"Box", restStyle))
+	case name == "Boat" || strings.HasPrefix(name, "Boat/"):
+		return suffix("Boat", brandText("#FFFFFF", icon("Boat")+"Boat", restStyle))
 	case name == "Upstash" || strings.HasPrefix(name, "Upstash/"):
 		return suffix("Upstash", brandText("#00E9A3", icon("Upstash")+"Upstash", restStyle))
 	case name == "Vercel" || strings.HasPrefix(name, "Vercel/"):

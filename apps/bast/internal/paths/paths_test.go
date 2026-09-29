@@ -19,8 +19,8 @@ func TestForHomeUsesDotConfig(t *testing.T) {
 	if p.SyncAzureConfig != filepath.Join(home, ".ssh", "bast", "sync", "azure", "config") {
 		t.Fatalf("SyncAzureConfig = %q", p.SyncAzureConfig)
 	}
-	if p.SyncBoxConfig != filepath.Join(home, ".ssh", "bast", "sync", "box", "config") {
-		t.Fatalf("SyncBoxConfig = %q", p.SyncBoxConfig)
+	if p.SyncBoatConfig != filepath.Join(home, ".ssh", "bast", "sync", "boat", "config") {
+		t.Fatalf("SyncBoatConfig = %q", p.SyncBoatConfig)
 	}
 	if p.SyncUpstashConfig != filepath.Join(home, ".ssh", "bast", "sync", "upstash", "config") {
 		t.Fatalf("SyncUpstashConfig = %q", p.SyncUpstashConfig)

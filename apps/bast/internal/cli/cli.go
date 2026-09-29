@@ -40,7 +40,7 @@ Usage:
   bast hosts <command>         Manage SSH hosts
   bast keys <command>          Manage SSH keys
   bast sync <command>          Sync cloud VMs into Bast
-  bast box <command>           Create and manage ASCII Box sandboxes
+  bast boat <command>          Create and manage Boat sandboxes
   bast upstash <command>       Create and manage Upstash Box sandboxes
   bast vercel <command>        Create and manage Vercel Sandboxes
   bast hetzner <command>       Start, stop, and restart Hetzner Cloud servers
@@ -56,9 +56,9 @@ Key commands:
   public, copy, delete
 
 Sync commands:
-  gcp, aws, azure, box, upstash, vercel, hetzner, status, disable
+  gcp, aws, azure, boat, upstash, vercel, hetzner, status, disable
 
-Box commands:
+Boat commands:
   new, fork, stop, resume, delete, snapshots, snapshot
 
 Upstash commands:
@@ -78,7 +78,7 @@ Global options:
   --no-input                  Never prompt for missing input
 
 Run "bast doctor --help", "bast hosts <command> --help", "bast keys <command> --help",
-"bast sync <command> --help", "bast box <command> --help", "bast upstash <command> --help",
+"bast sync <command> --help", "bast boat <command> --help", "bast upstash <command> --help",
 "bast vercel <command> --help", "bast hetzner <command> --help", "bast vault <command> --help", or "bast completion --help" for details.
 `
 
@@ -127,17 +127,25 @@ func usagef(format string, args ...any) error {
 func fail(code, message string) error { return &commandError{code: code, message: message, exit: 1} }
 
 func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writer) (*Runner, error) {
-	return &Runner{
+	runner := &Runner{
 		Paths: p, OpenSSH: client, Version: "dev", In: in, Out: out, Err: errOut,
-		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig},
+		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig},
 		keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
 		reader:  bufio.NewReader(in),
-	}, nil
+	}
+	if err := runner.config.MigrateBoatSync(); err != nil {
+		// Doctor reports conflicts; the sync engine gates Boat mutations.
+		var conflict *sshconfig.BoatMigrationConflict
+		if !errors.As(err, &conflict) {
+			return nil, err
+		}
+	}
+	return runner, nil
 }
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "doctor", "connect", "hosts", "keys", "sync", "box", "upstash", "vercel", "hetzner", "vault", "completion", "__complete":
+	case "tui", "update", "doctor", "connect", "hosts", "keys", "sync", "boat", "box", "upstash", "vercel", "hetzner", "vault", "completion", "__complete":
 		return true
 	}
 	return false
@@ -145,7 +153,7 @@ func IsCommand(arg string) bool {
 
 func commandUsesOpenSSH(cmd string) bool {
 	switch cmd {
-	case "box", "upstash", "vercel", "hetzner":
+	case "boat", "box", "upstash", "vercel", "hetzner":
 		return false
 	default:
 		return true
@@ -171,7 +179,7 @@ func (r *Runner) Run(args []string) error {
 		}
 		return r.report(r.completion(rest))
 	}
-	args = r.globalFlags(args)
+	args = canonicalBoatArgs(r.globalFlags(args))
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		PrintHelp(r.Out)
 		return nil
@@ -208,8 +216,8 @@ func (r *Runner) Run(args []string) error {
 				err = r.keys(args[1:])
 			case "sync":
 				err = r.sync(args[1:])
-			case "box":
-				err = r.boxCmd(args[1:])
+			case "boat":
+				err = r.boatCmd(args[1:])
 			case "upstash":
 				err = r.upstashCmd(args[1:])
 			case "vercel":
@@ -307,21 +315,21 @@ Commands: list, show, generate, import, promote, comment, export, install,
 		"sync gcp":          "Usage: bast sync gcp",
 		"sync aws":          "Usage: bast sync aws",
 		"sync azure":        "Usage: bast sync azure",
-		"sync box":          "Usage: bast sync box",
+		"sync boat":         "Usage: bast sync boat",
 		"sync upstash":      "Usage: bast sync upstash",
 		"sync vercel":       "Usage: bast sync vercel",
 		"sync hetzner":      "Usage: bast sync hetzner",
 		"sync status":       "Usage: bast sync status",
-		"sync disable":      "Usage: bast sync disable <gcp|aws|azure|box|upstash|vercel|hetzner>",
-		"sync --help":       "Usage: bast sync <gcp|aws|azure|box|upstash|vercel|hetzner|status|disable>",
-		"box --help":        "Usage: bast box <new|fork|stop|resume|delete|snapshots|snapshot>",
-		"box new":           "Usage: bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
-		"box fork":          "Usage: bast box fork <host|id> [--type small|default|large] [--no-env]",
-		"box stop":          "Usage: bast box stop <host|id>",
-		"box resume":        "Usage: bast box resume <host|id> [--type small|default|large] [--no-env]",
-		"box delete":        "Usage: bast box delete <host|id> [--yes]",
-		"box snapshots":     "Usage: bast box snapshots [host|id]",
-		"box snapshot":      "Usage: bast box snapshot delete <snapshot-id> [--yes]\n       bast box snapshot rm <name>",
+		"sync disable":      "Usage: bast sync disable <gcp|aws|azure|boat|upstash|vercel|hetzner>",
+		"sync --help":       "Usage: bast sync <gcp|aws|azure|boat|upstash|vercel|hetzner|status|disable>",
+		"boat --help":       "Usage: bast boat <new|fork|stop|resume|delete|snapshots|snapshot>",
+		"boat new":          "Usage: bast boat new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
+		"boat fork":         "Usage: bast boat fork <host|id> [--type small|default|large] [--no-env]",
+		"boat stop":         "Usage: bast boat stop <host|id>",
+		"boat resume":       "Usage: bast boat resume <host|id> [--type small|default|large] [--no-env]",
+		"boat delete":       "Usage: bast boat delete <host|id> [--yes]",
+		"boat snapshots":    "Usage: bast boat snapshots [host|id]",
+		"boat snapshot":     "Usage: bast boat snapshot delete <snapshot-id> [--yes]\n       bast boat snapshot rm <name>",
 		"upstash --help":    "Usage: bast upstash <new|fork|stop|resume|delete|key>",
 		"upstash new":       "Usage: bast upstash new [--name name] [--runtime node|python|golang|ruby|rust] [--size small|medium|large] [--keep-alive]",
 		"upstash fork":      "Usage: bast upstash fork <host|id>",
@@ -811,4 +819,20 @@ func later(a, b *time.Time) bool {
 		return true
 	}
 	return a.After(*b)
+}
+
+// Keep existing scripts working while all help and output use the Boat name.
+func canonicalBoatArgs(args []string) []string {
+	result := append([]string(nil), args...)
+	if len(result) > 0 && result[0] == "box" {
+		result[0] = "boat"
+	}
+	if len(result) > 1 && result[0] == "sync" {
+		if result[1] == "box" {
+			result[1] = "boat"
+		} else if len(result) > 2 && result[1] == "disable" && result[2] == "box" {
+			result[2] = "boat"
+		}
+	}
+	return result
 }

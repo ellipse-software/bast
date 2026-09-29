@@ -17,8 +17,8 @@ Docs: https://bast.sh/llms.txt
 - User wants to browse, search, or organize SSH hosts from the terminal
 - User needs to generate, import, export, or install SSH keys
 - User wants quick connect: `bast <label>` or `bast "Production web"`
-- User wants to import cloud VMs (`bast sync gcp`, `bast sync aws`, `bast sync azure`, `bast sync box`, `bast sync upstash`, or `bast sync hetzner`) and connect with local keys, or Vercel Sandboxes (`bast sync vercel`) over a WebSocket PTY
-- User already has the ASCII Box CLI installed and logged in (Bast auto-connects Box)
+- User wants to import cloud VMs (`bast sync gcp`, `bast sync aws`, `bast sync azure`, `bast sync boat`, `bast sync upstash`, or `bast sync hetzner`) and connect with local keys, or Vercel Sandboxes (`bast sync vercel`) over a WebSocket PTY
+- User already has the Boat CLI installed and logged in (Bast auto-connects Boat)
 - User has an Upstash Box API key (Bast stores it locally and uses it for API + SSH)
 - User has a Vercel access token, team ID, and project ID (Bast stores the token locally and opens a PTY shell)
 - User SSHs from a phone or narrow terminal: the TUI switches to a stacked mobile layout below 60 columns (tap Connect)
@@ -130,34 +130,34 @@ Import from stdin without shell history: `bast keys import work --private - < id
 bast sync gcp
 bast sync aws
 bast sync azure
-bast sync box
+bast sync boat
 bast sync upstash
 bast sync vercel
 bast sync hetzner
 bast sync status
 bast sync disable gcp
-bast sync disable box
+bast sync disable boat
 bast sync disable upstash
 bast sync disable vercel
 bast sync disable hetzner
 ```
 
-GCP, AWS, Azure, and ASCII Box require the matching CLI on `PATH` (`gcloud`, `aws`, `az`, or `box`) and an authenticated account. Upstash Box uses a stored API key (`bast upstash key` or `UPSTASH_BOX_API_KEY`), not a CLI. Vercel Sandbox uses a stored access token (`bast vercel token` or `VERCEL_TOKEN`) plus team and project IDs. Hetzner Cloud uses stored API tokens (`bast hetzner key` or `HCLOUD_TOKEN`) and does not require the `hcloud` CLI. Synced hosts are read-only; disconnect via Sync to remove them.
+GCP, AWS, Azure, and Boat require the matching CLI on `PATH` (`gcloud`, `aws`, `az`, or `boat`) and an authenticated account. Upstash Box uses a stored API key (`bast upstash key` or `UPSTASH_BOX_API_KEY`), not a CLI. Vercel Sandbox uses a stored access token (`bast vercel token` or `VERCEL_TOKEN`) plus team and project IDs. Hetzner Cloud uses stored API tokens (`bast hetzner key` or `HCLOUD_TOKEN`) and does not require the `hcloud` CLI. Synced hosts are read-only; disconnect via Sync to remove them.
 
-If the Box CLI is already installed and logged in, Bast auto-connects on TUI start and `bast sync status` (unless you previously ran `bast sync disable box`). The same auto-connect applies to Upstash when a key file is present (unless `bast sync disable upstash`), and to Vercel when a token, team, and project are stored (unless `bast sync disable vercel`).
+If the Boat CLI is already installed and logged in, Bast auto-connects on TUI start and `bast sync status` (unless you previously ran `bast sync disable boat`). The same auto-connect applies to Upstash when a key file is present (unless `bast sync disable upstash`), and to Vercel when a token, team, and project are stored (unless `bast sync disable vercel`).
 
 On GCP connect, Bast prefers a local key already authorized on the VM. If none matches, it ensures `~/.ssh/google_compute_engine`, publishes it when needed, and may wait for the guest agent.
 
-## Box lifecycle
+## Boat lifecycle
 
 ```sh
-bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]
-bast box fork <host|id> [--type small|default|large] [--no-env]
-bast box stop <host|id>
-bast box resume <host|id> [--type small|default|large] [--no-env]
+bast boat new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]
+bast boat fork <host|id> [--type small|default|large] [--no-env]
+bast boat stop <host|id>
+bast boat resume <host|id> [--type small|default|large] [--no-env]
 ```
 
-In the TUI, the Box group offers `n` to create and `s` to sync. Stopped boxes are hidden until `.`. Box hosts support Enter to connect (resume first if stopped), `r` resume, `o` stop, and `n` fork. SSH user is always `user` with `~/.ssh/ascii_box_ed25519`. Docs: https://bast.sh/docs/features/box
+In the TUI, the Boat group offers `n` to create and `s` to sync. Stopped sandboxes are hidden until `.`. Boat hosts support Enter to connect (resume first if stopped), `r` resume, `o` stop, and `n` fork. SSH user is always `user` with `~/.ssh/ascii_box_ed25519`. Docs: https://bast.sh/docs/features/boat
 
 ## Upstash Box lifecycle
 
@@ -202,7 +202,7 @@ In the TUI, powered-off Hetzner servers are hidden until `.`. If every server is
 
 TUI Files tab (`5`) is a dual-pane local/remote browser over OpenSSH SFTP. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
 
-TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Box/Upstash/Vercel/Hetzner). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`. First TUI with no hosts shows a skippable start chooser (`esc` skips, `BAST_NO_ONBOARDING=1` disables).
+TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Boat/Upstash/Vercel/Hetzner). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`. First TUI with no hosts shows a skippable start chooser (`esc` skips, `BAST_NO_ONBOARDING=1` disables).
 
 ## File layout
 
