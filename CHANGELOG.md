@@ -6,6 +6,13 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### :)
 
+## v0.10.4 - 2026-10-03
+
+- Migrated ASCII Box to Boat across sync, sandbox lifecycle commands, SSH preparation, and diagnostics. Use `bast boat` and `bast sync boat`; previous commands remain aliases. Existing host aliases, metadata, and sync preferences migrate automatically.
+- Minor bug fixes and improvements to Bast's TUI and CLI.
+
+Get started at [https://bast.sh](https://bast.sh) or update with `bast update`.
+
 ## v0.10.3 - 2026-09-29
 
 - Migrated ASCII Box to Boat across sync, sandbox lifecycle commands, SSH preparation, and diagnostics. Use `bast boat` and `bast sync boat`; previous commands remain aliases. Existing host aliases, metadata, and sync preferences migrate automatically.
