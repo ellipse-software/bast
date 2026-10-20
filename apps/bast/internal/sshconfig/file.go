@@ -116,7 +116,7 @@ func leadingSyncHeader(data []byte) []byte {
 func (m Manager) RestoreSyncIncludes() error {
 	for _, path := range []string{
 		m.SyncGCPConfig, m.SyncAWSConfig, m.SyncAzureConfig, m.SyncBoatConfig,
-		m.SyncUpstashConfig, m.SyncVercelConfig, m.SyncHetznerConfig,
+		m.SyncUpstashConfig, m.SyncVercelConfig, m.SyncHetznerConfig, m.SyncBitqateConfig,
 	} {
 		if err := m.IncludeExistingSyncConfig(path); err != nil {
 			return err

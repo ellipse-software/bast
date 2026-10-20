@@ -14,6 +14,7 @@ import (
 	"bast/internal/cloud"
 	awscloud "bast/internal/cloud/aws"
 	azurecloud "bast/internal/cloud/azure"
+	bitqatecloud "bast/internal/cloud/bitqate"
 	boatcloud "bast/internal/cloud/boat"
 	"bast/internal/cloud/gcp"
 	hetznercloud "bast/internal/cloud/hetzner"
@@ -40,6 +41,7 @@ type Engine struct {
 	upstashMu      stdsync.Mutex
 	vercelMu       stdsync.Mutex
 	hetznerMu      stdsync.Mutex
+	bitqateMu      stdsync.Mutex
 	Paths          paths.Paths
 	Config         sshconfig.Manager
 	Store          *metadata.Store
@@ -50,6 +52,7 @@ type Engine struct {
 	Upstash        *upstashcloud.Client
 	Vercel         *vercelcloud.Client
 	Hetzner        *hetznercloud.Client
+	Bitqate        *bitqatecloud.Client
 	BastExecutable string
 	Discover       func(ctx context.Context) ([]sshconfig.Host, error)
 
@@ -72,7 +75,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
 		SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig,
 		SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig,
-		SyncHetznerConfig: p.SyncHetznerConfig,
+		SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig,
 	}
 	return &Engine{
 		Paths:          p,
@@ -85,6 +88,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		Upstash:        upstashcloud.New(p.UpstashAPIKey),
 		Vercel:         newVercelClient(p, store),
 		Hetzner:        hetznercloud.New(p.HetznerAPIKey, p.HetznerTokenDir, p.Home),
+		Bitqate:        bitqatecloud.New(p.BitqateToken),
 		BastExecutable: stableExecutablePath(),
 		Discover: func(ctx context.Context) ([]sshconfig.Host, error) {
 			return cfg.Discover()
@@ -976,6 +980,7 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	upstashIntegration := e.Store.Upstash()
 	vercelIntegration := e.Store.Vercel()
 	hetznerIntegration := e.Store.Hetzner()
+	bitqateIntegration := e.Store.Bitqate()
 	status := Status{
 		GCP: GCPStatus{
 			Enabled:           integration.Enabled,
@@ -1029,10 +1034,18 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			LastSyncError: hetznerIntegration.LastSyncError, LastInstanceCount: hetznerIntegration.LastInstanceCount,
 			HasToken: e.Hetzner.HasToken(),
 		},
+		Bitqate: BitqateStatus{
+			Enabled: bitqateIntegration.Enabled, AutoSync: bitqateIntegration.AutoSync,
+			RegionFilter:   append([]string(nil), bitqateIntegration.RegionFilter...),
+			DefaultSSHUser: bitqateIntegration.DefaultSSHUser, DefaultSSHPort: bitqateIntegration.DefaultSSHPort,
+			LastSyncAt:    bitqateIntegration.LastSyncAt,
+			LastSyncError: bitqateIntegration.LastSyncError, LastInstanceCount: bitqateIntegration.LastInstanceCount,
+			HasToken: e.Bitqate.HasToken(),
+		},
 	}
 
 	var probes stdsync.WaitGroup
-	probes.Add(7)
+	probes.Add(8)
 	go func() {
 		defer probes.Done()
 		if err := e.GCP.CheckAvailable(ctx); err != nil {
@@ -1143,6 +1156,19 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			status.Hetzner.Error = account.Error
 		}
 	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Bitqate.Account(ctx)
+		if err != nil {
+			status.Bitqate.Error = err.Error()
+			return
+		}
+		status.Bitqate.Authenticated = account.Authenticated
+		status.Bitqate.HasToken = account.HasToken || e.Bitqate.HasToken()
+		if account.Error != "" && !account.Authenticated {
+			status.Bitqate.Error = account.Error
+		}
+	}()
 	probes.Wait()
 	return status, nil
 }
@@ -1155,6 +1181,7 @@ type Status struct {
 	Upstash UpstashStatus `json:"upstash"`
 	Vercel  VercelStatus  `json:"vercel"`
 	Hetzner HetznerStatus `json:"hetzner"`
+	Bitqate BitqateStatus `json:"bitqate"`
 }
 
 type GCPStatus struct {
@@ -1250,6 +1277,20 @@ type HetznerStatus struct {
 	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
 	DefaultSSHPort    string     `json:"defaultSshPort,omitempty"`
 	PreferPrivateIP   bool       `json:"preferPrivateIp,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Error             string     `json:"error,omitempty"`
+}
+
+type BitqateStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	HasToken          bool       `json:"hasToken,omitempty"`
+	RegionFilter      []string   `json:"regionFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	DefaultSSHPort    string     `json:"defaultSshPort,omitempty"`
 	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
 	LastSyncError     string     `json:"lastSyncError,omitempty"`
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`

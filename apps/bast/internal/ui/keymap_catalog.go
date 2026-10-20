@@ -85,8 +85,8 @@ func buildCatalog() []Binding {
 		bind(ActionHideHost, []string{"h"}, ScopeHosts, "Hide or show selected", ""),
 		bind(ActionToggleHidden, []string{"."}, ScopeHosts, "Toggle hidden and stopped hosts", "show hidden"),
 		bind(ActionNewOrFork, []string{"n"}, ScopeHosts, "Fork sandbox, or new VM on a provider group", "new"),
-		bind(ActionStopSandbox, []string{"o"}, ScopeHosts, "Stop or pause sandbox, or stop a Hetzner server", "stop"),
-		bind(ActionRestartHost, []string{"R"}, ScopeHosts, "Restart a Hetzner Cloud server", "restart"),
+		bind(ActionStopSandbox, []string{"o"}, ScopeHosts, "Stop or pause sandbox, or stop a Hetzner server or BitQate VM", "stop"),
+		bind(ActionRestartHost, []string{"R"}, ScopeHosts, "Restart a Hetzner Cloud server or BitQate VM", "restart"),
 		bind(ActionKnownHosts, []string{"K"}, ScopeHosts, "Remove known-host entry", ""),
 
 		// Hosts footer variants.
@@ -118,9 +118,9 @@ func buildCatalog() []Binding {
 		bind(ActionHostsEnter, []string{"enter"}, ScopeHosts, "Connect", "connect").withFooter(10).when(hostsFooterSandbox).noHelp(),
 		bind(ActionStopSandbox, []string{"o"}, ScopeHosts, "Stop", "stop").withFooter(20).when(hostsFooterSandboxRunning).noHelp(),
 		bind(ActionReload, []string{"r"}, ScopeHosts, "Resume", "resume").withFooter(20).when(hostsFooterSandboxStopped).noHelp(),
-		bind(ActionStopSandbox, []string{"o"}, ScopeHosts, "Stop", "stop").withFooter(20).when(hostsFooterHetznerRunning).noHelp(),
-		bind(ActionReload, []string{"r"}, ScopeHosts, "Start", "start").withFooter(20).when(hostsFooterHetznerStopped).noHelp(),
-		bind(ActionRestartHost, []string{"R"}, ScopeHosts, "Restart", "restart").withFooter(30).when(hostsFooterHetznerRunning).noHelp(),
+		bind(ActionStopSandbox, []string{"o"}, ScopeHosts, "Stop", "stop").withFooter(20).when(hostsFooterHetznerOrBitqateRunning).noHelp(),
+		bind(ActionReload, []string{"r"}, ScopeHosts, "Start", "start").withFooter(20).when(hostsFooterHetznerOrBitqateStopped).noHelp(),
+		bind(ActionRestartHost, []string{"R"}, ScopeHosts, "Restart", "restart").withFooter(30).when(hostsFooterHetznerOrBitqateRunning).noHelp(),
 		bind(ActionNewOrFork, []string{"n"}, ScopeHosts, "Fork", "fork").withFooter(30).when(hostsFooterSandbox).noHelp(),
 		bind(ActionDelete, []string{"d"}, ScopeHosts, "Delete", "delete").withFooter(40).when(hostsFooterSandboxDelete).noHelp(),
 		bind(ActionOpenFiles, []string{"F"}, ScopeHosts, "Files", "files").withFooter(50).when(hostsFooterSandboxDesktop).noHelp(),
@@ -305,6 +305,16 @@ func hostsFooterSandboxRunning(m *App) bool {
 func hostsFooterSandboxStopped(m *App) bool {
 	host, ok := selectedSandboxHost(m)
 	return ok && m.hostLooksStopped(host)
+}
+
+func hostsFooterHetznerOrBitqateRunning(m *App) bool {
+	host, ok := m.selectedHost()
+	return ok && host.Synced && (host.SyncSource == "hetzner" || host.SyncSource == "bitqate") && !m.hostLooksStopped(host)
+}
+
+func hostsFooterHetznerOrBitqateStopped(m *App) bool {
+	host, ok := m.selectedHost()
+	return ok && host.Synced && (host.SyncSource == "hetzner" || host.SyncSource == "bitqate") && m.hostLooksStopped(host)
 }
 
 func hostsFooterHetzner(m *App) bool {

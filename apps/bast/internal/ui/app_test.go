@@ -2106,10 +2106,10 @@ func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 		t.Fatalf("mobile grid cols = %d", m.syncGridCols())
 	}
 	body := m.renderSync(m.styles())
-	if strings.Count(body, "┌") != 7 {
+	if strings.Count(body, "┌") != 8 {
 		t.Fatalf("mobile should keep one boxed tile per provider:\n%s", body)
 	}
-	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Boat") || !strings.Contains(body, "Upstash") || !strings.Contains(body, "Vercel") || !strings.Contains(body, "Hetzner") {
+	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Boat") || !strings.Contains(body, "Upstash") || !strings.Contains(body, "Vercel") || !strings.Contains(body, "Hetzner") || !strings.Contains(body, "BitQate") {
 		t.Fatalf("mobile grid body:\n%s", body)
 	}
 }
@@ -2124,7 +2124,7 @@ func TestSyncGridScrollsWhenProvidersOverflow(t *testing.T) {
 		t.Fatal("expected mobile layout")
 	}
 	body := m.renderSync(m.styles())
-	if strings.Contains(body, "Hetzner") {
+	if strings.Contains(body, "BitQate") {
 		t.Fatalf("short mobile view should clip later providers:\n%s", body)
 	}
 	if !strings.Contains(body, "Amazon EC2") {
@@ -2133,7 +2133,7 @@ func TestSyncGridScrollsWhenProvidersOverflow(t *testing.T) {
 
 	m.updateSyncKeys("G")
 	body = m.renderSync(m.styles())
-	if !strings.Contains(body, "Hetzner") {
+	if !strings.Contains(body, "BitQate") {
 		t.Fatalf("jumping to the last provider should reveal it:\n%s", body)
 	}
 	if strings.Contains(body, "Amazon EC2") {

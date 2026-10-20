@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/cloud"
+	bitqatecloud "bast/internal/cloud/bitqate"
 	boatcloud "bast/internal/cloud/boat"
 	hetznercloud "bast/internal/cloud/hetzner"
 	cloudsync "bast/internal/cloud/sync"
@@ -911,6 +912,9 @@ func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
 	}
 	if kind == cloud.Hetzner {
 		return hetznercloud.HostLooksStopped(meta.Tags)
+	}
+	if kind == cloud.Bitqate {
+		return bitqatecloud.HostLooksStopped(meta.Tags)
 	}
 	return false
 }

@@ -46,6 +46,12 @@ func TestForHomeUsesDotConfig(t *testing.T) {
 	if p.HetznerTokenDir != filepath.Join(home, ".config", "bast", "hetzner", "tokens") {
 		t.Fatalf("HetznerTokenDir = %q", p.HetznerTokenDir)
 	}
+	if p.BitqateToken != filepath.Join(home, ".config", "bast", "bitqate-token") {
+		t.Fatalf("BitqateToken = %q", p.BitqateToken)
+	}
+	if p.SyncBitqateConfig != filepath.Join(home, ".ssh", "bast", "sync", "bitqate", "config") {
+		t.Fatalf("SyncBitqateConfig = %q", p.SyncBitqateConfig)
+	}
 	if p.AzureDir != filepath.Join(home, ".ssh", "bast", "azure") {
 		t.Fatalf("AzureDir = %q", p.AzureDir)
 	}

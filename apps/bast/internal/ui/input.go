@@ -381,6 +381,9 @@ func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	if host.Synced && host.SyncSource == "hetzner" && m.hostLooksStopped(host) {
 		return m, m.startSelectedHetzner(host, true)
 	}
+	if host.Synced && host.SyncSource == "bitqate" && m.hostLooksStopped(host) {
+		return m, m.startSelectedBitqate(host, true)
+	}
 	if host.Synced && host.SyncID != "" && m.syncer != nil {
 		var ensure func(context.Context, sshconfig.Host, func(string)) error
 		switch host.SyncSource {
@@ -396,6 +399,8 @@ func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 			ensure = m.syncer.EnsureUpstashAccess
 		case "hetzner":
 			ensure = m.syncer.EnsureHetznerAccess
+		case "bitqate":
+			ensure = m.syncer.EnsureBitqateAccess
 		}
 		if ensure != nil {
 			timeout := prepareTimeoutForHost(host)

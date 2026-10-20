@@ -178,6 +178,7 @@ func (a Applier) RestoreEnabledSyncIncludes() error {
 		{a.Store.Upstash().Enabled, a.Paths.SyncUpstashConfig},
 		{a.Store.Vercel().Enabled, a.Paths.SyncVercelConfig},
 		{a.Store.Hetzner().Enabled, a.Paths.SyncHetznerConfig},
+		{a.Store.Bitqate().Enabled, a.Paths.SyncBitqateConfig},
 	} {
 		if !it.on {
 			continue
@@ -248,6 +249,17 @@ func applyIntegrations(store *metadata.Store, in VaultIntegrations) error {
 		cur.ContextFilter = append([]string(nil), in.Hetzner.ContextFilter...)
 		cur.LocationFilter = append([]string(nil), in.Hetzner.LocationFilter...)
 		if err := store.SetHetzner(cur); err != nil {
+			return err
+		}
+	}
+	if in.Bitqate != nil {
+		cur := store.Bitqate()
+		cur.Enabled = in.Bitqate.Enabled
+		cur.AutoSync = in.Bitqate.AutoSync
+		cur.DefaultSSHUser = in.Bitqate.DefaultSSHUser
+		cur.DefaultSSHPort = in.Bitqate.DefaultSSHPort
+		cur.RegionFilter = append([]string(nil), in.Bitqate.RegionFilter...)
+		if err := store.SetBitqate(cur); err != nil {
 			return err
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"bast/internal/cloud"
+	bitqatecloud "bast/internal/cloud/bitqate"
 	boatcloud "bast/internal/cloud/boat"
 	hetznercloud "bast/internal/cloud/hetzner"
 	"bast/internal/cloud/sandboxfake"
@@ -274,6 +275,65 @@ func TestUpstashEngineLifecycle(t *testing.T) {
 	}
 }
 
+func TestBitqateEngineLifecycle(t *testing.T) {
+	engine, p, store := testEngine(t)
+	api := sandboxfake.NewBitqate(t)
+	api.Put(sandboxfake.BitqateVM{ID: "vm-1", Name: "web", Status: "running", IPv4: "203.0.113.10", Region: "Falkenstein", Fingerprint: "SHA256:abc"})
+	if err := bitqatecloud.WriteTokenFile(p.BitqateToken, sandboxfake.BitqateToken); err != nil {
+		t.Fatal(err)
+	}
+	engine.Bitqate.BaseURL = api.URL()
+	engine.Bitqate.HTTP = api.Server.Client()
+	engine.Bitqate.PollWait = time.Millisecond
+	engine.Bitqate.Getenv = func(string) string { return "" }
+	ctx := context.Background()
+
+	caps := cloud.CapabilitiesFor(cloud.Bitqate)
+	if caps.Create || caps.Fork || caps.Delete {
+		t.Fatalf("bitqate should not advertise create/fork/delete: %+v", caps)
+	}
+	result, err := engine.SyncBitqate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Count != 1 {
+		t.Fatalf("count = %d", result.Count)
+	}
+	syncID := bitqatecloud.FormatSyncID("vm-1")
+	block := hostBySyncID(loadProviderConfig(t, p.SyncBitqateConfig), syncID)
+	if block.Alias == "" {
+		t.Fatal("no synced block")
+	}
+	alias := block.Alias
+	if !strings.Contains(strings.Join(store.Host(alias).Tags, " "), "hostkey:SHA256:abc") {
+		t.Fatalf("fingerprint tag missing: %+v", store.Host(alias).Tags)
+	}
+	if bitqatecloud.HostLooksStopped(store.Host(alias).Tags) {
+		t.Fatal("running VM looks stopped")
+	}
+	if _, err = engine.StopBitqate(ctx, syncID); err != nil {
+		t.Fatal(err)
+	}
+	if api.Get("vm-1").Status != "stopped" {
+		t.Fatal("vm not stopped")
+	}
+	if !bitqatecloud.HostLooksStopped(store.Host(alias).Tags) {
+		t.Fatal("stopped VM does not look stopped")
+	}
+	if _, err = engine.StartBitqate(ctx, syncID); err != nil {
+		t.Fatal(err)
+	}
+	if api.Get("vm-1").Status != "running" || bitqatecloud.HostLooksStopped(store.Host(alias).Tags) {
+		t.Fatal("vm not running")
+	}
+	if _, err = engine.RestartBitqate(ctx, syncID); err != nil {
+		t.Fatal(err)
+	}
+	if api.Get("vm-1").Status != "running" {
+		t.Fatal("vm not running after restart")
+	}
+}
+
 func TestHetznerEngineLifecycle(t *testing.T) {
 	engine, p, store := testEngine(t)
 	api := sandboxfake.NewHetzner(t)
@@ -458,6 +518,7 @@ func TestAdvertisedLifecycleOpsMatchEngineCoverage(t *testing.T) {
 		strings.Join([]string{"boat", "upstash", "com"}, "."),
 		vercelcloud.DefaultBaseURL,
 		hetznercloud.DefaultBaseURL,
+		bitqatecloud.DefaultBaseURL,
 		upstashcloud.DefaultBaseURL,
 	}
 	for _, needle := range forbidden {
@@ -473,6 +534,9 @@ func TestAdvertisedLifecycleOpsMatchEngineCoverage(t *testing.T) {
 	}
 	if !strings.Contains(body, "engine.Hetzner.BaseURL = api.URL()") {
 		t.Fatal("Hetzner engine tests must point the shipped client at the fake BaseURL")
+	}
+	if !strings.Contains(body, "engine.Bitqate.BaseURL = api.URL()") {
+		t.Fatal("BitQate engine tests must point the shipped client at the fake BaseURL")
 	}
 	if !strings.Contains(body, "engine.Boat.Run = fake.Runner()") {
 		t.Fatal("Boat engine tests must drive the shipped client through the fake runner")

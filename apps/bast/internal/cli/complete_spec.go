@@ -10,6 +10,7 @@ const (
 	valueUpstashHost
 	valueVercelHost
 	valueHetznerHost
+	valueBitqateHost
 	valueFile
 	valueDir
 	valueEnum
@@ -60,7 +61,7 @@ func (n specNode) names() []string {
 
 var completionShells = []string{"bash", "zsh", "fish", "powershell", "elvish", "nushell"}
 
-var syncProviders = []string{"gcp", "aws", "azure", "boat", "upstash", "vercel", "hetzner"}
+var syncProviders = []string{"gcp", "aws", "azure", "boat", "upstash", "vercel", "hetzner", "bitqate"}
 
 var globalFlagSpecs = []flagSpec{
 	{name: "json", desc: "structured JSON", boolean: true},
@@ -87,6 +88,7 @@ func completionRoot() specNode {
 			upstashSpec(),
 			vercelSpec(),
 			hetznerSpec(),
+			bitqateSpec(),
 			vaultSpec(),
 			{
 				name: "completion",
@@ -214,6 +216,7 @@ func syncSpec() specNode {
 			{name: "upstash", desc: "import Upstash Box hosts"},
 			{name: "vercel", desc: "import Vercel Sandboxes"},
 			{name: "hetzner", desc: "import Hetzner Cloud servers"},
+			{name: "bitqate", desc: "import BitQate VPS instances"},
 			{name: "status", desc: "show sync status"},
 			{
 				name: "disable",
@@ -329,6 +332,24 @@ func hetznerSpec() specNode {
 				{name: "name", desc: "project name"},
 				fileFlag("key-file", "read the API token from a file"),
 				{name: "remove", desc: "delete a stored project token"},
+			}},
+		},
+	}
+}
+
+func bitqateSpec() specNode {
+	bitqateArg := argSpec{kind: valueBitqateHost, desc: "host or id", includeHidden: true}
+	return specNode{
+		name: "bitqate",
+		desc: "list, start, stop, and restart BitQate VPS instances",
+		children: []specNode{
+			{name: "list", desc: "list BitQate VMs"},
+			{name: "start", desc: "power on a VM", args: []argSpec{bitqateArg}},
+			{name: "stop", desc: "power off a VM", args: []argSpec{bitqateArg}},
+			{name: "restart", desc: "restart a VM", args: []argSpec{bitqateArg}},
+			{name: "key", desc: "store a BitQate API token", flags: []flagSpec{
+				fileFlag("token-file", "read the API token from a file"),
+				boolFlag("clear", "remove the stored token"),
 			}},
 		},
 	}

@@ -223,5 +223,14 @@ func packIntegrations(in metadata.Integrations) VaultIntegrations {
 			LocationFilter:  append([]string(nil), in.Hetzner.LocationFilter...),
 		}
 	}
+	if in.Bitqate != nil {
+		out.Bitqate = &VaultBitqateIntegration{
+			Enabled:        in.Bitqate.Enabled,
+			AutoSync:       in.Bitqate.AutoSync,
+			DefaultSSHUser: in.Bitqate.DefaultSSHUser,
+			DefaultSSHPort: in.Bitqate.DefaultSSHPort,
+			RegionFilter:   append([]string(nil), in.Bitqate.RegionFilter...),
+		}
+	}
 	return out
 }

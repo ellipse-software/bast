@@ -25,6 +25,8 @@ func TestKindForGroup(t *testing.T) {
 		{"Vercel/app", Vercel, true},
 		{"Hetzner Cloud", Hetzner, true},
 		{"Hetzner Cloud/prod/fsn1", Hetzner, true},
+		{"BitQate", Bitqate, true},
+		{"BitQate/Falkenstein", Bitqate, true},
 		{"Work", "", false},
 		{"Boxing", "", false},
 		{"", "", false},
@@ -57,6 +59,10 @@ func TestKindForSource(t *testing.T) {
 	if !ok || kind != Hetzner {
 		t.Fatalf("KindForSource(hetzner) = %q, %t", kind, ok)
 	}
+	kind, ok = KindForSource("bitqate")
+	if !ok || kind != Bitqate {
+		t.Fatalf("KindForSource(bitqate) = %q, %t", kind, ok)
+	}
 	if _, ok := KindForSource("digitalocean"); ok {
 		t.Fatal("unknown source should not match")
 	}
@@ -79,6 +85,10 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 	if hetzner.Create || !hetzner.Stop || !hetzner.Start || !hetzner.Restart || hetzner.Fork || hetzner.Delete {
 		t.Fatalf("hetzner caps = %+v", hetzner)
 	}
+	bitqate := CapabilitiesFor(Bitqate)
+	if bitqate.Create || !bitqate.Stop || !bitqate.Start || !bitqate.Restart || bitqate.Fork || bitqate.Delete {
+		t.Fatalf("bitqate caps = %+v", bitqate)
+	}
 	for _, kind := range []Kind{GCP, AWS, Azure} {
 		if caps := CapabilitiesFor(kind); caps != (Capabilities{}) {
 			t.Fatalf("%s caps = %+v; want empty", kind, caps)
@@ -87,7 +97,7 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 }
 
 func TestIsProviderRoot(t *testing.T) {
-	if !IsProviderRoot("Boat") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") || !IsProviderRoot("Hetzner Cloud") {
+	if !IsProviderRoot("Boat") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") || !IsProviderRoot("Hetzner Cloud") || !IsProviderRoot("BitQate") {
 		t.Fatal("expected roots to match")
 	}
 	if IsProviderRoot("Google Cloud/demo") || IsProviderRoot("Boat/Running") || IsProviderRoot("Work") {
@@ -106,7 +116,7 @@ func TestDescriptorsCoverEveryKind(t *testing.T) {
 		}
 		seen[d.Kind] = true
 	}
-	for _, kind := range []Kind{GCP, AWS, Azure, Boat, Upstash, Vercel, Hetzner} {
+	for _, kind := range []Kind{GCP, AWS, Azure, Boat, Upstash, Vercel, Hetzner, Bitqate} {
 		if !seen[kind] {
 			t.Fatalf("missing descriptor for %s", kind)
 		}

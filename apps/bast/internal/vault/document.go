@@ -55,6 +55,7 @@ type VaultIntegrations struct {
 	Upstash *VaultUpstashIntegration `json:"upstash,omitempty"`
 	Vercel  *VaultVercelIntegration  `json:"vercel,omitempty"`
 	Hetzner *VaultHetznerIntegration `json:"hetzner,omitempty"`
+	Bitqate *VaultBitqateIntegration `json:"bitqate,omitempty"`
 }
 
 type VaultGCPIntegration struct {
@@ -88,6 +89,14 @@ type VaultUpstashIntegration struct {
 type VaultVercelIntegration struct {
 	Enabled  bool `json:"enabled"`
 	AutoSync bool `json:"autoSync,omitempty"`
+}
+
+type VaultBitqateIntegration struct {
+	Enabled        bool     `json:"enabled"`
+	AutoSync       bool     `json:"autoSync,omitempty"`
+	DefaultSSHUser string   `json:"defaultSshUser,omitempty"`
+	DefaultSSHPort string   `json:"defaultSshPort,omitempty"`
+	RegionFilter   []string `json:"regionFilter,omitempty"`
 }
 
 type VaultHetznerIntegration struct {

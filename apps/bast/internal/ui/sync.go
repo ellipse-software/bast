@@ -226,6 +226,27 @@ func (m *App) providerDetail(provider string) providerDetail {
 			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
+	case "bitqate":
+		integration := m.metadata.Bitqate()
+		status := m.syncStatus.Bitqate
+		accountLabel, accountValue := "Account", "no API token"
+		if status.Error != "" {
+			accountLabel, accountValue = "API", status.Error
+		} else if status.Authenticated {
+			accountValue = "authenticated"
+		} else if status.HasToken || m.bitqateHasToken() {
+			accountValue = "token stored"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		regions := "all"
+		if len(integration.RegionFilter) > 0 {
+			regions = strings.Join(integration.RegionFilter, ", ")
+		}
+		filters := []providerRow{{"Regions", regions}}
+		if strings.TrimSpace(integration.DefaultSSHPort) != "" {
+			filters = append([]providerRow{{"SSH port", integration.DefaultSSHPort}}, filters...)
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, statusRows, filters}
 	case "hetzner":
 		integration := m.metadata.Hetzner()
 		status := m.syncStatus.Hetzner
@@ -302,6 +323,9 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 			life = append(life, syncMenuItem{label: "Remove API token", action: "hetzner_key_remove"})
 		}
 	}
+	if provider == "bitqate" {
+		life = append(life, syncMenuItem{label: "API token", action: "bitqate_key"})
+	}
 	if detail.enabled {
 		config = append(config, syncMenuItem{label: "Disconnect", action: "disable"})
 	}
@@ -331,6 +355,12 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 			syncMenuItem{label: "Default SSH user", action: "user"},
 			syncMenuItem{label: "Subscription filter", action: "subscriptions"},
 			syncMenuItem{label: "Resource group filter", action: "resource_groups"},
+		)
+	case "bitqate":
+		config = append(config,
+			syncMenuItem{label: "Default SSH user", action: "user"},
+			syncMenuItem{label: "Default SSH port", action: "port"},
+			syncMenuItem{label: "Region filter", action: "regions"},
 		)
 	case "hetzner":
 		if m.metadata.Hetzner().PreferPrivateIP {
@@ -404,6 +434,17 @@ func (m *App) syncVercelCmd() tea.Cmd {
 		defer cancel()
 		result, err := m.syncer.SyncVercel(ctx)
 		return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) syncBitqateCmd() tea.Cmd {
+	opGen := m.providerOpGen("bitqate")
+	m.beginSyncBusy("Syncing BitQate…")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncBitqate(ctx)
+		return syncDoneMsg{provider: "bitqate", result: result, err: err, opGen: opGen}
 	}
 }
 
@@ -553,6 +594,18 @@ func (m *App) disableVercelCmd() tea.Cmd {
 			return syncDoneMsg{provider: "vercel", err: err, opGen: opGen}
 		}
 		return syncDoneMsg{provider: "vercel", result: sync.Result{Provider: "vercel", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableBitqateCmd() tea.Cmd {
+	opGen := m.providerOpGen("bitqate")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+		defer cancel()
+		if err := m.syncer.DisableBitqate(ctx); err != nil {
+			return syncDoneMsg{provider: "bitqate", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "bitqate", result: sync.Result{Provider: "bitqate", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
@@ -1568,6 +1621,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Batch(m.syncUpstashCmd(), m.setNotice("Syncing Upstash…"))
+		case "bitqate":
+			if action == "enable" && !m.bitqateHasToken() {
+				delete(m.syncingProviders, "bitqate")
+				m.openBitqateKeyForm()
+			}
+			return m, tea.Batch(m.syncBitqateCmd(), m.setNotice("Syncing BitQate…"))
 		case "hetzner":
 			if action == "enable" && !m.hetznerHasToken() {
 				delete(m.syncingProviders, "hetzner")
@@ -1593,6 +1652,9 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		}
 		if m.syncProvider == "vercel" {
 			return m, m.disableVercelCmd()
+		}
+		if m.syncProvider == "bitqate" {
+			return m, m.disableBitqateCmd()
 		}
 		if m.syncProvider == "hetzner" {
 			return m, m.disableHetznerCmd()
@@ -1622,6 +1684,8 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 	case "upstash_key":
 		m.openUpstashKeyForm()
 		return m, nil
+	case "bitqate_key":
+		m.openBitqateKeyForm()
 	case "hetzner_key":
 		m.openHetznerKeyForm()
 		return m, nil
@@ -1676,6 +1740,13 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "bitqate" {
+			bitqate := m.metadata.Bitqate()
+			bitqate.AutoSync = true
+			if err := m.metadata.SetBitqate(bitqate); err != nil {
+				m.setError(err)
+			}
 		}
 		if m.syncProvider == "hetzner" {
 			hetzner := m.metadata.Hetzner()
@@ -1739,6 +1810,13 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync disabled")
 		}
+		if m.syncProvider == "bitqate" {
+			bitqate := m.metadata.Bitqate()
+			bitqate.AutoSync = false
+			if err := m.metadata.SetBitqate(bitqate); err != nil {
+				m.setError(err)
+			}
+		}
 		if m.syncProvider == "hetzner" {
 			hetzner := m.metadata.Hetzner()
 			hetzner.AutoSync = false
@@ -1774,6 +1852,11 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "upstash" {
 			return m, m.setNotice("Upstash SSH user is the box id")
 		}
+		if m.syncProvider == "bitqate" {
+			m.openForm("Default BitQate SSH user", "sync_bitqate_user", []field{
+				{label: "SSH user", description: "Blank uses root - BitQate provisions root", value: m.metadata.Bitqate().DefaultSSHUser, optional: true, placeholder: "root"},
+			})
+		}
 		if m.syncProvider == "hetzner" {
 			m.openForm("Default Hetzner SSH user", "sync_hetzner_user", []field{
 				{label: "SSH user", description: "Blank uses root for official Hetzner images", value: m.metadata.Hetzner().DefaultSSHUser, optional: true, placeholder: "root"},
@@ -1784,6 +1867,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			{label: "SSH user", description: "Blank uses OS Login or instance metadata when available", value: m.metadata.GCP().DefaultSSHUser, optional: true, placeholder: "ubuntu"},
 		})
 	case "port":
+		if m.syncProvider == "bitqate" {
+			m.openForm("Default BitQate SSH port", "sync_bitqate_port", []field{
+				{label: "SSH port", description: "Blank uses 22 unless a host already has a port", value: m.metadata.Bitqate().DefaultSSHPort, optional: true, placeholder: "22"},
+			})
+			return m, nil
+		}
 		if m.syncProvider != "hetzner" {
 			return m, m.setNotice("Default SSH port is only used for Hetzner")
 		}
@@ -1811,6 +1900,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			{label: "Contexts", description: "Comma-separated context names; blank = all tokens", value: strings.Join(m.metadata.Hetzner().ContextFilter, ", "), optional: true, placeholder: "prod, staging"},
 		})
 	case "locations":
+		if m.syncProvider == "bitqate" {
+			m.openForm("BitQate region filter", "sync_bitqate_regions", []field{
+				{label: "Regions", description: "Comma-separated region names; blank = all", value: strings.Join(m.metadata.Bitqate().RegionFilter, ", "), optional: true, placeholder: "Falkenstein, Helsinki"},
+			})
+			return m, nil
+		}
 		m.openForm("Hetzner location filter", "sync_hetzner_locations", []field{
 			{label: "Locations", description: "Comma-separated locations; blank = all", value: strings.Join(m.metadata.Hetzner().LocationFilter, ", "), optional: true, placeholder: "fsn1, nbg1, hel1"},
 		})
@@ -2407,6 +2502,105 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		m.form = nil
 		return m.setNotice("Hetzner location filter updated")
+	case "sync_bitqate_user":
+		bitqate := m.metadata.Bitqate()
+		bitqate.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
+		if err := m.metadata.SetBitqate(bitqate); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default BitQate SSH user updated")
+	case "sync_bitqate_port":
+		port := strings.TrimSpace(values["SSH port"])
+		if port != "" && port != "22" {
+			num, err := strconv.Atoi(port)
+			if err != nil || num <= 0 || num > 65535 {
+				if m.form != nil {
+					m.form.validationError = "port must be 1-65535"
+				}
+				return nil
+			}
+		} else {
+			port = ""
+		}
+		bitqate := m.metadata.Bitqate()
+		bitqate.DefaultSSHPort = port
+		if err := m.metadata.SetBitqate(bitqate); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default BitQate SSH port updated")
+	case "sync_bitqate_regions":
+		bitqate := m.metadata.Bitqate()
+		bitqate.RegionFilter = splitCSV(values["Regions"])
+		if err := m.metadata.SetBitqate(bitqate); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("BitQate region filter updated")
+	case "bitqate_key":
+		key := strings.TrimSpace(values["API token"])
+		if key == "" {
+			if m.form != nil {
+				m.form.validationError = "token is required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["bitqate"] {
+			return m.setNotice("BitQate operation already in progress")
+		}
+		opGen := m.beginProviderOp("bitqate")
+		m.beginSyncBusy("Connecting BitQate…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.SaveBitqateKey(ctx, key)
+			return syncDoneMsg{provider: "bitqate", result: result, err: err, opGen: opGen}
+		}
+	case "bitqate_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["bitqate"] {
+			return m.setNotice("BitQate operation already in progress")
+		}
+		opGen := m.beginProviderOp("bitqate")
+		m.syncActivity = "stopping…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopBitqate(ctx, syncID)
+			return syncDoneMsg{provider: "bitqate", result: result, err: err, opGen: opGen}
+		}
+	case "bitqate_restart":
+		if strings.TrimSpace(values["Type restart to confirm"]) != "restart" {
+			if m.form != nil {
+				m.form.validationError = "type restart to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["bitqate"] {
+			return m.setNotice("BitQate operation already in progress")
+		}
+		opGen := m.beginProviderOp("bitqate")
+		m.syncActivity = "restarting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, err := m.syncer.RestartBitqate(ctx, syncID)
+			return syncDoneMsg{provider: "bitqate", result: result, err: err, opGen: opGen}
+		}
 	case "vercel_project_add":
 		projectID := strings.TrimSpace(values["Project ID"])
 		if projectID == "" {
