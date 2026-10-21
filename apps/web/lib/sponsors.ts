@@ -79,6 +79,24 @@ export function resolveSponsors(
 		.sort((a, b) => b.amount - a.amount);
 }
 
+/**
+ * Remainder of a 3-column grid is promoted: 1 leftover sits as a
+ * featured card, 2 leftovers sit as a featured pair, then the rest
+ * fill complete rows.
+ */
+export function partitionSponsorLayout<T>(
+	items: readonly T[],
+): { featured: T[]; rest: T[] } {
+	const leftover = items.length % 3;
+	if (leftover === 0) {
+		return { featured: [], rest: [...items] };
+	}
+	return {
+		featured: items.slice(0, leftover),
+		rest: items.slice(leftover),
+	};
+}
+
 export const SPONSOR_PRESETS_USD = [5, 10, 25, 50, 100] as const;
 export const SPONSOR_MIN_USD = 1;
 export const SPONSOR_MAX_USD = 10_000;

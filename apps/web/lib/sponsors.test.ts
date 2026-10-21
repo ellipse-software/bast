@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   parseSponsorAmountUsd,
   parseSponsorInterval,
+  partitionSponsorLayout,
   resolveSponsors,
   sponsors,
   usdToCents,
@@ -99,6 +100,45 @@ describe("resolveSponsors", () => {
       href: "https://rdke.dev",
       name: "Tom Benjamin Radtke",
       amount: 250,
+    });
+  });
+});
+
+describe("partitionSponsorLayout", () => {
+  test("promotes one leftover as featured", () => {
+    expect(partitionSponsorLayout([1, 2, 3, 4])).toEqual({
+      featured: [1],
+      rest: [2, 3, 4],
+    });
+    expect(partitionSponsorLayout([1])).toEqual({
+      featured: [1],
+      rest: [],
+    });
+  });
+
+  test("promotes two leftovers as a featured pair", () => {
+    expect(partitionSponsorLayout([1, 2, 3, 4, 5])).toEqual({
+      featured: [1, 2],
+      rest: [3, 4, 5],
+    });
+    expect(partitionSponsorLayout([1, 2])).toEqual({
+      featured: [1, 2],
+      rest: [],
+    });
+  });
+
+  test("keeps complete rows in the grid", () => {
+    expect(partitionSponsorLayout([1, 2, 3])).toEqual({
+      featured: [],
+      rest: [1, 2, 3],
+    });
+    expect(partitionSponsorLayout([1, 2, 3, 4, 5, 6])).toEqual({
+      featured: [],
+      rest: [1, 2, 3, 4, 5, 6],
+    });
+    expect(partitionSponsorLayout([])).toEqual({
+      featured: [],
+      rest: [],
     });
   });
 });
