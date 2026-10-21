@@ -292,6 +292,7 @@ func TestBitqateEngineLifecycle(t *testing.T) {
 	if caps.Create || caps.Fork || caps.Delete {
 		t.Fatalf("bitqate should not advertise create/fork/delete: %+v", caps)
 	}
+	exercised := cloud.Capabilities{}
 	result, err := engine.SyncBitqate(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -314,6 +315,7 @@ func TestBitqateEngineLifecycle(t *testing.T) {
 	if _, err = engine.StopBitqate(ctx, syncID); err != nil {
 		t.Fatal(err)
 	}
+	exercised.Stop = true
 	if api.Get("vm-1").Status != "stopped" {
 		t.Fatal("vm not stopped")
 	}
@@ -323,14 +325,19 @@ func TestBitqateEngineLifecycle(t *testing.T) {
 	if _, err = engine.StartBitqate(ctx, syncID); err != nil {
 		t.Fatal(err)
 	}
+	exercised.Start = true
 	if api.Get("vm-1").Status != "running" || bitqatecloud.HostLooksStopped(store.Host(alias).Tags) {
 		t.Fatal("vm not running")
 	}
 	if _, err = engine.RestartBitqate(ctx, syncID); err != nil {
 		t.Fatal(err)
 	}
+	exercised.Restart = true
 	if api.Get("vm-1").Status != "running" {
 		t.Fatal("vm not running after restart")
+	}
+	if exercised != caps {
+		t.Fatalf("exercised %+v, advertised %+v", exercised, caps)
 	}
 }
 
@@ -546,9 +553,10 @@ func TestAdvertisedLifecycleOpsMatchEngineCoverage(t *testing.T) {
 		cloud.Vercel:  {"Create": "NewVercel", "Stop": "StopVercel", "Start": "ResumeVercel", "Fork": "ForkVercel", "Delete": "DeleteVercel"},
 		cloud.Upstash: {"Create": "NewUpstash", "Stop": "StopUpstash", "Start": "ResumeUpstash", "Fork": "ForkUpstash", "Delete": "DeleteUpstash"},
 		cloud.Hetzner: {"Start": "StartHetzner", "Stop": "StopHetzner", "Restart": "RestartHetzner"},
+		cloud.Bitqate: {"Start": "StartBitqate", "Stop": "StopBitqate", "Restart": "RestartBitqate"},
 		cloud.Boat:    {"Create": "NewBoat", "Stop": "StopBoat", "Start": "ResumeBoat", "Fork": "ForkBoat", "Delete": "DeleteBoat"},
 	}
-	for _, kind := range []cloud.Kind{cloud.Boat, cloud.Upstash, cloud.Vercel, cloud.Hetzner} {
+	for _, kind := range []cloud.Kind{cloud.Boat, cloud.Upstash, cloud.Vercel, cloud.Hetzner, cloud.Bitqate} {
 		caps := cloud.CapabilitiesFor(kind)
 		want, ok := methods[kind]
 		if !ok {

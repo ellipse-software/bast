@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -36,6 +37,7 @@ type Discovery struct {
 	Instances []Instance
 	Warnings  []string
 	Complete  bool
+	Seen      map[string]bool
 }
 
 func (c *Client) Discover(ctx context.Context, cfg DiscoverConfig) (Discovery, error) {
@@ -51,9 +53,12 @@ func (c *Client) Discover(ctx context.Context, cfg DiscoverConfig) (Discovery, e
 		}
 		return Discovery{}, err
 	}
-	out := Discovery{Complete: true}
+	out := Discovery{Complete: true, Seen: map[string]bool{}}
 	for _, vm := range vms {
 		inst, skip, warn := instanceFromVM(vm, cfg)
+		if inst.SyncID != "" {
+			out.Seen[inst.SyncID] = true
+		}
 		if warn != "" {
 			out.Warnings = append(out.Warnings, warn)
 		}
@@ -99,7 +104,7 @@ func instanceFromVM(vm apiVM, cfg DiscoverConfig) (Instance, bool, string) {
 	}
 	host := strings.TrimSpace(vm.IPv4)
 	if host == "" {
-		return Instance{}, true, fmt.Sprintf("skipped %s: no IPv4 address", name)
+		return Instance{SyncID: FormatSyncID(id)}, true, fmt.Sprintf("skipped %s: no IPv4 address", name)
 	}
 	user := strings.TrimSpace(cfg.DefaultSSHUser)
 	if user == "" {
@@ -141,14 +146,11 @@ func instanceFromVM(vm apiVM, cfg DiscoverConfig) (Instance, bool, string) {
 
 func configuredSSHPort(fallback string) string {
 	port := strings.TrimSpace(fallback)
-	if port == "" || port == "22" {
+	n, err := strconv.Atoi(port)
+	if err != nil || n <= 0 || n > 65535 || n == 22 {
 		return ""
 	}
-	var n int
-	if _, err := fmt.Sscanf(port, "%d", &n); err != nil || n <= 0 || n > 65535 {
-		return ""
-	}
-	return port
+	return strconv.Itoa(n)
 }
 
 func normalizeState(status string) string {

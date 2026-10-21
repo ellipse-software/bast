@@ -487,6 +487,8 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 		fmt.Fprintln(r.Out, "  API: authenticated")
 	} else if bitqate.HasToken {
 		fmt.Fprintln(r.Out, "  API: token stored")
+	} else {
+		fmt.Fprintln(r.Out, "  API: no API token")
 	}
 	if len(bitqate.RegionFilter) > 0 {
 		fmt.Fprintf(r.Out, "  Region filter: %s\n", strings.Join(bitqate.RegionFilter, ", "))
@@ -499,6 +501,8 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	}
 	if bitqate.LastSyncAt != nil {
 		fmt.Fprintf(r.Out, "  Last sync: %s (%d VMs)\n", bitqate.LastSyncAt.Local().Format(time.RFC3339), bitqate.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
 	}
 	if bitqate.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", bitqate.LastSyncError)

@@ -97,6 +97,10 @@ func (e *Engine) syncBitqateLocked(ctx context.Context) (Result, error) {
 			metadataDeletes = append(metadataDeletes, host.Alias)
 			continue
 		}
+		if discovery.Complete && !discovery.Seen[syncID] {
+			metadataDeletes = append(metadataDeletes, host.Alias)
+			continue
+		}
 		block, ok := previousBlocks[syncID]
 		if !ok {
 			block = sshconfig.SyncHostInput{
@@ -255,6 +259,9 @@ func (e *Engine) SaveBitqateKey(ctx context.Context, key string) (Result, error)
 func (e *Engine) DeleteBitqateToken(ctx context.Context) (Result, error) {
 	if err := e.Bitqate.DeleteToken(); err != nil {
 		return Result{}, err
+	}
+	if !e.Bitqate.HasToken() {
+		return Result{Provider: bitqatecloud.ProviderName, SyncedAt: time.Now().UTC()}, nil
 	}
 	return e.SyncBitqate(ctx)
 }
