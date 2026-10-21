@@ -1,8 +1,7 @@
 import { SponsorCta } from "@/components/sponsor-dialog-context";
 import { TestimonialAvatar } from "@/components/testimonial-avatar";
-import { formatUsd, sponsors } from "@/lib/sponsors";
+import { formatUsd, resolveSponsors, sponsors } from "@/lib/sponsors";
 import { splitTweetText } from "@/lib/tweet-text";
-import { parseXProfileUrl } from "@/lib/x-handle";
 
 function sponsorListClass(count: number): string {
   if (count <= 1) {
@@ -15,13 +14,7 @@ function sponsorListClass(count: number): string {
 }
 
 export async function Sponsors() {
-  const parsed = sponsors
-    .map((sponsor) => {
-      const username = parseXProfileUrl(sponsor.href);
-      return username ? { ...sponsor, username } : null;
-    })
-    .filter((sponsor) => sponsor !== null)
-    .sort((a, b) => b.amount - a.amount);
+  const parsed = resolveSponsors(sponsors);
 
   return (
     <section className="w-full">
@@ -64,13 +57,18 @@ export async function Sponsors() {
                   </span>
                 ) : (
                   <TestimonialAvatar
-                    name={sponsor.username}
-                    username={sponsor.username}
+                    name={sponsor.name}
+                    username={sponsor.username ?? sponsor.name}
+                    src={sponsor.avatar}
                     size="sm"
                   />
                 )}
                 <span className="text-xs text-muted group-hover:text-foreground group-focus-visible:text-foreground">
-                  {sponsor.anonymous ? "Anonymous" : `@${sponsor.username}`}
+                  {sponsor.anonymous
+                    ? "Anonymous"
+                    : sponsor.username
+                      ? `@${sponsor.username}`
+                      : sponsor.name}
                 </span>
               </div>
             </>
@@ -79,7 +77,7 @@ export async function Sponsors() {
           if (sponsor.anonymous) {
             return (
               <div
-                key={`${sponsor.username}-${sponsor.amount}`}
+                key={`${sponsor.name}-${sponsor.amount}`}
                 className={itemClass}
               >
                 {inner}
@@ -89,7 +87,7 @@ export async function Sponsors() {
 
           return (
             <a
-              key={sponsor.username}
+              key={sponsor.href}
               href={sponsor.href}
               target="_blank"
               rel="noopener noreferrer"
