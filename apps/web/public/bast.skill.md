@@ -17,7 +17,7 @@ Docs: https://bast.sh/llms.txt
 - User wants to browse, search, or organize SSH hosts from the terminal
 - User needs to generate, import, export, or install SSH keys
 - User wants quick connect: `bast <label>` or `bast "Production web"`
-- User wants to import cloud VMs (`bast sync gcp`, `bast sync aws`, `bast sync azure`, `bast sync boat`, `bast sync upstash`, or `bast sync hetzner`) and connect with local keys, or Vercel Sandboxes (`bast sync vercel`) over a WebSocket PTY
+- User wants to import cloud VMs (`bast sync gcp`, `bast sync aws`, `bast sync azure`, `bast sync boat`, `bast sync upstash`, or `bast sync hetzner`, or `bast sync bitqate`) and connect with local keys, or Vercel Sandboxes (`bast sync vercel`) over a WebSocket PTY
 - User already has the Boat CLI installed and logged in (Bast auto-connects Boat)
 - User has an Upstash Box API key (Bast stores it locally and uses it for API + SSH)
 - User has a Vercel access token, team ID, and project ID (Bast stores the token locally and opens a PTY shell)
@@ -134,15 +134,17 @@ bast sync boat
 bast sync upstash
 bast sync vercel
 bast sync hetzner
+bast sync bitqate
 bast sync status
 bast sync disable gcp
 bast sync disable boat
 bast sync disable upstash
 bast sync disable vercel
 bast sync disable hetzner
+bast sync disable bitqate
 ```
 
-GCP, AWS, Azure, and Boat require the matching CLI on `PATH` (`gcloud`, `aws`, `az`, or `boat`) and an authenticated account. Upstash Box uses a stored API key (`bast upstash key` or `UPSTASH_BOX_API_KEY`), not a CLI. Vercel Sandbox uses a stored access token (`bast vercel token` or `VERCEL_TOKEN`) plus team and project IDs. Hetzner Cloud uses stored API tokens (`bast hetzner key` or `HCLOUD_TOKEN`) and does not require the `hcloud` CLI. Synced hosts are read-only; disconnect via Sync to remove them.
+GCP, AWS, Azure, and Boat require the matching CLI on `PATH` (`gcloud`, `aws`, `az`, or `boat`) and an authenticated account. Upstash Box uses a stored API key (`bast upstash key` or `UPSTASH_BOX_API_KEY`), not a CLI. Vercel Sandbox uses a stored access token (`bast vercel token` or `VERCEL_TOKEN`) plus team and project IDs. Hetzner Cloud uses stored API tokens (`bast hetzner key` or `HCLOUD_TOKEN`) and does not require the `hcloud` CLI. BitQate uses a stored API token (`bast bitqate key` or `BITQATE_TOKEN`) minted in the BitQate dashboard under Settings → API with the `vms:read` scope (`vms:read` and `vms:power` for start/stop/restart). Synced hosts are read-only; disconnect via Sync to remove them.
 
 If the Boat CLI is already installed and logged in, Bast auto-connects on TUI start and `bast sync status` (unless you previously ran `bast sync disable boat`). The same auto-connect applies to Upstash when a key file is present (unless `bast sync disable upstash`), and to Vercel when a token, team, and project are stored (unless `bast sync disable vercel`).
 
@@ -198,11 +200,24 @@ bast hetzner restart <host|id> [--force]
 
 In the TUI, powered-off Hetzner servers are hidden until `.`. If every server is off, the Hetzner Cloud group is hidden too. Enter starts then connects. `o` ACPI-shuts down (still bills). `R` reboots. `--force` is a hard poweroff/reset. Default SSH user is `root` on port 22; sync reuses user/port/identity from an existing local host with the same IP, and probes 2022/2222 when 22 is closed. Tokens: `~/.config/bast/hetzner/tokens/<name>` (not vaulted). One token per Hetzner Cloud project. Prefer private IP for VPN/Cloud Network SSH. Docs: https://bast.sh/docs/features/hetzner
 
+## BitQate
+
+```sh
+bast bitqate key [--token-file path]
+bast bitqate key --clear
+bast bitqate list
+bast bitqate start <host|id>
+bast bitqate stop <host|id>
+bast bitqate restart <host|id>
+```
+
+In the TUI, stopped BitQate VMs are hidden until `.`. Enter starts then connects. `o` powers off (still bills). `R` restarts. Suspended (billing-locked) VMs cannot be started from Bast. Default SSH user is `root` on port 22; sync reuses user/port/identity from an existing local host with the same IP, and matches the instance's authorized SSH key against local keys. Token: `~/.config/bast/bitqate-token` (not vaulted). Docs: https://bast.sh/docs/features/bitqate
+
 ## Files (SFTP)
 
 TUI Files tab (`5`) is a dual-pane local/remote browser over OpenSSH SFTP. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
 
-TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Boat/Upstash/Vercel/Hetzner). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`. First TUI with no hosts shows a skippable start chooser (`esc` skips, `BAST_NO_ONBOARDING=1` disables).
+TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Boat/Upstash/Vercel/Hetzner/BitQate). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`. First TUI with no hosts shows a skippable start chooser (`esc` skips, `BAST_NO_ONBOARDING=1` disables).
 
 ## File layout
 

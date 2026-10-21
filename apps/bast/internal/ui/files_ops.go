@@ -137,7 +137,7 @@ const cloudPrepareTimeout = 90 * time.Second
 const boatPrepareTimeout = 5 * time.Minute
 
 func prepareTimeoutForHost(host sshconfig.Host) time.Duration {
-	if host.Synced && (host.SyncSource == "boat" || host.SyncSource == "upstash" || host.SyncSource == "vercel" || host.SyncSource == "hetzner") {
+	if host.Synced && (host.SyncSource == "boat" || host.SyncSource == "upstash" || host.SyncSource == "vercel" || host.SyncSource == "hetzner" || host.SyncSource == "bitqate") {
 		return boatPrepareTimeout
 	}
 	return cloudPrepareTimeout
@@ -240,6 +240,18 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 				_, _ = m.syncer.SyncUpstash(ctx)
 			}
 			return m.syncer.EnsureUpstashAccess(ctx, host, status)
+		}
+	case "bitqate":
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Starting BitQate VM…")
+				}
+				if _, err := m.syncer.StartBitqate(ctx, host.SyncID); err != nil {
+					return err
+				}
+			}
+			return m.syncer.EnsureBitqateAccess(ctx, host, status)
 		}
 	case "hetzner":
 		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {

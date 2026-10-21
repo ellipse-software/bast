@@ -173,6 +173,30 @@ func TestVercelIntegrationRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBitqateIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetBitqate(BitqateIntegration{
+		Enabled: true, AutoSync: true, DefaultSSHUser: "root", DefaultSSHPort: "2222",
+		RegionFilter: []string{"Falkenstein"}, LastInstanceCount: 3,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reopened.Bitqate()
+	if !got.Enabled || !got.AutoSync || got.DefaultSSHUser != "root" || got.DefaultSSHPort != "2222" ||
+		got.LastInstanceCount != 3 ||
+		len(got.RegionFilter) != 1 || got.RegionFilter[0] != "Falkenstein" {
+		t.Fatalf("bitqate = %+v", got)
+	}
+}
+
 func TestHetznerIntegrationRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	store, err := Open(path)

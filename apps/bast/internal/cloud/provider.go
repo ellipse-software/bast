@@ -15,6 +15,7 @@ const (
 	Upstash Kind = "upstash"
 	Vercel  Kind = "vercel"
 	Hetzner Kind = "hetzner"
+	Bitqate Kind = "bitqate"
 )
 
 // Descriptor is the stable identity for a cloud provider. UI, grouping, and
@@ -116,6 +117,11 @@ var descriptors = []Descriptor{
 		Description: "Import Hetzner Cloud servers into Bast",
 		BrandColor:  "#D50C2D", NerdIcon: "\uf233",
 	},
+	{
+		Kind: Bitqate, Title: "BitQate", FullTitle: "BitQate", GroupRoot: "BitQate",
+		Description: "Import BitQate VPS instances into Bast",
+		BrandColor:  "#FFFFFF", NerdIcon: "\uf0a0",
+	},
 }
 
 var capabilities = map[Kind]Capabilities{
@@ -126,6 +132,7 @@ var capabilities = map[Kind]Capabilities{
 	Upstash: {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
 	Vercel:  {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
 	Hetzner: {Stop: true, Start: true, Restart: true},
+	Bitqate: {Stop: true, Start: true, Restart: true},
 }
 
 func Descriptors() []Descriptor {

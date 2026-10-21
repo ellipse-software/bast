@@ -33,6 +33,8 @@ func (m *App) providerEnabled(kind cloud.Kind) bool {
 		return m.metadata.Vercel().Enabled
 	case cloud.Hetzner:
 		return m.metadata.Hetzner().Enabled
+	case cloud.Bitqate:
+		return m.metadata.Bitqate().Enabled
 	default:
 		return false
 	}
@@ -128,6 +130,8 @@ func (m *App) stopSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 		m.openVercelStopForm(host)
 	case "hetzner":
 		m.openHetznerStopForm(host)
+	case "bitqate":
+		m.openBitqateStopForm(host)
 	default:
 		return m, nil
 	}
@@ -146,6 +150,8 @@ func (m *App) restartSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	}
 	if host.SyncSource == "hetzner" {
 		m.openHetznerRestartForm(host)
+	} else if host.SyncSource == "bitqate" {
+		m.openBitqateRestartForm(host)
 		return m, nil
 	}
 	return m, nil
@@ -201,6 +207,8 @@ func (m *App) resumeSyncedHost(host sshconfig.Host, thenConnect bool) tea.Cmd {
 		return m.resumeSelectedVercel(host, thenConnect)
 	case "hetzner":
 		return m.startSelectedHetzner(host, thenConnect)
+	case "bitqate":
+		return m.startSelectedBitqate(host, thenConnect)
 	default:
 		return nil
 	}

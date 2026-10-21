@@ -304,6 +304,7 @@ func (m *App) renderHosts(s styleSet) string {
 	upstashErr := m.providerShowsSyncError("upstash", m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != "")
 	vercelErr := m.providerShowsSyncError("vercel", m.metadata.Vercel().LastSyncError != "" || m.syncStatus.Vercel.Error != "")
 	hetznerErr := m.providerShowsSyncError("hetzner", m.metadata.Hetzner().LastSyncError != "" || m.syncStatus.Hetzner.Error != "")
+	bitqateErr := m.providerShowsSyncError("bitqate", m.metadata.Bitqate().LastSyncError != "" || m.syncStatus.Bitqate.Error != "")
 	start := scrollStart(m.cursor, len(rowsData), listHeight)
 	var list strings.Builder
 	list.Grow(listHeight * (rowWidth + 8))
@@ -347,7 +348,7 @@ func (m *App) renderHosts(s styleSet) string {
 					name = name[slash+1:]
 				}
 			}
-			showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr)
+			showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr, bitqateErr)
 			rawPrefix := indent + indicator + " "
 			reservedWidth := lipgloss.Width(rawPrefix) + 1 + lipgloss.Width(fmt.Sprintf("(%d)", row.count)) + lipgloss.Width(managedGroupIcon(name, m.nerdFont))
 			if showError {
@@ -506,10 +507,11 @@ func (m *App) cloudSyncGroupHasError(group string) bool {
 		m.providerShowsSyncError("upstash", m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != ""),
 		m.providerShowsSyncError("vercel", m.metadata.Vercel().LastSyncError != "" || m.syncStatus.Vercel.Error != ""),
 		m.providerShowsSyncError("hetzner", m.metadata.Hetzner().LastSyncError != "" || m.syncStatus.Hetzner.Error != ""),
+		m.providerShowsSyncError("bitqate", m.metadata.Bitqate().LastSyncError != "" || m.syncStatus.Bitqate.Error != ""),
 	)
 }
 
-func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr bool) bool {
+func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr, bitqateErr bool) bool {
 	kind, ok := cloud.KindForGroup(group)
 	if !ok {
 		return false
@@ -529,6 +531,8 @@ func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boatEr
 		return vercelErr
 	case cloud.Hetzner:
 		return hetznerErr
+	case cloud.Bitqate:
+		return bitqateErr
 	default:
 		return false
 	}
@@ -648,6 +652,8 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool
 		return suffix("Upstash", brandText("#00E9A3", icon("Upstash")+"Upstash", restStyle))
 	case name == "Vercel" || strings.HasPrefix(name, "Vercel/"):
 		return suffix("Vercel", brandText("#FFFFFF", icon("Vercel")+"Vercel", restStyle))
+	case name == "BitQate" || strings.HasPrefix(name, "BitQate/"):
+		return suffix("BitQate", brandText("#FFFFFF", icon("BitQate")+"BitQate", restStyle))
 	case name == "Hetzner Cloud" || strings.HasPrefix(name, "Hetzner Cloud/"):
 		return suffix("Hetzner Cloud", brandText("#D50C2D", icon("Hetzner Cloud")+"Hetzner Cloud", restStyle))
 	default:

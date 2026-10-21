@@ -12,7 +12,7 @@ import (
 
 func (r *Runner) sync(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|boat|upstash|vercel|hetzner|status|disable>")
+		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|status|disable>")
 		return nil
 	}
 	engine := sync.New(r.Paths, r.store)
@@ -31,6 +31,8 @@ func (r *Runner) sync(args []string) error {
 		return r.syncVercel(engine, args[1:])
 	case "hetzner":
 		return r.syncHetzner(engine, args[1:])
+	case "bitqate":
+		return r.syncBitqate(engine, args[1:])
 	case "status":
 		return r.syncStatus(engine, args[1:])
 	case "disable":
@@ -106,6 +108,25 @@ func (r *Runner) syncVercel(engine *sync.Engine, args []string) error {
 	if result.Error != "" {
 		msg += "\nWarning: " + result.Error
 	}
+	return r.success(result, msg)
+}
+
+func (r *Runner) syncBitqate(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync bitqate")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync bitqate")
+	}
+	ctx := context.Background()
+	result, err := engine.SyncBitqate(ctx)
+	if err != nil {
+		telemetry.Track("sync_bitqate_fail", r.Version)
+		return fail("sync_bitqate", err.Error())
+	}
+	telemetry.Track("sync_bitqate", r.Version)
+	msg := fmt.Sprintf("Synced %d BitQate VMs", result.Count)
 	return r.success(result, msg)
 }
 
@@ -456,6 +477,36 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if hetzner.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", hetzner.LastSyncError)
 	}
+	bitqate := status.Bitqate
+	fmt.Fprintln(r.Out, "BitQate")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", bitqate.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", bitqate.AutoSync)
+	if bitqate.Error != "" {
+		fmt.Fprintf(r.Out, "  API: %s\n", bitqate.Error)
+	} else if bitqate.Authenticated {
+		fmt.Fprintln(r.Out, "  API: authenticated")
+	} else if bitqate.HasToken {
+		fmt.Fprintln(r.Out, "  API: token stored")
+	} else {
+		fmt.Fprintln(r.Out, "  API: no API token")
+	}
+	if len(bitqate.RegionFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Region filter: %s\n", strings.Join(bitqate.RegionFilter, ", "))
+	}
+	if bitqate.DefaultSSHUser != "" {
+		fmt.Fprintf(r.Out, "  Default SSH user: %s\n", bitqate.DefaultSSHUser)
+	}
+	if bitqate.DefaultSSHPort != "" {
+		fmt.Fprintf(r.Out, "  Default SSH port: %s\n", bitqate.DefaultSSHPort)
+	}
+	if bitqate.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d VMs)\n", bitqate.LastSyncAt.Local().Format(time.RFC3339), bitqate.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if bitqate.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", bitqate.LastSyncError)
+	}
 	return nil
 }
 
@@ -465,10 +516,10 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 1 {
-		return usagef("usage: bast sync disable <gcp|aws|azure|boat|upstash|vercel|hetzner>")
+		return usagef("usage: bast sync disable <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate>")
 	}
 	provider := fs.Arg(0)
-	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "boat" && provider != "upstash" && provider != "vercel" && provider != "hetzner" {
+	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "boat" && provider != "upstash" && provider != "vercel" && provider != "hetzner" && provider != "bitqate" {
 		return usagef("unknown sync provider %q", provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -489,6 +540,8 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		err = engine.DisableVercel(ctx)
 	case "hetzner":
 		err = engine.DisableHetzner(ctx)
+	case "bitqate":
+		err = engine.DisableBitqate(ctx)
 	}
 	if err != nil {
 		return fail("sync_disable", err.Error())

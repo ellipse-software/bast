@@ -257,7 +257,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig,
 		},
 		openSSH:          client,
 		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
@@ -323,6 +323,8 @@ func (m *App) clearProviderProbeError(provider string) {
 		m.syncStatus.Vercel.Error = ""
 	case "hetzner":
 		m.syncStatus.Hetzner.Error = ""
+	case "bitqate":
+		m.syncStatus.Bitqate.Error = ""
 	}
 }
 
@@ -362,6 +364,7 @@ func (m *App) syncCompletionNotice(provider string, count int) string {
 		{id: "upstash", name: "Upstash", enabled: upstash.Enabled, count: upstash.LastInstanceCount},
 		{id: "vercel", name: "Vercel", enabled: vercel.Enabled, count: vercel.LastInstanceCount},
 		{id: "hetzner", name: "Hetzner", enabled: m.metadata.Hetzner().Enabled, count: m.metadata.Hetzner().LastInstanceCount},
+		{id: "bitqate", name: "BitQate", enabled: m.metadata.Bitqate().Enabled, count: m.metadata.Bitqate().LastInstanceCount},
 	}
 	parts := make([]string, 0, len(providers))
 	for _, item := range providers {
@@ -439,6 +442,10 @@ func (m *App) autoSyncCmds() tea.Cmd {
 	if hetzner := m.metadata.Hetzner(); hetzner.Enabled && hetzner.AutoSync && !m.syncingProviders["hetzner"] {
 		m.beginProviderOp("hetzner")
 		autoSyncCmds = append(autoSyncCmds, m.syncHetznerCmd())
+	}
+	if bitqate := m.metadata.Bitqate(); bitqate.Enabled && bitqate.AutoSync && !m.syncingProviders["bitqate"] {
+		m.beginProviderOp("bitqate")
+		autoSyncCmds = append(autoSyncCmds, m.syncBitqateCmd())
 	}
 	if pull := m.vaultPullCmd(false); pull != nil {
 		autoSyncCmds = append(autoSyncCmds, pull)

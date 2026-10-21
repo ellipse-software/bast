@@ -165,6 +165,17 @@ type HetznerIntegration struct {
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 }
 
+type BitqateIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	DefaultSSHPort    string     `json:"defaultSshPort,omitempty"`
+	RegionFilter      []string   `json:"regionFilter,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
 type Integrations struct {
 	GCP     *GCPIntegration     `json:"gcp,omitempty"`
 	AWS     *AWSIntegration     `json:"aws,omitempty"`
@@ -173,6 +184,7 @@ type Integrations struct {
 	Upstash *UpstashIntegration `json:"upstash,omitempty"`
 	Vercel  *VercelIntegration  `json:"vercel,omitempty"`
 	Hetzner *HetznerIntegration `json:"hetzner,omitempty"`
+	Bitqate *BitqateIntegration `json:"bitqate,omitempty"`
 }
 
 // Read the former provider name without writing it back into new state files.
@@ -999,6 +1011,43 @@ func cloneVercel(vercel VercelIntegration) VercelIntegration {
 	return vercel
 }
 
+func (s *Store) Bitqate() BitqateIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Bitqate == nil {
+		return BitqateIntegration{}
+	}
+	return cloneBitqate(*s.state.Integrations.Bitqate)
+}
+
+func (s *Store) SetBitqate(bitqate BitqateIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Bitqate
+	if !bitqate.Enabled && !bitqate.AutoSync && bitqate.DefaultSSHUser == "" && bitqate.DefaultSSHPort == "" &&
+		len(bitqate.RegionFilter) == 0 &&
+		bitqate.LastSyncAt == nil && bitqate.LastSyncError == "" && bitqate.LastInstanceCount == 0 {
+		s.state.Integrations.Bitqate = nil
+	} else {
+		copy := cloneBitqate(bitqate)
+		s.state.Integrations.Bitqate = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Bitqate = previous
+		return err
+	}
+	return nil
+}
+
+func cloneBitqate(bitqate BitqateIntegration) BitqateIntegration {
+	bitqate.RegionFilter = append([]string(nil), bitqate.RegionFilter...)
+	if bitqate.LastSyncAt != nil {
+		lastSyncAt := *bitqate.LastSyncAt
+		bitqate.LastSyncAt = &lastSyncAt
+	}
+	return bitqate
+}
+
 func cloneHetzner(hetzner HetznerIntegration) HetznerIntegration {
 	hetzner.ContextFilter = append([]string(nil), hetzner.ContextFilter...)
 	hetzner.LocationFilter = append([]string(nil), hetzner.LocationFilter...)
@@ -1038,6 +1087,10 @@ func cloneIntegrations(integrations Integrations) Integrations {
 	if integrations.Hetzner != nil {
 		hetzner := cloneHetzner(*integrations.Hetzner)
 		out.Hetzner = &hetzner
+	}
+	if integrations.Bitqate != nil {
+		bitqate := cloneBitqate(*integrations.Bitqate)
+		out.Bitqate = &bitqate
 	}
 	return out
 }

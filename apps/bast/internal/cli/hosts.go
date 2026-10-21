@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	bitqatecloud "bast/internal/cloud/bitqate"
 	hetznercloud "bast/internal/cloud/hetzner"
 	"bast/internal/cloud/sync"
 	vercelcloud "bast/internal/cloud/vercel"
@@ -844,6 +845,23 @@ func (r *Runner) connect(args []string) error {
 		}
 		if err := engine.EnsureHetznerAccess(ctx, host.raw, connectbanner.Status(r.Out)); err != nil {
 			return fail("hetzner_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "bitqate" && host.SyncID != "" {
+		timeout := 90 * time.Second
+		if bitqatecloud.HostLooksStopped(r.store.Host(host.Alias).Tags) {
+			timeout = 5 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if bitqatecloud.HostLooksStopped(r.store.Host(host.Alias).Tags) {
+			if _, err := engine.StartBitqate(ctx, host.SyncID); err != nil {
+				return fail("bitqate_start", err.Error())
+			}
+		}
+		if err := engine.EnsureBitqateAccess(ctx, host.raw, connectbanner.Status(r.Out)); err != nil {
+			return fail("bitqate_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
 	}

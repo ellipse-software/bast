@@ -22,6 +22,7 @@ type Paths struct {
 	SyncUpstashConfig string
 	SyncVercelConfig  string
 	SyncHetznerConfig string
+	SyncBitqateConfig string
 	AzureDir          string
 	StateFile         string
 	UpstashAPIKey     string
@@ -29,6 +30,7 @@ type Paths struct {
 	VercelToken       string
 	HetznerAPIKey     string
 	HetznerTokenDir   string
+	BitqateToken      string
 }
 
 func ForHome(home string) Paths {
@@ -51,6 +53,7 @@ func ForHome(home string) Paths {
 		SyncUpstashConfig: filepath.Join(syncDir, "upstash", "config"),
 		SyncVercelConfig:  filepath.Join(syncDir, "vercel", "config"),
 		SyncHetznerConfig: filepath.Join(syncDir, "hetzner", "config"),
+		SyncBitqateConfig: filepath.Join(syncDir, "bitqate", "config"),
 		AzureDir:          filepath.Join(managedDir, "azure"),
 		StateFile:         filepath.Join(configDir, "state.json"),
 		UpstashAPIKey:     filepath.Join(configDir, "upstash-box-api-key"),
@@ -58,6 +61,7 @@ func ForHome(home string) Paths {
 		VercelToken:       filepath.Join(configDir, "vercel-token"),
 		HetznerAPIKey:     filepath.Join(configDir, "hetzner-api-token"),
 		HetznerTokenDir:   filepath.Join(configDir, "hetzner", "tokens"),
+		BitqateToken:      filepath.Join(configDir, "bitqate-token"),
 	}
 }
 

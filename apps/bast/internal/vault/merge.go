@@ -245,6 +245,9 @@ func mergeIntegrations(base, overlay VaultIntegrations) VaultIntegrations {
 	if overlay.Hetzner != nil {
 		out.Hetzner = overlay.Hetzner
 	}
+	if overlay.Bitqate != nil {
+		out.Bitqate = overlay.Bitqate
+	}
 	return out
 }
 

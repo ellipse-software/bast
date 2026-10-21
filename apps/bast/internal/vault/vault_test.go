@@ -391,6 +391,15 @@ func TestPackDropsTombstoneForLiveHost(t *testing.T) {
 	}
 }
 
+func TestMergeIntegrationsKeepsBitqate(t *testing.T) {
+	local := VaultIntegrations{Bitqate: &VaultBitqateIntegration{Enabled: true, AutoSync: true, DefaultSSHUser: "root", RegionFilter: []string{"Falkenstein"}}}
+	remote := VaultIntegrations{GCP: &VaultGCPIntegration{Enabled: true}}
+	got := mergeIntegrations(remote, local)
+	if got.Bitqate == nil || !got.Bitqate.Enabled || got.GCP == nil {
+		t.Fatalf("merge dropped bitqate: %+v", got)
+	}
+}
+
 func TestMergeIntegrationsKeepsHetzner(t *testing.T) {
 	local := VaultIntegrations{Hetzner: &VaultHetznerIntegration{Enabled: true, AutoSync: true, DefaultSSHUser: "root"}}
 	remote := VaultIntegrations{GCP: &VaultGCPIntegration{Enabled: true}}
