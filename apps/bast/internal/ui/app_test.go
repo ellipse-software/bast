@@ -18,6 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"bast/internal/cloud"
 	cloudsync "bast/internal/cloud/sync"
 	"bast/internal/connectbanner"
 	"bast/internal/doctor"
@@ -2111,6 +2112,29 @@ func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 	}
 	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Boat") || !strings.Contains(body, "Upstash") || !strings.Contains(body, "Vercel") || !strings.Contains(body, "Hetzner") {
 		t.Fatalf("mobile grid body:\n%s", body)
+	}
+}
+
+func TestSyncGridShowsNerdIconsWhenEnabled(t *testing.T) {
+	m := testApp(t)
+	m.width = 80
+	m.height = 40
+	m.section = syncSection
+	m.nerdFont = true
+	body := m.renderSync(m.styles())
+	for _, icon := range []string{"\ue7f1", "\ue7ad", "\ue754", "\U000f0ec8", "\uf1b2", "\u25b2", "\uf233"} {
+		if !strings.Contains(body, icon) {
+			t.Fatalf("missing icon %q in:\n%s", icon, body)
+		}
+	}
+}
+
+func TestProviderChooserTitleKeepsIconWhenNarrow(t *testing.T) {
+	m := testApp(t)
+	m.nerdFont = true
+	title := m.providerChooserTitle(cloud.Azure, 12)
+	if !strings.Contains(title, "\ue754") {
+		t.Fatalf("narrow title dropped icon: %q", title)
 	}
 }
 

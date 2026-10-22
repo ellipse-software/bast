@@ -15,9 +15,15 @@ func TestDetectNerdFont(t *testing.T) {
 	}{
 		{name: "wezterm pane", env: map[string]string{"WEZTERM_PANE": "1"}, want: true},
 		{name: "wezterm program", env: map[string]string{"TERM_PROGRAM": "WezTerm"}, want: true},
+		{
+			name: "wezterm nested program",
+			env:  map[string]string{"TERM_PROGRAM": "herdr", "WEZTERM_EXECUTABLE": "/Applications/WezTerm.app/Contents/MacOS/wezterm-gui"},
+			want: true,
+		},
 		{name: "kitty window", env: map[string]string{"KITTY_WINDOW_ID": "1"}, want: true},
 		{name: "kitty term", env: map[string]string{"TERM": "xterm-kitty"}, want: true},
 		{name: "iterm", env: map[string]string{"TERM_PROGRAM": "iTerm.app"}, want: true},
+		{name: "iterm session nested program", env: map[string]string{"TERM_PROGRAM": "herdr", "ITERM_SESSION_ID": "w0t0p0:abc"}, want: true},
 		{name: "iterm lc", env: map[string]string{"LC_TERMINAL": "iTerm2"}, want: true},
 		{name: "alacritty", env: map[string]string{"TERM_PROGRAM": "Alacritty"}, want: true},
 		{name: "ghostty", env: map[string]string{"TERM_PROGRAM": "ghostty"}, want: true},

@@ -752,7 +752,9 @@ func (m *App) providerChooserTitle(kind cloud.Kind, width int) string {
 	if lipgloss.Width(title) <= width {
 		return title
 	}
-	return truncate(d.GroupRoot, width)
+	icon := managedGroupIcon(d.GroupRoot, m.nerdFont)
+	rest := max(1, width-lipgloss.Width(icon))
+	return icon + truncate(d.GroupRoot, rest)
 }
 
 func indentLines(s, pad string) string {
