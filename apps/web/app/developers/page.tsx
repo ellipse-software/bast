@@ -29,7 +29,7 @@ const resources = [
   {
     href: "/cli",
     title: "Bast.sh CLI",
-    blurb: "Homebrew, WinGet, and bast --json automation.",
+    blurb: "Homebrew, Linux packages, WinGet, and bast --json automation.",
   },
   {
     href: "/docs/reference/agents",

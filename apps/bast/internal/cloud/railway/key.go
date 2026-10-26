@@ -59,17 +59,32 @@ func (c *Client) EnsureIdentity(ctx context.Context, status func(string)) (strin
 }
 
 func (c *Client) listSSHKeys(ctx context.Context) ([]sshPublicKey, error) {
-	var data struct {
-		SSHPublicKeys edgeList[sshPublicKey] `json:"sshPublicKeys"`
-	}
-	if err := c.graphql(ctx, `query {
-  sshPublicKeys(first: 100) {
+	var out []sshPublicKey
+	after := ""
+	for page := 0; page < railwayMaxPages; page++ {
+		var data struct {
+			SSHPublicKeys edgeList[sshPublicKey] `json:"sshPublicKeys"`
+		}
+		vars := map[string]any{"first": railwayPageSize}
+		if after != "" {
+			vars["after"] = after
+		}
+		if err := c.graphql(ctx, `query SSHKeys($first: Int!, $after: String) {
+  sshPublicKeys(first: $first, after: $after) {
     edges { node { id name publicKey fingerprint } }
+    pageInfo { hasNextPage endCursor }
   }
-}`, nil, &data); err != nil {
-		return nil, err
+}`, vars, &data); err != nil {
+			return nil, err
+		}
+		out = append(out, nodes(data.SSHPublicKeys)...)
+		next, ok := nextCursor(data.SSHPublicKeys.PageInfo, after)
+		if !ok {
+			return out, nil
+		}
+		after = next
 	}
-	return nodes(data.SSHPublicKeys), nil
+	return nil, fmt.Errorf("railway SSH key list truncated after %d pages", railwayMaxPages)
 }
 
 func (c *Client) registerSSHKey(ctx context.Context, name, publicKey string) error {

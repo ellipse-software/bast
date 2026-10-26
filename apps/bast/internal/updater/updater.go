@@ -33,6 +33,11 @@ const (
 	ChannelHomebrewStable
 	ChannelHomebrewNightly
 	ChannelWinGetStable
+	ChannelDeb
+	ChannelRpm
+	ChannelPacman
+	ChannelPacmanBin
+	ChannelApk
 )
 
 func IsStable(version string) bool {
@@ -59,6 +64,9 @@ func ChannelFor(executable string) Channel {
 	case scriptInstalled(resolved, platformInstallerURL(InstallerURL)):
 		return ChannelScriptStable
 	default:
+		if channel := linuxPackageChannel(resolved); channel != ChannelOther {
+			return channel
+		}
 		return ChannelOther
 	}
 }
@@ -89,6 +97,16 @@ func Suggestion(executable string) string {
 		return "brew upgrade bast-nightly"
 	case ChannelWinGetStable:
 		return "winget upgrade --id EllipseSoftware.Bast --exact"
+	case ChannelDeb:
+		return "sudo apt upgrade bast"
+	case ChannelRpm:
+		return rpmUpgradeSuggestion()
+	case ChannelPacman:
+		return "sudo pacman -Syu bast"
+	case ChannelPacmanBin:
+		return pacmanBinUpgradeSuggestion()
+	case ChannelApk:
+		return "sudo apk upgrade bast"
 	default:
 		return "https://bast.sh"
 	}
@@ -112,6 +130,16 @@ func Update(ctx context.Context, client *http.Client, executable string, stdout,
 		return errors.New("this Bast installation is managed by Homebrew; run \"brew upgrade bast-nightly\"")
 	case ChannelWinGetStable:
 		return errors.New("this Bast installation is managed by WinGet; run \"winget upgrade --id EllipseSoftware.Bast --exact\"")
+	case ChannelDeb:
+		return errors.New("this Bast installation is managed by apt; run \"sudo apt upgrade bast\"")
+	case ChannelRpm:
+		return fmt.Errorf("this Bast installation is managed by your package manager; run %q", rpmUpgradeSuggestion())
+	case ChannelPacman:
+		return errors.New("this Bast installation is managed by pacman; run \"sudo pacman -Syu bast\"")
+	case ChannelPacmanBin:
+		return fmt.Errorf("this Bast installation is managed by the AUR; run %q", pacmanBinUpgradeSuggestion())
+	case ChannelApk:
+		return errors.New("this Bast installation is managed by apk; run \"sudo apk upgrade bast\"")
 	default:
 		if runtime.GOOS == "windows" {
 			return errors.New("self-update is only available for installs from https://bast.sh/install.ps1 or https://bast.sh/install-nightly.ps1")

@@ -16,7 +16,10 @@ func (e *Engine) SyncRailway(ctx context.Context) (Result, error) {
 		return Result{}, err
 	}
 	defer e.railwayMu.Unlock()
+	return e.syncRailwayLocked(ctx)
+}
 
+func (e *Engine) syncRailwayLocked(ctx context.Context) (Result, error) {
 	_ = e.Railway.PersistResolvedToken()
 	e.configureRailwayIdentity()
 	if _, err := e.Railway.EnsureIdentity(ctx, nil); err != nil {
@@ -56,11 +59,10 @@ func (e *Engine) SyncRailway(ctx context.Context) (Result, error) {
 	usedAliases := map[string]bool{}
 	previousBySyncID := map[string]sshconfig.Host{}
 	for _, host := range existing {
+		usedAliases[host.Alias] = true
 		if host.Synced && host.SyncSource == railwaycloud.ProviderName && host.SyncID != "" {
 			previousBySyncID[host.SyncID] = host
-			continue
 		}
-		usedAliases[host.Alias] = true
 	}
 
 	blocks := make([]sshconfig.SyncHostInput, 0, len(discovery.Instances))
@@ -71,9 +73,8 @@ func (e *Engine) SyncRailway(ctx context.Context) (Result, error) {
 	for _, inst := range discovery.Instances {
 		activeSyncIDs[inst.SyncID] = true
 		alias := ""
-		if prev, ok := previousBySyncID[inst.SyncID]; ok && !usedAliases[prev.Alias] {
+		if prev, ok := previousBySyncID[inst.SyncID]; ok {
 			alias = prev.Alias
-			usedAliases[alias] = true
 		} else {
 			alias = railwaycloud.UniqueAlias(railwaycloud.AliasFor(inst), usedAliases)
 			usedAliases[alias] = true
@@ -167,13 +168,17 @@ func (e *Engine) SaveRailwayToken(ctx context.Context, token string) (Result, er
 }
 
 func (e *Engine) NewRailway(ctx context.Context, opts railwaycloud.CreateOpts) (Result, string, error) {
-	e.configureRailwayIdentity()
-	inst, err := e.Railway.Create(ctx, opts)
-	if err != nil && inst.SyncID == "" {
+	if err := lockCtx(ctx, &e.railwayMu); err != nil {
 		return Result{}, "", err
 	}
-	result, syncErr := e.SyncRailway(ctx)
+	defer e.railwayMu.Unlock()
+	e.configureRailwayIdentity()
+	inst, err := e.Railway.Create(ctx, opts)
+	result, syncErr := e.syncRailwayLocked(ctx)
 	alias := e.AliasForRailwaySyncID(ctx, inst.SyncID)
+	if err != nil && inst.SyncID == "" {
+		return result, alias, err
+	}
 	if err != nil {
 		return result, alias, err
 	}
@@ -181,24 +186,42 @@ func (e *Engine) NewRailway(ctx context.Context, opts railwaycloud.CreateOpts) (
 }
 
 func (e *Engine) StopRailway(ctx context.Context, syncID string) (Result, error) {
-	if err := e.Railway.Stop(ctx, syncID); err != nil {
+	if err := lockCtx(ctx, &e.railwayMu); err != nil {
 		return Result{}, err
 	}
-	return e.SyncRailway(ctx)
+	defer e.railwayMu.Unlock()
+	err := e.Railway.Stop(ctx, syncID)
+	result, syncErr := e.syncRailwayLocked(ctx)
+	if err != nil {
+		return result, err
+	}
+	return result, syncErr
 }
 
 func (e *Engine) ResumeRailway(ctx context.Context, syncID string) (Result, error) {
-	if err := e.Railway.Resume(ctx, syncID); err != nil {
+	if err := lockCtx(ctx, &e.railwayMu); err != nil {
 		return Result{}, err
 	}
-	return e.SyncRailway(ctx)
+	defer e.railwayMu.Unlock()
+	err := e.Railway.Resume(ctx, syncID)
+	result, syncErr := e.syncRailwayLocked(ctx)
+	if err != nil {
+		return result, err
+	}
+	return result, syncErr
 }
 
 func (e *Engine) DeleteRailway(ctx context.Context, syncID string) (Result, error) {
-	if err := e.Railway.Delete(ctx, syncID); err != nil {
+	if err := lockCtx(ctx, &e.railwayMu); err != nil {
 		return Result{}, err
 	}
-	return e.SyncRailway(ctx)
+	defer e.railwayMu.Unlock()
+	err := e.Railway.Delete(ctx, syncID)
+	result, syncErr := e.syncRailwayLocked(ctx)
+	if err != nil {
+		return result, err
+	}
+	return result, syncErr
 }
 
 func (e *Engine) ResolveRailwaySyncID(ctx context.Context, hostOrID string) (string, error) {

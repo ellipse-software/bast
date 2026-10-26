@@ -28,21 +28,26 @@ func ToSyncHost(inst Instance, alias string) sshconfig.SyncHostInput {
 }
 
 func GroupPath(inst Instance) string {
-	project := strings.TrimSpace(inst.ProjectName)
+	project := groupSegment(inst.ProjectName)
 	if project == "" {
-		project = inst.ProjectID
+		project = groupSegment(inst.ProjectID)
 	}
-	env := strings.TrimSpace(inst.EnvironmentName)
+	env := groupSegment(inst.EnvironmentName)
 	if env == "" {
-		env = inst.EnvironmentID
+		env = groupSegment(inst.EnvironmentID)
 	}
 	if project == "" {
 		return "Railway"
 	}
 	if env == "" {
-		return "Railway / " + project
+		return "Railway/" + project
 	}
-	return "Railway / " + project + " / " + env
+	return "Railway/" + project + "/" + env
+}
+
+func groupSegment(value string) string {
+	value = strings.TrimSpace(value)
+	return strings.ReplaceAll(value, "/", "-")
 }
 
 func AliasFor(inst Instance) string {

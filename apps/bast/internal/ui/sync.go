@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,10 +12,13 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"bast/internal/cloud"
-	boxcloud "bast/internal/cloud/box"
+	boatcloud "bast/internal/cloud/boat"
+	docloud "bast/internal/cloud/digitalocean"
+	flycloud "bast/internal/cloud/fly"
 	railwaycloud "bast/internal/cloud/railway"
 	"bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
+	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/sshconfig"
 )
 
@@ -64,7 +68,7 @@ func (m *App) syncProviders() []syncMenuItem {
 	for _, d := range cloud.Descriptors() {
 		detail := m.providerDetail(string(d.Kind))
 		text := "disabled"
-		if cloud.CapabilitiesFor(d.Kind).Stop {
+		if d.Kind == cloud.Boat || d.Kind == cloud.Upstash || d.Kind == cloud.Vercel || d.Kind == cloud.Railway || d.Kind == cloud.Fly || d.Kind == cloud.DigitalOcean {
 			running, stopped := m.providerGroupStats(d.GroupRoot)
 			if !detail.enabled && running+stopped == 0 {
 				text = "disabled"
@@ -157,12 +161,12 @@ func (m *App) providerDetail(provider string) providerDetail {
 			resourceGroups = strings.Join(integration.ResourceGroupFilter, ", ")
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, statusRows, []providerRow{{"Subscription filter", subscriptions}, {"Resource groups", resourceGroups}}}
-	case "box":
-		integration := m.metadata.Box()
-		status := m.syncStatus.Box
+	case "boat":
+		integration := m.metadata.Boat()
+		status := m.syncStatus.Boat
 		accountLabel, accountValue := "Account", "not logged in"
-		if status.BoxCLIError != "" {
-			accountLabel, accountValue = "box", status.BoxCLIError
+		if status.BoatCLIError != "" {
+			accountLabel, accountValue = "boat", status.BoatCLIError
 		} else if status.Authenticated {
 			accountValue = status.Login
 			if accountValue == "" {
@@ -174,6 +178,34 @@ func (m *App) providerDetail(provider string) providerDetail {
 		statusRows := []providerRow{{accountLabel, accountValue}}
 		if status.Plan != "" {
 			statusRows = append(statusRows, providerRow{"Plan", status.Plan})
+		}
+		if integration.Disabled {
+			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
+		}
+		lastError := integration.LastSyncError
+		if m.boatMigrationConflict != nil {
+			lastError = m.boatMigrationConflict.Error()
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, lastError, "", statusRows, nil}
+	case "vercel":
+		integration := m.metadata.Vercel()
+		status := m.syncStatus.Vercel
+		accountLabel, accountValue := "Account", "no access token"
+		if status.Error != "" {
+			accountLabel, accountValue = "API", status.Error
+		} else if status.Authenticated {
+			accountValue = "authenticated"
+		} else if status.HasToken || m.vercelHasToken() {
+			accountValue = "token stored"
+		} else if integration.Disabled {
+			accountValue = "disabled"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		if integration.TeamID != "" {
+			statusRows = append(statusRows, providerRow{"Team", integration.TeamID})
+		}
+		if projects := integration.Projects(); len(projects) > 0 {
+			statusRows = append(statusRows, providerRow{"Project", strings.Join(projects, ", ")})
 		}
 		if integration.Disabled {
 			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
@@ -197,6 +229,59 @@ func (m *App) providerDetail(provider string) providerDetail {
 			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
+	case "bitqate":
+		integration := m.metadata.Bitqate()
+		status := m.syncStatus.Bitqate
+		accountLabel, accountValue := "Account", "no API token"
+		if status.Error != "" {
+			accountLabel, accountValue = "API", status.Error
+		} else if status.Authenticated {
+			accountValue = "authenticated"
+		} else if status.HasToken || m.bitqateHasToken() {
+			accountValue = "token stored"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		regions := "all"
+		if len(integration.RegionFilter) > 0 {
+			regions = strings.Join(integration.RegionFilter, ", ")
+		}
+		filters := []providerRow{{"Regions", regions}}
+		if strings.TrimSpace(integration.DefaultSSHPort) != "" {
+			filters = append([]providerRow{{"SSH port", integration.DefaultSSHPort}}, filters...)
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, statusRows, filters}
+	case "hetzner":
+		integration := m.metadata.Hetzner()
+		status := m.syncStatus.Hetzner
+		accountLabel, accountValue := "Account", "no API token"
+		if status.Error != "" {
+			accountLabel, accountValue = "API", status.Error
+		} else if status.Authenticated {
+			accountValue = "authenticated"
+		} else if status.HasToken || m.hetznerHasToken() {
+			accountValue = "token stored"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		if len(status.Contexts) > 0 {
+			statusRows = append(statusRows, providerRow{"Contexts", strings.Join(status.Contexts, ", ")})
+		}
+		contexts := "all"
+		if len(integration.ContextFilter) > 0 {
+			contexts = strings.Join(integration.ContextFilter, ", ")
+		}
+		locations := "all"
+		if len(integration.LocationFilter) > 0 {
+			locations = strings.Join(integration.LocationFilter, ", ")
+		}
+		private := "public first"
+		if integration.PreferPrivateIP {
+			private = "private Cloud Network first"
+		}
+		filters := []providerRow{{"SSH address", private}, {"Context filter", contexts}, {"Locations", locations}}
+		if strings.TrimSpace(integration.DefaultSSHPort) != "" {
+			filters = append([]providerRow{{"SSH port", integration.DefaultSSHPort}}, filters...)
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, statusRows, filters}
 	case "railway":
 		integration := m.metadata.Railway()
 		status := m.syncStatus.Railway
@@ -221,6 +306,52 @@ func (m *App) providerDetail(provider string) providerDetail {
 			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
+	case "fly":
+		integration := m.metadata.Fly()
+		status := m.syncStatus.Fly
+		accountLabel, accountValue := "Account", "not logged in"
+		if status.FlyCLIError != "" {
+			accountLabel, accountValue = "fly", status.FlyCLIError
+		} else if status.Authenticated {
+			accountValue = status.Login
+			if accountValue == "" {
+				accountValue = "authenticated"
+			}
+		} else if integration.Disabled {
+			accountValue = "disabled"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		if integration.Disabled {
+			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
+		}
+		orgs := "all"
+		if len(integration.OrgFilter) > 0 {
+			orgs = strings.Join(integration.OrgFilter, ", ")
+		}
+		apps := "all"
+		if len(integration.AppFilter) > 0 {
+			apps = strings.Join(integration.AppFilter, ", ")
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, statusRows, []providerRow{{"Org filter", orgs}, {"App filter", apps}}}
+	case "digitalocean":
+		integration := m.metadata.DigitalOcean()
+		status := m.syncStatus.DigitalOcean
+		contextValue := "none"
+		contextLabel := "Contexts"
+		if status.DOCTLError != "" {
+			contextLabel, contextValue = "doctl", status.DOCTLError
+		} else if len(status.Contexts) > 0 {
+			contextValue = strings.Join(status.Contexts, ", ")
+		}
+		contexts := "all"
+		if len(integration.ContextFilter) > 0 {
+			contexts = strings.Join(integration.ContextFilter, ", ")
+		}
+		regions := "all"
+		if len(integration.RegionFilter) > 0 {
+			regions = strings.Join(integration.RegionFilter, ", ")
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, []providerRow{{contextLabel, contextValue}}, []providerRow{{"Context filter", contexts}, {"Regions", regions}}}
 	default:
 		return providerDetail{}
 	}
@@ -235,20 +366,50 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 		life = append(life, syncMenuItem{label: "Connect", action: "enable"})
 	}
 	caps := cloud.CapabilitiesFor(cloud.Kind(provider))
-	if caps.Create && provider == "box" && m.syncStatus.Box.Authenticated {
-		life = append(life, syncMenuItem{label: "New box", action: "box_new"})
+	if caps.Create && provider == "boat" && m.syncStatus.Boat.Authenticated {
+		life = append(life, syncMenuItem{label: "New sandbox", action: "boat_new"})
 	}
 	if caps.Create && provider == "upstash" && m.upstashHasKey() {
 		life = append(life, syncMenuItem{label: "New box", action: "upstash_new"})
 	}
+	if caps.Create && provider == "vercel" && m.vercelReady() {
+		life = append(life, syncMenuItem{label: "New sandbox", action: "vercel_new"})
+	}
+	if provider == "vercel" && detail.enabled && m.vercelReady() && len(m.metadata.Vercel().Unrestorable) > 0 {
+		life = append(life, syncMenuItem{label: "Cleanup", action: "vercel_cleanup"})
+	}
 	if provider == "upstash" {
 		life = append(life, syncMenuItem{label: "API key", action: "upstash_key"})
+	}
+	if provider == "vercel" {
+		life = append(life, syncMenuItem{label: "Token", action: "vercel_token"})
+		if m.vercelHasToken() && strings.TrimSpace(m.metadata.Vercel().TeamID) != "" {
+			life = append(life, syncMenuItem{label: "Add project", action: "vercel_project_add"})
+			if len(m.metadata.Vercel().Projects()) > 0 {
+				life = append(life, syncMenuItem{label: "Remove project", action: "vercel_project_remove"})
+			}
+		}
+	}
+	if provider == "hetzner" {
+		life = append(life, syncMenuItem{label: "Add API token", action: "hetzner_key"})
+		if m.syncer != nil && m.syncer.Hetzner != nil && len(m.syncer.Hetzner.StoredTokenNames()) > 0 {
+			life = append(life, syncMenuItem{label: "Remove API token", action: "hetzner_key_remove"})
+		}
+	}
+	if provider == "bitqate" {
+		life = append(life, syncMenuItem{label: "API token", action: "bitqate_key"})
 	}
 	if caps.Create && provider == "railway" && m.railwayHasToken() {
 		life = append(life, syncMenuItem{label: "New service", action: "railway_new"})
 	}
 	if provider == "railway" {
 		life = append(life, syncMenuItem{label: "API token", action: "railway_key"})
+	}
+	if caps.Create && provider == "fly" && (m.syncStatus.Fly.Authenticated || detail.enabled) {
+		life = append(life, syncMenuItem{label: "New machine", action: "fly_new"})
+	}
+	if caps.Create && provider == "digitalocean" {
+		life = append(life, syncMenuItem{label: "New droplet", action: "digitalocean_new"})
 	}
 	if detail.enabled {
 		config = append(config, syncMenuItem{label: "Disconnect", action: "disable"})
@@ -279,6 +440,36 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 			syncMenuItem{label: "Default SSH user", action: "user"},
 			syncMenuItem{label: "Subscription filter", action: "subscriptions"},
 			syncMenuItem{label: "Resource group filter", action: "resource_groups"},
+		)
+	case "bitqate":
+		config = append(config,
+			syncMenuItem{label: "Default SSH user", action: "user"},
+			syncMenuItem{label: "Default SSH port", action: "port"},
+			syncMenuItem{label: "Region filter", action: "regions"},
+		)
+	case "hetzner":
+		if m.metadata.Hetzner().PreferPrivateIP {
+			config = append(config, syncMenuItem{label: "Use public IP first", action: "prefer_public"})
+		} else {
+			config = append(config, syncMenuItem{label: "Prefer private IP", action: "prefer_private"})
+		}
+		config = append(config,
+			syncMenuItem{label: "Default SSH user", action: "user"},
+			syncMenuItem{label: "Default SSH port", action: "port"},
+			syncMenuItem{label: "Context filter", action: "contexts"},
+			syncMenuItem{label: "Location filter", action: "locations"},
+		)
+	case "fly":
+		config = append(config,
+			syncMenuItem{label: "Default SSH user", action: "user"},
+			syncMenuItem{label: "Org filter", action: "orgs"},
+			syncMenuItem{label: "App filter", action: "apps"},
+		)
+	case "digitalocean":
+		config = append(config,
+			syncMenuItem{label: "Default SSH user", action: "user"},
+			syncMenuItem{label: "Context filter", action: "contexts"},
+			syncMenuItem{label: "Region filter", action: "do_regions"},
 		)
 	}
 	config = append(config, syncMenuItem{label: "Refresh status", action: "refresh"})
@@ -333,16 +524,34 @@ func (m *App) syncUpstashCmd() tea.Cmd {
 	}
 }
 
-func (m *App) autoConnectUpstashCmd() tea.Cmd {
-	opGen := m.providerOpGen("upstash")
+func (m *App) syncVercelCmd() tea.Cmd {
+	opGen := m.providerOpGen("vercel")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		result, ran, err := m.syncer.MaybeAutoConnectUpstash(ctx)
-		if !ran {
-			return syncDoneMsg{provider: "upstash", result: result, err: nil, skipped: true, opGen: opGen}
-		}
-		return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
+		result, err := m.syncer.SyncVercel(ctx)
+		return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) syncBitqateCmd() tea.Cmd {
+	opGen := m.providerOpGen("bitqate")
+	m.beginSyncBusy("Syncing BitQate…")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncBitqate(ctx)
+		return syncDoneMsg{provider: "bitqate", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) syncHetznerCmd() tea.Cmd {
+	opGen := m.providerOpGen("hetzner")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncHetzner(ctx)
+		return syncDoneMsg{provider: "hetzner", result: result, err: err, opGen: opGen}
 	}
 }
 
@@ -369,26 +578,72 @@ func (m *App) autoConnectRailwayCmd() tea.Cmd {
 	}
 }
 
-func (m *App) syncBoxCmd() tea.Cmd {
-	opGen := m.providerOpGen("box")
+func (m *App) syncFlyCmd() tea.Cmd {
+	opGen := m.providerOpGen("fly")
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		result, err := m.syncer.SyncBox(ctx)
-		return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
+		result, err := m.syncer.SyncFly(ctx)
+		return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
 	}
 }
 
-func (m *App) autoConnectBoxCmd() tea.Cmd {
-	opGen := m.providerOpGen("box")
+func (m *App) syncDigitalOceanCmd() tea.Cmd {
+	opGen := m.providerOpGen("digitalocean")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncDigitalOcean(ctx)
+		return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) autoConnectVercelCmd() tea.Cmd {
+	opGen := m.providerOpGen("vercel")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		result, ran, err := m.syncer.MaybeAutoConnectBox(ctx)
+		result, ran, err := m.syncer.MaybeAutoConnectVercel(ctx)
 		if !ran {
-			return syncDoneMsg{provider: "box", result: result, err: nil, skipped: true, opGen: opGen}
+			return syncDoneMsg{provider: "vercel", result: result, err: nil, skipped: true, opGen: opGen}
 		}
-		return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
+		return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) autoConnectUpstashCmd() tea.Cmd {
+	opGen := m.providerOpGen("upstash")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, ran, err := m.syncer.MaybeAutoConnectUpstash(ctx)
+		if !ran {
+			return syncDoneMsg{provider: "upstash", result: result, err: nil, skipped: true, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) syncBoatCmd() tea.Cmd {
+	opGen := m.providerOpGen("boat")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncBoat(ctx)
+		return syncDoneMsg{provider: "boat", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) autoConnectBoatCmd() tea.Cmd {
+	opGen := m.providerOpGen("boat")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, ran, err := m.syncer.MaybeAutoConnectBoat(ctx)
+		if !ran {
+			return syncDoneMsg{provider: "boat", result: result, err: nil, skipped: true, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "boat", result: result, err: err, opGen: opGen}
 	}
 }
 
@@ -470,6 +725,42 @@ func (m *App) disableUpstashCmd() tea.Cmd {
 	}
 }
 
+func (m *App) disableVercelCmd() tea.Cmd {
+	opGen := m.providerOpGen("vercel")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableVercel(ctx); err != nil {
+			return syncDoneMsg{provider: "vercel", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "vercel", result: sync.Result{Provider: "vercel", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableBitqateCmd() tea.Cmd {
+	opGen := m.providerOpGen("bitqate")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+		defer cancel()
+		if err := m.syncer.DisableBitqate(ctx); err != nil {
+			return syncDoneMsg{provider: "bitqate", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "bitqate", result: sync.Result{Provider: "bitqate", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableHetznerCmd() tea.Cmd {
+	opGen := m.providerOpGen("hetzner")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableHetzner(ctx); err != nil {
+			return syncDoneMsg{provider: "hetzner", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "hetzner", result: sync.Result{Provider: "hetzner", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
 func (m *App) disableRailwayCmd() tea.Cmd {
 	opGen := m.providerOpGen("railway")
 	return func() tea.Msg {
@@ -482,15 +773,39 @@ func (m *App) disableRailwayCmd() tea.Cmd {
 	}
 }
 
-func (m *App) disableBoxCmd() tea.Cmd {
-	opGen := m.providerOpGen("box")
+func (m *App) disableFlyCmd() tea.Cmd {
+	opGen := m.providerOpGen("fly")
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := m.syncer.DisableBox(ctx); err != nil {
-			return syncDoneMsg{provider: "box", err: err, opGen: opGen}
+		if err := m.syncer.DisableFly(ctx); err != nil {
+			return syncDoneMsg{provider: "fly", err: err, opGen: opGen}
 		}
-		return syncDoneMsg{provider: "box", result: sync.Result{Provider: "box", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+		return syncDoneMsg{provider: "fly", result: sync.Result{Provider: "fly", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableDigitalOceanCmd() tea.Cmd {
+	opGen := m.providerOpGen("digitalocean")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableDigitalOcean(ctx); err != nil {
+			return syncDoneMsg{provider: "digitalocean", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "digitalocean", result: sync.Result{Provider: "digitalocean", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableBoatCmd() tea.Cmd {
+	opGen := m.providerOpGen("boat")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableBoat(ctx); err != nil {
+			return syncDoneMsg{provider: "boat", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "boat", result: sync.Result{Provider: "boat", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
@@ -512,20 +827,103 @@ func (m *App) syncTileWidth() int {
 
 func (m *App) renderSync(s styleSet) string {
 	if m.syncProvider != "" {
-		return m.renderProviderPage(s)
+		content := m.renderProviderPage(s)
+		return windowLines(content, m.providerFocusLine(), m.syncBodyHeight())
 	}
 	return m.renderSyncGrid(s, m.syncMenuItems())
 }
 
-const syncTileHeight = 4
+func (m *App) syncBodyHeight() int {
+	return max(1, m.terminalHeight()-3)
+}
+
+const (
+	syncTileHeight  = 4
+	syncGridTopPad  = 1
+	syncGridDescPad = 2
+)
+
+func (m *App) syncGridWindow(items []syncMenuItem) (startRow, visibleRows, gridRows int) {
+	cols := max(1, m.syncGridCols())
+	n := len(items)
+	gridRows = (n + cols - 1) / cols
+	if gridRows == 0 {
+		return 0, 0, 0
+	}
+	descH := 0
+	if m.syncCursor >= 0 && m.syncCursor < n && items[m.syncCursor].description != "" {
+		descH = syncGridDescPad
+	}
+	avail := m.syncBodyHeight() - syncGridTopPad - descH
+	if avail < syncTileHeight {
+		avail = m.syncBodyHeight() - syncGridTopPad
+	}
+	visibleRows = max(1, avail/syncTileHeight)
+	if visibleRows > gridRows {
+		visibleRows = gridRows
+	}
+	cursorRow := 0
+	if m.syncCursor > 0 {
+		cursorRow = m.syncCursor / cols
+	}
+	return scrollStart(cursorRow, gridRows, visibleRows), visibleRows, gridRows
+}
+
+func (m *App) providerFocusLine() int {
+	life, _ := m.providerActionLayout()
+	inv := m.providerInventoryRows()
+	L, I := len(life), len(inv)
+	for _, h := range m.providerPageHits() {
+		switch h.kind {
+		case "chip":
+			if m.syncCursor == h.index {
+				return max(0, h.y0-2)
+			}
+		case "inv":
+			if m.syncCursor == L+h.index {
+				return max(0, h.y0-2)
+			}
+		case "config":
+			if m.syncCursor == L+I+h.index {
+				return max(0, h.y0-2)
+			}
+		}
+	}
+	return 0
+}
+
+func (m *App) providerViewOffset() int {
+	n := visualLineCount(m.renderProviderPage(m.styles()))
+	return scrollStart(m.providerFocusLine(), n, m.syncBodyHeight())
+}
+
+func windowLines(content string, focus, height int) string {
+	content = strings.TrimRight(content, "\n")
+	if content == "" || height <= 0 {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	if focus < 0 {
+		focus = 0
+	}
+	if focus >= len(lines) {
+		focus = len(lines) - 1
+	}
+	start := scrollStart(focus, len(lines), height)
+	end := min(len(lines), start+height)
+	return strings.Join(lines[start:end], "\n")
+}
 
 func (m *App) renderSyncGrid(s styleSet, items []syncMenuItem) string {
 	cols := m.syncGridCols()
 	gap := 2
 	tileWidth := m.syncTileWidth()
+	startRow, visibleRows, gridRows := m.syncGridWindow(items)
 	var b strings.Builder
 	b.WriteString("\n")
-	for i := 0; i < len(items); i += cols {
+	endRow := min(gridRows, startRow+visibleRows)
+	for row := startRow; row < endRow; row++ {
+		i := row * cols
 		tiles := make([]string, 0, cols)
 		for c := 0; c < cols; c++ {
 			idx := i + c
@@ -535,11 +933,11 @@ func (m *App) renderSyncGrid(s styleSet, items []syncMenuItem) string {
 			}
 			tiles = append(tiles, m.renderSyncTile(s, idx, items[idx], tileWidth))
 		}
-		row := tiles[0]
+		joined := tiles[0]
 		for _, tile := range tiles[1:] {
-			row = lipgloss.JoinHorizontal(lipgloss.Top, row, strings.Repeat(" ", gap), tile)
+			joined = lipgloss.JoinHorizontal(lipgloss.Top, joined, strings.Repeat(" ", gap), tile)
 		}
-		b.WriteString(indentLines(row, "  ") + "\n")
+		b.WriteString(indentLines(joined, "  ") + "\n")
 	}
 	if m.syncCursor >= 0 && m.syncCursor < len(items) && items[m.syncCursor].description != "" {
 		desc := truncate(items[m.syncCursor].description, max(20, m.terminalWidth()-8))
@@ -583,7 +981,9 @@ func (m *App) providerChooserTitle(kind cloud.Kind, width int) string {
 	if lipgloss.Width(title) <= width {
 		return title
 	}
-	return truncate(d.GroupRoot, width)
+	icon := managedGroupIcon(d.GroupRoot, m.nerdFont)
+	rest := max(1, width-lipgloss.Width(icon))
+	return icon + truncate(d.GroupRoot, rest)
 }
 
 func indentLines(s, pad string) string {
@@ -817,8 +1217,8 @@ func (m *App) renderProviderIdentity(s styleSet, provider string) string {
 		stateStyle = s.success
 	}
 	facts := make([]string, 0, 4)
-	if kind == cloud.Box || kind == cloud.Upstash {
-		group := "Box"
+	if kind == cloud.Boat || kind == cloud.Upstash || kind == cloud.Vercel {
+		group := "Boat"
 		if d, ok := cloud.DescriptorForKind(kind); ok {
 			group = d.GroupRoot
 		}
@@ -826,6 +1226,11 @@ func (m *App) renderProviderIdentity(s styleSet, provider string) string {
 		facts = append(facts, fmt.Sprintf("%d running", running))
 		if stopped > 0 {
 			facts = append(facts, fmt.Sprintf("%d stopped", stopped))
+		}
+		if kind == cloud.Vercel {
+			if n := len(m.metadata.Vercel().Unrestorable); n > 0 {
+				facts = append(facts, fmt.Sprintf("%d unrestorable", n))
+			}
 		}
 	} else if detail.enabled || detail.lastInstanceCount > 0 {
 		facts = append(facts, fmt.Sprintf("%d instances", detail.lastInstanceCount))
@@ -843,7 +1248,7 @@ func (m *App) renderProviderIdentity(s styleSet, provider string) string {
 	var errBit string
 	for _, row := range detail.status {
 		switch row.label {
-		case "gcloud", "aws", "az", "box", "API":
+		case "gcloud", "aws", "az", "boat", "API":
 			errBit = row.value
 		default:
 			if row.value != "" && row.value != "none" && row.value != "not logged in" {
@@ -863,11 +1268,13 @@ func (m *App) renderProviderIdentity(s styleSet, provider string) string {
 	if len(bits) > 0 {
 		b.WriteString("  " + s.muted.Render(strings.Join(bits, " · ")) + "\n")
 	}
-	if errBit != "" {
-		b.WriteString("  " + s.error.Render(errBit) + "\n")
-	}
-	if detail.lastSyncError != "" {
-		b.WriteString("  " + s.error.Render(detail.lastSyncError) + "\n")
+	if !m.providerSyncing(provider) {
+		if errBit != "" {
+			b.WriteString("  " + s.error.Render(errBit) + "\n")
+		}
+		if detail.lastSyncError != "" {
+			b.WriteString("  " + s.error.Render(detail.lastSyncError) + "\n")
+		}
 	}
 	return b.String()
 }
@@ -1106,7 +1513,7 @@ func (m *App) updateProviderKeys(key string) (tea.Model, tea.Cmd) {
 			return m.forkSyncedHost(host)
 		}
 		for _, item := range life {
-			if item.action == "box_new" || item.action == "upstash_new" || item.action == "railway_new" {
+			if item.action == "boat_new" || item.action == "upstash_new" || item.action == "vercel_new" {
 				return m.runSyncAction(item.action)
 			}
 		}
@@ -1164,17 +1571,18 @@ func (m *App) updateSyncMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	cols := m.syncGridCols()
 	gap := 2
 	tileWidth := m.syncTileWidth()
+	startRow, visibleRows, _ := m.syncGridWindow(items)
 	idx := -1
 	x := mouse.X - 2
-	y := mouse.Y - 3
-	if y >= 0 && x >= 0 {
+	y := mouse.Y - 2 - syncGridTopPad
+	if y >= 0 && y < visibleRows*syncTileHeight && x >= 0 {
 		col := 0
 		if cols > 1 && x >= tileWidth+gap {
 			col = 1
 			x -= tileWidth + gap
 		}
 		if x < tileWidth {
-			idx = (y / syncTileHeight * cols) + col
+			idx = ((startRow + y/syncTileHeight) * cols) + col
 		}
 	}
 	if idx < 0 || idx >= len(items) {
@@ -1199,10 +1607,11 @@ func (m *App) updateProviderMouse(mouse tea.Mouse) (tea.Model, tea.Cmd) {
 	inv := m.providerInventoryRows()
 	L, I := len(life), len(inv)
 	hits := m.providerPageHits()
+	y := mouse.Y + m.providerViewOffset()
 	var hit *providerPageHit
 	for i := range hits {
 		h := hits[i]
-		if mouse.Y < h.y0 || mouse.Y >= h.y1 || mouse.X < h.x0 || mouse.X >= h.x1 {
+		if y < h.y0 || y >= h.y1 || mouse.X < h.x0 || mouse.X >= h.x1 {
 			continue
 		}
 		hit = &hits[i]
@@ -1323,6 +1732,10 @@ func prevEnabledSyncItem(items []syncMenuItem, current int) int {
 }
 
 func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
+	if m.syncProvider == "boat" && action != "refresh" && m.boatMigrationConflict != nil {
+		m.setError(m.boatMigrationConflict)
+		return m, nil
+	}
 	if m.syncingProviders == nil {
 		m.syncingProviders = map[string]bool{}
 	}
@@ -1337,19 +1750,37 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.syncAWSCmd(), m.setNotice("Syncing AWS…"))
 		case "azure":
 			return m, tea.Batch(m.syncAzureCmd(), m.setNotice("Syncing Azure…"))
-		case "box":
-			box := m.metadata.Box()
-			box.Disabled = false
-			box.Enabled = true
+		case "boat":
+			boat := m.metadata.Boat()
+			boat.Disabled = false
+			boat.Enabled = true
 			if action == "enable" {
-				box.AutoSync = true
+				boat.AutoSync = true
 			}
-			if err := m.metadata.SetBox(box); err != nil {
-				delete(m.syncingProviders, "box")
+			if err := m.metadata.SetBoat(boat); err != nil {
+				delete(m.syncingProviders, "boat")
 				m.setError(err)
 				return m, nil
 			}
-			return m, tea.Batch(m.syncBoxCmd(), m.setNotice("Syncing Box…"))
+			return m, tea.Batch(m.syncBoatCmd(), m.setNotice("Syncing Boat…"))
+		case "vercel":
+			if action == "enable" && !m.vercelReady() {
+				delete(m.syncingProviders, "vercel")
+				m.openVercelTokenForm()
+				return m, nil
+			}
+			vercel := m.metadata.Vercel()
+			vercel.Disabled = false
+			vercel.Enabled = true
+			if action == "enable" {
+				vercel.AutoSync = true
+			}
+			if err := m.metadata.SetVercel(vercel); err != nil {
+				delete(m.syncingProviders, "vercel")
+				m.setError(err)
+				return m, nil
+			}
+			return m, tea.Batch(m.syncVercelCmd(), m.setNotice("Syncing Vercel…"))
 		case "upstash":
 			if action == "enable" && !m.upstashHasKey() {
 				delete(m.syncingProviders, "upstash")
@@ -1368,6 +1799,20 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Batch(m.syncUpstashCmd(), m.setNotice("Syncing Upstash…"))
+		case "bitqate":
+			if action == "enable" && !m.bitqateHasToken() {
+				delete(m.syncingProviders, "bitqate")
+				m.openBitqateKeyForm()
+				return m, nil
+			}
+			return m, tea.Batch(m.syncBitqateCmd(), m.setNotice("Syncing BitQate…"))
+		case "hetzner":
+			if action == "enable" && !m.hetznerHasToken() {
+				delete(m.syncingProviders, "hetzner")
+				m.openHetznerKeyForm()
+				return m, nil
+			}
+			return m, tea.Batch(m.syncHetznerCmd(), m.setNotice("Syncing Hetzner…"))
 		case "railway":
 			if action == "enable" && !m.railwayHasToken() {
 				delete(m.syncingProviders, "railway")
@@ -1386,6 +1831,31 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Batch(m.syncRailwayCmd(), m.setNotice("Syncing Railway…"))
+		case "fly":
+			fly := m.metadata.Fly()
+			fly.Disabled = false
+			fly.Enabled = true
+			if action == "enable" {
+				fly.AutoSync = true
+			}
+			if err := m.metadata.SetFly(fly); err != nil {
+				delete(m.syncingProviders, "fly")
+				m.setError(err)
+				return m, nil
+			}
+			return m, tea.Batch(m.syncFlyCmd(), m.setNotice("Syncing Fly…"))
+		case "digitalocean":
+			ocean := m.metadata.DigitalOcean()
+			ocean.Enabled = true
+			if action == "enable" {
+				ocean.AutoSync = true
+			}
+			if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+				delete(m.syncingProviders, "digitalocean")
+				m.setError(err)
+				return m, nil
+			}
+			return m, tea.Batch(m.syncDigitalOceanCmd(), m.setNotice("Syncing DigitalOcean…"))
 		}
 		return m, tea.Batch(m.syncGCPCmd(), m.setNotice("Syncing GCP…"))
 	case "disable":
@@ -1396,30 +1866,74 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		if m.syncProvider == "azure" {
 			return m, m.disableAzureCmd()
 		}
-		if m.syncProvider == "box" {
-			return m, m.disableBoxCmd()
+		if m.syncProvider == "boat" {
+			return m, m.disableBoatCmd()
 		}
 		if m.syncProvider == "upstash" {
 			return m, m.disableUpstashCmd()
 		}
+		if m.syncProvider == "vercel" {
+			return m, m.disableVercelCmd()
+		}
+		if m.syncProvider == "bitqate" {
+			return m, m.disableBitqateCmd()
+		}
+		if m.syncProvider == "hetzner" {
+			return m, m.disableHetznerCmd()
+		}
 		if m.syncProvider == "railway" {
 			return m, m.disableRailwayCmd()
 		}
+		if m.syncProvider == "fly" {
+			return m, m.disableFlyCmd()
+		}
+		if m.syncProvider == "digitalocean" {
+			return m, m.disableDigitalOceanCmd()
+		}
 		return m, m.disableGCPCmd()
-	case "box_new":
-		m.openBoxNewForm()
+	case "boat_new":
+		m.openBoatNewForm()
 		return m, nil
 	case "upstash_new":
 		m.openUpstashNewForm()
 		return m, nil
+	case "vercel_new":
+		m.openVercelNewForm()
+		return m, nil
+	case "vercel_cleanup":
+		m.openVercelCleanupForm()
+		return m, nil
+	case "vercel_token":
+		m.openVercelTokenForm()
+		return m, nil
+	case "vercel_project_add":
+		m.openVercelProjectAddForm()
+		return m, nil
+	case "vercel_project_remove":
+		m.openVercelProjectRemoveForm()
+		return m, nil
 	case "upstash_key":
 		m.openUpstashKeyForm()
+		return m, nil
+	case "bitqate_key":
+		m.openBitqateKeyForm()
+	case "hetzner_key":
+		m.openHetznerKeyForm()
+		return m, nil
+	case "hetzner_key_remove":
+		m.openHetznerKeyRemoveForm()
 		return m, nil
 	case "railway_new":
 		m.openRailwayNewForm()
 		return m, nil
 	case "railway_key":
 		m.openRailwayKeyForm()
+		return m, nil
+	case "fly_new":
+		m.openFlyNewForm()
+		return m, nil
+	case "digitalocean_new":
+		m.openDigitalOceanNewForm()
 		return m, nil
 	case "auto_on":
 		if m.syncProvider == "aws" {
@@ -1440,11 +1954,11 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync enabled")
 		}
-		if m.syncProvider == "box" {
-			box := m.metadata.Box()
-			box.AutoSync = true
-			box.Disabled = false
-			if err := m.metadata.SetBox(box); err != nil {
+		if m.syncProvider == "boat" {
+			boat := m.metadata.Boat()
+			boat.AutoSync = true
+			boat.Disabled = false
+			if err := m.metadata.SetBoat(boat); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1460,11 +1974,58 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync enabled")
 		}
+		if m.syncProvider == "vercel" {
+			vercel := m.metadata.Vercel()
+			vercel.AutoSync = true
+			vercel.Disabled = false
+			if err := m.metadata.SetVercel(vercel); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "bitqate" {
+			bitqate := m.metadata.Bitqate()
+			bitqate.AutoSync = true
+			if err := m.metadata.SetBitqate(bitqate); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "hetzner" {
+			hetzner := m.metadata.Hetzner()
+			hetzner.AutoSync = true
+			if err := m.metadata.SetHetzner(hetzner); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
 		if m.syncProvider == "railway" {
 			railway := m.metadata.Railway()
 			railway.AutoSync = true
 			railway.Disabled = false
 			if err := m.metadata.SetRailway(railway); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "fly" {
+			fly := m.metadata.Fly()
+			fly.AutoSync = true
+			fly.Disabled = false
+			if err := m.metadata.SetFly(fly); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "digitalocean" {
+			ocean := m.metadata.DigitalOcean()
+			ocean.AutoSync = true
+			if err := m.metadata.SetDigitalOcean(ocean); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1496,10 +2057,10 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync disabled")
 		}
-		if m.syncProvider == "box" {
-			box := m.metadata.Box()
-			box.AutoSync = false
-			if err := m.metadata.SetBox(box); err != nil {
+		if m.syncProvider == "boat" {
+			boat := m.metadata.Boat()
+			boat.AutoSync = false
+			if err := m.metadata.SetBoat(boat); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1514,10 +2075,55 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync disabled")
 		}
+		if m.syncProvider == "vercel" {
+			vercel := m.metadata.Vercel()
+			vercel.AutoSync = false
+			if err := m.metadata.SetVercel(vercel); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
+		if m.syncProvider == "bitqate" {
+			bitqate := m.metadata.Bitqate()
+			bitqate.AutoSync = false
+			if err := m.metadata.SetBitqate(bitqate); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
+		if m.syncProvider == "hetzner" {
+			hetzner := m.metadata.Hetzner()
+			hetzner.AutoSync = false
+			if err := m.metadata.SetHetzner(hetzner); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
 		if m.syncProvider == "railway" {
 			railway := m.metadata.Railway()
 			railway.AutoSync = false
 			if err := m.metadata.SetRailway(railway); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
+		if m.syncProvider == "fly" {
+			fly := m.metadata.Fly()
+			fly.AutoSync = false
+			if err := m.metadata.SetFly(fly); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
+		if m.syncProvider == "digitalocean" {
+			ocean := m.metadata.DigitalOcean()
+			ocean.AutoSync = false
+			if err := m.metadata.SetDigitalOcean(ocean); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1543,14 +2149,96 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			})
 			break
 		}
-		if m.syncProvider == "box" {
-			return m, m.setNotice("Box SSH user is always user")
+		if m.syncProvider == "boat" {
+			return m, m.setNotice("Boat SSH user is always user")
 		}
 		if m.syncProvider == "upstash" {
 			return m, m.setNotice("Upstash SSH user is the box id")
 		}
+		if m.syncProvider == "bitqate" {
+			m.openForm("Default BitQate SSH user", "sync_bitqate_user", []field{
+				{label: "SSH user", description: "Blank uses root - BitQate provisions root", value: m.metadata.Bitqate().DefaultSSHUser, optional: true, placeholder: "root"},
+			})
+			break
+		}
+		if m.syncProvider == "hetzner" {
+			m.openForm("Default Hetzner SSH user", "sync_hetzner_user", []field{
+				{label: "SSH user", description: "Blank uses root for official Hetzner images", value: m.metadata.Hetzner().DefaultSSHUser, optional: true, placeholder: "root"},
+			})
+			break
+		}
+		if m.syncProvider == "fly" {
+			m.openForm("Default Fly SSH user", "sync_fly_user", []field{
+				{label: "SSH user", description: "Blank uses root", value: m.metadata.Fly().DefaultSSHUser, optional: true, placeholder: "root"},
+			})
+			break
+		}
+		if m.syncProvider == "digitalocean" {
+			m.openForm("Default DigitalOcean SSH user", "sync_digitalocean_user", []field{
+				{label: "SSH user", description: "Blank uses root for most images", value: m.metadata.DigitalOcean().DefaultSSHUser, optional: true, placeholder: "root"},
+			})
+			break
+		}
+		if m.syncProvider == "railway" {
+			return m, m.setNotice("Railway SSH user is the service instance id")
+		}
 		m.openForm("Default GCP SSH user", "sync_gcp_user", []field{
 			{label: "SSH user", description: "Blank uses OS Login or instance metadata when available", value: m.metadata.GCP().DefaultSSHUser, optional: true, placeholder: "ubuntu"},
+		})
+	case "port":
+		if m.syncProvider == "bitqate" {
+			m.openForm("Default BitQate SSH port", "sync_bitqate_port", []field{
+				{label: "SSH port", description: "Blank uses 22 unless a host already has a port", value: m.metadata.Bitqate().DefaultSSHPort, optional: true, placeholder: "22"},
+			})
+			return m, nil
+		}
+		if m.syncProvider != "hetzner" {
+			return m, m.setNotice("Default SSH port is only used for Hetzner")
+		}
+		m.openForm("Default Hetzner SSH port", "sync_hetzner_port", []field{
+			{label: "SSH port", description: "Blank uses 22 unless a host already has a port or sshd is found on 2022/2222", value: m.metadata.Hetzner().DefaultSSHPort, optional: true, placeholder: "22"},
+		})
+	case "prefer_private":
+		hetzner := m.metadata.Hetzner()
+		hetzner.PreferPrivateIP = true
+		if err := m.metadata.SetHetzner(hetzner); err != nil {
+			m.setError(err)
+			return m, nil
+		}
+		return m, m.setNotice("SSH will use the Cloud Network IP when one exists")
+	case "prefer_public":
+		hetzner := m.metadata.Hetzner()
+		hetzner.PreferPrivateIP = false
+		if err := m.metadata.SetHetzner(hetzner); err != nil {
+			m.setError(err)
+			return m, nil
+		}
+		return m, m.setNotice("SSH will use the public IP when one exists")
+	case "contexts":
+		if m.syncProvider == "digitalocean" {
+			m.openForm("DigitalOcean context filter", "sync_digitalocean_contexts", []field{
+				{label: "Contexts", description: "Comma-separated doctl auth contexts; blank = all", value: strings.Join(m.metadata.DigitalOcean().ContextFilter, ", "), optional: true, placeholder: "default, work"},
+			})
+			return m, nil
+		}
+		m.openForm("Hetzner context filter", "sync_hetzner_contexts", []field{
+			{label: "Contexts", description: "Comma-separated context names; blank = all tokens", value: strings.Join(m.metadata.Hetzner().ContextFilter, ", "), optional: true, placeholder: "prod, staging"},
+		})
+	case "orgs":
+		m.openForm("Fly org filter", "sync_fly_orgs", []field{
+			{label: "Orgs", description: "Comma-separated org slugs; blank = all", value: strings.Join(m.metadata.Fly().OrgFilter, ", "), optional: true, placeholder: "personal"},
+		})
+	case "apps":
+		m.openForm("Fly app filter", "sync_fly_apps", []field{
+			{label: "Apps", description: "Comma-separated app names; blank = all", value: strings.Join(m.metadata.Fly().AppFilter, ", "), optional: true, placeholder: "my-app"},
+		})
+	case "do_regions":
+		m.openForm("DigitalOcean region filter", "sync_digitalocean_regions", []field{
+			{label: "Regions", description: "Comma-separated region slugs; blank = all", value: strings.Join(m.metadata.DigitalOcean().RegionFilter, ", "), optional: true, placeholder: "nyc3, sfo3"},
+		})
+	case "locations":
+		m.openForm("Hetzner location filter", "sync_hetzner_locations", []field{
+			{label: "Locations", description: "Comma-separated locations; blank = all", value: strings.Join(m.metadata.Hetzner().LocationFilter, ", "), optional: true, placeholder: "fsn1, nbg1, hel1"},
 		})
 	case "projects":
 		m.openForm("GCP project filter", "sync_gcp_projects", []field{
@@ -1561,6 +2249,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			{label: "Profiles", description: "Comma-separated AWS CLI profiles; blank = all configured", value: strings.Join(m.metadata.AWS().ProfileFilter, ", "), optional: true, placeholder: "default, production"},
 		})
 	case "regions":
+		if m.syncProvider == "bitqate" {
+			m.openForm("BitQate region filter", "sync_bitqate_regions", []field{
+				{label: "Regions", description: "Comma-separated region names; blank = all", value: strings.Join(m.metadata.Bitqate().RegionFilter, ", "), optional: true, placeholder: "Falkenstein, Helsinki"},
+			})
+			return m, nil
+		}
 		m.openForm("AWS region filter", "sync_aws_regions", []field{
 			{label: "Regions", description: "Comma-separated AWS regions; blank = all enabled", value: strings.Join(m.metadata.AWS().RegionFilter, ", "), optional: true, placeholder: "eu-west-1, us-east-1"},
 		})
@@ -1597,12 +2291,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 	gcp := m.metadata.GCP()
 	switch action {
-	case "box_new":
-		boxType := strings.ToLower(strings.TrimSpace(values["Type"]))
-		if boxType == "" {
-			boxType = "default"
+	case "boat_new":
+		boatType := strings.ToLower(strings.TrimSpace(values["Type"]))
+		if boatType == "" {
+			boatType = "default"
 		}
-		if boxType != "small" && boxType != "default" && boxType != "large" {
+		if boatType != "small" && boatType != "default" && boatType != "large" {
 			if m.form != nil {
 				m.form.validationError = "type must be small, default, or large"
 			}
@@ -1611,25 +2305,25 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		noAutoStop := truthyForm(values["No auto-stop"])
 		noEnv := truthyForm(values["No env"])
 		m.form = nil
-		if m.syncingProviders["box"] {
-			return m.setNotice("Box operation already in progress")
+		if m.syncingProviders["boat"] {
+			return m.setNotice("Boat operation already in progress")
 		}
-		opGen := m.beginProviderOp("box")
+		opGen := m.beginProviderOp("boat")
 		if m.section == syncSection {
-			m.beginSyncBusy("Creating box…")
+			m.beginSyncBusy("Creating sandbox…")
 		} else {
 			m.syncActivity = "creating…"
 		}
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			result, alias, err := m.syncer.NewBox(ctx, boxcloud.NewOpts{
-				Type: boxType, NoAutoStop: noAutoStop, NoEnv: noEnv,
+			result, alias, err := m.syncer.NewBoat(ctx, boatcloud.NewOpts{
+				Type: boatType, NoAutoStop: noAutoStop, NoEnv: noEnv,
 			})
 			if err != nil {
-				return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
+				return syncDoneMsg{provider: "boat", result: result, err: err, opGen: opGen}
 			}
-			return syncDoneMsg{provider: "box", result: result, err: nil, focusAlias: alias, opGen: opGen}
+			return syncDoneMsg{provider: "boat", result: result, err: nil, focusAlias: alias, opGen: opGen}
 		}
 	case "sync_azure_user":
 		azure := m.metadata.Azure()
@@ -1742,7 +2436,7 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		m.form = nil
 		return m.setNotice("Service account key removed")
-	case "box_stop":
+	case "boat_stop":
 		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
 			if m.form != nil {
 				m.form.validationError = "type stop to confirm"
@@ -1751,18 +2445,38 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		syncID := strings.TrimSpace(values["SyncID"])
 		m.form = nil
-		if m.syncingProviders["box"] {
-			return m.setNotice("Box operation already in progress")
+		if m.syncingProviders["boat"] {
+			return m.setNotice("Boat operation already in progress")
 		}
-		opGen := m.beginProviderOp("box")
+		opGen := m.beginProviderOp("boat")
 		m.syncActivity = "stopping…"
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
-			result, err := m.syncer.StopBox(ctx, syncID)
-			return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
+			result, err := m.syncer.StopBoat(ctx, syncID)
+			return syncDoneMsg{provider: "boat", result: result, err: err, opGen: opGen}
 		}
-	case "box_fork":
+	case "boat_delete":
+		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
+			if m.form != nil {
+				m.form.validationError = "type delete to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["boat"] {
+			return m.setNotice("Boat operation already in progress")
+		}
+		opGen := m.beginProviderOp("boat")
+		m.syncActivity = "deleting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteBoat(ctx, syncID)
+			return syncDoneMsg{provider: "boat", result: result, err: err, opGen: opGen}
+		}
+	case "boat_fork":
 		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
 			if m.form != nil {
 				m.form.validationError = "type fork to confirm"
@@ -1771,18 +2485,18 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 		}
 		syncID := strings.TrimSpace(values["SyncID"])
 		m.form = nil
-		if m.syncingProviders["box"] {
-			return m.setNotice("Box operation already in progress")
+		if m.syncingProviders["boat"] {
+			return m.setNotice("Boat operation already in progress")
 		}
-		opGen := m.beginProviderOp("box")
-		return tea.Batch(m.setNotice("Forking box…"), func() tea.Msg {
+		opGen := m.beginProviderOp("boat")
+		return tea.Batch(m.setNotice("Forking sandbox…"), func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			result, alias, err := m.syncer.ForkBox(ctx, syncID, boxcloud.ForkOpts{})
+			result, alias, err := m.syncer.ForkBoat(ctx, syncID, boatcloud.ForkOpts{})
 			if err != nil {
-				return syncDoneMsg{provider: "box", result: result, err: err, opGen: opGen}
+				return syncDoneMsg{provider: "boat", result: result, err: err, opGen: opGen}
 			}
-			return syncDoneMsg{provider: "box", result: result, focusAlias: alias, opGen: opGen}
+			return syncDoneMsg{provider: "boat", result: result, focusAlias: alias, opGen: opGen}
 		})
 	case "upstash_key":
 		key := strings.TrimSpace(values["API key"])
@@ -1895,6 +2609,467 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			defer cancel()
 			result, err := m.syncer.DeleteUpstash(ctx, syncID)
 			return syncDoneMsg{provider: "upstash", result: result, err: err, opGen: opGen}
+		}
+	case "vercel_token":
+		token := strings.TrimSpace(values["Access token"])
+		teamID := strings.TrimSpace(values["Team ID"])
+		projectID := strings.TrimSpace(values["Project ID"])
+		if token == "" || teamID == "" {
+			if m.form != nil {
+				m.form.validationError = "token and team are required"
+			}
+			return nil
+		}
+		if projectID == "" && len(m.metadata.Vercel().Projects()) == 0 {
+			if m.form != nil {
+				m.form.validationError = "project is required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		m.beginSyncBusy("Connecting Vercel…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.SaveVercelToken(ctx, token, teamID, projectID)
+			return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+		}
+	case "vercel_new":
+		vcpus := 2
+		if raw := strings.TrimSpace(values["vCPUs"]); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil {
+				if m.form != nil {
+					m.form.validationError = "vCPUs must be a number"
+				}
+				return nil
+			}
+			if err := vercelcloud.ValidateVCPUs(parsed); err != nil {
+				if m.form != nil {
+					m.form.validationError = err.Error()
+				}
+				return nil
+			}
+			vcpus = parsed
+		}
+		timeout := time.Hour
+		if raw := strings.TrimSpace(values["Timeout"]); raw != "" {
+			parsed, err := vercelcloud.ParseTimeoutFlag(raw)
+			if err != nil {
+				if m.form != nil {
+					m.form.validationError = err.Error()
+				}
+				return nil
+			}
+			timeout = parsed
+		}
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		if m.section == syncSection {
+			m.beginSyncBusy("Creating Vercel sandbox…")
+		} else {
+			m.syncActivity = "creating…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.NewVercel(ctx, vercelcloud.CreateOpts{
+				Name: values["Name"], Project: values["Project"], VCPUs: vcpus, Timeout: timeout, Persistent: truthyForm(values["Persistent"]),
+			})
+			if err != nil {
+				return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "vercel", result: result, err: nil, focusAlias: alias, opGen: opGen}
+		}
+	case "vercel_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		m.syncActivity = "stopping…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopVercel(ctx, syncID)
+			return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+		}
+	case "vercel_fork":
+		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
+			if m.form != nil {
+				m.form.validationError = "type fork to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		return tea.Batch(m.setNotice("Forking Vercel sandbox…"), func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.ForkVercel(ctx, syncID, "")
+			if err != nil {
+				return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "vercel", result: result, focusAlias: alias, opGen: opGen}
+		})
+	case "vercel_delete":
+		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
+			if m.form != nil {
+				m.form.validationError = "type delete to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		m.syncActivity = "deleting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteVercel(ctx, syncID)
+			return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+		}
+	case "vercel_cleanup":
+		if strings.TrimSpace(values["Type cleanup to confirm"]) != "cleanup" {
+			if m.form != nil {
+				m.form.validationError = "type cleanup to confirm"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		ch := make(chan string, 1)
+		m.syncProgressCh = ch
+		label := vercelcloud.FormatCleanupProgress(vercelcloud.CleanupProgress{})
+		if m.section == syncSection {
+			m.beginSyncBusy(label)
+		} else {
+			m.syncActivity = label
+		}
+		return tea.Batch(m.listenSyncProgress("vercel", opGen), func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), vercelcloud.CleanupTimeout)
+			defer cancel()
+			result, deleted, err := m.syncer.CleanupVercel(ctx, func(p vercelcloud.CleanupProgress) {
+				sendSyncProgress(ch, vercelcloud.FormatCleanupProgress(p))
+			})
+			close(ch)
+			if err != nil {
+				return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+			}
+			notice := "Nothing to clean up"
+			switch len(deleted) {
+			case 1:
+				notice = "Deleted " + deleted[0]
+			default:
+				if len(deleted) > 1 {
+					notice = fmt.Sprintf("Deleted %d unrestorable sandboxes", len(deleted))
+				}
+			}
+			return syncDoneMsg{provider: "vercel", result: result, err: nil, opGen: opGen, notice: notice}
+		})
+	case "sync_hetzner_user":
+		hetzner := m.metadata.Hetzner()
+		hetzner.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
+		if err := m.metadata.SetHetzner(hetzner); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default Hetzner SSH user updated")
+	case "sync_hetzner_port":
+		port := strings.TrimSpace(values["SSH port"])
+		if port != "" && port != "22" {
+			n, err := strconv.Atoi(port)
+			if err != nil || n <= 0 || n > 65535 {
+				if m.form != nil {
+					m.form.validationError = "port must be 1-65535"
+				}
+				return nil
+			}
+		} else {
+			port = ""
+		}
+		hetzner := m.metadata.Hetzner()
+		hetzner.DefaultSSHPort = port
+		if err := m.metadata.SetHetzner(hetzner); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default Hetzner SSH port updated")
+	case "sync_hetzner_contexts":
+		hetzner := m.metadata.Hetzner()
+		hetzner.ContextFilter = splitCSV(values["Contexts"])
+		if err := m.metadata.SetHetzner(hetzner); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Hetzner context filter updated")
+	case "sync_hetzner_locations":
+		hetzner := m.metadata.Hetzner()
+		hetzner.LocationFilter = splitCSV(values["Locations"])
+		if err := m.metadata.SetHetzner(hetzner); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Hetzner location filter updated")
+	case "sync_bitqate_user":
+		bitqate := m.metadata.Bitqate()
+		bitqate.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
+		if err := m.metadata.SetBitqate(bitqate); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default BitQate SSH user updated")
+	case "sync_bitqate_port":
+		port := strings.TrimSpace(values["SSH port"])
+		if port != "" && port != "22" {
+			num, err := strconv.Atoi(port)
+			if err != nil || num <= 0 || num > 65535 {
+				if m.form != nil {
+					m.form.validationError = "port must be 1-65535"
+				}
+				return nil
+			}
+		} else {
+			port = ""
+		}
+		bitqate := m.metadata.Bitqate()
+		bitqate.DefaultSSHPort = port
+		if err := m.metadata.SetBitqate(bitqate); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default BitQate SSH port updated")
+	case "sync_bitqate_regions":
+		bitqate := m.metadata.Bitqate()
+		bitqate.RegionFilter = splitCSV(values["Regions"])
+		if err := m.metadata.SetBitqate(bitqate); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("BitQate region filter updated")
+	case "bitqate_key":
+		key := strings.TrimSpace(values["API token"])
+		if key == "" {
+			if m.form != nil {
+				m.form.validationError = "token is required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["bitqate"] {
+			return m.setNotice("BitQate operation already in progress")
+		}
+		opGen := m.beginProviderOp("bitqate")
+		m.beginSyncBusy("Connecting BitQate…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.SaveBitqateKey(ctx, key)
+			return syncDoneMsg{provider: "bitqate", result: result, err: err, opGen: opGen}
+		}
+	case "bitqate_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["bitqate"] {
+			return m.setNotice("BitQate operation already in progress")
+		}
+		opGen := m.beginProviderOp("bitqate")
+		m.syncActivity = "stopping…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopBitqate(ctx, syncID)
+			return syncDoneMsg{provider: "bitqate", result: result, err: err, opGen: opGen}
+		}
+	case "bitqate_restart":
+		if strings.TrimSpace(values["Type restart to confirm"]) != "restart" {
+			if m.form != nil {
+				m.form.validationError = "type restart to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["bitqate"] {
+			return m.setNotice("BitQate operation already in progress")
+		}
+		opGen := m.beginProviderOp("bitqate")
+		m.syncActivity = "restarting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, err := m.syncer.RestartBitqate(ctx, syncID)
+			return syncDoneMsg{provider: "bitqate", result: result, err: err, opGen: opGen}
+		}
+	case "vercel_project_add":
+		projectID := strings.TrimSpace(values["Project ID"])
+		if projectID == "" {
+			if m.form != nil {
+				m.form.validationError = "project is required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		m.beginSyncBusy("Adding Vercel project…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.AddVercelProject(ctx, projectID)
+			return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+		}
+	case "vercel_project_remove":
+		projectID := strings.TrimSpace(values["Project"])
+		if projectID == "" {
+			if m.form != nil {
+				m.form.validationError = "choose a project"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["vercel"] {
+			return m.setNotice("Vercel operation already in progress")
+		}
+		opGen := m.beginProviderOp("vercel")
+		m.beginSyncBusy("Removing Vercel project…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.RemoveVercelProject(ctx, projectID)
+			return syncDoneMsg{provider: "vercel", result: result, err: err, opGen: opGen}
+		}
+	case "hetzner_key":
+		name := strings.TrimSpace(values["Name"])
+		if name == "" {
+			if m.syncer != nil && m.syncer.Hetzner != nil && len(m.syncer.Hetzner.StoredTokenNames()) > 0 {
+				if m.form != nil {
+					m.form.validationError = "name is required for additional projects"
+				}
+				return nil
+			}
+			name = "default"
+		}
+		key := strings.TrimSpace(values["API token"])
+		if key == "" {
+			if m.form != nil {
+				m.form.validationError = "API token is required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["hetzner"] {
+			return m.setNotice("Hetzner operation already in progress")
+		}
+		opGen := m.beginProviderOp("hetzner")
+		m.beginSyncBusy("Connecting Hetzner…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.SaveHetznerKey(ctx, name, key)
+			return syncDoneMsg{provider: "hetzner", result: result, err: err, opGen: opGen}
+		}
+	case "hetzner_key_remove":
+		name := strings.TrimSpace(values["Token"])
+		if name == "" {
+			if m.form != nil {
+				m.form.validationError = "choose a token"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["hetzner"] {
+			return m.setNotice("Hetzner operation already in progress")
+		}
+		opGen := m.beginProviderOp("hetzner")
+		m.beginSyncBusy("Removing Hetzner token…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteHetznerToken(ctx, name)
+			return syncDoneMsg{provider: "hetzner", result: result, err: err, opGen: opGen}
+		}
+	case "hetzner_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		force := truthyForm(values["Force poweroff"])
+		m.form = nil
+		if m.syncingProviders["hetzner"] {
+			return m.setNotice("Hetzner operation already in progress")
+		}
+		opGen := m.beginProviderOp("hetzner")
+		m.syncActivity = "stopping…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopHetzner(ctx, syncID, force)
+			return syncDoneMsg{provider: "hetzner", result: result, err: err, opGen: opGen}
+		}
+	case "hetzner_restart":
+		confirm := strings.TrimSpace(values["Type restart to confirm"])
+		if confirm != "restart" && confirm != "force" {
+			if m.form != nil {
+				m.form.validationError = "type restart to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		force := confirm == "force" || truthyForm(values["Force reset"])
+		m.form = nil
+		if m.syncingProviders["hetzner"] {
+			return m.setNotice("Hetzner operation already in progress")
+		}
+		opGen := m.beginProviderOp("hetzner")
+		m.syncActivity = "restarting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			result, err := m.syncer.RestartHetzner(ctx, syncID, force)
+			return syncDoneMsg{provider: "hetzner", result: result, err: err, opGen: opGen}
 		}
 	case "railway_key":
 		key := strings.TrimSpace(values["API token"])
@@ -2009,6 +3184,276 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			result, err := m.syncer.DeleteRailway(ctx, syncID)
 			return syncDoneMsg{provider: "railway", result: result, err: err, opGen: opGen}
 		}
+	case "fly_new":
+		app := strings.TrimSpace(values["App"])
+		image := strings.TrimSpace(values["Image"])
+		region := strings.TrimSpace(values["Region"])
+		if app == "" || image == "" {
+			if m.form != nil {
+				m.form.validationError = "app and image are required"
+			}
+			return nil
+		}
+		if region == "" {
+			if m.form != nil {
+				m.form.validationError = "region is required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["fly"] {
+			return m.setNotice("Fly operation already in progress")
+		}
+		opGen := m.beginProviderOp("fly")
+		if m.section == syncSection {
+			m.beginSyncBusy("Creating Fly Machine…")
+		} else {
+			m.syncActivity = "creating…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.NewFly(ctx, flycloud.CreateOpts{
+				App: app, Image: image, Org: strings.TrimSpace(values["Org"]),
+				Region: region, Size: strings.TrimSpace(values["Size"]),
+				Name: strings.TrimSpace(values["Name"]),
+			})
+			if err != nil {
+				return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "fly", result: result, err: nil, focusAlias: alias, opGen: opGen}
+		}
+	case "fly_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["fly"] {
+			return m.setNotice("Fly operation already in progress")
+		}
+		opGen := m.beginProviderOp("fly")
+		m.syncActivity = "stopping…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopFly(ctx, syncID)
+			return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+		}
+	case "fly_fork":
+		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
+			if m.form != nil {
+				m.form.validationError = "type fork to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		region := strings.TrimSpace(values["Region"])
+		m.form = nil
+		if m.syncingProviders["fly"] {
+			return m.setNotice("Fly operation already in progress")
+		}
+		opGen := m.beginProviderOp("fly")
+		if m.section == syncSection {
+			m.beginSyncBusy("Cloning Fly Machine…")
+		} else {
+			m.syncActivity = "cloning…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.ForkFly(ctx, syncID, flycloud.ForkOpts{Region: region})
+			if err != nil {
+				return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "fly", result: result, focusAlias: alias, opGen: opGen}
+		}
+	case "fly_delete":
+		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
+			if m.form != nil {
+				m.form.validationError = "type delete to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["fly"] {
+			return m.setNotice("Fly operation already in progress")
+		}
+		opGen := m.beginProviderOp("fly")
+		m.syncActivity = "destroying…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteFly(ctx, syncID)
+			return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+		}
+	case "sync_fly_user":
+		fly := m.metadata.Fly()
+		fly.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
+		if err := m.metadata.SetFly(fly); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default Fly SSH user updated")
+	case "sync_fly_orgs":
+		fly := m.metadata.Fly()
+		fly.OrgFilter = splitCSV(values["Orgs"])
+		if err := m.metadata.SetFly(fly); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Fly org filter updated")
+	case "sync_fly_apps":
+		fly := m.metadata.Fly()
+		fly.AppFilter = splitCSV(values["Apps"])
+		if err := m.metadata.SetFly(fly); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Fly app filter updated")
+	case "digitalocean_new":
+		name := strings.TrimSpace(values["Name"])
+		if name == "" {
+			if m.form != nil {
+				m.form.validationError = "name is required"
+			}
+			return nil
+		}
+		defaults := docloud.DefaultNewOpts()
+		region := strings.TrimSpace(values["Region"])
+		if region == "" {
+			region = defaults.Region
+		}
+		size := strings.TrimSpace(values["Size"])
+		if size == "" {
+			size = defaults.Size
+		}
+		image := strings.TrimSpace(values["Image"])
+		if image == "" {
+			image = defaults.Image
+		}
+		m.form = nil
+		if m.syncingProviders["digitalocean"] {
+			return m.setNotice("DigitalOcean operation already in progress")
+		}
+		opGen := m.beginProviderOp("digitalocean")
+		if m.section == syncSection {
+			m.beginSyncBusy("Creating Droplet…")
+		} else {
+			m.syncActivity = "creating…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.NewDigitalOcean(ctx, docloud.NewOpts{
+				Name: name, Region: region, Size: size, Image: image, Context: strings.TrimSpace(values["Context"]),
+			})
+			if err != nil {
+				return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "digitalocean", result: result, err: nil, focusAlias: alias, opGen: opGen}
+		}
+	case "digitalocean_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["digitalocean"] {
+			return m.setNotice("DigitalOcean operation already in progress")
+		}
+		opGen := m.beginProviderOp("digitalocean")
+		m.syncActivity = "shutting down…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopDigitalOcean(ctx, syncID)
+			return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
+		}
+	case "digitalocean_fork":
+		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
+			if m.form != nil {
+				m.form.validationError = "type fork to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["digitalocean"] {
+			return m.setNotice("DigitalOcean operation already in progress")
+		}
+		opGen := m.beginProviderOp("digitalocean")
+		if m.section == syncSection {
+			m.beginSyncBusy("Forking Droplet…")
+		} else {
+			m.syncActivity = "forking…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.ForkDigitalOcean(ctx, syncID)
+			if err != nil {
+				return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "digitalocean", result: result, focusAlias: alias, opGen: opGen}
+		}
+	case "digitalocean_delete":
+		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
+			if m.form != nil {
+				m.form.validationError = "type delete to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["digitalocean"] {
+			return m.setNotice("DigitalOcean operation already in progress")
+		}
+		opGen := m.beginProviderOp("digitalocean")
+		m.syncActivity = "deleting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteDigitalOcean(ctx, syncID)
+			return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
+		}
+	case "sync_digitalocean_user":
+		ocean := m.metadata.DigitalOcean()
+		ocean.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
+		if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default DigitalOcean SSH user updated")
+	case "sync_digitalocean_contexts":
+		ocean := m.metadata.DigitalOcean()
+		ocean.ContextFilter = splitCSV(values["Contexts"])
+		if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("DigitalOcean context filter updated")
+	case "sync_digitalocean_regions":
+		ocean := m.metadata.DigitalOcean()
+		ocean.RegionFilter = splitCSV(values["Regions"])
+		if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("DigitalOcean region filter updated")
 	}
 	return nil
 }

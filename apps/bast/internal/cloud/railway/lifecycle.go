@@ -75,6 +75,10 @@ func (c *Client) Create(ctx context.Context, opts CreateOpts) (Instance, error) 
 		return Instance{}, fmt.Errorf("railway service create: no id in response")
 	}
 	serviceID := created.ServiceCreate.ID
+	partial := Instance{
+		SyncID: FormatSyncID(project.ID, envID, serviceID), Name: name,
+		ProjectID: project.ID, ProjectName: project.Name, EnvironmentID: envID, ServiceID: serviceID,
+	}
 	if err := c.graphql(ctx, `mutation serviceInstanceUpdate($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) {
   serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
 }`, map[string]any{
@@ -82,7 +86,7 @@ func (c *Client) Create(ctx context.Context, opts CreateOpts) (Instance, error) 
 		"environmentId": envID,
 		"input":         map[string]any{"startCommand": start},
 	}, nil); err != nil {
-		return Instance{}, err
+		return partial, err
 	}
 	if err := c.graphql(ctx, `mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) {
   serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId)
@@ -90,7 +94,7 @@ func (c *Client) Create(ctx context.Context, opts CreateOpts) (Instance, error) 
 		"serviceId":     serviceID,
 		"environmentId": envID,
 	}, nil); err != nil {
-		return Instance{}, err
+		return partial, err
 	}
 	syncID := FormatSyncID(project.ID, envID, serviceID)
 	if err := c.WaitReady(ctx, syncID, 5*time.Minute); err != nil {
@@ -194,7 +198,7 @@ func (c *Client) Stop(ctx context.Context, syncID string) error {
 		return err
 	}
 	if IsStoppedState(inst.State) {
-		return fmt.Errorf("railway service %s is already stopped", inst.Name)
+		return nil
 	}
 	if inst.DeploymentID == "" {
 		return fmt.Errorf("railway service %s has no deployment to stop", inst.Name)
@@ -212,6 +216,9 @@ func (c *Client) Resume(ctx context.Context, syncID string) error {
 	}
 	if isReadyState(inst.State) {
 		return nil
+	}
+	if inst.State == "starting" {
+		return c.WaitReady(ctx, inst.SyncID, 5*time.Minute)
 	}
 	_, envID, serviceID, err := ParseSyncID(inst.SyncID)
 	if err != nil {
@@ -231,11 +238,15 @@ func (c *Client) Resume(ctx context.Context, syncID string) error {
 }
 
 func (c *Client) Delete(ctx context.Context, syncID string) error {
-	_, _, serviceID, err := ParseSyncID(syncID)
+	_, environmentID, serviceID, err := ParseSyncID(syncID)
 	if err != nil {
 		return err
 	}
-	return c.graphql(ctx, `mutation serviceDelete($id: String!) { serviceDelete(id: $id) }`, map[string]any{"id": serviceID}, nil)
+	// environmentId removes the service from that environment only. Omitting it
+	// deletes the service from every environment.
+	return c.graphql(ctx, `mutation serviceDelete($id: String!, $environmentId: String!) {
+  serviceDelete(id: $id, environmentId: $environmentId)
+}`, map[string]any{"id": serviceID, "environmentId": environmentID}, nil)
 }
 
 func (c *Client) WaitReady(ctx context.Context, syncID string, timeout time.Duration) error {

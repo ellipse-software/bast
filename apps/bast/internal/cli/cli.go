@@ -18,6 +18,8 @@ import (
 
 	"github.com/charmbracelet/x/term"
 
+	"bast/internal/askpass"
+	"bast/internal/hostpass"
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/openssh"
@@ -32,15 +34,22 @@ Usage:
   bast                         Open the TUI
   bast <label>                 Connect directly using a host label
   bast tui                     Open the TUI explicitly
-  bast update                  Update installer-managed copies of Bast
+  bast update                  Update script-installed copies of Bast
+  bast doctor                  Diagnose SSH config, keys, and Bast setup
   bast connect <host>          Connect using an alias or display label
   bast hosts <command>         Manage SSH hosts
   bast keys <command>          Manage SSH keys
   bast sync <command>          Sync cloud VMs into Bast
-  bast box <command>           Create and manage ASCII Box sandboxes
+  bast boat <command>          Create and manage Boat sandboxes
   bast upstash <command>       Create and manage Upstash Box sandboxes
+  bast vercel <command>        Create and manage Vercel Sandboxes
+  bast hetzner <command>       Start, stop, and restart Hetzner Cloud servers
+  bast bitqate <command>       List, start, stop, and restart BitQate VPS instances
   bast railway <command>       Create and manage Railway services
+  bast fly <command>           Create and manage Fly Machines
+  bast digitalocean <command>  Create and manage DigitalOcean Droplets
   bast vault <command>         Sync Bast-managed config via encrypted vault
+  bast completion <shell>      Print a shell completion script
 
 Host commands:
   list, show, add, edit, delete, promote, favorite, unfavorite, hide, show-hidden,
@@ -51,16 +60,32 @@ Key commands:
   public, copy, delete
 
 Sync commands:
-  gcp, aws, azure, box, upstash, railway, status, disable
+  gcp, aws, azure, boat, upstash, vercel, hetzner, bitqate, railway, fly,
+  digitalocean, status, disable
 
-Box commands:
-  new, fork, stop, resume
+Boat commands:
+  new, fork, stop, resume, delete, snapshots, snapshot
 
 Upstash commands:
   new, fork, stop, resume, delete, key
 
+Vercel commands:
+  new, fork, stop, resume, delete, cleanup, token
+
+Hetzner commands:
+  start, stop, restart, key
+
+BitQate commands:
+  list, start, stop, restart, key
+
 Railway commands:
   new, stop, resume, delete, key
+
+Fly commands:
+  new, fork, stop, resume, delete
+
+DigitalOcean commands:
+  new, fork, stop, resume, delete
 
 Vault commands:
   login, status, push, pull, logout, passphrase
@@ -69,8 +94,11 @@ Global options:
   --json                      Emit structured JSON
   --no-input                  Never prompt for missing input
 
-Run "bast hosts <command> --help", "bast keys <command> --help", "bast sync <command> --help",
-"bast box <command> --help", "bast upstash <command> --help", "bast railway <command> --help", or "bast vault <command> --help" for details.
+Run "bast doctor --help", "bast hosts <command> --help", "bast keys <command> --help",
+"bast sync <command> --help", "bast boat <command> --help", "bast upstash <command> --help",
+"bast vercel <command> --help", "bast hetzner <command> --help", "bast bitqate <command> --help",
+"bast railway <command> --help", "bast fly <command> --help", "bast digitalocean <command> --help",
+"bast vault <command> --help", or "bast completion --help" for details.
 `
 
 func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
@@ -94,6 +122,10 @@ type Runner struct {
 type reportedError struct{ code int }
 
 func (e reportedError) Error() string { return "CLI error already reported" }
+
+type silentExit struct{ code int }
+
+func (e silentExit) Error() string { return "silent exit" }
 func ExitCode(err error) (int, bool) {
 	var reported reportedError
 	ok := errors.As(err, &reported)
@@ -114,20 +146,37 @@ func usagef(format string, args ...any) error {
 func fail(code, message string) error { return &commandError{code: code, message: message, exit: 1} }
 
 func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writer) (*Runner, error) {
-	return &Runner{
+	runner := &Runner{
 		Paths: p, OpenSSH: client, Version: "dev", In: in, Out: out, Err: errOut,
-		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncRailwayConfig: p.SyncRailwayConfig},
+		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig, SyncRailwayConfig: p.SyncRailwayConfig, SyncFlyConfig: p.SyncFlyConfig, SyncDigitalOceanConfig: p.SyncDigitalOceanConfig},
 		keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
 		reader:  bufio.NewReader(in),
-	}, nil
+	}
+	if err := runner.config.MigrateBoatSync(); err != nil {
+		// Doctor reports conflicts; the sync engine gates Boat mutations.
+		var conflict *sshconfig.BoatMigrationConflict
+		if !errors.As(err, &conflict) {
+			return nil, err
+		}
+	}
+	return runner, nil
 }
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "connect", "hosts", "keys", "sync", "box", "upstash", "railway", "vault":
+	case "tui", "update", "doctor", "connect", "hosts", "keys", "sync", "boat", "box", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "do", "vault", "completion", "__complete":
 		return true
 	}
 	return false
+}
+
+func commandUsesOpenSSH(cmd string) bool {
+	switch cmd {
+	case "boat", "box", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "do":
+		return false
+	default:
+		return true
+	}
 }
 
 func IsInvocation(args []string) bool {
@@ -143,7 +192,13 @@ func IsInvocation(args []string) bool {
 }
 
 func (r *Runner) Run(args []string) error {
-	args = r.globalFlags(args)
+	if cmd, rest, ok := takeCompletionCommand(args); ok {
+		if cmd == "__complete" {
+			return r.completeQuery(rest)
+		}
+		return r.report(r.completion(rest))
+	}
+	args = canonicalBoatArgs(r.globalFlags(args))
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		PrintHelp(r.Out)
 		return nil
@@ -159,12 +214,16 @@ func (r *Runner) Run(args []string) error {
 	var err error
 	if args[0] == "update" {
 		err = r.update(args[1:])
+	} else if args[0] == "doctor" {
+		err = r.doctor(args[1:])
 	} else {
 		store, openErr := metadata.Open(r.Paths.StateFile)
 		err = openErr
 		if err == nil {
 			r.store = store
-			err = r.OpenSSH.Check()
+			if commandUsesOpenSSH(args[0]) {
+				err = r.OpenSSH.Check()
+			}
 		}
 		if err == nil {
 			switch args[0] {
@@ -176,12 +235,22 @@ func (r *Runner) Run(args []string) error {
 				err = r.keys(args[1:])
 			case "sync":
 				err = r.sync(args[1:])
-			case "box":
-				err = r.boxCmd(args[1:])
+			case "boat":
+				err = r.boatCmd(args[1:])
 			case "upstash":
 				err = r.upstashCmd(args[1:])
+			case "vercel":
+				err = r.vercelCmd(args[1:])
+			case "hetzner":
+				err = r.hetznerCmd(args[1:])
+			case "bitqate":
+				err = r.bitqateCmd(args[1:])
 			case "railway":
 				err = r.railwayCmd(args[1:])
+			case "fly":
+				err = r.flyCmd(args[1:])
+			case "digitalocean", "do":
+				err = r.digitalOceanCmd(args[1:])
 			case "vault":
 				err = r.vault(args[1:])
 			default:
@@ -189,8 +258,16 @@ func (r *Runner) Run(args []string) error {
 			}
 		}
 	}
+	return r.report(err)
+}
+
+func (r *Runner) report(err error) error {
 	if err == nil {
 		return nil
+	}
+	var silent silentExit
+	if errors.As(err, &silent) {
+		return reportedError{code: silent.code}
 	}
 	ce := &commandError{code: "operation_failed", message: err.Error(), exit: 1}
 	var typed *commandError
@@ -218,6 +295,7 @@ func (r *Runner) Run(args []string) error {
 func commandUsage(resource, command string) string {
 	usage := map[string]string{
 		"update --help": "Usage: bast update",
+		"doctor --help": "Usage: bast doctor [--fix] [--probe] [--category name]",
 		"hosts --help": `Usage: bast hosts <command>
 
 Commands: list, show, add, edit, delete, promote, favorite, unfavorite, hide,
@@ -226,15 +304,15 @@ Commands: list, show, add, edit, delete, promote, favorite, unfavorite, hide,
 		"hosts show": "Usage: bast hosts show <host>",
 		"hosts add": `Usage: bast hosts add [label] --hostname host [options]
 
-Connection: --user, --port, --identity, --password-only, --proxy-jump
+Connection: --user, --port, --identity, --password, --password-only, --proxy-jump
 Advanced: --forward-agent, --startup-command, --request-tty, --set-env,
           --local-forward, --remote-forward, --dynamic-forward, --compression,
           --keepalive, --ssh-option
 Metadata: label paths like Work/api set the group; or --group, --tag, --environment, --color, --notes`,
 		"hosts edit": `Usage: bast hosts edit <host> [options]
 
-Connection: --label, --hostname, --user, --port, --identity, --password-only,
-            --proxy-jump
+Connection: --label, --hostname, --user, --port, --identity, --password,
+            --password-only, --clear-password, --proxy-jump
 Advanced: --forward-agent, --startup-command, --request-tty, --set-env,
           --local-forward, --remote-forward, --dynamic-forward, --compression,
           --keepalive, --ssh-option
@@ -248,53 +326,95 @@ option to restore a default or remove values.`,
 
 Commands: list, show, generate, import, promote, comment, export, install,
           passphrase, public, copy, delete`,
-		"keys list":        "Usage: bast keys list [--search text]",
-		"keys show":        "Usage: bast keys show <name>",
-		"keys generate":    "Usage: bast keys generate [name] [--algorithm ed25519|rsa] [--no-passphrase]",
-		"keys import":      "Usage: bast keys import [name] --private path|- [--public path|-] [--comment text]",
-		"keys promote":     "Usage: bast keys promote <key> [--name managed-name]",
-		"keys comment":     "Usage: bast keys comment <name> (--comment text|--clear-comment)",
-		"keys export":      "Usage: bast keys export <name> --directory path [--yes]",
-		"keys install":     "Usage: bast keys install <name> --host host",
-		"keys passphrase":  "Usage: bast keys passphrase <name>",
-		"keys public":      "Usage: bast keys public <name>",
-		"keys copy":        "Usage: bast keys copy <name>",
-		"keys delete":      "Usage: bast keys delete <name> [--yes]",
-		"connect --help":   "Usage: bast connect <host>",
-		"sync gcp":         "Usage: bast sync gcp",
-		"sync aws":         "Usage: bast sync aws",
-		"sync azure":       "Usage: bast sync azure",
-		"sync box":         "Usage: bast sync box",
-		"sync upstash":     "Usage: bast sync upstash",
-		"sync railway":     "Usage: bast sync railway",
-		"sync status":      "Usage: bast sync status",
-		"sync disable":     "Usage: bast sync disable <gcp|aws|azure|box|upstash|railway>",
-		"sync --help":      "Usage: bast sync <gcp|aws|azure|box|upstash|railway|status|disable>",
-		"box --help":       "Usage: bast box <new|fork|stop|resume>",
-		"box new":          "Usage: bast box new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
-		"box fork":         "Usage: bast box fork <host|id> [--type small|default|large] [--no-env]",
-		"box stop":         "Usage: bast box stop <host|id>",
-		"box resume":       "Usage: bast box resume <host|id> [--type small|default|large] [--no-env]",
-		"upstash --help":   "Usage: bast upstash <new|fork|stop|resume|delete|key>",
-		"upstash new":      "Usage: bast upstash new [--name name] [--runtime node|python|golang|ruby|rust] [--size small|medium|large] [--keep-alive]",
-		"upstash fork":     "Usage: bast upstash fork <host|id>",
-		"upstash stop":     "Usage: bast upstash stop <host|id>",
-		"upstash resume":   "Usage: bast upstash resume <host|id>",
-		"upstash delete":   "Usage: bast upstash delete <host|id> [--yes]",
-		"upstash key":      "Usage: bast upstash key [--key-file path]",
-		"railway --help":   "Usage: bast railway <new|stop|resume|delete|key>",
-		"railway new":      "Usage: bast railway new --name name [--image ubuntu:24.04] [--start-command command] [--project id|name | --new-project name] [--environment id]",
-		"railway stop":     "Usage: bast railway stop <host|id>",
-		"railway resume":   "Usage: bast railway resume <host|id>",
-		"railway delete":   "Usage: bast railway delete <host|id> [--yes]",
-		"railway key":      "Usage: bast railway key [--key-file path]",
-		"vault --help":     "Usage: bast vault <login|status|push|pull|logout|passphrase>",
-		"vault login":      "Usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]",
-		"vault status":     "Usage: bast vault status",
-		"vault push":       "Usage: bast vault push",
-		"vault pull":       "Usage: bast vault pull [--mode merge|replace_local|replace_remote]",
-		"vault logout":     "Usage: bast vault logout",
-		"vault passphrase": "Usage: bast vault passphrase [--force]",
+		"keys list":           "Usage: bast keys list [--search text]",
+		"keys show":           "Usage: bast keys show <name>",
+		"keys generate":       "Usage: bast keys generate [name] [--algorithm ed25519|rsa] [--no-passphrase]",
+		"keys import":         "Usage: bast keys import [name] --private path|- [--public path|-] [--comment text]",
+		"keys promote":        "Usage: bast keys promote <key> [--name managed-name]",
+		"keys comment":        "Usage: bast keys comment <name> (--comment text|--clear-comment)",
+		"keys export":         "Usage: bast keys export <name> --directory path [--yes]",
+		"keys install":        "Usage: bast keys install <name> --host host",
+		"keys passphrase":     "Usage: bast keys passphrase <name>",
+		"keys public":         "Usage: bast keys public <name>",
+		"keys copy":           "Usage: bast keys copy <name>",
+		"keys delete":         "Usage: bast keys delete <name> [--yes]",
+		"connect --help":      "Usage: bast connect <host>",
+		"sync gcp":            "Usage: bast sync gcp",
+		"sync aws":            "Usage: bast sync aws",
+		"sync azure":          "Usage: bast sync azure",
+		"sync boat":           "Usage: bast sync boat",
+		"sync upstash":        "Usage: bast sync upstash",
+		"sync vercel":         "Usage: bast sync vercel",
+		"sync hetzner":        "Usage: bast sync hetzner",
+		"sync bitqate":        "Usage: bast sync bitqate",
+		"sync railway":        "Usage: bast sync railway",
+		"sync fly":            "Usage: bast sync fly",
+		"sync digitalocean":   "Usage: bast sync digitalocean",
+		"sync do":             "Usage: bast sync digitalocean",
+		"sync status":         "Usage: bast sync status",
+		"sync disable":        "Usage: bast sync disable <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean>",
+		"sync --help":         "Usage: bast sync <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean|status|disable>",
+		"boat --help":         "Usage: bast boat <new|fork|stop|resume|delete|snapshots|snapshot>",
+		"boat new":            "Usage: bast boat new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
+		"boat fork":           "Usage: bast boat fork <host|id> [--type small|default|large] [--no-env]",
+		"boat stop":           "Usage: bast boat stop <host|id>",
+		"boat resume":         "Usage: bast boat resume <host|id> [--type small|default|large] [--no-env]",
+		"boat delete":         "Usage: bast boat delete <host|id> [--yes]",
+		"boat snapshots":      "Usage: bast boat snapshots [host|id]",
+		"boat snapshot":       "Usage: bast boat snapshot delete <snapshot-id> [--yes]\n       bast boat snapshot rm <name>",
+		"upstash --help":      "Usage: bast upstash <new|fork|stop|resume|delete|key>",
+		"upstash new":         "Usage: bast upstash new [--name name] [--runtime node|python|golang|ruby|rust] [--size small|medium|large] [--keep-alive]",
+		"upstash fork":        "Usage: bast upstash fork <host|id>",
+		"upstash stop":        "Usage: bast upstash stop <host|id>",
+		"upstash resume":      "Usage: bast upstash resume <host|id>",
+		"upstash delete":      "Usage: bast upstash delete <host|id> [--yes]",
+		"upstash key":         "Usage: bast upstash key [--key-file path]",
+		"vercel --help":       "Usage: bast vercel <new|fork|stop|resume|delete|cleanup|token>",
+		"vercel new":          "Usage: bast vercel new [--name name] [--project id] [--vcpus 1|2|4] [--timeout 15m|1h|5h] [--ephemeral]",
+		"vercel fork":         "Usage: bast vercel fork <host|id> [--name name]",
+		"vercel stop":         "Usage: bast vercel stop <host|id>",
+		"vercel resume":       "Usage: bast vercel resume <host|id>",
+		"vercel delete":       "Usage: bast vercel delete <host|id> [--yes]",
+		"vercel cleanup":      "Usage: bast vercel cleanup [--yes]",
+		"vercel token":        "Usage: bast vercel token [--token-file path] [--team team_id] [--project id[,id...]]\n       bast vercel token --remove project_id",
+		"hetzner --help":      "Usage: bast hetzner <start|stop|restart|key>",
+		"hetzner start":       "Usage: bast hetzner start <host|id>",
+		"hetzner stop":        "Usage: bast hetzner stop <host|id> [--force]",
+		"hetzner restart":     "Usage: bast hetzner restart <host|id> [--force]",
+		"bitqate --help":      "Usage: bast bitqate <list|start|stop|restart|key>",
+		"bitqate list":        "Usage: bast bitqate list",
+		"bitqate start":       "Usage: bast bitqate start <host|id>",
+		"bitqate stop":        "Usage: bast bitqate stop <host|id>",
+		"bitqate restart":     "Usage: bast bitqate restart <host|id>",
+		"bitqate key":         "Usage: bast bitqate key [--token-file path] | bast bitqate key --clear",
+		"railway --help":      "Usage: bast railway <new|stop|resume|delete|key>",
+		"railway new":         "Usage: bast railway new --name name [--image image] [--start-command command] (--project id|name | --new-project name) [--environment id]",
+		"railway stop":        "Usage: bast railway stop <host|id>",
+		"railway resume":      "Usage: bast railway resume <host|id>",
+		"railway delete":      "Usage: bast railway delete <host|id> [--yes]",
+		"railway key":         "Usage: bast railway key [--key-file path]",
+		"fly --help":          "Usage: bast fly <new|fork|stop|resume|delete>",
+		"fly new":             "Usage: bast fly new --app app --image image [--org slug] [--region code] [--size size] [--name name]",
+		"fly fork":            "Usage: bast fly fork <host|id> [--region code]",
+		"fly stop":            "Usage: bast fly stop <host|id>",
+		"fly resume":          "Usage: bast fly resume <host|id>",
+		"fly delete":          "Usage: bast fly delete <host|id> [--yes]",
+		"digitalocean --help": "Usage: bast digitalocean <new|fork|stop|resume|delete>",
+		"digitalocean new":    "Usage: bast digitalocean new --name name [--region slug] [--size slug] [--image slug] [--context name]",
+		"digitalocean fork":   "Usage: bast digitalocean fork <host|id>",
+		"digitalocean stop":   "Usage: bast digitalocean stop <host|id>",
+		"digitalocean resume": "Usage: bast digitalocean resume <host|id>",
+		"digitalocean delete": "Usage: bast digitalocean delete <host|id> [--yes]",
+		"do --help":           "Usage: bast digitalocean <new|fork|stop|resume|delete>",
+		"hetzner key":         "Usage: bast hetzner key [--name project] [--key-file path]\n       bast hetzner key --remove project",
+		"vault --help":        "Usage: bast vault <login|status|push|pull|logout|passphrase>",
+		"vault login":         "Usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]",
+		"vault status":        "Usage: bast vault status",
+		"vault push":          "Usage: bast vault push",
+		"vault pull":          "Usage: bast vault pull [--mode merge|replace_local|replace_remote]",
+		"vault logout":        "Usage: bast vault logout",
+		"vault passphrase":    "Usage: bast vault passphrase [--force]",
+		"completion --help":   strings.TrimSuffix(completionUsage, "\n"),
 	}
 	if value := usage[resource+" "+command]; value != "" {
 		return value
@@ -335,6 +455,7 @@ type hostRecord struct {
 	Port            string                     `json:"port"`
 	IdentityFiles   []string                   `json:"identityFiles"`
 	Authentication  string                     `json:"authentication"`
+	PasswordStored  bool                       `json:"passwordStored,omitempty"`
 	ProxyJump       string                     `json:"proxyJump"`
 	Advanced        sshconfig.AdvancedSettings `json:"advanced"`
 	Group           string                     `json:"group"`
@@ -466,7 +587,9 @@ func (r *Runner) load(ctx context.Context) ([]hostRecord, []keyRecord, error) {
 		}
 		hostRecords[i] = hostRecord{
 			Alias: hosts[i].Alias, Label: label, Hostname: resolved.HostName, User: resolved.User, Port: resolved.Port,
-			IdentityFiles: nonNil(resolved.IdentityFiles), Authentication: auth, ProxyJump: emptyNone(resolved.ProxyJump), Advanced: adv,
+			IdentityFiles: nonNil(resolved.IdentityFiles), Authentication: auth,
+			PasswordStored: hosts[i].Managed && hostpass.Exists(r.Paths.PasswordsDir, hosts[i].ManagedID),
+			ProxyJump:      emptyNone(resolved.ProxyJump), Advanced: adv,
 			Group: meta.Group,
 			Tags:  nonNil(meta.Tags), Environment: meta.Environment, Color: meta.Color, Notes: meta.Notes, Favorite: meta.Favorite,
 			Hidden: meta.Hidden, Managed: hosts[i].Managed, Synced: hosts[i].Synced, SyncSource: hosts[i].SyncSource,
@@ -549,6 +672,10 @@ func emptyNone(value string) string {
 	}
 	return value
 }
+func (r *Runner) prepareSSH(cmd *exec.Cmd, host sshconfig.Host) {
+	askpass.Prepare(cmd, "", host, r.Paths.PasswordsDir)
+}
+
 func emptyDefault(value string) string {
 	if value == "" {
 		return "default"
@@ -749,4 +876,20 @@ func later(a, b *time.Time) bool {
 		return true
 	}
 	return a.After(*b)
+}
+
+// Keep existing scripts working while all help and output use the Boat name.
+func canonicalBoatArgs(args []string) []string {
+	result := append([]string(nil), args...)
+	if len(result) > 0 && result[0] == "box" {
+		result[0] = "boat"
+	}
+	if len(result) > 1 && result[0] == "sync" {
+		if result[1] == "box" {
+			result[1] = "boat"
+		} else if len(result) > 2 && result[1] == "disable" && result[2] == "box" {
+			result[2] = "boat"
+		}
+	}
+	return result
 }

@@ -3,7 +3,7 @@ title: Host management
 description: Add, edit, favorite, hide, and organize SSH hosts with groups, tags, and colors.
 ---
 
-Press `a` to add a host or `e` to edit the selected one. The form keeps the required label and hostname at the top, with separate menus for authentication, advanced SSH settings, and metadata. Click **Save** or press `Ctrl+J` to save from anywhere in the form. `Ctrl+Enter` remains available when your terminal reports it.
+Press `a` to add a host or `e` to edit the selected one. The form keeps label, hostname, and user at the top, with separate menus for authentication, advanced SSH settings, and metadata. Click **Save** or press `Ctrl+S` (`Cmd+S` on macOS) to save from anywhere in the form. `Ctrl+Enter` remains available when your terminal reports it.
 
 ## Connection fields
 
@@ -12,14 +12,15 @@ Press `a` to add a host or `e` to edit the selected one. The form keeps the requ
 | Label | Display name shown in the list (spaces become SSH-safe aliases) |
 | Hostname | Server hostname or IP address |
 | User | Remote username (blank uses your SSH default) |
+| Method | SSH key, a password stored in Bast, or OpenSSH defaults |
+| Password | Shown when Method is Password. Stored locally; blank prompts on connect |
 | Port | Port number (blank defaults to 22) |
-| Identity | Key file, password auth, or ssh-agent defaults |
 
 Choose **Advanced** to configure jump hosts, startup commands, forwarding, keepalives, environment variables, and custom OpenSSH flags. See [Advanced host options](/docs/features/advanced-host-options) for each setting and its CLI equivalent.
 
 ## Metadata fields
 
-**Groups** use slash paths like `Work/Production`. You can nest up to five levels. Press `m` on a local host, then type to fuzzy-search existing groups. Choose a match, select the create row for a new path, or clear the group with **No group**. Press Space on a group header to collapse or expand it.
+**Groups** use slash paths like `Work/Production`. You can nest up to five levels. Press `m` on a local host, then type to fuzzy-search existing groups. Choose a match, select the create row for a new path, or clear the group with **No group**. Press Space on a group header to collapse or expand it. Right expands the focused group. Left collapses it, or moves to the parent group when that group is already collapsed or a host inside it is selected.
 
 **Tags** are comma-separated labels included in search.
 
@@ -28,6 +29,8 @@ Choose **Advanced** to configure jump hosts, startup commands, forwarding, keepa
 **Color** tints the label in the list so you can spot servers at a glance. Use a hex value.
 
 **Notes** are short text included in the detail panel and search results.
+
+**Open RDP** shows a Remote Desktop chip beside Connect. `Ctrl+O` opens the system Remote Desktop client for the selected host's address. The client asks for the username.
 
 ## Actions
 
@@ -50,4 +53,4 @@ Hosts defined outside Bast's managed config can still be edited for metadata (gr
 
 ## Synced hosts
 
-Hosts imported from [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [box.ascii.dev](/docs/features/box), [Upstash Box](/docs/features/upstash), or [Railway](/docs/features/railway) are read-only for connection settings and grouping. GCP, AWS, and Azure hosts can still be favorited or hidden; Box, Upstash, and Railway hosts are fully sync-owned. Disconnect the provider in the Sync tab to remove them. Bast prepares provider-specific SSH access immediately before connecting.
+Hosts imported from [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [Boat](/docs/features/boat), or [Upstash Box](/docs/features/upstash) are read-only for connection settings and grouping. GCP, AWS, and Azure hosts can still be favorited or hidden; Boat and Upstash hosts are fully sync-owned. Disconnect the provider in the Sync tab to remove them. Bast prepares provider-specific SSH access immediately before connecting.

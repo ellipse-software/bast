@@ -19,6 +19,9 @@ type Applier struct {
 
 // Apply writes a merged document to managed config, keys, and metadata.
 func (a Applier) Apply(doc Document) error {
+	if err := a.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
 	if err := a.Config.EnsureManaged(); err != nil {
 		return err
 	}
@@ -84,7 +87,7 @@ func (a Applier) Apply(doc Document) error {
 		}
 		body.Write(sshconfig.RenderManagedBlock(host.ManagedID, input))
 	}
-	if err := sshconfig.WriteManagedConfig(a.Paths.ManagedConfig, []byte(body.String())); err != nil {
+	if err := a.Config.RewriteManagedHosts([]byte(body.String())); err != nil {
 		return err
 	}
 
@@ -117,7 +120,77 @@ func (a Applier) Apply(doc Document) error {
 	if err := a.Store.SetCollapsedGroups(doc.Preferences.CollapsedGroups); err != nil {
 		return err
 	}
-	return applyIntegrations(a.Store, doc.Integrations)
+	if err := applyIntegrations(a.Store, doc.Integrations); err != nil {
+		return err
+	}
+	if err := a.Store.SetVaultTombstones(persistableTombstones(doc)); err != nil {
+		return err
+	}
+	return a.RestoreEnabledSyncIncludes()
+}
+
+func persistableTombstones(doc Document) metadata.VaultTombstones {
+	hosts := map[string]int64{}
+	for id, at := range doc.Tombstones.Hosts {
+		hosts[id] = at
+	}
+	keys := map[string]int64{}
+	for id, at := range doc.Tombstones.Keys {
+		keys[id] = at
+	}
+	for _, host := range doc.Hosts {
+		if host.DeletedAt == 0 && host.ManagedID != "" {
+			delete(hosts, host.ManagedID)
+		}
+	}
+	for _, key := range doc.Keys {
+		if key.DeletedAt != 0 {
+			continue
+		}
+		delete(keys, keyID(key))
+		if key.Name != "" {
+			delete(keys, "name:"+key.Name)
+		}
+	}
+	out := metadata.VaultTombstones{}
+	if len(hosts) > 0 {
+		out.Hosts = hosts
+	}
+	if len(keys) > 0 {
+		out.Keys = keys
+	}
+	return out
+}
+
+func (a Applier) RestoreEnabledSyncIncludes() error {
+	if a.Store == nil {
+		return nil
+	}
+	type item struct {
+		on   bool
+		path string
+	}
+	for _, it := range []item{
+		{a.Store.GCP().Enabled, a.Paths.SyncGCPConfig},
+		{a.Store.AWS().Enabled, a.Paths.SyncAWSConfig},
+		{a.Store.Azure().Enabled, a.Paths.SyncAzureConfig},
+		{a.Store.Boat().Enabled, a.Paths.SyncBoatConfig},
+		{a.Store.Upstash().Enabled, a.Paths.SyncUpstashConfig},
+		{a.Store.Vercel().Enabled, a.Paths.SyncVercelConfig},
+		{a.Store.Hetzner().Enabled, a.Paths.SyncHetznerConfig},
+		{a.Store.Bitqate().Enabled, a.Paths.SyncBitqateConfig},
+		{a.Store.Railway().Enabled, a.Paths.SyncRailwayConfig},
+		{a.Store.Fly().Enabled, a.Paths.SyncFlyConfig},
+		{a.Store.DigitalOcean().Enabled, a.Paths.SyncDigitalOceanConfig},
+	} {
+		if !it.on {
+			continue
+		}
+		if err := a.Config.IncludeExistingSyncConfig(it.path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func applyIntegrations(store *metadata.Store, in VaultIntegrations) error {
@@ -161,11 +234,65 @@ func applyIntegrations(store *metadata.Store, in VaultIntegrations) error {
 			return err
 		}
 	}
+	if in.Vercel != nil {
+		cur := store.Vercel()
+		cur.Enabled = in.Vercel.Enabled
+		cur.AutoSync = in.Vercel.AutoSync
+		if err := store.SetVercel(cur); err != nil {
+			return err
+		}
+	}
+	if in.Hetzner != nil {
+		cur := store.Hetzner()
+		cur.Enabled = in.Hetzner.Enabled
+		cur.AutoSync = in.Hetzner.AutoSync
+		cur.DefaultSSHUser = in.Hetzner.DefaultSSHUser
+		cur.DefaultSSHPort = in.Hetzner.DefaultSSHPort
+		cur.PreferPrivateIP = in.Hetzner.PreferPrivateIP
+		cur.ContextFilter = append([]string(nil), in.Hetzner.ContextFilter...)
+		cur.LocationFilter = append([]string(nil), in.Hetzner.LocationFilter...)
+		if err := store.SetHetzner(cur); err != nil {
+			return err
+		}
+	}
+	if in.Bitqate != nil {
+		cur := store.Bitqate()
+		cur.Enabled = in.Bitqate.Enabled
+		cur.AutoSync = in.Bitqate.AutoSync
+		cur.DefaultSSHUser = in.Bitqate.DefaultSSHUser
+		cur.DefaultSSHPort = in.Bitqate.DefaultSSHPort
+		cur.RegionFilter = append([]string(nil), in.Bitqate.RegionFilter...)
+		if err := store.SetBitqate(cur); err != nil {
+			return err
+		}
+	}
 	if in.Railway != nil {
 		cur := store.Railway()
 		cur.Enabled = in.Railway.Enabled
 		cur.AutoSync = in.Railway.AutoSync
 		if err := store.SetRailway(cur); err != nil {
+			return err
+		}
+	}
+	if in.Fly != nil {
+		cur := store.Fly()
+		cur.Enabled = in.Fly.Enabled
+		cur.AutoSync = in.Fly.AutoSync
+		cur.OrgFilter = append([]string(nil), in.Fly.OrgFilter...)
+		cur.AppFilter = append([]string(nil), in.Fly.AppFilter...)
+		cur.DefaultSSHUser = in.Fly.DefaultSSHUser
+		if err := store.SetFly(cur); err != nil {
+			return err
+		}
+	}
+	if in.DigitalOcean != nil {
+		cur := store.DigitalOcean()
+		cur.Enabled = in.DigitalOcean.Enabled
+		cur.AutoSync = in.DigitalOcean.AutoSync
+		cur.ContextFilter = append([]string(nil), in.DigitalOcean.ContextFilter...)
+		cur.RegionFilter = append([]string(nil), in.DigitalOcean.RegionFilter...)
+		cur.DefaultSSHUser = in.DigitalOcean.DefaultSSHUser
+		if err := store.SetDigitalOcean(cur); err != nil {
 			return err
 		}
 	}

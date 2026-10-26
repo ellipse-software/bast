@@ -11,8 +11,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	boxcloud "bast/internal/cloud/box"
-	upstashcloud "bast/internal/cloud/upstash"
+	"bast/internal/askpass"
+	boatcloud "bast/internal/cloud/boat"
 	"bast/internal/files"
 	"bast/internal/openssh"
 	"bast/internal/sshconfig"
@@ -133,17 +133,27 @@ func (m *App) disconnectFilesPane(index int) tea.Cmd {
 // cloudPrepareTimeout is the access-prep budget for GCP/AWS/Azure.
 const cloudPrepareTimeout = 90 * time.Second
 
-// boxPrepareTimeout covers resume (up to 3m), sync, and EnsureBoxAccess.
-const boxPrepareTimeout = 5 * time.Minute
+// boatPrepareTimeout covers resume (up to 3m), sync, and EnsureBoatAccess.
+const boatPrepareTimeout = 5 * time.Minute
 
 func prepareTimeoutForHost(host sshconfig.Host) time.Duration {
-	if host.Synced && (host.SyncSource == "box" || host.SyncSource == "upstash" || host.SyncSource == "railway") {
-		return boxPrepareTimeout
+	if !host.Synced {
+		return cloudPrepareTimeout
 	}
-	return cloudPrepareTimeout
+	switch host.SyncSource {
+	case "boat", "upstash", "vercel", "hetzner", "bitqate":
+		return boatPrepareTimeout
+	case "railway", "fly", "digitalocean":
+		return 6 * time.Minute
+	default:
+		return cloudPrepareTimeout
+	}
 }
 
 func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
+	if host.Synced && host.SyncSource == "vercel" {
+		return m.setNotice("Vercel Sandboxes are not OpenSSH; SFTP is unavailable")
+	}
 	m.initFilesState()
 	pane := &m.files.panes[index]
 	pane.closeSession()
@@ -158,6 +168,9 @@ func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
 	openSSH := m.openSSH
 	alias := host.Alias
 	prepare := m.filesPrepareFn(host)
+	passwordsDir := m.paths.PasswordsDir
+	exe := m.bastExecutable()
+	needInteractive := askpass.Needed(host, passwordsDir) || passwordOnly(host.Resolved)
 	return func() tea.Msg {
 		defer cancel()
 		if prepare != nil {
@@ -170,9 +183,9 @@ func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
 		}
 		var session *files.Session
 		var err error
-		if host.Synced && host.SyncSource == "upstash" {
+		if needInteractive {
 			session, err = files.OpenSessionPrepared(ctx, openSSH, alias, func(cmd *exec.Cmd) error {
-				upstashcloud.PrepareSSH(cmd, "")
+				askpass.Prepare(cmd, exe, host, passwordsDir)
 				return nil
 			})
 		} else {
@@ -204,20 +217,23 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 		ensure = m.syncer.EnsureAWSAccess
 	case "azure":
 		ensure = m.syncer.EnsureAzureAccess
-	case "box":
+	case "boat":
 		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if err := m.syncer.Config.CheckBoatSyncMigration(); err != nil {
+				return err
+			}
 			if m.hostLooksStopped(host) {
 				if status != nil {
-					status("Resuming box…")
+					status("Resuming sandbox…")
 				}
 				// Resume and sync are separate so a post-resume sync failure
-				// does not skip EnsureBoxAccess (which refreshes the SSH host).
-				if err := m.syncer.Box.Resume(ctx, host.SyncID, boxcloud.ResumeOpts{}); err != nil {
+				// does not skip EnsureBoatAccess (which refreshes the SSH host).
+				if err := m.syncer.Boat.Resume(ctx, host.SyncID, boatcloud.ResumeOpts{}); err != nil {
 					return err
 				}
-				_, _ = m.syncer.SyncBox(ctx)
+				_, _ = m.syncer.SyncBoat(ctx)
 			}
-			return m.syncer.EnsureBoxAccess(ctx, host, status)
+			return m.syncer.EnsureBoatAccess(ctx, host, status)
 		}
 	case "upstash":
 		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
@@ -232,18 +248,65 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 			}
 			return m.syncer.EnsureUpstashAccess(ctx, host, status)
 		}
+	case "bitqate":
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Starting BitQate VM…")
+				}
+				if _, err := m.syncer.StartBitqate(ctx, host.SyncID); err != nil {
+					return err
+				}
+			}
+			return m.syncer.EnsureBitqateAccess(ctx, host, status)
+		}
+	case "hetzner":
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Starting Hetzner server…")
+				}
+				if _, err := m.syncer.StartHetzner(ctx, host.SyncID); err != nil {
+					return err
+				}
+			}
+			return m.syncer.EnsureHetznerAccess(ctx, host, status)
+		}
 	case "railway":
 		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
 			if m.hostLooksStopped(host) {
 				if status != nil {
 					status("Resuming Railway service…")
 				}
-				if err := m.syncer.Railway.Resume(ctx, host.SyncID); err != nil {
+				if _, err := m.syncer.ResumeRailway(ctx, host.SyncID); err != nil {
 					return err
 				}
-				_, _ = m.syncer.SyncRailway(ctx)
 			}
 			return m.syncer.EnsureRailwayAccess(ctx, host, status)
+		}
+	case "fly":
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Starting Fly Machine…")
+				}
+				if _, err := m.syncer.ResumeFly(ctx, host.SyncID); err != nil {
+					return err
+				}
+			}
+			return m.syncer.EnsureFlyAccess(ctx, host, status)
+		}
+	case "digitalocean":
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Powering on Droplet…")
+				}
+				if _, err := m.syncer.ResumeDigitalOcean(ctx, host.SyncID); err != nil {
+					return err
+				}
+			}
+			return m.syncer.EnsureDigitalOceanAccess(ctx, host, status)
 		}
 	}
 	if ensure == nil {
@@ -636,9 +699,7 @@ func (m *App) filesOpenShell() (tea.Model, tea.Cmd) {
 		m.setError(err)
 		return m, nil
 	}
-	if host.Synced && host.SyncSource == "upstash" {
-		upstashcloud.PrepareSSH(cmd, m.syncer.BastExecutable)
-	}
+	m.prepareSSH(cmd, host)
 	prepare := m.filesPrepareFn(host)
 	telemetry.Track("files_shell", m.version)
 	m.status = "Shell on " + pane.alias + " in " + pane.cwd

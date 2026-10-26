@@ -18,7 +18,7 @@ Before `ssh` starts, Bast prints:
 
 The same banner appears for TUI connects and direct shell connects (`bast <label>` / `bast connect`).
 
-For cloud-synced hosts, Bast may print muted progress lines under the banner while it prepares access. This includes GCP key registration, AWS EC2 Instance Connect, Azure Microsoft Entra certificate requests, Box SSH key authorization, Upstash Box API-key SSH, and Railway SSH key registration. See the [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [box.ascii.dev](/docs/features/box), [Upstash Box](/docs/features/upstash), and [Railway](/docs/features/railway) pages for exact behavior.
+For cloud-synced hosts, Bast may print muted progress lines under the banner while it prepares access. This includes GCP key registration, AWS EC2 Instance Connect, Azure Microsoft Entra certificate requests, Boat SSH key authorization, and Upstash Box API-key SSH. See the [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [Boat](/docs/features/boat), and [Upstash Box](/docs/features/upstash) pages for exact behavior.
 
 ## Direct connect from the shell
 
@@ -35,6 +35,8 @@ Labels with spaces work when quoted. Bast resolves them to the correct SSH alias
 ## Native OpenSSH
 
 Bast always launches your system's `ssh` binary. There is no proprietary runtime or custom transport. Whatever works in your terminal with plain `ssh` will work through Bast.
+
+If a host has a password stored in Bast, connect (and Files/SFTP) set `SSH_ASKPASS` so Bast types that password. Hosts without a stored password still prompt in the terminal as usual. Stored passwords are for password-only hosts without a second factor. Jump-host passwords and OTP prompts are not filled.
 
 For browsing and transferring files without a full shell session, use the [Files](/docs/features/files) tab (OpenSSH SFTP over the same host config).
 

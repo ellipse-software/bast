@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"runtime"
 	"strings"
 	"time"
 
@@ -20,6 +21,8 @@ const (
 	formSectionMetadata     = "metadata"
 	hostFormSaveButtonLabel = " Save "
 	hostSaveHintInterval    = 2 * time.Second
+	rdpFieldLabel           = "Open RDP"
+	rdpOnValue              = "on"
 )
 
 type hostHubItem struct {
@@ -102,15 +105,23 @@ func (f *form) sectionFieldIndices(section string) []int {
 	return out
 }
 
+func hostHubInline(id string) bool {
+	switch id {
+	case "label", "hostname", "user":
+		return true
+	default:
+		return false
+	}
+}
+
 func hostHubItems(f *form) []hostHubItem {
 	items := []hostHubItem{
 		{id: "label", title: "Label", section: formSectionBasics},
 	}
 	if f.action != "metadata_edit" {
-		items = append(items, hostHubItem{id: "hostname", title: "Hostname", section: formSectionBasics})
-	}
-	if f.action != "metadata_edit" {
 		items = append(items,
+			hostHubItem{id: "hostname", title: "Hostname", section: formSectionBasics},
+			hostHubItem{id: "user", title: "User", section: formSectionBasics},
 			hostHubItem{id: "auth", title: "Authentication", section: formSectionAuth},
 			hostHubItem{id: "advanced", title: "Advanced", section: formSectionAdvanced},
 		)
@@ -123,23 +134,11 @@ func (m *App) hostFormSummary(section string) string {
 	f := m.form
 	switch section {
 	case formSectionAuth:
-		user := fieldDisplay(f, "User")
-		port := fieldDisplay(f, "Port")
 		identity := authSummary(f)
-		parts := []string{}
-		if user != "" && user != "-" {
-			parts = append(parts, user)
-		}
-		if port != "" && port != "-" && port != "22" {
-			parts = append(parts, "port "+port)
-		}
-		if identity != "" {
-			parts = append(parts, identity)
-		}
-		if len(parts) == 0 {
+		if identity == "" {
 			return "OpenSSH defaults"
 		}
-		return strings.Join(parts, " · ")
+		return identity
 	case formSectionAdvanced:
 		return m.hostAdvancedSummary()
 	case formSectionMetadata:
@@ -149,6 +148,9 @@ func (m *App) hostFormSummary(section string) string {
 		}
 		if tags := fieldDisplay(f, "Tags"); tags != "" && tags != "-" {
 			parts = append(parts, tags)
+		}
+		if rdp := fieldDisplay(f, rdpFieldLabel); rdp == "On" {
+			parts = append(parts, "RDP")
 		}
 		if len(parts) == 0 {
 			return "-"
@@ -166,7 +168,7 @@ func fieldDisplay(f *form, label string) string {
 	}
 	if len(item.options) > 0 && !item.options[item.selected].custom {
 		if item.options[item.selected].value == passwordOnlyIdentity {
-			return "Password only"
+			return "Password"
 		}
 		return item.options[item.selected].label
 	}
@@ -178,7 +180,7 @@ func fieldDisplay(f *form, label string) string {
 }
 
 func authSummary(f *form) string {
-	item := f.fieldByLabel("Identity file")
+	item := f.fieldByLabel(methodFieldLabel)
 	if item == nil {
 		return ""
 	}
@@ -218,6 +220,7 @@ func (m *App) openHostForm(title, action string, fields []field) {
 	}
 	m.hostSaveHintID++
 	m.hostSaveHintEnter = false
+	m.syncHostPasswordField()
 	m.focusHostHubItem()
 }
 
@@ -235,7 +238,7 @@ func (m *App) focusHostHubItem() {
 		f.hubIndex = 0
 	}
 	item := items[f.hubIndex]
-	if item.id == "label" || item.id == "hostname" {
+	if hostHubInline(item.id) {
 		idx := f.fieldIndex(item.title)
 		if idx >= 0 {
 			f.index = idx
@@ -307,7 +310,7 @@ func (m *App) commitHostHubField() {
 		return
 	}
 	item := items[f.hubIndex]
-	if item.id == "label" || item.id == "hostname" {
+	if hostHubInline(item.id) {
 		m.commitFormField()
 	}
 }
@@ -355,18 +358,16 @@ func (m *App) hostHubEnter() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	item := items[f.hubIndex]
-	switch item.id {
-	case "label", "hostname":
+	if hostHubInline(item.id) {
 		m.commitFormField()
 		if f.hubIndex+1 < len(items) {
 			f.hubIndex++
 			m.focusHostHubItem()
 		}
 		return m, nil
-	default:
-		m.enterHostSection(item.section)
-		return m, nil
 	}
+	m.enterHostSection(item.section)
+	return m, nil
 }
 
 func (m *App) hostSectionEnter() (tea.Model, tea.Cmd) {
@@ -379,6 +380,13 @@ func (m *App) hostSectionEnter() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.commitFormField()
+		if item.label == methodFieldLabel && item.value == passwordOnlyIdentity {
+			if idx := f.fieldIndex(passwordFieldLabel); idx >= 0 && !f.fields[idx].hidden {
+				f.index = idx
+				f.selecting = false
+				m.focusFormField()
+			}
+		}
 		return m, nil
 	}
 	if len(item.options) > 0 && !item.options[item.selected].custom {
@@ -397,12 +405,7 @@ func (m *App) updateHostForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	f := m.form
 
-	if msg.Code == tea.KeyEnter && msg.Mod&tea.ModCtrl != 0 {
-		m.commitFormField()
-		return m.submitForm()
-	}
-
-	if key == "ctrl+j" {
+	if isHostFormSaveKey(msg) {
 		m.commitFormField()
 		return m.submitForm()
 	}
@@ -418,7 +421,7 @@ func (m *App) updateHostForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	item := hostHubItems(f)[f.hubIndex]
-	if item.id == "label" || item.id == "hostname" {
+	if hostHubInline(item.id) {
 		switch key {
 		case "esc":
 			m.form = nil
@@ -736,6 +739,12 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 		value := item.value
 		if len(item.options) > 0 && !item.options[item.selected].custom {
 			value = item.options[item.selected].label
+		} else if item.secret {
+			if strings.TrimSpace(item.value) != "" {
+				value = "********"
+			} else {
+				value = "-"
+			}
 		}
 		if value == "" {
 			value = "-"
@@ -745,11 +754,32 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 	return b.String()
 }
 
-func hostFormHint(f *form, textInputActive, showEnterKey bool) string {
-	save := "Ctrl+J save"
-	if showEnterKey {
-		save = "Ctrl+↵ save"
+func isHostFormSaveKey(msg tea.KeyPressMsg) bool {
+	if msg.Code == tea.KeyEnter && msg.Mod&tea.ModCtrl != 0 {
+		return true
 	}
+	// Keystroke keeps the modifier when Text is also set. Ctrl+J stays as an
+	// unadvertised alias for terminals that swallow Ctrl+S.
+	switch msg.Keystroke() {
+	case "ctrl+s", "ctrl+j", "super+s", "meta+s", "cmd+s":
+		return true
+	default:
+		return false
+	}
+}
+
+func hostFormSaveHint(showEnterKey bool) string {
+	if showEnterKey {
+		return "Ctrl+↵ save"
+	}
+	if runtime.GOOS == "darwin" {
+		return "Cmd+S save"
+	}
+	return "Ctrl+S save"
+}
+
+func hostFormHint(f *form, textInputActive, showEnterKey bool) string {
+	save := hostFormSaveHint(showEnterKey)
 	if f.screen == formScreenAdvancedHub {
 		return "Enter open section • ↑/↓ or j/k move • ⌫/Esc back • " + save + " • q quit"
 	}
@@ -775,7 +805,7 @@ func hostFormHint(f *form, textInputActive, showEnterKey bool) string {
 	items := hostHubItems(f)
 	if f.hubIndex >= 0 && f.hubIndex < len(items) {
 		hub := items[f.hubIndex]
-		if hub.id == "label" || hub.id == "hostname" {
+		if hostHubInline(hub.id) {
 			return "Enter next • ↑/↓ or Tab move • " + save + " • q type • Esc cancel"
 		}
 	}
@@ -792,13 +822,15 @@ func hostFormFields(m *App, meta metadataHostValues, conn hostConnectionValues, 
 		field{label: "Label", section: formSectionBasics, description: labelDesc, value: meta.label, placeholder: "Work/api"},
 	)
 	if conn.includeConnection {
+		method := m.methodField(conn.identity, conn.passwordOnly)
+		method.section = formSectionAuth
 		fields = append(fields,
 			field{label: "Hostname", section: formSectionBasics, description: descHostHostname, value: conn.hostname, placeholder: "server.example.com"},
-			field{label: "User", section: formSectionAuth, description: descHostUser, value: conn.user, placeholder: "ubuntu", optional: true},
+			field{label: "User", section: formSectionBasics, description: descHostUser, value: conn.user, placeholder: "ubuntu", optional: true},
+			method,
+			m.passwordField(conn.passwordStored),
 			field{label: "Port", section: formSectionAuth, description: descHostPort, value: conn.port, placeholder: "22", optional: true},
 		)
-		fields = append(fields, m.identityField(conn.identity, conn.passwordOnly))
-		fields[len(fields)-1].section = formSectionAuth
 		fields = append(fields, advancedFormFields(m, conn.advanced)...)
 	}
 	fields = append(fields,
@@ -806,12 +838,32 @@ func hostFormFields(m *App, meta metadataHostValues, conn hostConnectionValues, 
 		field{label: "Environment", section: formSectionMetadata, description: descHostEnvironment, value: meta.environment, placeholder: "production", optional: true},
 		field{label: "Color", section: formSectionMetadata, description: descHostColor, value: meta.color, placeholder: "#7C3AED", optional: true},
 		field{label: "Notes", section: formSectionMetadata, description: descHostNotes, value: meta.notes, optional: true},
+		rdpFormField(meta.rdp),
 	)
 	return fields
 }
 
+func rdpFormField(enabled bool) field {
+	item := field{
+		label:       rdpFieldLabel,
+		section:     formSectionMetadata,
+		description: descHostRDP,
+		optional:    true,
+		options: []fieldOption{
+			{label: "Off", value: ""},
+			{label: "On", value: rdpOnValue},
+		},
+	}
+	if enabled {
+		item.selected = 1
+		item.value = rdpOnValue
+	}
+	return item
+}
+
 type metadataHostValues struct {
 	label, tags, environment, color, notes, labelDesc string
+	rdp                                               bool
 }
 
 type hostConnectionValues struct {
@@ -819,6 +871,7 @@ type hostConnectionValues struct {
 	hostname, user, port string
 	identity             string
 	passwordOnly         bool
+	passwordStored       bool
 	advanced             sshconfig.AdvancedSettings
 }
 

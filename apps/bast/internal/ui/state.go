@@ -9,10 +9,15 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/cloud"
-	boxcloud "bast/internal/cloud/box"
+	bitqatecloud "bast/internal/cloud/bitqate"
+	boatcloud "bast/internal/cloud/boat"
+	docloud "bast/internal/cloud/digitalocean"
+	flycloud "bast/internal/cloud/fly"
+	hetznercloud "bast/internal/cloud/hetzner"
 	railwaycloud "bast/internal/cloud/railway"
 	cloudsync "bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
+	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/platform"
@@ -154,18 +159,18 @@ type hostGroup struct {
 func (m *App) hostRows() []hostRow {
 	hostMetadata := m.hostMetadata()
 	search := m.searchText()
-	hostSignature := hostListSignature(m.hosts)
 	cache := m.hostRowsCache
 	if cache.rows != nil &&
 		cache.hostGeneration == m.hostGeneration &&
 		cache.metadataRevision == m.hostMetaRevision &&
 		cache.collapseGeneration == m.collapseRevision &&
 		cache.search == search &&
-		cache.showHidden == m.showHidden &&
-		cache.boxEnabled == m.metadata.Box().Enabled &&
-		cache.hostSignature == hostSignature {
-		return cache.rows
+		cache.showHidden == m.showHidden {
+		if m.hostGeneration > 0 || cache.hostSignature == hostListSignature(m.hosts) {
+			return cache.rows
+		}
 	}
+	hostSignature := hostListSignature(m.hosts)
 	hosts := m.filteredHostsWithMetadata(hostMetadata)
 	groups := map[string]*hostGroup{}
 	ungrouped := []sshconfig.Host{}
@@ -206,6 +211,17 @@ func (m *App) hostRows() []hostRow {
 		}
 		parent.hosts = append(parent.hosts, host)
 	}
+	for _, d := range cloud.Descriptors() {
+		if seenTopLevel[d.GroupRoot] {
+			continue
+		}
+		if !m.shouldInjectProviderRoot(d.Kind) {
+			continue
+		}
+		seenTopLevel[d.GroupRoot] = true
+		topLevelOrder = append(topLevelOrder, d.GroupRoot)
+		groups[d.GroupRoot] = &hostGroup{path: d.GroupRoot}
+	}
 	rows := make([]hostRow, 0, len(hosts)+len(groups))
 	for _, group := range topLevelOrder {
 		if group == "" {
@@ -219,8 +235,7 @@ func (m *App) hostRows() []hostRow {
 	m.hostRowsCache = hostRowsCache{
 		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
 		collapseGeneration: m.collapseRevision, search: search,
-		showHidden: m.showHidden, boxEnabled: m.metadata.Box().Enabled,
-		hostSignature: hostSignature, rows: rows,
+		showHidden: m.showHidden, hostSignature: hostSignature, rows: rows,
 	}
 	return rows
 }
@@ -236,7 +251,6 @@ func (m *App) hostListRows() []hostRow {
 		cache.collapseGeneration == m.collapseRevision &&
 		cache.search == search &&
 		cache.showHidden == m.showHidden &&
-		cache.boxEnabled == m.hostRowsCache.boxEnabled &&
 		cache.hostSignature == m.hostRowsCache.hostSignature &&
 		cache.historyCollapsed == m.historySuggestionsCollapsed &&
 		cache.suggestionSig == suggestionSig {
@@ -258,7 +272,7 @@ func (m *App) hostListRows() []hostRow {
 	m.hostListRowsCache = hostListRowsCache{
 		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
 		collapseGeneration: m.collapseRevision, search: search,
-		showHidden: m.showHidden, boxEnabled: m.hostRowsCache.boxEnabled,
+		showHidden:       m.showHidden,
 		hostSignature:    m.hostRowsCache.hostSignature,
 		historyCollapsed: m.historySuggestionsCollapsed, suggestionSig: suggestionSig, rows: rows,
 	}
@@ -654,6 +668,93 @@ func (m *App) groupExists(group string) bool {
 	return false
 }
 
+func (m *App) moveHostGroup(delta int) tea.Cmd {
+	rows := m.hostListRows()
+	if m.cursor < 0 || m.cursor >= len(rows) {
+		return nil
+	}
+	row := rows[m.cursor]
+	if row.historyHeader || row.suggestion != nil {
+		return nil
+	}
+	if delta > 0 {
+		if !row.header || row.group == "" || !m.collapsedGroups[row.group] {
+			return nil
+		}
+		return m.setGroupCollapsed(row.group, false)
+	}
+	if row.header {
+		if row.group == "" {
+			return nil
+		}
+		if m.collapsedGroups[row.group] {
+			return m.focusParentGroup(row.group)
+		}
+		return m.setGroupCollapsed(row.group, true)
+	}
+	if row.group == "" {
+		return nil
+	}
+	m.focusGroupHeader(row.group)
+	return nil
+}
+
+func (m *App) focusParentGroup(group string) tea.Cmd {
+	parent, ok := parentGroupPath(group)
+	if !ok {
+		return nil
+	}
+	m.focusGroupHeader(parent)
+	return nil
+}
+
+func parentGroupPath(group string) (string, bool) {
+	slash := strings.LastIndex(group, "/")
+	if slash <= 0 {
+		return "", false
+	}
+	return group[:slash], true
+}
+
+func (m *App) focusGroupHeader(group string) bool {
+	rows := m.hostListRows()
+	for i, row := range rows {
+		if row.header && !row.historyHeader && row.group == group {
+			m.cursor = i
+			return true
+		}
+	}
+	return false
+}
+
+func (m *App) setGroupCollapsed(group string, collapsed bool) tea.Cmd {
+	if m.collapsedGroups == nil {
+		m.collapsedGroups = map[string]bool{}
+	}
+	if m.collapsedGroups[group] == collapsed {
+		return nil
+	}
+	if collapsed && m.searchText() != "" {
+		return m.setNotice("Clear the search filter to collapse groups")
+	}
+	if collapsed {
+		m.collapsedGroups[group] = true
+	} else {
+		delete(m.collapsedGroups, group)
+	}
+	m.collapseRevision++
+	for i, row := range m.hostRows() {
+		if row.header && row.group == group {
+			m.cursor = i
+			break
+		}
+	}
+	if err := m.persistCollapsedGroups(); err != nil {
+		m.setError(err)
+	}
+	return nil
+}
+
 func (m *App) toggleSelectedGroup() tea.Cmd {
 	if m.searchText() != "" {
 		return m.setNotice("Clear the search filter to collapse groups")
@@ -890,30 +991,51 @@ func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
 	if !ok || !cloud.CapabilitiesFor(kind).Stop {
 		return false
 	}
-	if kind == cloud.Box {
-		return boxcloud.HostLooksStopped(host.Resolved.HostName, meta.Tags)
+	if kind == cloud.Boat {
+		return boatcloud.HostLooksStopped(host.Resolved.HostName, meta.Tags)
 	}
 	if kind == cloud.Upstash {
 		return upstashcloud.HostLooksStopped(meta.Tags)
 	}
+	if kind == cloud.Vercel {
+		return vercelcloud.HostLooksStopped(meta.Tags)
+	}
+	if kind == cloud.Hetzner {
+		return hetznercloud.HostLooksStopped(meta.Tags)
+	}
+	if kind == cloud.Bitqate {
+		return bitqatecloud.HostLooksStopped(meta.Tags)
+	}
 	if kind == cloud.Railway {
 		return railwaycloud.HostLooksStopped(meta.Tags)
 	}
+	if kind == cloud.Fly {
+		return flycloud.HostLooksStopped(host.Resolved.HostName, meta.Tags)
+	}
+	if kind == cloud.DigitalOcean {
+		return docloud.HostLooksStopped(meta.Tags, "")
+	}
 	return false
 }
-func hostIdentity(h sshconfig.Host) string {
+func hostIdentity(h sshconfig.Host, passwordStored bool) string {
 	if passwordOnly(h.Resolved) {
-		return "password only"
+		if passwordStored {
+			return "password · saved"
+		}
+		return "password"
 	}
 	return joinOr(h.Resolved.IdentityFiles, "agent/defaults")
 }
 
-func hostAuthSummary(h sshconfig.Host) string {
+func hostAuthSummary(h sshconfig.Host, passwordStored bool) string {
 	if !h.Synced {
-		return hostIdentity(h)
+		return hostIdentity(h, passwordStored)
 	}
 	if passwordOnly(h.Resolved) {
-		return "password only"
+		if passwordStored {
+			return "password · saved"
+		}
+		return "password"
 	}
 	if len(h.Resolved.IdentityFiles) > 0 {
 		return h.Resolved.IdentityFiles[0]
@@ -936,11 +1058,11 @@ func hostStatusLine(h sshconfig.Host, meta metadata.Host) string {
 		parts = append(parts, "AWS synced")
 	case h.Synced && h.SyncSource == "azure":
 		parts = append(parts, "Azure synced")
-	case h.Synced && h.SyncSource == "box":
+	case h.Synced && h.SyncSource == "boat":
 		if hostLooksStopped(h, meta) {
-			parts = append(parts, "Box stopped")
+			parts = append(parts, "Boat stopped")
 		} else {
-			parts = append(parts, "Box synced")
+			parts = append(parts, "Boat synced")
 		}
 	case h.Synced && h.SyncSource == "upstash":
 		if hostLooksStopped(h, meta) {
@@ -953,6 +1075,18 @@ func hostStatusLine(h sshconfig.Host, meta metadata.Host) string {
 			parts = append(parts, "Railway stopped")
 		} else {
 			parts = append(parts, "Railway synced")
+		}
+	case h.Synced && h.SyncSource == "fly":
+		if hostLooksStopped(h, meta) {
+			parts = append(parts, "Fly stopped")
+		} else {
+			parts = append(parts, "Fly synced")
+		}
+	case h.Synced && h.SyncSource == "digitalocean":
+		if hostLooksStopped(h, meta) {
+			parts = append(parts, "DigitalOcean stopped")
+		} else {
+			parts = append(parts, "DigitalOcean synced")
 		}
 	case h.Synced:
 		parts = append(parts, h.SyncSource+" synced")

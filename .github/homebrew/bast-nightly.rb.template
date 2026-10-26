@@ -1,0 +1,30 @@
+class BastNightly < Formula
+  desc "Browse SSH hosts, manage keys, and connect from the terminal (nightly)"
+  homepage "https://bast.sh"
+  url "https://github.com/ellipse-software/bast/archive/{{COMMIT}}.tar.gz"
+  version "{{VERSION}}"
+  sha256 "{{SHA256}}"
+  license "MIT"
+
+  depends_on "go" => :build
+
+  conflicts_with "bast", because: "both install a `bast` binary"
+
+  def install
+    ldflags = %W[
+      -s -w
+      -X main.version=#{version}
+    ]
+    cd "apps/bast" do
+      system "go", "build", *std_go_args(ldflags:)
+    end
+  end
+
+  test do
+    ENV["BAST_NO_TELEMETRY"] = "1"
+    assert_match "bast #{version}", shell_output("#{bin}/bast --version")
+    assert_match "native SSH picker", shell_output("#{bin}/bast --help")
+    output = shell_output("#{bin}/bast --json hosts list")
+    assert_match '"ok":true', output
+  end
+end

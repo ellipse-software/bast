@@ -249,4 +249,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           NIGHTLY_VERSION: ${{ needs.release.outputs.version }}
-        run: bash .github/scripts/bump-homebrew-tap-nightly.sh "$NIGHTLY_VERSION"
+        run: bash .github/scripts/bump-homebrew-tap-nightly.sh "$NIGHTLY_VERSION" "$GITHUB_SHA"

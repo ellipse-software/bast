@@ -19,20 +19,50 @@ func TestForHomeUsesDotConfig(t *testing.T) {
 	if p.SyncAzureConfig != filepath.Join(home, ".ssh", "bast", "sync", "azure", "config") {
 		t.Fatalf("SyncAzureConfig = %q", p.SyncAzureConfig)
 	}
-	if p.SyncBoxConfig != filepath.Join(home, ".ssh", "bast", "sync", "box", "config") {
-		t.Fatalf("SyncBoxConfig = %q", p.SyncBoxConfig)
+	if p.SyncBoatConfig != filepath.Join(home, ".ssh", "bast", "sync", "boat", "config") {
+		t.Fatalf("SyncBoatConfig = %q", p.SyncBoatConfig)
 	}
 	if p.SyncUpstashConfig != filepath.Join(home, ".ssh", "bast", "sync", "upstash", "config") {
 		t.Fatalf("SyncUpstashConfig = %q", p.SyncUpstashConfig)
 	}
+	if p.SyncVercelConfig != filepath.Join(home, ".ssh", "bast", "sync", "vercel", "config") {
+		t.Fatalf("SyncVercelConfig = %q", p.SyncVercelConfig)
+	}
+	if p.SyncHetznerConfig != filepath.Join(home, ".ssh", "bast", "sync", "hetzner", "config") {
+		t.Fatalf("SyncHetznerConfig = %q", p.SyncHetznerConfig)
+	}
 	if p.UpstashAPIKey != filepath.Join(home, ".config", "bast", "upstash-box-api-key") {
 		t.Fatalf("UpstashAPIKey = %q", p.UpstashAPIKey)
+	}
+	if p.PasswordsDir != filepath.Join(home, ".config", "bast", "passwords") {
+		t.Fatalf("PasswordsDir = %q", p.PasswordsDir)
+	}
+	if p.VercelToken != filepath.Join(home, ".config", "bast", "vercel-token") {
+		t.Fatalf("VercelToken = %q", p.VercelToken)
+	}
+	if p.HetznerAPIKey != filepath.Join(home, ".config", "bast", "hetzner-api-token") {
+		t.Fatalf("HetznerAPIKey = %q", p.HetznerAPIKey)
+	}
+	if p.HetznerTokenDir != filepath.Join(home, ".config", "bast", "hetzner", "tokens") {
+		t.Fatalf("HetznerTokenDir = %q", p.HetznerTokenDir)
+	}
+	if p.BitqateToken != filepath.Join(home, ".config", "bast", "bitqate-token") {
+		t.Fatalf("BitqateToken = %q", p.BitqateToken)
+	}
+	if p.SyncBitqateConfig != filepath.Join(home, ".ssh", "bast", "sync", "bitqate", "config") {
+		t.Fatalf("SyncBitqateConfig = %q", p.SyncBitqateConfig)
+	}
+	if p.RailwayAPIToken != filepath.Join(home, ".config", "bast", "railway-api-token") {
+		t.Fatalf("RailwayAPIToken = %q", p.RailwayAPIToken)
 	}
 	if p.SyncRailwayConfig != filepath.Join(home, ".ssh", "bast", "sync", "railway", "config") {
 		t.Fatalf("SyncRailwayConfig = %q", p.SyncRailwayConfig)
 	}
-	if p.RailwayAPIToken != filepath.Join(home, ".config", "bast", "railway-api-token") {
-		t.Fatalf("RailwayAPIToken = %q", p.RailwayAPIToken)
+	if p.SyncFlyConfig != filepath.Join(home, ".ssh", "bast", "sync", "fly", "config") {
+		t.Fatalf("SyncFlyConfig = %q", p.SyncFlyConfig)
+	}
+	if p.SyncDigitalOceanConfig != filepath.Join(home, ".ssh", "bast", "sync", "digitalocean", "config") {
+		t.Fatalf("SyncDigitalOceanConfig = %q", p.SyncDigitalOceanConfig)
 	}
 	if p.AzureDir != filepath.Join(home, ".ssh", "bast", "azure") {
 		t.Fatalf("AzureDir = %q", p.AzureDir)

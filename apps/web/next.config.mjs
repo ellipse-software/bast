@@ -61,6 +61,11 @@ const config = {
 	async redirects() {
 		return [
 			{
+				source: "/docs/features/box",
+				destination: "/docs/features/boat",
+				permanent: true,
+			},
+			{
 				source: "/docs/reference/install",
 				destination: "/docs/install",
 				permanent: true,

@@ -50,7 +50,11 @@ func writeGQLErrors(w http.ResponseWriter, messages ...string) {
 
 func decodeGQL(t *testing.T, r *http.Request) gqlRequest {
 	t.Helper()
-	if got := r.Header.Get("Authorization"); got != "Bearer rw_testtoken" {
+	if project := r.Header.Get("Project-Access-Token"); project != "" {
+		if project != "rw_testtoken" {
+			t.Errorf("Project-Access-Token = %q", project)
+		}
+	} else if got := r.Header.Get("Authorization"); got != "Bearer rw_testtoken" {
 		t.Errorf("Authorization = %q", got)
 	}
 	var req gqlRequest
@@ -118,7 +122,7 @@ func TestListAndDiscover(t *testing.T) {
 	if discovery.Instances[0].SyncID != "proj-1/env-prod/svc-web" {
 		t.Fatalf("sync id = %s", discovery.Instances[0].SyncID)
 	}
-	if GroupPath(discovery.Instances[0]) != "Railway / api / production" {
+	if GroupPath(discovery.Instances[0]) != "Railway/api/production" {
 		t.Fatalf("group = %s", GroupPath(discovery.Instances[0]))
 	}
 	if AliasFor(discovery.Instances[0]) != "railway_api_web" {
@@ -281,8 +285,8 @@ func TestDelete(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		if req.Variables["id"] != "svc-web" {
-			t.Errorf("id = %#v", req.Variables["id"])
+		if req.Variables["id"] != "svc-web" || req.Variables["environmentId"] != "env-1" {
+			t.Errorf("variables = %#v", req.Variables)
 		}
 		writeGQL(w, map[string]any{"serviceDelete": true})
 	})

@@ -25,6 +25,7 @@ func historyTestApp(t *testing.T, suggestions ...metadata.HistorySuggestion) *Ap
 		t.Fatal(err)
 	}
 	app.historySuggestions = state.Pending
+	app.onboarding = false
 	if len(suggestions) > 0 {
 		app.cursor = 1
 	}
@@ -177,7 +178,7 @@ func TestReviewHistorySuggestionPrefillsExistingHostForm(t *testing.T) {
 			t.Fatalf("%s = %q, want %q", label, got, want)
 		}
 	}
-	if got := formFieldByLabel(m, "Identity file").value; got != suggestion.IdentityFile {
+	if got := formFieldByLabel(m, "Method").value; got != suggestion.IdentityFile {
 		t.Fatalf("identity = %q", got)
 	}
 }

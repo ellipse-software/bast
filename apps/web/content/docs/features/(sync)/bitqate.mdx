@@ -1,0 +1,114 @@
+---
+title: BitQate
+description: Import BitQate VPS instances into Bast over the public API, then start, stop, and restart them.
+---
+
+The **Sync** tab (`4`) imports [BitQate](https://bitqate.com) VPS instances into Bast. Synced hosts show up in the host picker under **BitQate**. Bast talks to BitQate over the public REST API (`https://api.bitqate.com/v1`).
+
+Connection settings, group, and label stay owned by sync. You can start, stop, and restart instances from Bast. Create, rebuild, and delete stay in the BitQate dashboard.
+
+## Requirements
+
+- A BitQate API token. Mint one in the BitQate dashboard under **Settings → API**
+- Network access to `https://api.bitqate.com/v1`
+- A local private key matching the SSH public key you attached when the instance was created
+
+Tokens carry scopes. `bast bitqate list` and sync need `vms:read`. Start, stop, and restart need `vms:read` **and** `vms:power` - Bast reads the instance before and after each power action.
+
+Bast also reads `BITQATE_TOKEN`, and `BITQATE_API_URL` overrides the API base URL for self-hosted or test deployments.
+
+## Connect BitQate
+
+1. Open Bast and press `4` for Sync.
+2. Select **BitQate** and press Enter.
+3. Choose **Connect** or **API token** and paste the token.
+
+Bast writes the token to `~/.config/bast/bitqate-token` (mode `0600`). Tokens are not stored in SSH config, `state.json`, or Vault. Disconnect leaves the token file in place.
+
+CLI:
+
+```bash
+bast bitqate key
+bast bitqate key --token-file path
+bast bitqate key --clear
+bast sync bitqate
+bast sync status
+bast sync disable bitqate
+```
+
+## What gets created
+
+Each instance becomes an SSH host under:
+
+```
+~/.ssh/bast/sync/bitqate/config
+```
+
+The host picker groups instances by region:
+
+```
+BitQate / <region>
+  vm-name
+```
+
+Stopped instances stay in the same group and are hidden from the host list until you press `.`. If every instance is off, the **BitQate** group is hidden too. Search still finds them.
+
+Instances with no public IPv4 are skipped. Suspended (billing-locked) instances are listed but cannot be started from Bast — renew them in the BitQate dashboard first.
+
+The instance's SSH host key fingerprint is stored on the host and shown in the detail view and `bast bitqate list`.
+
+## How Bast connects
+
+On connect (TUI Enter or `bast connect` / `bast <label>`), Bast confirms the instance, refreshes the address, then launches your system `ssh`.
+
+| Situation | Behavior |
+| --- | --- |
+| Public IPv4 | Direct OpenSSH to that address |
+| Existing local host with the same IP | Reuses that host's user, port, and identity |
+| Attached SSH key matches a local key | Uses that private key with `IdentitiesOnly yes` |
+| No matching local key | Connects with user `root` (or **Default SSH user**) and OpenSSH's usual identities |
+| Instance is stopped | Enter starts it, waits until it is running, then SSHes |
+
+BitQate provisions SSH keys for **root** on port 22. If you already have a working host for that IP, sync copies those settings. Otherwise set **Default SSH user** / **Default SSH port**.
+
+Bast cannot publish a new key onto a running instance — the API has no SSH-key write surface. Attach the key at creation time in the BitQate dashboard, or add it on the guest yourself.
+
+## Power control
+
+BitQate still bills a VPS while it is powered off.
+
+| Action | What BitQate does |
+| --- | --- |
+| Start (`r` / `bast bitqate start`) | `POST /vms/{id}/start` |
+| Stop (`o` / `bast bitqate stop`) | `POST /vms/{id}/stop` |
+| Restart (`R` / `bast bitqate restart`) | `POST /vms/{id}/restart` |
+
+## BitQate settings
+
+Inside the BitQate submenu:
+
+| Action | Purpose |
+| --- | --- |
+| Sync now | Re-run discovery and refresh SSH config |
+| Connect / Disconnect | Enable sync, or turn it off and remove generated hosts |
+| Enable / Disable auto-sync | Sync when the TUI opens (off by default) |
+| API token | Store the token under `~/.config/bast/bitqate-token` |
+| Default SSH user | Override `root` |
+| Default SSH port | Override 22 when your hosts use another port |
+| Region filter | Comma-separated region names; blank = all |
+| Refresh status | Reload token and last-sync information |
+
+## CLI
+
+```bash
+bast sync bitqate
+bast bitqate list
+bast bitqate start <host|id>
+bast bitqate stop <host|id>
+bast bitqate restart <host|id>
+bast connect bitqate_my-vm
+```
+
+## Re-sync and cleanup
+
+Press `r` on the Sync tab (or `bast sync bitqate`) after you create or delete instances outside Bast. Disconnecting BitQate removes the generated sync config. The token file stays until you delete it from `~/.config/bast/` or run `bast bitqate key --clear`.

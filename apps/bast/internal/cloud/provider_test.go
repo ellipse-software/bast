@@ -17,12 +17,22 @@ func TestKindForGroup(t *testing.T) {
 		{"AWS/default", AWS, true},
 		{"Microsoft Azure", Azure, true},
 		{"Microsoft Azure/Production/apps", Azure, true},
-		{"Box", Box, true},
-		{"Box/Running", Box, true},
+		{"Boat", Boat, true},
+		{"Boat/Running", Boat, true},
 		{"Upstash", Upstash, true},
 		{"Upstash/dev", Upstash, true},
+		{"Vercel", Vercel, true},
+		{"Vercel/app", Vercel, true},
+		{"Hetzner Cloud", Hetzner, true},
+		{"Hetzner Cloud/prod/fsn1", Hetzner, true},
+		{"BitQate", Bitqate, true},
+		{"BitQate/Falkenstein", Bitqate, true},
 		{"Railway", Railway, true},
 		{"Railway/api/production", Railway, true},
+		{"Fly.io", Fly, true},
+		{"Fly.io/personal/app", Fly, true},
+		{"DigitalOcean", DigitalOcean, true},
+		{"DigitalOcean/default/nyc3", DigitalOcean, true},
 		{"Work", "", false},
 		{"Boxing", "", false},
 		{"", "", false},
@@ -39,35 +49,75 @@ func TestKindForGroup(t *testing.T) {
 }
 
 func TestKindForSource(t *testing.T) {
-	kind, ok := KindForSource("box")
-	if !ok || kind != Box {
-		t.Fatalf("KindForSource(box) = %q, %t", kind, ok)
+	kind, ok := KindForSource("boat")
+	if !ok || kind != Boat {
+		t.Fatalf("KindForSource(boat) = %q, %t", kind, ok)
 	}
 	kind, ok = KindForSource("upstash")
 	if !ok || kind != Upstash {
 		t.Fatalf("KindForSource(upstash) = %q, %t", kind, ok)
 	}
+	kind, ok = KindForSource("vercel")
+	if !ok || kind != Vercel {
+		t.Fatalf("KindForSource(vercel) = %q, %t", kind, ok)
+	}
+	kind, ok = KindForSource("hetzner")
+	if !ok || kind != Hetzner {
+		t.Fatalf("KindForSource(hetzner) = %q, %t", kind, ok)
+	}
+	kind, ok = KindForSource("bitqate")
+	if !ok || kind != Bitqate {
+		t.Fatalf("KindForSource(bitqate) = %q, %t", kind, ok)
+	}
 	kind, ok = KindForSource("railway")
 	if !ok || kind != Railway {
 		t.Fatalf("KindForSource(railway) = %q, %t", kind, ok)
 	}
-	if _, ok := KindForSource("digitalocean"); ok {
+	kind, ok = KindForSource("fly")
+	if !ok || kind != Fly {
+		t.Fatalf("KindForSource(fly) = %q, %t", kind, ok)
+	}
+	kind, ok = KindForSource("digitalocean")
+	if !ok || kind != DigitalOcean {
+		t.Fatalf("KindForSource(digitalocean) = %q, %t", kind, ok)
+	}
+	if _, ok := KindForSource("unknown-cloud"); ok {
 		t.Fatal("unknown source should not match")
 	}
 }
 
 func TestCapabilitiesForLifecycleProviders(t *testing.T) {
-	box := CapabilitiesFor(Box)
-	if !box.Create || !box.Stop || !box.Start || !box.Fork || box.Delete {
-		t.Fatalf("box caps = %+v", box)
+	boat := CapabilitiesFor(Boat)
+	if !boat.Create || !boat.Stop || !boat.Start || !boat.Fork || !boat.Delete {
+		t.Fatalf("boat caps = %+v", boat)
 	}
 	upstash := CapabilitiesFor(Upstash)
 	if !upstash.Create || !upstash.Stop || !upstash.Start || !upstash.Fork || !upstash.Delete {
 		t.Fatalf("upstash caps = %+v", upstash)
 	}
+	vercel := CapabilitiesFor(Vercel)
+	if !vercel.Create || !vercel.Stop || !vercel.Start || !vercel.Fork || !vercel.Delete {
+		t.Fatalf("vercel caps = %+v", vercel)
+	}
+	hetzner := CapabilitiesFor(Hetzner)
+	if hetzner.Create || !hetzner.Stop || !hetzner.Start || !hetzner.Restart || hetzner.Fork || hetzner.Delete {
+		t.Fatalf("hetzner caps = %+v", hetzner)
+	}
+	bitqate := CapabilitiesFor(Bitqate)
+	if bitqate.Create || !bitqate.Stop || !bitqate.Start || !bitqate.Restart || bitqate.Fork || bitqate.Delete {
+		t.Fatalf("bitqate caps = %+v", bitqate)
+	}
 	railway := CapabilitiesFor(Railway)
-	if !railway.Create || !railway.Stop || !railway.Start || railway.Fork || !railway.Delete {
+	if !railway.Create || !railway.Stop || !railway.Start || railway.Restart || railway.Fork || !railway.Delete {
 		t.Fatalf("railway caps = %+v", railway)
+	}
+	fly := CapabilitiesFor(Fly)
+	if !fly.Create || !fly.Stop || !fly.Start || fly.Restart || !fly.Fork || !fly.Delete {
+		t.Fatalf("fly caps = %+v", fly)
+	}
+	digitalocean := CapabilitiesFor(DigitalOcean)
+	if !digitalocean.Create || !digitalocean.Stop || !digitalocean.Start || digitalocean.Restart || !digitalocean.Fork || !digitalocean.Delete {
+		t.Fatalf("digitalocean caps = %+v", digitalocean)
 	}
 	for _, kind := range []Kind{GCP, AWS, Azure} {
 		if caps := CapabilitiesFor(kind); caps != (Capabilities{}) {
@@ -77,10 +127,10 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 }
 
 func TestIsProviderRoot(t *testing.T) {
-	if !IsProviderRoot("Box") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") {
+	if !IsProviderRoot("Boat") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") || !IsProviderRoot("Hetzner Cloud") || !IsProviderRoot("BitQate") || !IsProviderRoot("Railway") || !IsProviderRoot("Fly.io") || !IsProviderRoot("DigitalOcean") {
 		t.Fatal("expected roots to match")
 	}
-	if IsProviderRoot("Google Cloud/demo") || IsProviderRoot("Box/Running") || IsProviderRoot("Work") {
+	if IsProviderRoot("Google Cloud/demo") || IsProviderRoot("Boat/Running") || IsProviderRoot("Work") {
 		t.Fatal("subgroups and user groups are not provider roots")
 	}
 }
@@ -96,7 +146,7 @@ func TestDescriptorsCoverEveryKind(t *testing.T) {
 		}
 		seen[d.Kind] = true
 	}
-	for _, kind := range []Kind{GCP, AWS, Azure, Box, Upstash, Railway} {
+	for _, kind := range []Kind{GCP, AWS, Azure, Boat, Upstash, Vercel, Hetzner, Bitqate, Railway, Fly, DigitalOcean} {
 		if !seen[kind] {
 			t.Fatalf("missing descriptor for %s", kind)
 		}

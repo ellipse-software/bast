@@ -86,6 +86,134 @@ print_uninstall() {
   blank
   info "To uninstall later:"
   printf '    %srm "%s" "%s"%s\n' "$dim" "$install_path" "$receipt_path" "$reset"
+  if [ -n "${completion_dir:-}" ]; then
+    printf '    %srm -rf "%s"%s\n' "$dim" "$completion_dir" "$reset"
+  fi
+  if [ -n "${fish_completion:-}" ]; then
+    printf '    %srm -f "%s"%s\n' "$dim" "$fish_completion" "$reset"
+  fi
+}
+
+write_completion_script() {
+  shell="$1"
+  dest="$2"
+  if "$install_path" completion "$shell" >"$dest.tmp" 2>/dev/null && [ -s "$dest.tmp" ]; then
+    mv "$dest.tmp" "$dest"
+    return 0
+  fi
+  rm -f "$dest.tmp"
+  return 1
+}
+
+upsert_rc_block() {
+  target="$1"
+  body="$2"
+  begin='# >>> bast completions >>>'
+  end='# <<< bast completions <<<'
+  parent="$(dirname "$target")"
+  mkdir -p "$parent" || return 1
+  work="$(mktemp -d "${TMPDIR:-/tmp}/bast-rc.XXXXXX")" || return 1
+  stripped="$work/stripped"
+  trimmed="$work/trimmed"
+  assembled="$work/assembled"
+  if [ -f "$target" ]; then
+    if ! awk -v begin="$begin" -v end="$end" '
+      $0 == begin { skip=1; next }
+      skip == 1 && $0 == end { skip=0; next }
+      skip == 1 { next }
+      { print }
+    ' "$target" >"$stripped"; then
+      rm -rf "$work"
+      return 1
+    fi
+  elif ! : >"$stripped"; then
+    rm -rf "$work"
+    return 1
+  fi
+  if ! awk 'BEGIN { n=0 } { lines[++n]=$0 } END { while (n>0 && lines[n]=="") n--; for (i=1;i<=n;i++) print lines[i] }' "$stripped" >"$trimmed"; then
+    rm -rf "$work"
+    return 1
+  fi
+  if ! {
+    if [ -s "$trimmed" ]; then
+      cat "$trimmed"
+      printf '\n'
+    fi
+    printf '%s\n%s\n%s\n' "$begin" "$body" "$end"
+  } >"$assembled"; then
+    rm -rf "$work"
+    return 1
+  fi
+  if ! mv "$assembled" "$target"; then
+    rm -rf "$work"
+    return 1
+  fi
+  rm -rf "$work"
+}
+
+install_shell_completions() {
+  [ -n "${HOME:-}" ] || return 0
+  [ -z "${BAST_NO_COMPLETIONS:-}" ] || return 0
+  [ -x "$install_path" ] || return 0
+  [ -n "${completion_dir:-}" ] || return 0
+
+  mkdir -p "$completion_dir" || return 0
+  if ! write_completion_script bash "$completion_dir/bast.bash"; then
+    return 0
+  fi
+
+  step "Enabling shell completions..."
+  write_completion_script zsh "$completion_dir/_bast" || true
+  write_completion_script fish "$completion_dir/bast.fish" || true
+  write_completion_script powershell "$completion_dir/bast.ps1" || true
+  write_completion_script elvish "$completion_dir/bast.elv" || true
+  write_completion_script nushell "$completion_dir/bast.nu" || true
+
+  mkdir -p "$(dirname "$bash_completion_file")" || true
+  install -m 0644 "$completion_dir/bast.bash" "$bash_completion_file" || true
+
+  login_shell="${SHELL:-}"
+  login_shell="${login_shell##*/}"
+  if [ -f "$completion_dir/bast.fish" ] && { [ "$login_shell" = "fish" ] || command -v fish >/dev/null 2>&1 || [ -d "$config_home/fish" ]; }; then
+    mkdir -p "$(dirname "$fish_completion")" || true
+    install -m 0644 "$completion_dir/bast.fish" "$fish_completion" || true
+  fi
+
+  if [ -f "$completion_dir/_bast" ] && { [ "$login_shell" = "zsh" ] || [ -f "$HOME/.zshrc" ]; }; then
+    upsert_rc_block "$HOME/.zshrc" "if typeset -f compdef >/dev/null 2>&1; then
+  . \"$completion_dir/_bast\"
+fi" || true
+  fi
+
+  if [ -f "$completion_dir/bast.bash" ] && { [ "$login_shell" = "bash" ] || [ -f "$HOME/.bashrc" ] || [ -f "$HOME/.bash_profile" ]; }; then
+    bash_block=". \"$completion_dir/bast.bash\""
+    if [ -f "$HOME/.bashrc" ] || [ "$login_shell" = "bash" ]; then
+      upsert_rc_block "$HOME/.bashrc" "$bash_block" || true
+    fi
+    if [ -f "$HOME/.bash_profile" ]; then
+      upsert_rc_block "$HOME/.bash_profile" "$bash_block" || true
+    fi
+  fi
+
+  pwsh_profile="$config_home/powershell/Microsoft.PowerShell_profile.ps1"
+  if [ -f "$completion_dir/bast.ps1" ] && { command -v pwsh >/dev/null 2>&1 || [ -f "$pwsh_profile" ]; }; then
+    upsert_rc_block "$pwsh_profile" "if (Test-Path -LiteralPath '$completion_dir/bast.ps1') {
+  . '$completion_dir/bast.ps1'
+}" || true
+  fi
+
+  elvish_rc="$config_home/elvish/rc.elv"
+  if [ -f "$completion_dir/bast.elv" ] && { command -v elvish >/dev/null 2>&1 || [ -f "$elvish_rc" ]; }; then
+    upsert_rc_block "$elvish_rc" "eval (slurp < '$completion_dir/bast.elv')" || true
+  fi
+
+  nushell_config="$config_home/nushell/config.nu"
+  if [ -f "$completion_dir/bast.nu" ] && { command -v nu >/dev/null 2>&1 || [ -f "$nushell_config" ]; }; then
+    upsert_rc_block "$nushell_config" "source \"$completion_dir/bast.nu\"" || true
+  fi
+
+  success "Enabled shell completions"
+  info "Open a new terminal, then press Tab after bast."
 }
 
 remove_script_install() {
@@ -142,11 +270,15 @@ fail() {
   exit 1
 }
 
+is_nightly_tag() {
+  printf '%s\n' "$1" | grep -Eq '^nightly\.[0-9]{8}\.[0-9a-f]{7}$'
+}
+
 print_banner
 note "Installing the nightly channel from master."
 print_telemetry_notice
 
-for command_name in curl install mktemp tar; do
+for command_name in curl grep install mktemp tar; do
   command -v "$command_name" >/dev/null 2>&1 || fail "$command_name is required"
 done
 
@@ -172,24 +304,45 @@ else
 fi
 install_path="$install_dir/bast"
 receipt_path="$install_path.install-receipt"
+if [ -n "${HOME:-}" ]; then
+  data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+  config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+  completion_dir="$data_home/bast/completions"
+  fish_completion="$config_home/fish/completions/bast.fish"
+  bash_completion_file="${BASH_COMPLETION_USER_DIR:-$data_home/bash-completion}/completions/bast"
+else
+  completion_dir=""
+  fish_completion=""
+  bash_completion_file=""
+fi
 
 info "Install location: ${install_path}"
 blank
 
-prepare_channel_switch
+if [ -n "${BAST_VERSION:-}" ]; then
+  fail "BAST_VERSION is for https://bast.sh/install; set BAST_NIGHTLY_VERSION instead"
+fi
 
-step "Checking for the latest nightly build..."
+refuse_system_package_conflict() {
+  if [ -n "${BAST_INSTALL_DIR:-}" ]; then
+    return 0
+  fi
+  if [ ! -x /usr/bin/bast ]; then
+    return 0
+  fi
+  fail "Bast is already installed at /usr/bin/bast (likely a package). Uninstall that copy first, or set BAST_INSTALL_DIR to install a separate user copy."
+}
+
+refuse_system_package_conflict
+
 if [ -n "${BAST_NIGHTLY_VERSION:-}" ]; then
-  case "$BAST_NIGHTLY_VERSION" in
-  nightly.*)
-    version="$BAST_NIGHTLY_VERSION"
-    release_tag="$version"
-    ;;
-  *)
-    fail "invalid BAST_NIGHTLY_VERSION: ${BAST_NIGHTLY_VERSION}"
-    ;;
-  esac
+  version="$BAST_NIGHTLY_VERSION"
+  is_nightly_tag "$version" || fail "invalid BAST_NIGHTLY_VERSION: ${BAST_NIGHTLY_VERSION} (expected nightly.YYYYMMDD.<sha>)"
+  release_tag="$version"
+  step "Using BAST_NIGHTLY_VERSION ${version}..."
+  success "Requested nightly: ${version}"
 else
+  step "Checking for the latest nightly build..."
   release_json="$(curl -fsSL \
     -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -241,14 +394,11 @@ else
     )"
     release_tag="nightly"
   fi
+  is_nightly_tag "$version" || fail "could not find the latest nightly build"
+  success "Latest nightly: ${version}"
 fi
 
-case "$version" in
-nightly.*) ;;
-*) fail "could not find the latest nightly build" ;;
-esac
-
-success "Latest nightly: ${version}"
+prepare_channel_switch
 
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/bast.XXXXXX")"
 
@@ -269,6 +419,7 @@ if [ "$current_version" = "$version" ]; then
   write_receipt
   blank
   success "Bast ${version} is already up to date."
+  install_shell_completions
   print_run_hint
   send_telemetry "up_to_date"
   print_uninstall
@@ -288,8 +439,8 @@ else
 fi
 
 step "Downloading ${archive}..."
-curl -fsSL "$download_url" -o "$temp_dir/$archive"
-curl -fsSL "$download_url.sha256" -o "$temp_dir/$archive.sha256"
+curl -fsSL "$download_url" -o "$temp_dir/$archive" || fail "could not download ${archive}"
+curl -fsSL "$download_url.sha256" -o "$temp_dir/$archive.sha256" || fail "could not download ${archive}.sha256"
 success "Download complete"
 
 step "Verifying SHA-256 checksum..."
@@ -325,6 +476,7 @@ case ":${PATH:-}:" in
   ;;
 esac
 
+install_shell_completions
 print_run_hint
 print_uninstall
 blank

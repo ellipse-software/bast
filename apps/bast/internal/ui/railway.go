@@ -37,9 +37,9 @@ func (m *App) resumeSelectedRailway(host sshconfig.Host, thenConnect bool) tea.C
 	opGen := m.beginProviderOp("railway")
 	m.syncActivity = "resuming…"
 	if thenConnect {
-		m.boxConnectAfter = host.Alias
+		m.sandboxConnectAfter = host.Alias
 	} else {
-		m.boxConnectAfter = ""
+		m.sandboxConnectAfter = ""
 	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
@@ -87,6 +87,6 @@ func (m *App) openRailwayDeleteForm(host sshconfig.Host) {
 	label := m.hostLabel(host)
 	m.openForm("Delete Railway service: "+label, "railway_delete", []field{
 		{label: "SyncID", value: host.SyncID, hidden: true},
-		{label: "Type delete to confirm", description: "Permanently destroys the service and its deployments", placeholder: "delete"},
+		{label: "Type delete to confirm", description: "Removes this service from this environment", placeholder: "delete"},
 	})
 }

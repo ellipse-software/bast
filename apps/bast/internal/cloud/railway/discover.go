@@ -68,49 +68,135 @@ type deploymentNode struct {
 	DeploymentStopped bool   `json:"deploymentStopped"`
 }
 
+const (
+	railwayPageSize = 100
+	railwayMaxPages = 50
+)
+
 func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
-	var data struct {
-		Projects edgeList[projectNode] `json:"projects"`
-	}
-	if err := c.graphql(ctx, `query {
-  projects {
+	var raw []projectNode
+	after := ""
+	for page := 0; page < railwayMaxPages; page++ {
+		var data struct {
+			Projects edgeList[projectNode] `json:"projects"`
+		}
+		vars := map[string]any{"first": railwayPageSize}
+		if after != "" {
+			vars["after"] = after
+		}
+		if err := c.graphql(ctx, `query Projects($first: Int!, $after: String) {
+  projects(first: $first, after: $after) {
     edges {
       node {
         id
         name
-        environments {
+        environments(first: 100) {
           edges { node { id name } }
+          pageInfo { hasNextPage endCursor }
         }
       }
     }
+    pageInfo { hasNextPage endCursor }
   }
-}`, nil, &data); err != nil {
-		return nil, err
+}`, vars, &data); err != nil {
+			return nil, err
+		}
+		raw = append(raw, nodes(data.Projects)...)
+		next, ok := nextCursor(data.Projects.PageInfo, after)
+		if !ok {
+			after = ""
+			break
+		}
+		after = next
+		if page == railwayMaxPages-1 {
+			return nil, fmt.Errorf("railway project list truncated after %d pages", railwayMaxPages)
+		}
 	}
-	out := make([]Project, 0, len(data.Projects.Edges))
-	for _, node := range nodes(data.Projects) {
-		project := Project{ID: strings.TrimSpace(node.ID), Name: strings.TrimSpace(node.Name)}
+	out := make([]Project, 0, len(raw))
+	for _, node := range raw {
+		project, err := c.projectFromNode(ctx, node)
+		if err != nil {
+			return nil, err
+		}
 		if project.ID == "" {
 			continue
-		}
-		if project.Name == "" {
-			project.Name = project.ID
-		}
-		for _, env := range nodes(node.Environments) {
-			id := strings.TrimSpace(env.ID)
-			if id == "" {
-				continue
-			}
-			name := strings.TrimSpace(env.Name)
-			if name == "" {
-				name = id
-			}
-			project.Environments = append(project.Environments, Environment{ID: id, Name: name})
 		}
 		out = append(out, project)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+func (c *Client) projectFromNode(ctx context.Context, node projectNode) (Project, error) {
+	project := Project{ID: strings.TrimSpace(node.ID), Name: strings.TrimSpace(node.Name)}
+	if project.ID == "" {
+		return Project{}, nil
+	}
+	if project.Name == "" {
+		project.Name = project.ID
+	}
+	envs := node.Environments
+	after := ""
+	for page := 0; page < railwayMaxPages; page++ {
+		project.Environments = appendEnvironments(project.Environments, envs)
+		next, ok := nextCursor(envs.PageInfo, after)
+		if !ok {
+			return project, nil
+		}
+		var data struct {
+			Project *struct {
+				Environments edgeList[envNode] `json:"environments"`
+			} `json:"project"`
+		}
+		if err := c.graphql(ctx, `query ProjectEnvironments($id: String!, $first: Int!, $after: String) {
+  project(id: $id) {
+    environments(first: $first, after: $after) {
+      edges { node { id name } }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`, map[string]any{"id": project.ID, "first": railwayPageSize, "after": next}, &data); err != nil {
+			return Project{}, err
+		}
+		if data.Project == nil {
+			return Project{}, fmt.Errorf("railway project %s environments missing", project.Name)
+		}
+		after = next
+		envs = data.Project.Environments
+		if page == railwayMaxPages-1 {
+			return Project{}, fmt.Errorf("railway environments for %s truncated after %d pages", project.Name, railwayMaxPages)
+		}
+	}
+	return project, nil
+}
+
+func appendEnvironments(dst []Environment, list edgeList[envNode]) []Environment {
+	for _, env := range nodes(list) {
+		id := strings.TrimSpace(env.ID)
+		if id == "" {
+			continue
+		}
+		name := strings.TrimSpace(env.Name)
+		if name == "" {
+			name = id
+		}
+		dst = append(dst, Environment{ID: id, Name: name})
+	}
+	return dst
+}
+
+func nextCursor(info *struct {
+	HasNextPage bool   `json:"hasNextPage"`
+	EndCursor   string `json:"endCursor"`
+}, previous string) (string, bool) {
+	if info == nil || !info.HasNextPage {
+		return "", false
+	}
+	cursor := strings.TrimSpace(info.EndCursor)
+	if cursor == "" || cursor == previous {
+		return "", false
+	}
+	return cursor, true
 }
 
 func (c *Client) Discover(ctx context.Context) (Discovery, error) {
@@ -169,19 +255,25 @@ func (c *Client) Discover(ctx context.Context) (Discovery, error) {
 }
 
 func (c *Client) listEnvironmentServices(ctx context.Context, project Project, env Environment) ([]Instance, bool, error) {
-	var data struct {
-		Environment *struct {
-			ServiceInstances edgeList[serviceInstanceNode] `json:"serviceInstances"`
-		} `json:"environment"`
-	}
-	vars := map[string]any{
-		"environmentId": env.ID,
-		"projectId":     project.ID,
-		"first":         100,
-	}
-	if err := c.graphql(ctx, `query EnvironmentServices($environmentId: String!, $projectId: String!, $first: Int) {
+	var out []Instance
+	after := ""
+	for page := 0; page < railwayMaxPages; page++ {
+		var data struct {
+			Environment *struct {
+				ServiceInstances edgeList[serviceInstanceNode] `json:"serviceInstances"`
+			} `json:"environment"`
+		}
+		vars := map[string]any{
+			"environmentId": env.ID,
+			"projectId":     project.ID,
+			"first":         railwayPageSize,
+		}
+		if after != "" {
+			vars["after"] = after
+		}
+		if err := c.graphql(ctx, `query EnvironmentServices($environmentId: String!, $projectId: String!, $first: Int, $after: String) {
   environment(id: $environmentId, projectId: $projectId) {
-    serviceInstances(first: $first) {
+    serviceInstances(first: $first, after: $after) {
       edges {
         node {
           id
@@ -194,20 +286,24 @@ func (c *Client) listEnvironmentServices(ctx context.Context, project Project, e
     }
   }
 }`, vars, &data); err != nil {
-		return nil, false, err
-	}
-	if data.Environment == nil {
-		return nil, false, nil
-	}
-	truncated := data.Environment.ServiceInstances.PageInfo != nil && data.Environment.ServiceInstances.PageInfo.HasNextPage
-	out := make([]Instance, 0, len(data.Environment.ServiceInstances.Edges))
-	for _, node := range nodes(data.Environment.ServiceInstances) {
-		inst, ok := instanceFromService(project, env, node)
-		if ok {
-			out = append(out, inst)
+			return nil, false, err
 		}
+		if data.Environment == nil {
+			return out, false, nil
+		}
+		for _, node := range nodes(data.Environment.ServiceInstances) {
+			inst, ok := instanceFromService(project, env, node)
+			if ok {
+				out = append(out, inst)
+			}
+		}
+		next, ok := nextCursor(data.Environment.ServiceInstances.PageInfo, after)
+		if !ok {
+			return out, false, nil
+		}
+		after = next
 	}
-	return out, truncated, nil
+	return out, true, nil
 }
 
 func instanceFromService(project Project, env Environment, node serviceInstanceNode) (Instance, bool) {
@@ -340,9 +436,9 @@ func normalizeState(status string, stopped bool) string {
 	switch strings.ToUpper(strings.TrimSpace(status)) {
 	case "SUCCESS":
 		return "running"
-	case "DEPLOYING", "BUILDING", "QUEUED", "WAITING":
+	case "DEPLOYING", "BUILDING", "QUEUED", "WAITING", "INITIALIZING":
 		return "starting"
-	case "SLEEPING", "REMOVED", "SKIPPED":
+	case "SLEEPING", "REMOVED", "SKIPPED", "REMOVING":
 		return "stopped"
 	case "FAILED", "CRASHED":
 		return "error"

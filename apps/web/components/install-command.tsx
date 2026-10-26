@@ -55,6 +55,21 @@ function CommandDisplay({
           </span>
         </code>
       );
+    case "apt":
+    case "dnf":
+    case "pacman":
+    case "apk":
+      return (
+        <code className="whitespace-nowrap">
+          <span className="text-accent">curl</span>
+          <span className="text-muted"> -fsSL </span>
+          <span className="text-accent">https://packages.bast.sh/setup.sh</span>
+          <span className="text-muted"> | </span>
+          <span className="text-accent">sudo</span>
+          <span className="text-muted"> sh -s -- </span>
+          <span className="text-accent">{method}</span>
+        </code>
+      );
     case "powershell":
       return (
         <code className="whitespace-nowrap">
@@ -161,13 +176,13 @@ type OpenMenu = "platform" | "method" | null;
 
 type InstallCommandProps = {
   version?: string | null;
-  wingetAvailable?: boolean;
+  wingetAvailable: boolean;
   className?: string;
 };
 
 export function InstallCommand({
   version,
-  wingetAvailable = false,
+  wingetAvailable,
   className = "w-full max-w-xl",
 }: InstallCommandProps) {
   const windowsAvailable = supportsWindowsRelease(version);
@@ -194,6 +209,7 @@ export function InstallCommand({
   const method = resolveMethod(
     platform,
     selectedMethod ?? defaultMethodFor(platform),
+    wingetAvailable,
   );
   const platforms = installPlatforms(windowsAvailable);
   const methods = methodsForPlatform(platform, wingetAvailable);

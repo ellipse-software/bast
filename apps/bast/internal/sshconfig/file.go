@@ -55,6 +55,102 @@ func WriteManagedConfig(path string, content []byte) error {
 	return atomicWrite(path, content, 0600)
 }
 
+// RewriteManagedHosts replaces Bast-managed Host blocks and keeps leading
+// Include lines so cloud-sync inventories stay visible after a vault apply.
+func (m Manager) RewriteManagedHosts(hostBlocks []byte) error {
+	existing, err := os.ReadFile(m.ManagedConfig)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	header := leadingSyncHeader(existing)
+	var out []byte
+	if len(header) > 0 {
+		out = append(out, header...)
+		if !bytes.HasSuffix(out, []byte("\n")) {
+			out = append(out, '\n')
+		}
+		if len(bytes.TrimSpace(hostBlocks)) > 0 && !bytes.HasSuffix(out, []byte("\n\n")) {
+			out = append(out, '\n')
+		}
+	}
+	out = append(out, hostBlocks...)
+	return WriteManagedConfig(m.ManagedConfig, out)
+}
+
+func leadingSyncHeader(data []byte) []byte {
+	if len(data) == 0 {
+		return nil
+	}
+	var out bytes.Buffer
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		raw := scanner.Text()
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			if out.Len() > 0 {
+				out.WriteByte('\n')
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, markerPrefix) || strings.HasPrefix(trimmed, syncMarkerPrefix) {
+			break
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			if out.Len() == 0 {
+				continue
+			}
+			out.WriteString(raw)
+			out.WriteByte('\n')
+			continue
+		}
+		parts, err := fields(trimmed)
+		if err != nil || len(parts) == 0 || !strings.EqualFold(parts[0], "include") {
+			break
+		}
+		out.WriteString(raw)
+		out.WriteByte('\n')
+	}
+	return bytes.TrimRight(out.Bytes(), "\n")
+}
+
+func (m Manager) RestoreSyncIncludes() error {
+	for _, path := range []string{
+		m.SyncGCPConfig, m.SyncAWSConfig, m.SyncAzureConfig, m.SyncBoatConfig,
+		m.SyncUpstashConfig, m.SyncVercelConfig, m.SyncHetznerConfig, m.SyncBitqateConfig,
+		m.SyncRailwayConfig, m.SyncFlyConfig, m.SyncDigitalOceanConfig,
+	} {
+		if err := m.IncludeExistingSyncConfig(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m Manager) IncludeExistingSyncConfig(path string) error {
+	if path == "" || !syncFileHasHosts(path) {
+		return nil
+	}
+	return m.EnsureSyncInclude(path)
+}
+
+func syncFileHasHosts(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(b))
+	for scanner.Scan() {
+		parts, err := fields(strings.TrimSpace(scanner.Text()))
+		if err != nil || len(parts) == 0 {
+			continue
+		}
+		if strings.EqualFold(parts[0], "host") || strings.EqualFold(parts[0], "match") {
+			return true
+		}
+	}
+	return false
+}
+
 func RenderSyncBlock(input SyncHostInput) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s%s=%s\nHost %s\n", syncMarkerPrefix, input.SyncSource, input.SyncID, input.Alias)
@@ -163,7 +259,7 @@ func LoadSyncHosts(path string) ([]SyncHostInput, error) {
 		}
 		input := SyncHostInput{
 			Alias:      aliasParts[1],
-			SyncSource: strings.TrimSpace(source),
+			SyncSource: canonicalSyncSource(source),
 			SyncID:     strings.TrimSpace(syncID),
 		}
 		for _, line := range lines[hostIdx+1 : endIdx] {
@@ -228,14 +324,22 @@ func UpdateSyncHostAuth(path, alias, user, identityFile, certificateFile string,
 
 // UpdateSyncHostAuthAndHost updates auth fields and optionally HostName when hostname is non-empty.
 func UpdateSyncHostAuthAndHost(path, alias, hostname, user, identityFile, certificateFile string, identitiesOnly bool) error {
+	return UpdateSyncHostDetails(path, alias, hostname, user, identityFile, certificateFile, "", identitiesOnly)
+}
+
+// UpdateSyncHostDetails updates auth, hostname, and port for a synced host.
+func UpdateSyncHostDetails(path, alias, hostname, user, identityFile, certificateFile, port string, identitiesOnly bool) error {
 	if strings.ContainsAny(hostname, "\r\n") {
 		return fmt.Errorf("invalid hostname for synced host %q", alias)
+	}
+	if strings.ContainsAny(port, "\r\n") {
+		return fmt.Errorf("invalid port for synced host %q", alias)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	updated, ok := patchSyncHostAuth(data, alias, hostname, user, identityFile, certificateFile, identitiesOnly)
+	updated, ok := patchSyncHostAuth(data, alias, hostname, user, identityFile, certificateFile, port, identitiesOnly)
 	if !ok {
 		return fmt.Errorf("synced host %q not found in %s", alias, path)
 	}
@@ -245,7 +349,7 @@ func UpdateSyncHostAuthAndHost(path, alias, hostname, user, identityFile, certif
 	return atomicWriteChecked(path, data, updated, 0600)
 }
 
-func patchSyncHostAuth(data []byte, alias, hostnameOverride, user, identityFile, certificateFile string, identitiesOnly bool) ([]byte, bool) {
+func patchSyncHostAuth(data []byte, alias, hostnameOverride, user, identityFile, certificateFile, portOverride string, identitiesOnly bool) ([]byte, bool) {
 	alias = strings.TrimSpace(alias)
 	if alias == "" {
 		return data, false
@@ -331,6 +435,9 @@ func patchSyncHostAuth(data []byte, alias, hostnameOverride, user, identityFile,
 	if strings.TrimSpace(hostnameOverride) != "" {
 		hostname = strings.TrimSpace(hostnameOverride)
 	}
+	if strings.TrimSpace(portOverride) != "" {
+		port = strings.TrimSpace(portOverride)
+	}
 	input := SyncHostInput{
 		Alias:           alias,
 		User:            user,
@@ -349,7 +456,7 @@ func patchSyncHostAuth(data []byte, alias, hostnameOverride, user, identityFile,
 		if strings.HasPrefix(prev, syncMarkerPrefix) && prev != syncMarkerEnd {
 			rest := strings.TrimPrefix(prev, syncMarkerPrefix)
 			if source, id, ok := strings.Cut(rest, "="); ok {
-				syncSource = strings.TrimSpace(source)
+				syncSource = canonicalSyncSource(source)
 				syncID = strings.TrimSpace(id)
 			}
 		}

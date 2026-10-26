@@ -116,6 +116,11 @@ func (c *Client) Account(ctx context.Context) (AccountStatus, error) {
 	if !c.HasToken() {
 		return AccountStatus{Error: "no API token; connect on the Sync tab or set " + APIKeyEnv}, nil
 	}
+	if project, err := c.projectToken(ctx); err != nil {
+		return AccountStatus{Error: err.Error()}, err
+	} else if project {
+		return AccountStatus{Authenticated: false, Error: "Railway project tokens only cover one environment; create an account or workspace token at railway.com/account/tokens"}, nil
+	}
 	var data struct {
 		Me *struct {
 			Name  string `json:"name"`
@@ -123,20 +128,16 @@ func (c *Client) Account(ctx context.Context) (AccountStatus, error) {
 		} `json:"me"`
 	}
 	if err := c.graphql(ctx, `query { me { name email } }`, nil, &data); err != nil {
-		msg := err.Error()
-		lower := strings.ToLower(msg)
-		if strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "invalid") || strings.Contains(lower, "not authorized") {
-			return AccountStatus{Authenticated: false, Error: msg}, nil
+		if railwayAuthFailure(err) {
+			return AccountStatus{Authenticated: false, Error: err.Error()}, nil
 		}
-		// Workspace tokens cannot query `me`. Fall back to listing projects.
+		// Workspace tokens cannot query `me` ("Not Authorized") but can list projects.
 		projects, listErr := c.ListProjects(ctx)
 		if listErr != nil {
-			listMsg := listErr.Error()
-			listLower := strings.ToLower(listMsg)
-			if strings.Contains(listLower, "401") || strings.Contains(listLower, "unauthorized") || strings.Contains(listLower, "invalid") {
-				return AccountStatus{Authenticated: false, Error: listMsg}, nil
+			if railwayAuthFailure(listErr) {
+				return AccountStatus{Authenticated: false, Error: listErr.Error()}, nil
 			}
-			return AccountStatus{Error: listMsg}, listErr
+			return AccountStatus{Error: listErr.Error()}, listErr
 		}
 		return AccountStatus{Authenticated: true, Name: fmt.Sprintf("%d projects", len(projects))}, nil
 	}
@@ -146,11 +147,47 @@ func (c *Client) Account(ctx context.Context) (AccountStatus, error) {
 	return AccountStatus{Authenticated: true, Name: strings.TrimSpace(data.Me.Name), Email: strings.TrimSpace(data.Me.Email)}, nil
 }
 
+// projectToken reports whether the configured token authenticates as a
+// Railway project token. Probe failures are not fatal: account and workspace
+// tokens are rejected by this header and continue through Bearer auth.
+func (c *Client) projectToken(ctx context.Context) (bool, error) {
+	token, err := c.ResolveToken()
+	if err != nil {
+		return false, err
+	}
+	var data struct {
+		ProjectToken *struct {
+			ProjectID string `json:"projectId"`
+		} `json:"projectToken"`
+	}
+	if err := c.graphqlWithHeader(ctx, "Project-Access-Token", token, token, `query { projectToken { projectId environmentId } }`, nil, &data); err != nil {
+		return false, nil
+	}
+	return data.ProjectToken != nil && strings.TrimSpace(data.ProjectToken.ProjectID) != "", nil
+}
+
+func railwayAuthFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	// GraphQL "Not Authorized" is a permission error (workspace tokens on `me`),
+	// not proof the token itself is bad.
+	if strings.Contains(lower, "not authorized") && !strings.Contains(lower, "401") {
+		return false
+	}
+	return strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized")
+}
+
 func (c *Client) graphql(ctx context.Context, query string, variables map[string]any, out any) error {
 	token, err := c.ResolveToken()
 	if err != nil {
 		return err
 	}
+	return c.graphqlWithHeader(ctx, "Authorization", "Bearer "+token, token, query, variables, out)
+}
+
+func (c *Client) graphqlWithHeader(ctx context.Context, header, value, redact string, query string, variables map[string]any, out any) error {
 	body := map[string]any{"query": query}
 	if variables != nil {
 		body["variables"] = variables
@@ -163,7 +200,7 @@ func (c *Client) graphql(ctx context.Context, query string, variables map[string
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set(header, value)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.httpClient().Do(req)
@@ -176,7 +213,7 @@ func (c *Client) graphql(ctx context.Context, query string, variables map[string
 		return fmt.Errorf("railway: read response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return c.apiError(resp.StatusCode, data, token)
+		return c.apiError(resp.StatusCode, data, redact)
 	}
 	var env gqlEnvelope
 	if err := json.Unmarshal(data, &env); err != nil {
@@ -193,10 +230,10 @@ func (c *Client) graphql(ctx context.Context, query string, variables map[string
 			msgs = append(msgs, "graphql error")
 		}
 		joined := strings.Join(msgs, "; ")
-		joined = strings.ReplaceAll(joined, token, "[redacted]")
+		joined = strings.ReplaceAll(joined, redact, "[redacted]")
 		lower := strings.ToLower(joined)
 		if strings.Contains(lower, "already registered") {
-			return fmt.Errorf("this SSH key is already registered to a different Railway account or workspace; generate a dedicated key with ssh-keygen -t ed25519 -f ~/.ssh/bast/keys/railway")
+			return fmt.Errorf("this SSH key is already registered to a different Railway account or workspace; delete ~/.ssh/bast/keys/railway and ~/.ssh/bast/keys/railway.pub, then sync again")
 		}
 		return fmt.Errorf("railway: %s", joined)
 	}

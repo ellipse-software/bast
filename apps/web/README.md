@@ -2,7 +2,7 @@
 
 The landing page and installer for [Bast](https://github.com/ellipse-software/bast), a native SSH host picker and key manager.
 
-The installer is served from `public/install` (stable) and `public/install-nightly` (nightly). Each downloads the matching macOS or Linux build for the current architecture, verifies its SHA-256 checksum, and installs `bast` to `~/.local/bin` by default. It leaves an installation receipt beside the binary so installer-managed copies can run `bast update`; Homebrew and source builds are not eligible for self-update. Run the same install command again to update Bast or create the receipt for an existing install; it exits without downloading when the installed version is already current. Installing one channel uninstalls the other first (script install at the same path, or the other Homebrew formula). Set `BAST_INSTALL_DIR` to choose another location.
+The installer is served from `public/install` (stable) and `public/install-nightly` (nightly). Each downloads the matching macOS or Linux build for the current architecture, verifies its SHA-256 checksum, and installs `bast` to `~/.local/bin` by default. It leaves an installation receipt beside the binary so installer-managed copies can run `bast update`; Homebrew (which compiles from source) and manual source builds are not eligible for self-update. Run the same install command again to update Bast or create the receipt for an existing install; it exits without downloading when the installed version is already current. Installing one channel uninstalls the other first (script install at the same path, or the other Homebrew formula). Set `BAST_INSTALL_DIR` to choose another location. Set `BAST_VERSION` (stable, `vX.Y.Z`) or `BAST_NIGHTLY_VERSION` (nightly tag) on the shell that runs the installer to pin a release; `bast update` still installs the latest build on that channel. After install, the script writes shell completion files and a marked block in the user's shell startup file. Set `BAST_NO_COMPLETIONS=1` to skip that.
 
 Telemetry events from the installer and Bast CLI are sent to `/api/telemetry` and forwarded to PostHog. Consented error reports from the CLI are sent to `/api/errors` and forwarded via the Sentry SDK to Better Stack. Set `POSTHOG_API_KEY` (and optionally `POSTHOG_HOST`) and `SENTRY_DSN` in the deployment environment. Users can opt out with `BAST_NO_TELEMETRY=1`.
 
@@ -15,6 +15,10 @@ Health checks:
 - `GET /api/health/vault` — Redis ping and R2 reachability (503 when misconfigured or a dependency fails)
 
 Status page (`/status`) reads three Better Stack Uptime monitors via the authenticated API (`BETTERSTACK_API_TOKEN` plus `BETTERSTACK_MONITOR_MARKETING`, `BETTERSTACK_MONITOR_DOCS`, `BETTERSTACK_MONITOR_VAULT`). Point those monitors at the health endpoints above. A public Better Stack status page is not required.
+
+Windows scripts are served from `public/install.ps1` and `public/install-nightly.ps1`. Stable Windows builds are also distributed as the portable WinGet package `EllipseSoftware.Bast`; those installs update through `winget upgrade --id EllipseSoftware.Bast --exact` and do not receive a script installation receipt. WinGet availability can lag behind GitHub releases while Microsoft reviews the submission.
+
+The server-evaluated Vercel flag `winget` controls WinGet in every installation selector, including the footer, guide, and comparison pages. Configure `FLAGS` in the deployment and enable `winget` in Vercel. The selector uses the same flag for its menu options and selected-method validation; it defaults to PowerShell when disabled.
 
 ## Development
 
