@@ -184,8 +184,12 @@ func TestDiscoverRegionFilter(t *testing.T) {
 
 func TestDiscoverNoPagination(t *testing.T) {
 	api := sandboxfake.NewBitqate(t)
-	for _, id := range []string{"a", "b", "c"} {
-		api.Put(sandboxfake.BitqateVM{ID: id, Name: id, Status: "running", IPv4: "203.0.113." + id[len(id)-1:] + "0"})
+	for _, vm := range []sandboxfake.BitqateVM{
+		{ID: "a", Name: "a", Status: "running", IPv4: "203.0.113.1"},
+		{ID: "b", Name: "b", Status: "running", IPv4: "203.0.113.2"},
+		{ID: "c", Name: "c", Status: "running", IPv4: "203.0.113.3"},
+	} {
+		api.Put(vm)
 	}
 	discovery, err := testClient(t, api).Discover(context.Background(), DiscoverConfig{})
 	if err != nil {
