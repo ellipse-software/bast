@@ -6,6 +6,10 @@ export type InstallMethod =
   | "powershell"
   | "winget"
   | "homebrew"
+  | "apt"
+  | "dnf"
+  | "pacman"
+  | "apk"
   | "source";
 
 export type NavigatorPlatformHints = {
@@ -25,10 +29,23 @@ const METHOD_LABELS: Record<InstallMethod, string> = {
   powershell: "PowerShell",
   winget: "WinGet",
   homebrew: "Homebrew",
+  apt: "apt",
+  dnf: "dnf",
+  pacman: "pacman",
+  apk: "apk",
   source: "Source",
 };
 
-const UNIX_METHODS: InstallMethod[] = ["script", "homebrew", "source"];
+const MACOS_METHODS: InstallMethod[] = ["script", "homebrew", "source"];
+const LINUX_METHODS: InstallMethod[] = [
+  "script",
+  "apt",
+  "dnf",
+  "pacman",
+  "apk",
+  "homebrew",
+  "source",
+];
 const WINDOWS_METHODS: InstallMethod[] = ["powershell", "winget"];
 
 export function installPlatforms(
@@ -48,7 +65,9 @@ export function methodsForPlatform(
       ? wingetAvailable
         ? WINDOWS_METHODS
         : ["powershell"]
-      : UNIX_METHODS;
+      : platform === "linux"
+        ? LINUX_METHODS
+        : MACOS_METHODS;
   return ids.map((id) => ({ id, label: METHOD_LABELS[id] }));
 }
 
@@ -59,8 +78,11 @@ export function defaultMethodFor(platform: InstallPlatform): InstallMethod {
 export function resolveMethod(
   platform: InstallPlatform,
   current: InstallMethod,
+  wingetAvailable = false,
 ): InstallMethod {
-  return methodsForPlatform(platform).some(({ id }) => id === current)
+  return methodsForPlatform(platform, wingetAvailable).some(
+    ({ id }) => id === current,
+  )
     ? current
     : defaultMethodFor(platform);
 }
@@ -96,6 +118,14 @@ export function installCommand(
       return useNightly
         ? "brew install ellipse-software/tap/bast-nightly"
         : "brew install ellipse-software/tap/bast";
+    case "apt":
+      return "curl -fsSL https://packages.bast.sh/setup.sh | sudo sh -s -- apt";
+    case "dnf":
+      return "curl -fsSL https://packages.bast.sh/setup.sh | sudo sh -s -- dnf";
+    case "pacman":
+      return "curl -fsSL https://packages.bast.sh/setup.sh | sudo sh -s -- pacman";
+    case "apk":
+      return "curl -fsSL https://packages.bast.sh/setup.sh | sudo sh -s -- apk";
     case "powershell":
       return useNightly
         ? "irm https://bast.sh/install-nightly.ps1 | iex"

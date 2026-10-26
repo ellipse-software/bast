@@ -32,17 +32,35 @@ func (c *Client) Create(ctx context.Context, opts CreateOpts) (string, error) {
 	if image == "" {
 		return "", fmt.Errorf("fly image is required")
 	}
+	if err := validateFlyValue("app", app); err != nil {
+		return "", err
+	}
+	if err := validateFlyValue("image", image); err != nil {
+		return "", err
+	}
 	args := []string{"machine", "run", image, "--app", app, "--detach"}
 	if region := strings.TrimSpace(opts.Region); region != "" {
+		if err := validateFlyValue("region", region); err != nil {
+			return "", err
+		}
 		args = append(args, "--region", region)
 	}
 	if size := strings.TrimSpace(opts.Size); size != "" {
+		if err := validateFlyValue("size", size); err != nil {
+			return "", err
+		}
 		args = append(args, "--vm-size", size)
 	}
 	if name := strings.TrimSpace(opts.Name); name != "" {
+		if err := validateFlyValue("name", name); err != nil {
+			return "", err
+		}
 		args = append(args, "--name", name)
 	}
 	if org := strings.TrimSpace(opts.Org); org != "" {
+		if err := validateFlyValue("org", org); err != nil {
+			return "", err
+		}
 		args = append(args, "--org", org)
 	}
 	out, err := c.runRaw(ctx, args...)
@@ -89,8 +107,42 @@ func (c *Client) Destroy(ctx context.Context, org, app, id string) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.runRaw(ctx, "machine", "destroy", id, "--app", app, "--force")
-	return err
+	if _, err = c.runRaw(ctx, "machine", "destroy", id, "--app", app, "--force"); err != nil {
+		return err
+	}
+	return c.WaitDestroyed(ctx, app, id, 60*time.Second)
+}
+
+func (c *Client) WaitDestroyed(ctx context.Context, app, id string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var last string
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		rec, err := c.machineInfo(ctx, app, id)
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timed out waiting for fly machine %s to be destroyed: %w", id, err)
+			}
+		} else {
+			last = normalizeState(rec.State)
+			if last == "destroyed" {
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timed out waiting for fly machine %s to be destroyed (last state %s)", id, last)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(c.pollEvery()):
+		}
+	}
 }
 
 func (c *Client) Clone(ctx context.Context, org, app, id string, opts ForkOpts) (string, error) {
@@ -100,6 +152,9 @@ func (c *Client) Clone(ctx context.Context, org, app, id string, opts ForkOpts) 
 	}
 	args := []string{"machine", "clone", id, "--app", app, "--detach"}
 	if region := strings.TrimSpace(opts.Region); region != "" {
+		if err := validateFlyValue("region", region); err != nil {
+			return "", err
+		}
 		args = append(args, "--region", region)
 	}
 	out, err := c.runRaw(ctx, args...)
@@ -132,7 +187,22 @@ func (c *Client) resolveMachine(_, app, id string) (string, string, error) {
 	if app == "" || id == "" {
 		return "", "", fmt.Errorf("fly machine %q is missing app or id", id)
 	}
+	if err := validateFlyValue("app", app); err != nil {
+		return "", "", err
+	}
+	if err := validateFlyValue("machine", id); err != nil {
+		return "", "", err
+	}
 	return app, id, nil
+}
+
+var flyValuePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,200}$`)
+
+func validateFlyValue(label, value string) error {
+	if !flyValuePattern.MatchString(value) {
+		return fmt.Errorf("fly %s %q contains unsupported characters", label, value)
+	}
+	return nil
 }
 
 func (c *Client) WaitStarted(ctx context.Context, app, id string, timeout time.Duration) error {
@@ -143,7 +213,12 @@ func (c *Client) WaitStarted(ctx context.Context, app, id string, timeout time.D
 
 func (c *Client) WaitStopped(ctx context.Context, app, id string, timeout time.Duration) error {
 	return c.waitState(ctx, app, id, timeout, "stopped", func(state string) bool {
-		return IsStoppedState(state)
+		switch normalizeState(state) {
+		case "stopped", "suspended":
+			return true
+		default:
+			return false
+		}
 	}, []string{"failed", "destroyed"})
 }
 

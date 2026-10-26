@@ -51,11 +51,10 @@ func (e *Engine) syncFlyLocked(ctx context.Context) (Result, error) {
 	usedAliases := map[string]bool{}
 	previousBySyncID := map[string]sshconfig.Host{}
 	for _, host := range existing {
+		usedAliases[host.Alias] = true
 		if host.Synced && host.SyncSource == flycloud.ProviderName && host.SyncID != "" {
 			previousBySyncID[host.SyncID] = host
-			continue
 		}
-		usedAliases[host.Alias] = true
 	}
 
 	blocks := make([]sshconfig.SyncHostInput, 0, len(discovery.Instances)+len(previousBySyncID))
@@ -66,9 +65,8 @@ func (e *Engine) syncFlyLocked(ctx context.Context) (Result, error) {
 	for _, inst := range discovery.Instances {
 		activeSyncIDs[inst.SyncID] = true
 		alias := ""
-		if prev, ok := previousBySyncID[inst.SyncID]; ok && !usedAliases[prev.Alias] {
+		if prev, ok := previousBySyncID[inst.SyncID]; ok {
 			alias = prev.Alias
-			usedAliases[alias] = true
 		} else {
 			alias = flycloud.UniqueAlias(flycloud.AliasFor(inst), usedAliases)
 			usedAliases[alias] = true
@@ -236,10 +234,12 @@ func (e *Engine) StopFly(ctx context.Context, syncID string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := e.Fly.Stop(ctx, org, app, id); err != nil {
-		return Result{}, err
+	stopErr := e.Fly.Stop(ctx, org, app, id)
+	result, syncErr := e.syncFlyLocked(ctx)
+	if stopErr != nil {
+		return result, stopErr
 	}
-	return e.syncFlyLocked(ctx)
+	return result, syncErr
 }
 
 func (e *Engine) ResumeFly(ctx context.Context, syncID string) (Result, error) {
@@ -251,10 +251,12 @@ func (e *Engine) ResumeFly(ctx context.Context, syncID string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := e.Fly.Start(ctx, org, app, id); err != nil {
-		return Result{}, err
+	startErr := e.Fly.Start(ctx, org, app, id)
+	result, syncErr := e.syncFlyLocked(ctx)
+	if startErr != nil {
+		return result, startErr
 	}
-	return e.syncFlyLocked(ctx)
+	return result, syncErr
 }
 
 func (e *Engine) DeleteFly(ctx context.Context, syncID string) (Result, error) {
@@ -266,10 +268,12 @@ func (e *Engine) DeleteFly(ctx context.Context, syncID string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := e.Fly.Destroy(ctx, org, app, id); err != nil {
-		return Result{}, err
+	destroyErr := e.Fly.Destroy(ctx, org, app, id)
+	result, syncErr := e.syncFlyLocked(ctx)
+	if destroyErr != nil {
+		return result, destroyErr
 	}
-	return e.syncFlyLocked(ctx)
+	return result, syncErr
 }
 
 func (e *Engine) ResolveFlySyncID(ctx context.Context, hostOrID string) (string, error) {

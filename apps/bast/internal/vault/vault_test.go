@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,7 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"bast/internal/keys"
 	"bast/internal/metadata"
+	"bast/internal/paths"
+	"bast/internal/sshconfig"
 )
 
 func TestEncryptDecryptRoundTrip(t *testing.T) {
@@ -95,6 +99,57 @@ func TestMergeByManagedID(t *testing.T) {
 	}
 }
 
+func TestMergeLocalTombstoneDropsRemoteHost(t *testing.T) {
+	local := Document{
+		UpdatedAt:  40,
+		Tombstones: Tombstones{Hosts: map[string]int64{"gone": 40}},
+	}
+	remote := Document{
+		UpdatedAt: 20,
+		Hosts: []HostEntry{
+			{ManagedID: "gone", Alias: "prod", HostName: "prod.example", UpdatedAt: 20},
+			{ManagedID: "keep", Alias: "staging", HostName: "staging.example", UpdatedAt: 15},
+		},
+	}
+	result := Merge(local, remote, MergeModeMerge)
+	byID := map[string]HostEntry{}
+	for _, h := range result.Document.Hosts {
+		byID[h.ManagedID] = h
+	}
+	if _, ok := byID["gone"]; ok {
+		t.Fatalf("deleted host came back after merge: %+v", result.Document.Hosts)
+	}
+	if byID["keep"].Alias != "staging" {
+		t.Fatalf("kept host missing: %+v", result.Document.Hosts)
+	}
+	if result.Document.Tombstones.Hosts["gone"] != 40 {
+		t.Fatalf("tombstone missing: %+v", result.Document.Tombstones)
+	}
+}
+
+func TestMergeLocalTombstoneDropsRemoteKey(t *testing.T) {
+	local := Document{
+		Tombstones: Tombstones{Keys: map[string]int64{"fp-gone": 40}},
+	}
+	remote := Document{
+		Keys: []KeyEntry{
+			{Name: "old", Fingerprint: "fp-gone", PrivatePEM: "gone", UpdatedAt: 20},
+			{Name: "work", Fingerprint: "fp-keep", PrivatePEM: "keep", UpdatedAt: 15},
+		},
+	}
+	result := Merge(local, remote, MergeModeMerge)
+	byFP := map[string]KeyEntry{}
+	for _, k := range result.Document.Keys {
+		byFP[k.Fingerprint] = k
+	}
+	if _, ok := byFP["fp-gone"]; ok {
+		t.Fatalf("deleted key came back after merge: %+v", result.Document.Keys)
+	}
+	if byFP["fp-keep"].Name != "work" {
+		t.Fatalf("kept key missing: %+v", result.Document.Keys)
+	}
+}
+
 func TestMergeAliasConflict(t *testing.T) {
 	local := Document{Hosts: []HostEntry{{ManagedID: "a", Alias: "same", HostName: "a.example", UpdatedAt: 10}}}
 	remote := Document{Hosts: []HostEntry{{ManagedID: "b", Alias: "same", HostName: "b.example", UpdatedAt: 20}}}
@@ -114,6 +169,256 @@ func TestMergeReplaceModes(t *testing.T) {
 	got = Merge(local, remote, MergeModeReplaceRemote)
 	if len(got.Document.Hosts) != 1 || got.Document.Hosts[0].Alias != "local" {
 		t.Fatalf("replace remote: %+v", got.Document.Hosts)
+	}
+}
+
+func TestApplyKeepsCloudSyncIncludes(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	cfg := sshconfig.Manager{
+		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
+		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
+		SyncBoatConfig: p.SyncBoatConfig, SyncGCPConfig: p.SyncGCPConfig,
+	}
+	if err := cfg.EnsureManaged(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.EnsureSyncInclude(p.SyncBoatConfig); err != nil {
+		t.Fatal(err)
+	}
+	if err := sshconfig.WriteSyncConfig(p.SyncBoatConfig, []sshconfig.SyncHostInput{{
+		Alias: "boat_dev", SyncSource: "boat", SyncID: "bx_dev0001",
+		HostName: "203.0.113.10", User: "user",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applier := Applier{Paths: p, Config: cfg, Store: store}
+	if err := applier.Apply(Document{
+		Hosts: []HostEntry{{
+			ManagedID: "abc123", Alias: "prod", HostName: "prod.example", User: "deploy", UpdatedAt: 1,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := cfg.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byAlias := map[string]sshconfig.Host{}
+	for _, host := range hosts {
+		byAlias[host.Alias] = host
+	}
+	if byAlias["prod"].Alias == "" || byAlias["prod"].Resolved.HostName != "prod.example" {
+		t.Fatalf("managed host missing: %+v", byAlias)
+	}
+	if !byAlias["boat_dev"].Synced {
+		t.Fatalf("synced boat disappeared after vault apply: %+v", byAlias)
+	}
+}
+
+func TestApplyRestoresWipedSyncIncludeWhenEnabled(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	cfg := sshconfig.Manager{
+		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
+		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
+		SyncBoatConfig: p.SyncBoatConfig,
+	}
+	if err := cfg.EnsureManaged(); err != nil {
+		t.Fatal(err)
+	}
+	if err := sshconfig.WriteSyncConfig(p.SyncBoatConfig, []sshconfig.SyncHostInput{{
+		Alias: "boat_dev", SyncSource: "boat", SyncID: "bx_dev0001",
+		HostName: "203.0.113.10", User: "user",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetBoat(metadata.BoatIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	applier := Applier{Paths: p, Config: cfg, Store: store}
+	if err := applier.Apply(Document{
+		Hosts: []HostEntry{{
+			ManagedID: "abc123", Alias: "prod", HostName: "prod.example", UpdatedAt: 1,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := cfg.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, host := range hosts {
+		if host.Alias == "boat_dev" && host.Synced {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("enabled boat sync should be restored after vault apply: %+v", hosts)
+	}
+}
+
+func TestPackIncludesStoreTombstonesAndLeavesRemoteOnlyHosts(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	cfg := sshconfig.Manager{
+		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
+		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
+	}
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applier := Applier{Paths: p, Config: cfg, Store: store}
+	if err := applier.Apply(Document{
+		Hosts: []HostEntry{
+			{ManagedID: "keep", Alias: "staging", HostName: "staging.example", UpdatedAt: 10},
+			{ManagedID: "gone", Alias: "prod", HostName: "prod.example", UpdatedAt: 10},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Delete("gone"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteHostWithTombstone("prod", "gone"); err != nil {
+		t.Fatal(err)
+	}
+	remote := Document{
+		Hosts: []HostEntry{
+			{ManagedID: "keep", Alias: "staging", HostName: "staging.example", UpdatedAt: 10},
+			{ManagedID: "gone", Alias: "prod", HostName: "prod.example", UpdatedAt: 10},
+			{ManagedID: "other", Alias: "other", HostName: "other.example", UpdatedAt: 12},
+		},
+	}
+	packer := Packer{Paths: p, Config: cfg, Keyring: keys.Manager{Paths: p}, Store: store, Previous: remote}
+	local, err := packer.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local.Tombstones.Hosts["gone"] == 0 {
+		t.Fatalf("pack omitted local delete tombstone: %+v", local.Tombstones)
+	}
+	if _, ok := local.Tombstones.Hosts["other"]; ok {
+		t.Fatalf("pack must not tombstone a host that only exists remotely: %+v", local.Tombstones)
+	}
+	byID := map[string]HostEntry{}
+	for _, h := range local.Hosts {
+		byID[h.ManagedID] = h
+	}
+	if _, ok := byID["gone"]; ok {
+		t.Fatalf("deleted host still packed: %+v", local.Hosts)
+	}
+	if byID["keep"].Alias != "staging" {
+		t.Fatalf("kept host missing from pack: %+v", local.Hosts)
+	}
+
+	merged := Merge(local, remote, MergeModeMerge)
+	byID = map[string]HostEntry{}
+	for _, h := range merged.Document.Hosts {
+		byID[h.ManagedID] = h
+	}
+	if _, ok := byID["gone"]; ok {
+		t.Fatalf("vault push merge restored deleted host: %+v", merged.Document.Hosts)
+	}
+	if byID["other"].Alias != "other" {
+		t.Fatalf("remote-only host should survive merge: %+v", merged.Document.Hosts)
+	}
+	if byID["keep"].Alias != "staging" {
+		t.Fatalf("kept host missing after merge: %+v", merged.Document.Hosts)
+	}
+
+	if err := applier.Apply(merged.Document); err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := cfg.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, host := range hosts {
+		if host.Managed {
+			seen[host.ManagedID] = true
+		}
+	}
+	if seen["gone"] {
+		t.Fatal("deleted host reappeared after applying merged vault document")
+	}
+	if !seen["keep"] || !seen["other"] {
+		t.Fatalf("expected keep+other after apply, got %+v", seen)
+	}
+	if store.VaultTombstones().Hosts["gone"] == 0 {
+		t.Fatalf("apply dropped local tombstone: %+v", store.VaultTombstones())
+	}
+}
+
+func TestPackDropsTombstoneForLiveHost(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	cfg := sshconfig.Manager{
+		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
+		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
+	}
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applier := Applier{Paths: p, Config: cfg, Store: store}
+	if err := applier.Apply(Document{
+		Hosts: []HostEntry{{ManagedID: "keep", Alias: "staging", HostName: "staging.example", UpdatedAt: 20}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetVaultTombstones(metadata.VaultTombstones{Hosts: map[string]int64{"keep": 5}}); err != nil {
+		t.Fatal(err)
+	}
+	packer := Packer{Paths: p, Config: cfg, Keyring: keys.Manager{Paths: p}, Store: store}
+	local, err := packer.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local.Tombstones.Hosts["keep"] != 0 {
+		t.Fatalf("live host should not keep a tombstone: %+v", local.Tombstones)
+	}
+}
+
+func TestMergeIntegrationsKeepsBitqate(t *testing.T) {
+	local := VaultIntegrations{Bitqate: &VaultBitqateIntegration{Enabled: true, AutoSync: true, DefaultSSHUser: "root", RegionFilter: []string{"Falkenstein"}}}
+	remote := VaultIntegrations{GCP: &VaultGCPIntegration{Enabled: true}}
+	got := mergeIntegrations(remote, local)
+	if got.Bitqate == nil || !got.Bitqate.Enabled || got.GCP == nil {
+		t.Fatalf("merge dropped bitqate: %+v", got)
+	}
+}
+
+func TestMergeIntegrationsKeepsNewSyncProviders(t *testing.T) {
+	local := VaultIntegrations{
+		Railway:      &VaultRailwayIntegration{Enabled: true, AutoSync: true},
+		Fly:          &VaultFlyIntegration{Enabled: true, OrgFilter: []string{"personal"}},
+		DigitalOcean: &VaultDigitalOceanIntegration{Enabled: true, ContextFilter: []string{"default"}},
+	}
+	remote := VaultIntegrations{GCP: &VaultGCPIntegration{Enabled: true}}
+	got := mergeIntegrations(remote, local)
+	if got.Railway == nil || !got.Railway.Enabled || got.Fly == nil || len(got.Fly.OrgFilter) != 1 || got.DigitalOcean == nil || got.GCP == nil {
+		t.Fatalf("merge dropped sync providers: %+v", got)
+	}
+}
+
+func TestMergeIntegrationsKeepsHetzner(t *testing.T) {
+	local := VaultIntegrations{Hetzner: &VaultHetznerIntegration{Enabled: true, AutoSync: true, DefaultSSHUser: "root"}}
+	remote := VaultIntegrations{GCP: &VaultGCPIntegration{Enabled: true}}
+	got := mergeIntegrations(remote, local)
+	if got.Hetzner == nil || !got.Hetzner.Enabled || got.GCP == nil {
+		t.Fatalf("merge = %+v", got)
 	}
 }
 
@@ -243,5 +548,45 @@ func TestHostedTermsRequired(t *testing.T) {
 	}
 	if HostedTermsRequired("https://vault.example") || HostedTermsRequired("http://localhost:3000") {
 		t.Fatal("custom API bases should skip Ellipse terms")
+	}
+}
+
+func TestApplyPreservesBoatMigrationConflict(t *testing.T) {
+	p := paths.ForHome(t.TempDir())
+	cfg := sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncBoatConfig: p.SyncBoatConfig}
+	legacy := filepath.Join(p.ManagedDir, "sync", "box", "config")
+	for path, alias := range map[string]string{legacy: "box_old", p.SyncBoatConfig: "boat_new"} {
+		if err := cfg.EnsureSyncInclude(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := sshconfig.WriteSyncConfig(path, []sshconfig.SyncHostInput{{Alias: alias, SyncSource: "boat", SyncID: "bx_" + alias, HostName: "203.0.113.4"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetHost("box_old", metadata.Host{Notes: "preserve me"}); err != nil {
+		t.Fatal(err)
+	}
+	before := map[string][]byte{}
+	for _, path := range []string{legacy, p.SyncBoatConfig, p.MainConfig, p.ManagedConfig, p.StateFile} {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[path] = content
+	}
+	applier := Applier{Paths: p, Config: cfg, Store: store}
+	var conflict *sshconfig.BoatMigrationConflict
+	if err := applier.Apply(Document{Metadata: map[string]metadata.Host{"box_old": {Notes: "overwrite"}}}); !errors.As(err, &conflict) {
+		t.Fatalf("expected migration conflict, got %v", err)
+	}
+	for path, original := range before {
+		after, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(original, after) {
+			t.Fatalf("changed %s during conflict: %v", path, err)
+		}
 	}
 }

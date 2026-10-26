@@ -27,9 +27,9 @@ func (m *App) resumeSelectedFly(host sshconfig.Host, thenConnect bool) tea.Cmd {
 	opGen := m.beginProviderOp("fly")
 	m.syncActivity = "starting…"
 	if thenConnect {
-		m.boxConnectAfter = host.Alias
+		m.sandboxConnectAfter = host.Alias
 	} else {
-		m.boxConnectAfter = ""
+		m.sandboxConnectAfter = ""
 	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
@@ -37,6 +37,13 @@ func (m *App) resumeSelectedFly(host sshconfig.Host, thenConnect bool) tea.Cmd {
 		result, err := m.syncer.ResumeFly(ctx, host.SyncID)
 		return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
 	}
+}
+
+func flyOrgDefault(orgs []string) string {
+	if len(orgs) == 1 {
+		return strings.TrimSpace(orgs[0])
+	}
+	return ""
 }
 
 func (m *App) flyAppOptions() []fieldOption {
@@ -66,7 +73,7 @@ func (m *App) openFlyNewForm() {
 	m.openForm("New Fly Machine", "fly_new", []field{
 		appField,
 		{label: "Image", description: "Docker image", placeholder: "nginx", value: "nginx"},
-		{label: "Org", description: "Organization slug", optional: true, placeholder: "personal", value: strings.Join(m.metadata.Fly().OrgFilter, ", ")},
+		{label: "Org", description: "Organization slug", optional: true, placeholder: "personal", value: flyOrgDefault(m.metadata.Fly().OrgFilter)},
 		{label: "Region", description: "Region code", placeholder: "iad", value: "iad"},
 		{
 			label: "Size", value: "shared-cpu-1x", selected: 0,

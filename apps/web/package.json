@@ -23,7 +23,7 @@
     "fumadocs-ui": "^16.15.0",
     "lucide-react": "^1.33.0",
     "motion": "^13.1.1",
-    "next": "16.3.2",
+    "next": "16.4.3",
     "posthog-node": "^5.50.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -37,7 +37,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "eslint": "^9.39.5",
-    "eslint-config-next": "16.3.2",
+    "eslint-config-next": "16.4.3",
     "tailwindcss": "^4.3.3",
     "typescript": "workspace:*"
   }

@@ -15,7 +15,7 @@ import (
 	"bast/internal/platform"
 )
 
-const CurrentVersion = 7
+const CurrentVersion = 8
 
 type Host struct {
 	Label           string     `json:"label,omitempty"`
@@ -28,11 +28,19 @@ type Host struct {
 	Environment     string     `json:"environment,omitempty"`
 	Color           string     `json:"color,omitempty"`
 	Notes           string     `json:"notes,omitempty"`
+	RDP             bool       `json:"rdp,omitempty"`
 }
 
 type Preferences struct {
 	Sort            string   `json:"sort,omitempty"`
 	CollapsedGroups []string `json:"collapsedGroups,omitempty"`
+}
+
+// Onboarding is per-machine TUI first-run state. It is not packed into Vault:
+// a new computer should still see a census of that machine.
+type Onboarding struct {
+	Eligible    bool       `json:"eligible,omitempty"`
+	DismissedAt *time.Time `json:"dismissedAt,omitempty"`
 }
 
 type HistorySource struct {
@@ -92,7 +100,7 @@ type AzureIntegration struct {
 	LastInstanceCount   int        `json:"lastInstanceCount,omitempty"`
 }
 
-type BoxIntegration struct {
+type BoatIntegration struct {
 	Enabled           bool       `json:"enabled"`
 	AutoSync          bool       `json:"autoSync,omitempty"`
 	Disabled          bool       `json:"disabled,omitempty"` // sticky user opt-out; blocks auto-connect
@@ -102,6 +110,74 @@ type BoxIntegration struct {
 }
 
 type UpstashIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
+type VercelIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	TeamID            string     `json:"teamId,omitempty"`
+	ProjectID         string     `json:"projectId,omitempty"`
+	ProjectIDs        []string   `json:"projectIds,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Unrestorable      []string   `json:"unrestorable,omitempty"`
+}
+
+func (v VercelIntegration) Projects() []string {
+	return parseVercelProjects(v.ProjectID, strings.Join(v.ProjectIDs, ","))
+}
+
+func parseVercelProjects(values ...string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, raw := range values {
+		for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+			return r == ',' || r == ';' || r == ' ' || r == '\n' || r == '\t'
+		}) {
+			part = strings.TrimSpace(part)
+			if part == "" || seen[part] {
+				continue
+			}
+			seen[part] = true
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+type HetznerIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	DefaultSSHPort    string     `json:"defaultSshPort,omitempty"`
+	PreferPrivateIP   bool       `json:"preferPrivateIp,omitempty"`
+	ContextFilter     []string   `json:"contextFilter,omitempty"`
+	LocationFilter    []string   `json:"locationFilter,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
+type BitqateIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	DefaultSSHPort    string     `json:"defaultSshPort,omitempty"`
+	RegionFilter      []string   `json:"regionFilter,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
+type RailwayIntegration struct {
 	Enabled           bool       `json:"enabled"`
 	AutoSync          bool       `json:"autoSync,omitempty"`
 	Disabled          bool       `json:"disabled,omitempty"`
@@ -122,21 +198,64 @@ type FlyIntegration struct {
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 }
 
+type DigitalOceanIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	ContextFilter     []string   `json:"contextFilter,omitempty"`
+	RegionFilter      []string   `json:"regionFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
 type Integrations struct {
-	GCP     *GCPIntegration     `json:"gcp,omitempty"`
-	AWS     *AWSIntegration     `json:"aws,omitempty"`
-	Azure   *AzureIntegration   `json:"azure,omitempty"`
-	Box     *BoxIntegration     `json:"box,omitempty"`
-	Upstash *UpstashIntegration `json:"upstash,omitempty"`
-	Fly     *FlyIntegration     `json:"fly,omitempty"`
+	GCP          *GCPIntegration          `json:"gcp,omitempty"`
+	AWS          *AWSIntegration          `json:"aws,omitempty"`
+	Azure        *AzureIntegration        `json:"azure,omitempty"`
+	Boat         *BoatIntegration         `json:"boat,omitempty"`
+	Upstash      *UpstashIntegration      `json:"upstash,omitempty"`
+	Vercel       *VercelIntegration       `json:"vercel,omitempty"`
+	Hetzner      *HetznerIntegration      `json:"hetzner,omitempty"`
+	Bitqate      *BitqateIntegration      `json:"bitqate,omitempty"`
+	Railway      *RailwayIntegration      `json:"railway,omitempty"`
+	Fly          *FlyIntegration          `json:"fly,omitempty"`
+	DigitalOcean *DigitalOceanIntegration `json:"digitalocean,omitempty"`
+}
+
+// Read the former provider name without writing it back into new state files.
+// A Boat setting, including an explicit opt-out, takes precedence.
+func (i *Integrations) UnmarshalJSON(data []byte) error {
+	type current Integrations
+	var decoded struct {
+		current
+		Box *BoatIntegration `json:"box"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*i = Integrations(decoded.current)
+	if i.Boat == nil {
+		i.Boat = decoded.Box
+	}
+	return nil
+}
+
+// VaultTombstones records Bast-managed hosts and keys that were deleted locally
+// so a later vault pack/merge can drop the remote copies instead of restoring them.
+type VaultTombstones struct {
+	Hosts map[string]int64 `json:"hosts,omitempty"` // managedId -> deletedAt
+	Keys  map[string]int64 `json:"keys,omitempty"`  // fingerprint or name:name -> deletedAt
 }
 
 type State struct {
-	Version      int             `json:"version"`
-	Hosts        map[string]Host `json:"hosts"`
-	Preferences  Preferences     `json:"preferences,omitempty"`
-	Integrations Integrations    `json:"integrations,omitempty"`
-	History      HistoryImport   `json:"history,omitempty"`
+	Version         int             `json:"version"`
+	Hosts           map[string]Host `json:"hosts"`
+	Preferences     Preferences     `json:"preferences,omitempty"`
+	Integrations    Integrations    `json:"integrations,omitempty"`
+	History         HistoryImport   `json:"history,omitempty"`
+	Onboarding      Onboarding      `json:"onboarding,omitempty"`
+	VaultTombstones VaultTombstones `json:"vaultTombstones,omitempty"`
 }
 
 type Store struct {
@@ -152,6 +271,7 @@ func Open(path string) (*Store, error) {
 	s := &Store{path: path, state: State{Version: CurrentVersion, Hosts: map[string]Host{}}}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
+		s.state.Onboarding.Eligible = true
 		return s, nil
 	}
 	if err != nil {
@@ -176,10 +296,22 @@ func Open(path string) (*Store, error) {
 		} else if strings.HasPrefix(host.Group, "AWS/") {
 			host.Group = "Amazon EC2/" + strings.TrimPrefix(host.Group, "AWS/")
 		}
+		host.Group = migrateBoatGroup(host.Group)
 		s.state.Hosts[alias] = host
 	}
+	for i, group := range s.state.Preferences.CollapsedGroups {
+		s.state.Preferences.CollapsedGroups[i] = migrateBoatGroup(group)
+	}
+	s.state.Preferences.CollapsedGroups = cleanCollapsedGroups(s.state.Preferences.CollapsedGroups)
 	s.state.Version = CurrentVersion
 	return s, nil
+}
+
+func migrateBoatGroup(group string) string {
+	if group == "Box" || strings.HasPrefix(group, "Box/") {
+		return "Boat" + strings.TrimPrefix(group, "Box")
+	}
+	return group
 }
 
 func (s *Store) Host(alias string) Host {
@@ -276,16 +408,85 @@ func (s *Store) UpdateHosts(update func(map[string]Host)) error {
 func (s *Store) DeleteHost(alias string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.deleteHostLocked(alias, "")
+}
+
+// DeleteHostWithTombstone removes host metadata and records a vault tombstone
+// for the managed id in the same state-file write.
+func (s *Store) DeleteHostWithTombstone(alias, managedID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.deleteHostLocked(alias, managedID)
+}
+
+func (s *Store) deleteHostLocked(alias, managedID string) error {
 	previous, existed := s.state.Hosts[alias]
+	previousTombs := cloneVaultTombstones(s.state.VaultTombstones)
 	delete(s.state.Hosts, alias)
+	if id := strings.TrimSpace(managedID); id != "" {
+		if s.state.VaultTombstones.Hosts == nil {
+			s.state.VaultTombstones.Hosts = map[string]int64{}
+		}
+		s.state.VaultTombstones.Hosts[id] = time.Now().UTC().Unix()
+	}
 	if err := s.save(); err != nil {
 		if existed {
 			s.state.Hosts[alias] = previous
 		}
+		s.state.VaultTombstones = previousTombs
 		return err
 	}
 	s.hostRevision.Add(1)
 	return nil
+}
+
+func (s *Store) VaultTombstones() VaultTombstones {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneVaultTombstones(s.state.VaultTombstones)
+}
+
+func (s *Store) SetVaultTombstones(tombs VaultTombstones) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := cloneVaultTombstones(s.state.VaultTombstones)
+	s.state.VaultTombstones = cloneVaultTombstones(tombs)
+	if err := s.save(); err != nil {
+		s.state.VaultTombstones = previous
+		return err
+	}
+	return nil
+}
+
+func (s *Store) RecordKeyTombstone(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := cloneVaultTombstones(s.state.VaultTombstones)
+	if s.state.VaultTombstones.Keys == nil {
+		s.state.VaultTombstones.Keys = map[string]int64{}
+	}
+	s.state.VaultTombstones.Keys[id] = time.Now().UTC().Unix()
+	if err := s.save(); err != nil {
+		s.state.VaultTombstones = previous
+		return err
+	}
+	return nil
+}
+
+func VaultKeyTombstoneID(fingerprint, name string) string {
+	fingerprint = strings.TrimSpace(fingerprint)
+	if fingerprint != "" {
+		return fingerprint
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	return "name:" + name
 }
 
 func (s *Store) RenameHost(from, to string) error {
@@ -402,6 +603,39 @@ func (s *Store) SetCollapsedGroups(groups []string) error {
 	s.state.Preferences.CollapsedGroups = cleanCollapsedGroups(groups)
 	if err := s.saveQuick(); err != nil {
 		s.state.Preferences = previous
+		return err
+	}
+	return nil
+}
+
+func (s *Store) Onboarding() Onboarding {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneOnboarding(s.state.Onboarding)
+}
+
+// ShouldOnboard is true for a first TUI session on this machine that has not
+// been dismissed. Existing state files from older Bast versions are ineligible.
+func (s *Store) ShouldOnboard() bool {
+	if os.Getenv("BAST_NO_ONBOARDING") != "" {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.Onboarding.Eligible && s.state.Onboarding.DismissedAt == nil
+}
+
+func (s *Store) DismissOnboarding() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Onboarding.DismissedAt != nil {
+		return nil
+	}
+	previous := s.state.Onboarding
+	now := time.Now().UTC()
+	s.state.Onboarding.DismissedAt = &now
+	if err := s.save(); err != nil {
+		s.state.Onboarding = previous
 		return err
 	}
 	return nil
@@ -582,28 +816,28 @@ func (s *Store) SetAzure(azure AzureIntegration) error {
 	return nil
 }
 
-func (s *Store) Box() BoxIntegration {
+func (s *Store) Boat() BoatIntegration {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.state.Integrations.Box == nil {
-		return BoxIntegration{}
+	if s.state.Integrations.Boat == nil {
+		return BoatIntegration{}
 	}
-	return cloneBox(*s.state.Integrations.Box)
+	return cloneBoat(*s.state.Integrations.Boat)
 }
 
-func (s *Store) SetBox(box BoxIntegration) error {
+func (s *Store) SetBoat(boat BoatIntegration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous := s.state.Integrations.Box
-	if !box.Enabled && !box.AutoSync && !box.Disabled && box.LastSyncAt == nil &&
-		box.LastSyncError == "" && box.LastInstanceCount == 0 {
-		s.state.Integrations.Box = nil
+	previous := s.state.Integrations.Boat
+	if !boat.Enabled && !boat.AutoSync && !boat.Disabled && boat.LastSyncAt == nil &&
+		boat.LastSyncError == "" && boat.LastInstanceCount == 0 {
+		s.state.Integrations.Boat = nil
 	} else {
-		copy := cloneBox(box)
-		s.state.Integrations.Box = &copy
+		copy := cloneBoat(boat)
+		s.state.Integrations.Boat = &copy
 	}
 	if err := s.save(); err != nil {
-		s.state.Integrations.Box = previous
+		s.state.Integrations.Boat = previous
 		return err
 	}
 	return nil
@@ -636,29 +870,57 @@ func (s *Store) SetUpstash(upstash UpstashIntegration) error {
 	return nil
 }
 
-func (s *Store) Fly() FlyIntegration {
+func (s *Store) Vercel() VercelIntegration {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.state.Integrations.Fly == nil {
-		return FlyIntegration{}
+	if s.state.Integrations.Vercel == nil {
+		return VercelIntegration{}
 	}
-	return cloneFly(*s.state.Integrations.Fly)
+	return cloneVercel(*s.state.Integrations.Vercel)
 }
 
-func (s *Store) SetFly(fly FlyIntegration) error {
+func (s *Store) SetVercel(vercel VercelIntegration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	previous := s.state.Integrations.Fly
-	if !fly.Enabled && !fly.AutoSync && !fly.Disabled && len(fly.OrgFilter) == 0 &&
-		len(fly.AppFilter) == 0 && fly.DefaultSSHUser == "" && fly.LastSyncAt == nil &&
-		fly.LastSyncError == "" && fly.LastInstanceCount == 0 {
-		s.state.Integrations.Fly = nil
+	previous := s.state.Integrations.Vercel
+	if !vercel.Enabled && !vercel.AutoSync && !vercel.Disabled && vercel.TeamID == "" && vercel.ProjectID == "" &&
+		len(vercel.ProjectIDs) == 0 &&
+		vercel.LastSyncAt == nil && vercel.LastSyncError == "" && vercel.LastInstanceCount == 0 && len(vercel.Unrestorable) == 0 {
+		s.state.Integrations.Vercel = nil
 	} else {
-		copy := cloneFly(fly)
-		s.state.Integrations.Fly = &copy
+		copy := cloneVercel(vercel)
+		s.state.Integrations.Vercel = &copy
 	}
 	if err := s.save(); err != nil {
-		s.state.Integrations.Fly = previous
+		s.state.Integrations.Vercel = previous
+		return err
+	}
+	return nil
+}
+
+func (s *Store) Hetzner() HetznerIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Hetzner == nil {
+		return HetznerIntegration{}
+	}
+	return cloneHetzner(*s.state.Integrations.Hetzner)
+}
+
+func (s *Store) SetHetzner(hetzner HetznerIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Hetzner
+	if !hetzner.Enabled && !hetzner.AutoSync && hetzner.DefaultSSHUser == "" && hetzner.DefaultSSHPort == "" && !hetzner.PreferPrivateIP &&
+		len(hetzner.ContextFilter) == 0 && len(hetzner.LocationFilter) == 0 &&
+		hetzner.LastSyncAt == nil && hetzner.LastSyncError == "" && hetzner.LastInstanceCount == 0 {
+		s.state.Integrations.Hetzner = nil
+	} else {
+		copy := cloneHetzner(hetzner)
+		s.state.Integrations.Hetzner = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Hetzner = previous
 		return err
 	}
 	return nil
@@ -671,6 +933,14 @@ func cloneHost(host Host) Host {
 		host.LastUsedAt = &lastUsedAt
 	}
 	return host
+}
+
+func cloneOnboarding(onboarding Onboarding) Onboarding {
+	if onboarding.DismissedAt != nil {
+		dismissed := *onboarding.DismissedAt
+		onboarding.DismissedAt = &dismissed
+	}
+	return onboarding
 }
 
 func cloneHistoryImport(history HistoryImport) HistoryImport {
@@ -703,6 +973,24 @@ func cloneHosts(hosts map[string]Host) map[string]Host {
 	return out
 }
 
+func cloneInt64Map(in map[string]int64) map[string]int64 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneVaultTombstones(in VaultTombstones) VaultTombstones {
+	return VaultTombstones{
+		Hosts: cloneInt64Map(in.Hosts),
+		Keys:  cloneInt64Map(in.Keys),
+	}
+}
+
 func cloneGCP(gcp GCPIntegration) GCPIntegration {
 	gcp.ServiceAccounts = append([]string(nil), gcp.ServiceAccounts...)
 	gcp.ProjectFilter = append([]string(nil), gcp.ProjectFilter...)
@@ -733,12 +1021,12 @@ func cloneAzure(azure AzureIntegration) AzureIntegration {
 	return azure
 }
 
-func cloneBox(box BoxIntegration) BoxIntegration {
-	if box.LastSyncAt != nil {
-		lastSyncAt := *box.LastSyncAt
-		box.LastSyncAt = &lastSyncAt
+func cloneBoat(boat BoatIntegration) BoatIntegration {
+	if boat.LastSyncAt != nil {
+		lastSyncAt := *boat.LastSyncAt
+		boat.LastSyncAt = &lastSyncAt
 	}
-	return box
+	return boat
 }
 
 func cloneUpstash(upstash UpstashIntegration) UpstashIntegration {
@@ -749,6 +1037,126 @@ func cloneUpstash(upstash UpstashIntegration) UpstashIntegration {
 	return upstash
 }
 
+func cloneVercel(vercel VercelIntegration) VercelIntegration {
+	vercel.Unrestorable = append([]string(nil), vercel.Unrestorable...)
+	vercel.ProjectIDs = append([]string(nil), vercel.ProjectIDs...)
+	if vercel.LastSyncAt != nil {
+		lastSyncAt := *vercel.LastSyncAt
+		vercel.LastSyncAt = &lastSyncAt
+	}
+	return vercel
+}
+
+func (s *Store) Bitqate() BitqateIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Bitqate == nil {
+		return BitqateIntegration{}
+	}
+	return cloneBitqate(*s.state.Integrations.Bitqate)
+}
+
+func (s *Store) SetBitqate(bitqate BitqateIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Bitqate
+	if !bitqate.Enabled && !bitqate.AutoSync && bitqate.DefaultSSHUser == "" && bitqate.DefaultSSHPort == "" &&
+		len(bitqate.RegionFilter) == 0 &&
+		bitqate.LastSyncAt == nil && bitqate.LastSyncError == "" && bitqate.LastInstanceCount == 0 {
+		s.state.Integrations.Bitqate = nil
+	} else {
+		copy := cloneBitqate(bitqate)
+		s.state.Integrations.Bitqate = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Bitqate = previous
+		return err
+	}
+	return nil
+}
+
+func cloneBitqate(bitqate BitqateIntegration) BitqateIntegration {
+	bitqate.RegionFilter = append([]string(nil), bitqate.RegionFilter...)
+	if bitqate.LastSyncAt != nil {
+		lastSyncAt := *bitqate.LastSyncAt
+		bitqate.LastSyncAt = &lastSyncAt
+	}
+	return bitqate
+}
+
+func cloneHetzner(hetzner HetznerIntegration) HetznerIntegration {
+	hetzner.ContextFilter = append([]string(nil), hetzner.ContextFilter...)
+	hetzner.LocationFilter = append([]string(nil), hetzner.LocationFilter...)
+	if hetzner.LastSyncAt != nil {
+		lastSyncAt := *hetzner.LastSyncAt
+		hetzner.LastSyncAt = &lastSyncAt
+	}
+	return hetzner
+}
+
+func (s *Store) Railway() RailwayIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Railway == nil {
+		return RailwayIntegration{}
+	}
+	return cloneRailway(*s.state.Integrations.Railway)
+}
+
+func (s *Store) SetRailway(railway RailwayIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Railway
+	if !railway.Enabled && !railway.AutoSync && !railway.Disabled && railway.LastSyncAt == nil &&
+		railway.LastSyncError == "" && railway.LastInstanceCount == 0 {
+		s.state.Integrations.Railway = nil
+	} else {
+		copy := cloneRailway(railway)
+		s.state.Integrations.Railway = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Railway = previous
+		return err
+	}
+	return nil
+}
+
+func cloneRailway(railway RailwayIntegration) RailwayIntegration {
+	if railway.LastSyncAt != nil {
+		lastSyncAt := *railway.LastSyncAt
+		railway.LastSyncAt = &lastSyncAt
+	}
+	return railway
+}
+
+func (s *Store) Fly() FlyIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Fly == nil {
+		return FlyIntegration{}
+	}
+	return cloneFly(*s.state.Integrations.Fly)
+}
+
+func (s *Store) SetFly(fly FlyIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Fly
+	if !fly.Enabled && !fly.AutoSync && !fly.Disabled && fly.DefaultSSHUser == "" &&
+		len(fly.OrgFilter) == 0 && len(fly.AppFilter) == 0 &&
+		fly.LastSyncAt == nil && fly.LastSyncError == "" && fly.LastInstanceCount == 0 {
+		s.state.Integrations.Fly = nil
+	} else {
+		copy := cloneFly(fly)
+		s.state.Integrations.Fly = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Fly = previous
+		return err
+	}
+	return nil
+}
+
 func cloneFly(fly FlyIntegration) FlyIntegration {
 	fly.OrgFilter = append([]string(nil), fly.OrgFilter...)
 	fly.AppFilter = append([]string(nil), fly.AppFilter...)
@@ -757,6 +1165,44 @@ func cloneFly(fly FlyIntegration) FlyIntegration {
 		fly.LastSyncAt = &lastSyncAt
 	}
 	return fly
+}
+
+func (s *Store) DigitalOcean() DigitalOceanIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.DigitalOcean == nil {
+		return DigitalOceanIntegration{}
+	}
+	return cloneDigitalOcean(*s.state.Integrations.DigitalOcean)
+}
+
+func (s *Store) SetDigitalOcean(digitalOcean DigitalOceanIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.DigitalOcean
+	if !digitalOcean.Enabled && !digitalOcean.AutoSync && digitalOcean.DefaultSSHUser == "" &&
+		len(digitalOcean.ContextFilter) == 0 && len(digitalOcean.RegionFilter) == 0 &&
+		digitalOcean.LastSyncAt == nil && digitalOcean.LastSyncError == "" && digitalOcean.LastInstanceCount == 0 {
+		s.state.Integrations.DigitalOcean = nil
+	} else {
+		copy := cloneDigitalOcean(digitalOcean)
+		s.state.Integrations.DigitalOcean = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.DigitalOcean = previous
+		return err
+	}
+	return nil
+}
+
+func cloneDigitalOcean(digitalOcean DigitalOceanIntegration) DigitalOceanIntegration {
+	digitalOcean.ContextFilter = append([]string(nil), digitalOcean.ContextFilter...)
+	digitalOcean.RegionFilter = append([]string(nil), digitalOcean.RegionFilter...)
+	if digitalOcean.LastSyncAt != nil {
+		lastSyncAt := *digitalOcean.LastSyncAt
+		digitalOcean.LastSyncAt = &lastSyncAt
+	}
+	return digitalOcean
 }
 
 func cloneIntegrations(integrations Integrations) Integrations {
@@ -773,17 +1219,37 @@ func cloneIntegrations(integrations Integrations) Integrations {
 		azure := cloneAzure(*integrations.Azure)
 		out.Azure = &azure
 	}
-	if integrations.Box != nil {
-		box := cloneBox(*integrations.Box)
-		out.Box = &box
+	if integrations.Boat != nil {
+		boat := cloneBoat(*integrations.Boat)
+		out.Boat = &boat
 	}
 	if integrations.Upstash != nil {
 		upstash := cloneUpstash(*integrations.Upstash)
 		out.Upstash = &upstash
 	}
+	if integrations.Vercel != nil {
+		vercel := cloneVercel(*integrations.Vercel)
+		out.Vercel = &vercel
+	}
+	if integrations.Hetzner != nil {
+		hetzner := cloneHetzner(*integrations.Hetzner)
+		out.Hetzner = &hetzner
+	}
+	if integrations.Bitqate != nil {
+		bitqate := cloneBitqate(*integrations.Bitqate)
+		out.Bitqate = &bitqate
+	}
+	if integrations.Railway != nil {
+		railway := cloneRailway(*integrations.Railway)
+		out.Railway = &railway
+	}
 	if integrations.Fly != nil {
 		fly := cloneFly(*integrations.Fly)
 		out.Fly = &fly
+	}
+	if integrations.DigitalOcean != nil {
+		digitalOcean := cloneDigitalOcean(*integrations.DigitalOcean)
+		out.DigitalOcean = &digitalOcean
 	}
 	return out
 }

@@ -8,22 +8,33 @@ import (
 )
 
 type Paths struct {
-	Home              string
-	SSHDir            string
-	MainConfig        string
-	ManagedDir        string
-	ManagedConfig     string
-	ManagedKeys       string
-	SyncDir           string
-	SyncGCPConfig     string
-	SyncAWSConfig     string
-	SyncAzureConfig   string
-	SyncBoxConfig     string
-	SyncUpstashConfig string
-	SyncFlyConfig     string
-	AzureDir          string
-	StateFile         string
-	UpstashAPIKey     string
+	Home                   string
+	SSHDir                 string
+	MainConfig             string
+	ManagedDir             string
+	ManagedConfig          string
+	ManagedKeys            string
+	SyncDir                string
+	SyncGCPConfig          string
+	SyncAWSConfig          string
+	SyncAzureConfig        string
+	SyncBoatConfig         string
+	SyncUpstashConfig      string
+	SyncVercelConfig       string
+	SyncHetznerConfig      string
+	SyncBitqateConfig      string
+	SyncRailwayConfig      string
+	SyncFlyConfig          string
+	SyncDigitalOceanConfig string
+	AzureDir               string
+	StateFile              string
+	UpstashAPIKey          string
+	PasswordsDir           string
+	VercelToken            string
+	HetznerAPIKey          string
+	HetznerTokenDir        string
+	BitqateToken           string
+	RailwayAPIToken        string
 }
 
 func ForHome(home string) Paths {
@@ -32,22 +43,33 @@ func ForHome(home string) Paths {
 	syncDir := filepath.Join(managedDir, "sync")
 	configDir := filepath.Join(home, ".config", "bast")
 	return Paths{
-		Home:              home,
-		SSHDir:            sshDir,
-		MainConfig:        filepath.Join(sshDir, "config"),
-		ManagedDir:        managedDir,
-		ManagedConfig:     filepath.Join(managedDir, "config"),
-		ManagedKeys:       filepath.Join(managedDir, "keys"),
-		SyncDir:           syncDir,
-		SyncGCPConfig:     filepath.Join(syncDir, "gcp", "config"),
-		SyncAWSConfig:     filepath.Join(syncDir, "aws", "config"),
-		SyncAzureConfig:   filepath.Join(syncDir, "azure", "config"),
-		SyncBoxConfig:     filepath.Join(syncDir, "box", "config"),
-		SyncUpstashConfig: filepath.Join(syncDir, "upstash", "config"),
-		SyncFlyConfig:     filepath.Join(syncDir, "fly", "config"),
-		AzureDir:          filepath.Join(managedDir, "azure"),
-		StateFile:         filepath.Join(configDir, "state.json"),
-		UpstashAPIKey:     filepath.Join(configDir, "upstash-box-api-key"),
+		Home:                   home,
+		SSHDir:                 sshDir,
+		MainConfig:             filepath.Join(sshDir, "config"),
+		ManagedDir:             managedDir,
+		ManagedConfig:          filepath.Join(managedDir, "config"),
+		ManagedKeys:            filepath.Join(managedDir, "keys"),
+		SyncDir:                syncDir,
+		SyncGCPConfig:          filepath.Join(syncDir, "gcp", "config"),
+		SyncAWSConfig:          filepath.Join(syncDir, "aws", "config"),
+		SyncAzureConfig:        filepath.Join(syncDir, "azure", "config"),
+		SyncBoatConfig:         filepath.Join(syncDir, "boat", "config"),
+		SyncUpstashConfig:      filepath.Join(syncDir, "upstash", "config"),
+		SyncVercelConfig:       filepath.Join(syncDir, "vercel", "config"),
+		SyncHetznerConfig:      filepath.Join(syncDir, "hetzner", "config"),
+		SyncBitqateConfig:      filepath.Join(syncDir, "bitqate", "config"),
+		SyncRailwayConfig:      filepath.Join(syncDir, "railway", "config"),
+		SyncFlyConfig:          filepath.Join(syncDir, "fly", "config"),
+		SyncDigitalOceanConfig: filepath.Join(syncDir, "digitalocean", "config"),
+		AzureDir:               filepath.Join(managedDir, "azure"),
+		StateFile:              filepath.Join(configDir, "state.json"),
+		UpstashAPIKey:          filepath.Join(configDir, "upstash-box-api-key"),
+		PasswordsDir:           filepath.Join(configDir, "passwords"),
+		VercelToken:            filepath.Join(configDir, "vercel-token"),
+		HetznerAPIKey:          filepath.Join(configDir, "hetzner-api-token"),
+		HetznerTokenDir:        filepath.Join(configDir, "hetzner", "tokens"),
+		BitqateToken:           filepath.Join(configDir, "bitqate-token"),
+		RailwayAPIToken:        filepath.Join(configDir, "railway-api-token"),
 	}
 }
 

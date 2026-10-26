@@ -21,15 +21,13 @@ const (
 	headerTabSpacing     = "   "
 	connectAction        = " Connect "
 	resumeAction         = " Resume "
+	rdpAction            = " RDP "
 	addAction            = " Add "
 	connectActionRow     = 2
 	mobileScrollbarWidth = 3
 
-	keyInstallAction    = "[u] Add to server"
 	keyInstallActionRow = 4
 )
-
-var headerTabLabels = [...]string{"[1] Hosts", "[2] Keys", "[3] Vault", "[4] Sync", "[5] Files"}
 
 var headerTabSections = [...]section{hostsSection, keysSection, vaultSection, syncSection, filesSection}
 
@@ -63,6 +61,24 @@ func (m *App) renderDetailActionChip(s styleSet, action string) string {
 	return "\n  " + s.title.Render(action) + "\n\n"
 }
 
+func (m *App) renderHostDetailActions(s styleSet, host sshconfig.Host, primary string) string {
+	line := "\n  " + s.title.Render(primary)
+	if m.hostMetadata()[host.Alias].RDP {
+		line += " " + s.title.Render(rdpAction)
+	}
+	return line + "\n\n"
+}
+
+func (m *App) rdpButtonBounds(layout panelLayout) (x, y, width int, ok bool) {
+	host, selected := m.selectedHost()
+	if !selected || !m.hostMetadata()[host.Alias].RDP {
+		return 0, 0, 0, false
+	}
+	primaryX, primaryY, primaryWidth := m.hostActionButtonBounds(layout, m.hostPrimaryAction(host))
+	width = lipgloss.Width(m.styles().title.Render(rdpAction))
+	return primaryX + primaryWidth + 1, primaryY, width, true
+}
+
 func (m *App) render() string {
 	styles := m.styles()
 	width := m.terminalWidth()
@@ -71,8 +87,12 @@ func (m *App) render() string {
 	var body string
 	if m.statusError && m.status != "" {
 		body = m.renderError(styles)
+	} else if m.onboarding {
+		body = m.renderOnboarding(styles)
 	} else if m.credits {
 		body = m.renderCredits(styles)
+	} else if m.doctor {
+		body = m.renderDoctor(styles)
 	} else if m.help {
 		body = m.renderHelp(styles)
 	} else if m.form != nil {
@@ -112,6 +132,8 @@ func (m *App) renderError(s styleSet) string {
 	explanation := "The action did not complete."
 	if m.form != nil {
 		explanation += " Your entries are still available when you return."
+	} else {
+		explanation += " Run bast doctor for a full diagnosis."
 	}
 	footer := "Enter/Esc return"
 	if telemetry.Enabled() {
@@ -129,6 +151,51 @@ func (m *App) renderError(s styleSet) string {
 		BorderForeground(lipgloss.Color("#EF4444")).
 		Render(content)
 	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, panel)
+}
+
+const (
+	opensshConfigTrust = "OpenSSH · ~/.ssh/config"
+	opensshAgentTrust  = "OpenSSH · ssh-agent"
+)
+
+func (m *App) renderSeal(s styleSet, title string, mutedLines []string, extraRows []string) string {
+	inner := min(50, max(8, m.terminalWidth()-2))
+	content := max(4, inner-2)
+	border := s.muted
+	top := border.Render("╭" + strings.Repeat("─", inner) + "╮")
+	bot := border.Render("╰" + strings.Repeat("─", inner) + "╯")
+	side := border.Render("│")
+	row := func(line string) string {
+		if lipgloss.Width(line) > content {
+			line = truncate(line, content)
+		}
+		return side + " " + padVisual(line, content) + " " + side
+	}
+
+	var b strings.Builder
+	b.WriteString(top + "\n")
+	if title != "" {
+		b.WriteString(row(s.active.Render(title)) + "\n")
+		if len(mutedLines) > 0 || len(extraRows) > 0 {
+			b.WriteString(row("") + "\n")
+		}
+	}
+	for _, line := range mutedLines {
+		for _, part := range wrapWords(line, content) {
+			b.WriteString(row(s.muted.Render(part)) + "\n")
+		}
+	}
+	if len(extraRows) > 0 {
+		if len(mutedLines) > 0 {
+			b.WriteString(row("") + "\n")
+		}
+		for _, line := range extraRows {
+			b.WriteString(row(line) + "\n")
+		}
+	}
+	b.WriteString(bot)
+	placed := lipgloss.PlaceHorizontal(m.terminalWidth(), lipgloss.Center, b.String())
+	return "\n" + placed + "\n"
 }
 
 type styleSet struct {
@@ -187,9 +254,10 @@ func (m *App) frameStyles(width, bodyHeight int) (body, frame lipgloss.Style) {
 }
 
 func (m *App) renderTabs(s styleSet) string {
-	parts := make([]string, 0, len(headerTabLabels))
-	for i, label := range headerTabLabels {
-		if m.section == headerTabSections[i] {
+	parts := make([]string, 0, len(headerTabSections))
+	for _, sec := range headerTabSections {
+		label := m.tabChip(sec)
+		if m.section == sec {
 			parts = append(parts, s.active.Render(label))
 		} else {
 			parts = append(parts, s.inactive.Render(label))
@@ -201,10 +269,12 @@ func (m *App) renderTabs(s styleSet) string {
 func tabAtX(x int) (section, bool) {
 	cursor := lipgloss.Width(headerTitle) + 2
 	gap := lipgloss.Width(headerTabSpacing)
-	for i, label := range headerTabLabels {
+	dummy := &App{}
+	for _, sec := range headerTabSections {
+		label := dummy.tabChip(sec)
 		width := lipgloss.Width(label)
 		if x >= cursor && x < cursor+width {
-			return headerTabSections[i], true
+			return sec, true
 		}
 		cursor += width + gap
 	}
@@ -223,9 +293,15 @@ func (m *App) renderHosts(s styleSet) string {
 		if m.hasHiddenHosts() && !m.showHidden {
 			return "\n  " + s.muted.Render("No visible hosts. Press . to show hidden and stopped hosts.")
 		}
-		return "\n\n  " + s.active.Render("◇  No hosts yet") +
-			"\n\n  " + s.muted.Render("Your SSH map is empty.") +
-			"\n  " + s.muted.Render("Press a to add your first destination.")
+		add, ok := firstBinding(ActionAddHost)
+		var extras []string
+		if ok {
+			extras = append(extras, s.title.Render(" "+formatChip(add)+" "))
+		}
+		return m.renderSeal(s, "◇  No hosts yet", []string{
+			"Your SSH map is empty.",
+			opensshConfigTrust,
+		}, extras)
 	}
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
 	layout := m.panelLayout()
@@ -240,12 +316,14 @@ func (m *App) renderHosts(s styleSet) string {
 	activeRow := s.active.Width(rowWidth)
 	plainRow := s.plain.Width(rowWidth)
 	hostMeta := m.hostMetadata()
-	gcpErr := m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != ""
-	awsErr := m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != ""
-	azureErr := m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != ""
-	boxErr := m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != ""
-	upstashErr := m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != ""
-	flyErr := m.metadata.Fly().LastSyncError != "" || m.syncStatus.Fly.FlyCLIError != ""
+	gcpErr := m.providerShowsSyncError("gcp", m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != "")
+	awsErr := m.providerShowsSyncError("aws", m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != "")
+	azureErr := m.providerShowsSyncError("azure", m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != "")
+	boatErr := m.providerShowsSyncError("boat", m.metadata.Boat().LastSyncError != "" || m.syncStatus.Boat.BoatCLIError != "")
+	upstashErr := m.providerShowsSyncError("upstash", m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != "")
+	vercelErr := m.providerShowsSyncError("vercel", m.metadata.Vercel().LastSyncError != "" || m.syncStatus.Vercel.Error != "")
+	hetznerErr := m.providerShowsSyncError("hetzner", m.metadata.Hetzner().LastSyncError != "" || m.syncStatus.Hetzner.Error != "")
+	bitqateErr := m.providerShowsSyncError("bitqate", m.metadata.Bitqate().LastSyncError != "" || m.syncStatus.Bitqate.Error != "")
 	start := scrollStart(m.cursor, len(rowsData), listHeight)
 	var list strings.Builder
 	list.Grow(listHeight * (rowWidth + 8))
@@ -289,7 +367,7 @@ func (m *App) renderHosts(s styleSet) string {
 					name = name[slash+1:]
 				}
 			}
-			showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boxErr, upstashErr, flyErr)
+			showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr, bitqateErr)
 			rawPrefix := indent + indicator + " "
 			reservedWidth := lipgloss.Width(rawPrefix) + 1 + lipgloss.Width(fmt.Sprintf("(%d)", row.count)) + lipgloss.Width(managedGroupIcon(name, m.nerdFont))
 			if showError {
@@ -434,19 +512,25 @@ func (m *App) renderHistorySuggestionDetail(s styleSet, suggestion metadata.Hist
 	return b.String()
 }
 
+func (m *App) providerShowsSyncError(provider string, hasError bool) bool {
+	return hasError && !m.providerSyncing(provider)
+}
+
 func (m *App) cloudSyncGroupHasError(group string) bool {
 	return cloudSyncGroupHasErrorCached(
 		group,
-		m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != "",
-		m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != "",
-		m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != "",
-		m.metadata.Box().LastSyncError != "" || m.syncStatus.Box.BoxCLIError != "",
-		m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != "",
-		m.metadata.Fly().LastSyncError != "" || m.syncStatus.Fly.FlyCLIError != "",
+		m.providerShowsSyncError("gcp", m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != ""),
+		m.providerShowsSyncError("aws", m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != ""),
+		m.providerShowsSyncError("azure", m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != ""),
+		m.providerShowsSyncError("boat", m.metadata.Boat().LastSyncError != "" || m.syncStatus.Boat.BoatCLIError != ""),
+		m.providerShowsSyncError("upstash", m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != ""),
+		m.providerShowsSyncError("vercel", m.metadata.Vercel().LastSyncError != "" || m.syncStatus.Vercel.Error != ""),
+		m.providerShowsSyncError("hetzner", m.metadata.Hetzner().LastSyncError != "" || m.syncStatus.Hetzner.Error != ""),
+		m.providerShowsSyncError("bitqate", m.metadata.Bitqate().LastSyncError != "" || m.syncStatus.Bitqate.Error != ""),
 	)
 }
 
-func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boxErr, upstashErr, flyErr bool) bool {
+func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr, bitqateErr bool) bool {
 	kind, ok := cloud.KindForGroup(group)
 	if !ok {
 		return false
@@ -458,12 +542,16 @@ func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boxErr
 		return awsErr
 	case cloud.Azure:
 		return azureErr
-	case cloud.Box:
-		return boxErr
+	case cloud.Boat:
+		return boatErr
 	case cloud.Upstash:
 		return upstashErr
-	case cloud.Fly:
-		return flyErr
+	case cloud.Vercel:
+		return vercelErr
+	case cloud.Hetzner:
+		return hetznerErr
+	case cloud.Bitqate:
+		return bitqateErr
 	default:
 		return false
 	}
@@ -482,9 +570,9 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 			state = "expanded for search"
 		}
 	}
-	hint := "␣ " + m.collapseActionLabel() + " · e rename"
+	hint := "→ expand · ← parent · ␣ " + m.collapseActionLabel() + " · e rename"
 	if sync.IsSyncedGroup(row.group) {
-		hint = "␣ " + m.collapseActionLabel() + " · cloud sync (read-only)"
+		hint = "→ expand · ← parent · ␣ " + m.collapseActionLabel() + " · cloud sync (read-only)"
 	}
 	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont))
 	name := truncate(row.group, max(2, width-3-iconWidth))
@@ -577,12 +665,22 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool
 		return suffix("Google Cloud", b.String())
 	case name == "Microsoft Azure" || strings.HasPrefix(name, "Microsoft Azure/"):
 		return suffix("Microsoft Azure", brandText("#0078D4", icon("Microsoft Azure")+"Microsoft Azure", restStyle))
-	case name == "Box" || strings.HasPrefix(name, "Box/"):
-		return suffix("Box", brandText("#FFFFFF", icon("Box")+"Box", restStyle))
+	case name == "Boat" || strings.HasPrefix(name, "Boat/"):
+		return suffix("Boat", brandText("#FFFFFF", icon("Boat")+"Boat", restStyle))
 	case name == "Upstash" || strings.HasPrefix(name, "Upstash/"):
 		return suffix("Upstash", brandText("#00E9A3", icon("Upstash")+"Upstash", restStyle))
+	case name == "Vercel" || strings.HasPrefix(name, "Vercel/"):
+		return suffix("Vercel", brandText("#FFFFFF", icon("Vercel")+"Vercel", restStyle))
+	case name == "BitQate" || strings.HasPrefix(name, "BitQate/"):
+		return suffix("BitQate", brandText("#FFFFFF", icon("BitQate")+"BitQate", restStyle))
+	case name == "Hetzner Cloud" || strings.HasPrefix(name, "Hetzner Cloud/"):
+		return suffix("Hetzner Cloud", brandText("#D50C2D", icon("Hetzner Cloud")+"Hetzner Cloud", restStyle))
+	case name == "Railway" || strings.HasPrefix(name, "Railway/"):
+		return suffix("Railway", brandText("#853BCC", icon("Railway")+"Railway", restStyle))
 	case name == "Fly.io" || strings.HasPrefix(name, "Fly.io/"):
 		return suffix("Fly.io", brandText("#8B5CF6", icon("Fly.io")+"Fly.io", restStyle))
+	case name == "DigitalOcean" || strings.HasPrefix(name, "DigitalOcean/"):
+		return suffix("DigitalOcean", brandText("#0080FF", icon("DigitalOcean")+"DigitalOcean", restStyle))
 	default:
 		return name
 	}
@@ -664,13 +762,13 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	}
 	titlePart := titleStyle.Render(title)
 	b.WriteString("  " + titlePart + "\n")
-	b.WriteString(m.renderDetailActionChip(s, primaryAction))
+	b.WriteString(m.renderHostDetailActions(s, host, primaryAction))
 	b.WriteString("  " + destStyle.Render(truncate(dest, max(4, width-3))) + "\n")
 	b.WriteString("  " + s.muted.Render(truncate(hostStatusLine(host, meta), max(4, width-3))) + "\n")
 
 	b.WriteString("\n")
 	b.WriteString("  " + s.muted.Render("Access") + "\n")
-	b.WriteString(compactRow(s, "Auth", hostAuthSummary(host), width))
+	b.WriteString(compactRow(s, "Auth", hostAuthSummary(host, m.hostPasswordStored(host)), width))
 	if host.Resolved.ProxyJump != "" && host.Resolved.ProxyJump != "none" {
 		b.WriteString(compactRow(s, "Jump", host.Resolved.ProxyJump, width))
 	}
@@ -679,7 +777,7 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	}
 	if !host.Managed && !host.Synced {
 		b.WriteString("\n")
-		b.WriteString("  " + s.active.Render("[p] Promote to Bast managed") + "\n")
+		b.WriteString("  " + s.active.Render(m.keyPromoteChip()) + "\n")
 	}
 
 	var about strings.Builder
@@ -712,7 +810,14 @@ func (m *App) renderKeys(s styleSet) string {
 		if m.loading || m.enriching {
 			return "\n  " + s.muted.Render("Loading OpenSSH keys and agent…")
 		}
-		return "\n  " + s.muted.Render("No keys found. Press a to generate or i to import one.")
+		var extras []string
+		if gen, ok := firstBinding(ActionGenerateKey); ok {
+			extras = append(extras, s.title.Render(" "+formatChip(gen)+" "))
+		}
+		if imp, ok := firstBinding(ActionImportKey); ok {
+			extras = append(extras, s.title.Render(" "+formatChip(imp)+" "))
+		}
+		return m.renderSeal(s, "◇  No keys yet", []string{opensshAgentTrust}, extras)
 	}
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
 	layout := m.panelLayout()
@@ -792,10 +897,10 @@ func (m *App) renderKeyDetail(s styleSet, key keys.Key, width int) string {
 	}
 	b.WriteString("\n")
 	if !key.Managed && key.PrivatePath != "" {
-		b.WriteString("  " + s.active.Render("[p] Promote to Bast managed") + "\n\n")
+		b.WriteString("  " + s.active.Render(m.keyPromoteChip()) + "\n\n")
 	}
 	if key.PublicPath != "" || key.PrivatePath != "" {
-		b.WriteString("  " + s.active.Render(keyInstallAction) + "\n\n")
+		b.WriteString("  " + s.active.Render(m.keyInstallChip()) + "\n\n")
 	}
 	if key.PrivatePath != "" {
 		b.WriteString(compactRow(s, "Private", shortPath(key.PrivatePath, m.paths.Home), width))
@@ -980,184 +1085,43 @@ func contrastingTextColor(background string) (string, bool) {
 	return "#FFFFFF", true
 }
 
-type helpBinding struct {
-	keys string
-	desc string
-}
-
-type helpSection struct {
-	title    string
-	bindings []helpBinding
-}
-
-func helpSections() []helpSection {
-	return []helpSection{
-		{
-			title: "Navigation",
-			bindings: []helpBinding{
-				{"↑ ↓  j k", "Move selection"},
-				{"g  Home", "Jump to top"},
-				{"G  End", "Jump to bottom"},
-				{"/", "Search"},
-				{"r", "Reload"},
-				{"1", "Hosts"},
-				{"2", "Keys"},
-				{"3", "Vault"},
-				{"4", "Sync"},
-				{"5", "Files"},
-				{"?", "Help"},
-				{"v", "About"},
-				{"q", "Quit"},
-			},
-		},
-		{
-			title: "Hosts",
-			bindings: []helpBinding{
-				{"󰌑", "Connect or add suggestion"},
-				{"a", "Add host"},
-				{"e", "Edit or review suggestion"},
-				{"m", "Move host to group"},
-				{"x", "Dismiss history suggestion"},
-				{"d", "Delete host"},
-				{"p", "Promote external host"},
-				{"␣", "Collapse or expand group"},
-				{"[", "Collapse all groups"},
-				{"]", "Expand all groups"},
-				{"s", "Cycle sort"},
-				{"f", "Toggle favorite"},
-				{"F", "Open Files for host"},
-				{"h", "Hide or show selected"},
-				{".", "Toggle hidden and stopped hosts"},
-				{"n", "Fork sandbox, or new VM on a provider group"},
-				{"o", "Stop or pause sandbox"},
-				{"s", "Sync provider group, or cycle sort"},
-				{"K", "Remove known-host entry"},
-			},
-		},
-		{
-			title: "Keys",
-			bindings: []helpBinding{
-				{"a", "Generate key"},
-				{"i", "Import key"},
-				{"e", "Edit comment"},
-				{"d", "Delete key"},
-				{"u", "Add to server"},
-				{"x", "Export key"},
-				{"p", "Promote external / change passphrase"},
-				{"c", "Copy public key"},
-			},
-		},
-		{
-			title: "Vault",
-			bindings: []helpBinding{
-				{"󰌑", "Link, unlock, or sync"},
-				{"j k", "Secondary actions"},
-				{"r", "Sync now when unlocked"},
-			},
-		},
-		{
-			title: "Sync",
-			bindings: []helpBinding{
-				{"h j k l", "Grid move, or cycle actions"},
-				{"󰌑", "Open provider, run action, or connect"},
-				{"␣", "Collapse or expand status group"},
-				{"s", "Sync"},
-				{"n", "New machine, or fork selected host"},
-				{"o", "Stop or pause selected host"},
-				{"d", "Destroy selected Fly or Upstash host"},
-				{"Esc", "Back"},
-				{"r", "Resume selected host, or refresh status"},
-			},
-		},
-		{
-			title: "Files",
-			bindings: []helpBinding{
-				{"Tab", "Switch pane"},
-				{"w", "Swap panes"},
-				{"L  R", "Pane local / remote"},
-				{"h  l", "Parent / enter"},
-				{"󰌑", "Enter dir or connect host"},
-				{"j k  g G", "Move / top / bottom"},
-				{"f", "Fuzzy jump"},
-				{"/", "Path jump or host search"},
-				{"␣", "Toggle mark"},
-				{"v", "Range mark"},
-				{"c  m", "Copy / move to other pane"},
-				{"d", "Delete"},
-				{"a", "New directory"},
-				{"r", "Rename"},
-				{"i", "File info"},
-				{"p", "Permissions (chmod)"},
-				{"t", "Shell in directory"},
-				{".", "Toggle hidden files"},
-				{"D", "Disconnect remote"},
-				{"Esc", "Clear marks / disconnect / Hosts"},
-				{"Esc  x", "Cancel transfer or connect"},
-			},
-		},
-		{
-			title: "During SSH",
-			bindings: []helpBinding{
-				{"exit", "Return to Bast"},
-				{"󰌑 then ~.", "Force-close a stuck session"},
-			},
-		},
-	}
-}
-
-func (m *App) contextualHelpSections() []helpSection {
-	all := helpSections()
-	nav := all[0]
-	byTitle := map[string]helpSection{}
-	for _, section := range all[1:] {
-		byTitle[section.title] = section
-	}
-	current := "Hosts"
-	switch m.section {
-	case keysSection:
-		current = "Keys"
-	case vaultSection:
-		current = "Vault"
-	case syncSection:
-		current = "Sync"
-	case filesSection:
-		current = "Files"
-	}
-	out := []helpSection{nav, byTitle[current]}
-	if current == "Hosts" {
-		out = append(out, byTitle["During SSH"])
-	}
-	out = append(out, helpSection{
-		title: "Docs",
-		bindings: []helpBinding{
-			{"bast.sh/docs", "Full shortcut reference"},
-		},
-	})
-	return out
-}
-
 func (m *App) helpContentWidth() int {
 	return max(36, m.terminalWidth()-6)
 }
 
 func (m *App) helpLines(s styleSet) []string {
-	const keyCol = 18
+	groups := m.helpGroups()
+	keyCol := 8
+	for _, group := range groups {
+		for _, row := range group.rows {
+			keyCol = max(keyCol, min(12, lipgloss.Width(row.chord)))
+		}
+	}
 	width := m.helpContentWidth()
 	lines := []string{
 		"",
-		s.active.Render("Keyboard shortcuts"),
+		s.active.Render(m.tabTitle()),
 		"",
 	}
-	for i, section := range m.contextualHelpSections() {
+	for i, group := range groups {
+		if len(group.rows) == 0 {
+			continue
+		}
 		if i > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, s.active.Render(section.title), "")
-		for _, binding := range section.bindings {
-			keys := s.value.Render(binding.keys)
-			gap := max(1, keyCol-lipgloss.Width(binding.keys))
+		if group.title != "" {
+			lines = append(lines, s.muted.Render(group.title), "")
+		}
+		for _, row := range group.rows {
+			keyStyle, descStyle := s.value, s.muted
+			if !row.enabled {
+				keyStyle, descStyle = s.muted, s.muted
+			}
+			keys := keyStyle.Render(row.chord)
+			gap := max(1, keyCol-lipgloss.Width(row.chord))
 			descWidth := max(8, width-keyCol-2)
-			desc := s.muted.Render(truncate(binding.desc, descWidth))
+			desc := descStyle.Render(truncate(row.name, descWidth))
 			lines = append(lines, keys+strings.Repeat(" ", gap)+desc)
 		}
 	}
@@ -1229,7 +1193,22 @@ func (m *App) renderCredits(s styleSet) string {
 	if m.latestVersion != "" {
 		content += "\n" + row("Update", m.latestVersion+" · "+m.updateSuggestion)
 	}
+	chip := s.title.Render(sponsorAction)
+	content += "\n\n" + lipgloss.NewStyle().Width(infoWidth).Align(lipgloss.Center).Render(chip)
 	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, content)
+}
+
+func (m *App) creditsSponsorBounds() (x, y, width int) {
+	chip := m.styles().title.Render(sponsorAction)
+	width = lipgloss.Width(chip)
+	for i, line := range strings.Split(m.render(), "\n") {
+		idx := strings.Index(line, chip)
+		if idx < 0 {
+			continue
+		}
+		return lipgloss.Width(line[:idx]), i, width
+	}
+	return 0, 0, 0
 }
 
 func (m *App) renderFooter(s styleSet) string {
@@ -1237,14 +1216,27 @@ func (m *App) renderFooter(s styleSet) string {
 		hint := "Enter / Esc / ⌫ return"
 		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
 	}
+	if m.onboarding {
+		return strings.Repeat(" ", max(1, m.terminalWidth()))
+	}
 	if m.credits {
-		hint := "v / Esc / ⌫ close"
+		hint := strings.Join(m.overlayFooterParts(ScopeCredits), " · ")
+		if hint == "" {
+			hint = "v / Esc / ⌫ close"
+		}
+		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
+	}
+	if m.doctor {
+		hint := strings.Join(m.overlayFooterParts(ScopeDoctor), " · ")
+		if hint == "" {
+			hint = "D / Esc / ⌫ close"
+		}
 		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
 	}
 	if m.help {
-		hint := "? / Esc / ⌫ close"
-		if m.helpCanScroll() {
-			hint = "↑/↓ scroll · " + hint
+		hint := strings.Join(m.overlayFooterParts(ScopeHelp), " · ")
+		if hint == "" {
+			hint = "? / Esc / ⌫ close"
 		}
 		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
 	}
@@ -1295,7 +1287,7 @@ func (m *App) renderFooter(s styleSet) string {
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.credits || m.help || m.form != nil || m.loading || m.vaultBusyBlocksBody() || m.section == vaultSection || m.section == syncSection || m.section == filesSection || !m.hasListItems() {
+	if m.statusError || m.onboarding || m.credits || m.doctor || m.help || m.form != nil || m.loading || m.vaultBusyBlocksBody() || m.section == vaultSection || m.section == syncSection || m.section == filesSection || !m.hasListItems() {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	if m.isMobileLayout() {

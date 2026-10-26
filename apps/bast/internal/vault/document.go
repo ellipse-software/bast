@@ -49,11 +49,16 @@ type Tombstones struct {
 
 // VaultIntegrations stores sync settings without credentials or last-sync telemetry.
 type VaultIntegrations struct {
-	GCP     *VaultGCPIntegration     `json:"gcp,omitempty"`
-	AWS     *VaultAWSIntegration     `json:"aws,omitempty"`
-	Azure   *VaultAzureIntegration   `json:"azure,omitempty"`
-	Upstash *VaultUpstashIntegration `json:"upstash,omitempty"`
-	Fly     *VaultFlyIntegration     `json:"fly,omitempty"`
+	GCP          *VaultGCPIntegration          `json:"gcp,omitempty"`
+	AWS          *VaultAWSIntegration          `json:"aws,omitempty"`
+	Azure        *VaultAzureIntegration        `json:"azure,omitempty"`
+	Upstash      *VaultUpstashIntegration      `json:"upstash,omitempty"`
+	Vercel       *VaultVercelIntegration       `json:"vercel,omitempty"`
+	Hetzner      *VaultHetznerIntegration      `json:"hetzner,omitempty"`
+	Bitqate      *VaultBitqateIntegration      `json:"bitqate,omitempty"`
+	Railway      *VaultRailwayIntegration      `json:"railway,omitempty"`
+	Fly          *VaultFlyIntegration          `json:"fly,omitempty"`
+	DigitalOcean *VaultDigitalOceanIntegration `json:"digitalocean,omitempty"`
 }
 
 type VaultGCPIntegration struct {
@@ -84,12 +89,48 @@ type VaultUpstashIntegration struct {
 	AutoSync bool `json:"autoSync,omitempty"`
 }
 
+type VaultVercelIntegration struct {
+	Enabled  bool `json:"enabled"`
+	AutoSync bool `json:"autoSync,omitempty"`
+}
+
+type VaultBitqateIntegration struct {
+	Enabled        bool     `json:"enabled"`
+	AutoSync       bool     `json:"autoSync,omitempty"`
+	DefaultSSHUser string   `json:"defaultSshUser,omitempty"`
+	DefaultSSHPort string   `json:"defaultSshPort,omitempty"`
+	RegionFilter   []string `json:"regionFilter,omitempty"`
+}
+
+type VaultRailwayIntegration struct {
+	Enabled  bool `json:"enabled"`
+	AutoSync bool `json:"autoSync,omitempty"`
+}
+
 type VaultFlyIntegration struct {
 	Enabled        bool     `json:"enabled"`
 	AutoSync       bool     `json:"autoSync,omitempty"`
 	OrgFilter      []string `json:"orgFilter,omitempty"`
 	AppFilter      []string `json:"appFilter,omitempty"`
 	DefaultSSHUser string   `json:"defaultSshUser,omitempty"`
+}
+
+type VaultDigitalOceanIntegration struct {
+	Enabled        bool     `json:"enabled"`
+	ContextFilter  []string `json:"contextFilter,omitempty"`
+	RegionFilter   []string `json:"regionFilter,omitempty"`
+	DefaultSSHUser string   `json:"defaultSshUser,omitempty"`
+	AutoSync       bool     `json:"autoSync,omitempty"`
+}
+
+type VaultHetznerIntegration struct {
+	Enabled         bool     `json:"enabled"`
+	AutoSync        bool     `json:"autoSync,omitempty"`
+	DefaultSSHUser  string   `json:"defaultSshUser,omitempty"`
+	DefaultSSHPort  string   `json:"defaultSshPort,omitempty"`
+	PreferPrivateIP bool     `json:"preferPrivateIp,omitempty"`
+	ContextFilter   []string `json:"contextFilter,omitempty"`
+	LocationFilter  []string `json:"locationFilter,omitempty"`
 }
 
 type Conflict struct {

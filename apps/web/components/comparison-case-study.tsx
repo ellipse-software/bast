@@ -5,6 +5,7 @@ import { InstallCommand } from "@/components/install-command";
 import { PreFooter } from "@/components/pre-footer";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { winget } from "@/flags";
 import { Code, DocLink } from "@/lib/comparisons/marks";
 import type { ComparisonCaseStudy } from "@/lib/comparisons/types";
 import { pageMaxWidthClass } from "@/lib/layout";
@@ -15,10 +16,11 @@ type ComparisonCaseStudyPageProps = {
   version?: string | null;
 };
 
-export function ComparisonCaseStudyPage({
+export async function ComparisonCaseStudyPage({
   content,
   version,
 }: ComparisonCaseStudyPageProps) {
+  const wingetAvailable = await winget();
   const pageUrl = `${siteUrl}/${content.slug}`;
 
   const articleJsonLd = {
@@ -185,7 +187,11 @@ export function ComparisonCaseStudyPage({
                   One command. Then run <Code>bast</Code> and connect with the
                   OpenSSH you already trust.
                 </p>
-                <InstallCommand version={version} className="w-full" />
+                <InstallCommand
+                  version={version}
+                  wingetAvailable={wingetAvailable}
+                  className="w-full"
+                />
                 <p className="mt-5 text-sm text-muted">
                   Prefer the short version? See the{" "}
                   <DocLink href="/">Bast homepage</DocLink> or read the{" "}

@@ -204,6 +204,9 @@ func TestFailedHostMutationRestoresStateAndRevision(t *testing.T) {
 		{name: "delete", mutate: func(store *Store) error {
 			return store.DeleteHost("source")
 		}},
+		{name: "delete with tombstone", mutate: func(store *Store) error {
+			return store.DeleteHostWithTombstone("source", "src-id")
+		}},
 		{name: "rename", mutate: func(store *Store) error {
 			return store.RenameHost("source", "destination")
 		}},
@@ -235,6 +238,7 @@ func TestFailedHostMutationRestoresStateAndRevision(t *testing.T) {
 			}
 			beforeHosts, beforeRevision := store.HostsSnapshot()
 			beforePreferences := store.Preferences()
+			beforeTombs := store.VaultTombstones()
 			blockedPath := filepath.Join(root, "blocked")
 			if err := os.Mkdir(blockedPath, 0700); err != nil {
 				t.Fatal(err)
@@ -253,6 +257,9 @@ func TestFailedHostMutationRestoresStateAndRevision(t *testing.T) {
 			}
 			if afterPreferences := store.Preferences(); !reflect.DeepEqual(afterPreferences, beforePreferences) {
 				t.Fatalf("preferences changed after failed save: before=%+v after=%+v", beforePreferences, afterPreferences)
+			}
+			if afterTombs := store.VaultTombstones(); !reflect.DeepEqual(afterTombs, beforeTombs) {
+				t.Fatalf("vault tombstones changed after failed save: before=%+v after=%+v", beforeTombs, afterTombs)
 			}
 		})
 	}
@@ -287,6 +294,44 @@ func TestFailedPreferenceAndIntegrationMutationsRestoreState(t *testing.T) {
 	}
 	if got := store.GCP().DefaultSSHUser; got != "before" {
 		t.Fatalf("GCP state changed after failed save: %q", got)
+	}
+}
+
+func TestVaultTombstoneRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetHost("prod", Host{Label: "Production"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteHostWithTombstone("prod", "abc123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RecordKeyTombstone("fp1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Host("prod"); got.Label != "" {
+		t.Fatalf("host metadata remained: %+v", got)
+	}
+	tombs := store.VaultTombstones()
+	if tombs.Hosts["abc123"] == 0 || tombs.Keys["fp1"] == 0 {
+		t.Fatalf("tombstones = %+v", tombs)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reopened.VaultTombstones()
+	if got.Hosts["abc123"] != tombs.Hosts["abc123"] || got.Keys["fp1"] != tombs.Keys["fp1"] {
+		t.Fatalf("reopened tombstones = %+v want %+v", got, tombs)
+	}
+	if VaultKeyTombstoneID("fp", "work") != "fp" {
+		t.Fatalf("fingerprint id = %q", VaultKeyTombstoneID("fp", "work"))
+	}
+	if VaultKeyTombstoneID("", "work") != "name:work" {
+		t.Fatalf("name id = %q", VaultKeyTombstoneID("", "work"))
 	}
 }
 
@@ -330,5 +375,66 @@ func TestOpenRenamesLegacyAWSGroups(t *testing.T) {
 	}
 	if got := store.Host("root").Group; got != "Amazon EC2" {
 		t.Fatalf("root group = %q", got)
+	}
+}
+
+func TestFreshStoreIsEligibleForOnboarding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.ShouldOnboard() || !store.Onboarding().Eligible {
+		t.Fatal("missing state file should be eligible for onboarding")
+	}
+
+	if err := store.SetHistoryImport(HistoryImport{Pending: []HistorySuggestion{{ID: "one"}}}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reopened.ShouldOnboard() {
+		t.Fatal("history scan save should keep first-run eligibility")
+	}
+
+	if err := reopened.DismissOnboarding(); err != nil {
+		t.Fatal(err)
+	}
+	if reopened.ShouldOnboard() || reopened.Onboarding().DismissedAt == nil {
+		t.Fatalf("dismissed = %+v", reopened.Onboarding())
+	}
+	again, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ShouldOnboard() {
+		t.Fatal("dismissed onboarding should not return")
+	}
+}
+
+func TestExistingStateIsNotEligibleForOnboarding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(path, []byte(`{"version":7,"hosts":{}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.ShouldOnboard() || store.Onboarding().Eligible {
+		t.Fatal("existing state from older Bast should not show onboarding")
+	}
+}
+
+func TestNoOnboardingEnvDisablesCensus(t *testing.T) {
+	t.Setenv("BAST_NO_ONBOARDING", "1")
+	store, err := Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.ShouldOnboard() {
+		t.Fatal("BAST_NO_ONBOARDING should skip the census")
 	}
 }

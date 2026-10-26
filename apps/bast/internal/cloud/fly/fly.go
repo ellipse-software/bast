@@ -102,7 +102,16 @@ func configureFlyctlCmd(cmd *exec.Cmd, extraEnv []string) {
 	if dir := isolatedWorkDir(); dir != "" {
 		cmd.Dir = dir
 	}
-	cmd.Env = append(os.Environ(), flyctlEnv...)
+	filtered := make([]string, 0, len(os.Environ()))
+	for _, item := range os.Environ() {
+		key, _, _ := strings.Cut(item, "=")
+		switch key {
+		case "FLY_NO_UPDATE_CHECK", "FLY_SEND_METRICS", "FLY_APP":
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	cmd.Env = append(filtered, flyctlEnv...)
 	if len(extraEnv) > 0 {
 		cmd.Env = append(cmd.Env, extraEnv...)
 	}
@@ -118,7 +127,8 @@ func defaultRunner(ctx context.Context, args []string, env []string) ([]byte, er
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("fly: %s", flyctlError(stderr.String(), err))
+		// Keep stdout. `machine run` prints the machine id and can still exit non-zero.
+		return out, fmt.Errorf("fly: %s", flyctlError(stderr.String(), err))
 	}
 	return out, nil
 }
@@ -170,7 +180,7 @@ func rewriteFlyctlError(msg string) string {
 		return "region is required when flyctl cannot prompt; pass a region code such as iad"
 	case strings.Contains(lower, "no access token"), strings.Contains(lower, "no auth token"):
 		return "not logged in; run fly auth login"
-	case strings.Contains(lower, "prompt: non interactive"):
+	case strings.TrimSpace(lower) == "prompt: non interactive":
 		return "flyctl cannot prompt from Bast; run fly auth login in a terminal, and specify org and region when creating a machine"
 	default:
 		return msg
@@ -213,9 +223,6 @@ func (c *Client) CheckAvailable(ctx context.Context) error {
 	if errors.Is(err, exec.ErrNotFound) || strings.Contains(msg, "executable file not found") ||
 		strings.Contains(msg, "command not found") || strings.Contains(msg, "not found in $PATH") {
 		return fmt.Errorf("Fly CLI not found; install flyctl from https://fly.io/docs/flyctl/install/ and run fly auth login")
-	}
-	if _, lookErr := exec.LookPath(c.bin()); lookErr == nil {
-		return nil
 	}
 	return fmt.Errorf("Fly CLI is not usable: %w", err)
 }

@@ -79,11 +79,17 @@ func RunProxy(ctx context.Context, options ProxyOptions, in io.Reader, out, errO
 		"proxy", fmt.Sprintf("%d:%s", localPort, remote), InternalHost(options.App, options.Machine),
 		"--app", options.App,
 		"--org", options.Org,
+		"--bind-addr", "127.0.0.1",
 		"--quiet",
 		"--watch-stdin",
 	}
+	stdinR, stdinW := io.Pipe()
+	defer stdinW.Close()
 	cmd := exec.CommandContext(childCtx, client.bin(), args...)
 	configureFlyctlCmd(cmd, nil)
+	// --watch-stdin aborts when stdin hits EOF. A nil stdin is /dev/null, so
+	// keep a pipe open until this session ends.
+	cmd.Stdin = stdinR
 	cmd.Stderr = errOut
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start fly proxy: %w", err)
@@ -94,7 +100,7 @@ func RunProxy(ctx context.Context, options ProxyOptions, in io.Reader, out, errO
 		close(waited)
 	}()
 
-	conn, err := waitForTunnel(childCtx, localPort, waited, 20*time.Second)
+	conn, err := waitForTunnel(childCtx, localPort, waited, 60*time.Second)
 	if err != nil {
 		cancel()
 		select {

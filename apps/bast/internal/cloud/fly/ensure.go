@@ -45,11 +45,19 @@ func (c *Client) EnsureAccess(ctx context.Context, syncID string, cfg EnsureConf
 	if err != nil {
 		return EnsureResult{}, err
 	}
-	if !isRunningState(info.State) {
+	if normalizeState(info.State) != "running" {
 		if IsStoppedState(info.State) {
 			return EnsureResult{}, fmt.Errorf("fly machine %s is stopped; resume it first with bast fly resume %s", id, id)
 		}
-		return EnsureResult{}, fmt.Errorf("fly machine %s is not ready for SSH (state %s)", id, normalizeState(info.State))
+		switch normalizeState(info.State) {
+		case "starting", "replacing", "updating", "restarting":
+			reportStatus(cfg.Status, "Waiting for Fly Machine…")
+			if err := c.WaitStarted(ctx, app, id, 2*time.Minute); err != nil {
+				return EnsureResult{}, err
+			}
+		default:
+			return EnsureResult{}, fmt.Errorf("fly machine %s is not ready for SSH (state %s)", id, normalizeState(info.State))
+		}
 	}
 	home := cfg.Home
 	if home == "" {
@@ -82,14 +90,12 @@ func (c *Client) ensureCertificate(ctx context.Context, org, managedKeys, user s
 	}
 	identity = IdentityPath(managedKeys, org)
 	cert = CertificatePath(identity)
-	if certFresh(cert) && fileExists(identity) {
+	principals := flyPrincipals(user)
+	if certFresh(cert) && fileExists(identity) && certPrincipalsMatch(cert, principals) {
 		return identity, cert, nil
 	}
 	reportStatus(status, "Issuing Fly SSH certificate…")
-	args := []string{"ssh", "issue", org, identity, "--org", org, "--hours", "24", "--overwrite"}
-	if trimmed := strings.TrimSpace(user); trimmed != "" && trimmed != SSHUser && trimmed != "fly" {
-		args = append(args, "--username", SSHUser+","+trimmed)
-	}
+	args := []string{"ssh", "issue", org, identity, "--org", org, "--hours", "24", "--overwrite", "--username", principals}
 	if _, err := c.runRaw(ctx, args...); err != nil {
 		return "", "", err
 	}
@@ -103,7 +109,23 @@ func (c *Client) ensureCertificate(ctx context.Context, org, managedKeys, user s
 			return "", "", fmt.Errorf("fly ssh issue did not write %s", cert)
 		}
 	}
+	if err := os.WriteFile(cert+".bast-users", []byte(principals), 0o600); err != nil {
+		return "", "", err
+	}
 	return identity, cert, nil
+}
+
+func flyPrincipals(user string) string {
+	parts := []string{SSHUser, "fly"}
+	if trimmed := strings.TrimSpace(user); trimmed != "" && trimmed != SSHUser && trimmed != "fly" {
+		parts = append(parts, trimmed)
+	}
+	return strings.Join(parts, ",")
+}
+
+func certPrincipalsMatch(cert, principals string) bool {
+	body, err := os.ReadFile(cert + ".bast-users")
+	return err == nil && strings.TrimSpace(string(body)) == principals
 }
 
 func certFresh(path string) bool {

@@ -77,6 +77,7 @@ type filesState struct {
 	jump        filesJump
 	chmod       filesChmod
 	info        bool
+	preview     filesPreview
 	deletePaths []string
 	ready       bool
 }
@@ -154,6 +155,9 @@ func (m *App) enterFilesSection() tea.Cmd {
 }
 
 func (m *App) openFilesForHost(host sshconfig.Host) tea.Cmd {
+	if host.Synced && host.SyncSource == "vercel" {
+		return m.setNotice("Vercel Sandboxes are not OpenSSH; SFTP is unavailable")
+	}
 	m.initFilesState()
 	m.section = filesSection
 	m.search = ""
@@ -263,6 +267,9 @@ func (m *App) filesEndpoint(pane *filesPane) files.Endpoint {
 
 func (m *App) renderFiles(s styleSet) string {
 	m.initFilesState()
+	if m.files.preview.active {
+		return m.renderFilesPreview(s)
+	}
 	layout := m.panelLayout()
 	left := m.renderFilesSide(s, 0, layout.listHeight, layout.listWidth)
 	right := m.renderFilesSide(s, 1, layout.detailHeight, layout.detailWidth)
@@ -459,6 +466,9 @@ func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 	if m.files.chmod.active {
 		return m.updateFilesChmod(key)
 	}
+	if m.files.preview.active {
+		return m.updateFilesPreview(key)
+	}
 	if m.files.info {
 		return m.updateFilesInfo(key)
 	}
@@ -529,8 +539,12 @@ func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 		return m.moveFilesCursorHome()
 	case "end", "G":
 		return m.moveFilesCursorEnd()
-	case "enter", "l":
+	case "enter":
 		return m.activateFilesSelection()
+	case "l":
+		return m.enterFilesDirectory()
+	case "o":
+		return m.openFilesPreview()
 	case "backspace", "h", "ctrl+h":
 		if pane.pickingHost() {
 			return m, nil
@@ -582,6 +596,9 @@ func (m *App) filesTyping() bool {
 		return false
 	}
 	if m.files.chmod.active {
+		return true
+	}
+	if m.files.preview.active {
 		return true
 	}
 	if m.files.info {
@@ -762,6 +779,21 @@ func (m *App) activateFilesSelection() (tea.Model, tea.Cmd) {
 		return m, m.connectFilesHost(m.files.focus, hosts[pane.hostCursor])
 	}
 	entry, ok := pane.selectedEntry()
+	if !ok {
+		return m, nil
+	}
+	if !entry.IsDir {
+		return m.openFilesPreview()
+	}
+	return m.enterFilesDirectory()
+}
+
+func (m *App) enterFilesDirectory() (tea.Model, tea.Cmd) {
+	pane := m.filesFocusedPane()
+	if pane.pickingHost() {
+		return m.activateFilesSelection()
+	}
+	entry, ok := pane.selectedEntry()
 	if !ok || !entry.IsDir {
 		return m, nil
 	}
@@ -909,6 +941,10 @@ func (m *App) filesRowAt(paneIndex, relY int) (index int, header, ok bool) {
 
 func (m *App) updateFilesMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	m.initFilesState()
+	if m.files.preview.active {
+		m.closeFilesPreview()
+		return m, nil
+	}
 	if m.files.transfer.active {
 		return m, nil
 	}
@@ -972,6 +1008,15 @@ func (m *App) updateFilesMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *App) updateFilesMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	if m.files.preview.active {
+		switch msg.Mouse().Button {
+		case tea.MouseWheelUp:
+			m.scrollFilesPreview(-3)
+		case tea.MouseWheelDown:
+			m.scrollFilesPreview(3)
+		}
+		return m, nil
+	}
 	if m.files.chmod.active {
 		return m, nil
 	}
@@ -998,8 +1043,22 @@ func (m *App) updateFilesMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m *App) filesFooterHint() string {
+	if status := m.filesFooterStatus(); status != "" {
+		return status
+	}
+	return strings.Join(m.catalogFooterParts(), " · ")
+}
+
+func (m *App) filesFooterStatus() string {
+	m.initFilesState()
 	if m.files.chmod.active {
 		return m.filesChmodHint()
+	}
+	if m.files.preview.active {
+		if m.files.preview.loading {
+			return "loading… o/esc close"
+		}
+		return "j/k scroll · [ ] file · o/esc close"
 	}
 	if m.files.info {
 		if m.filesFocusedPane().kind == filesPaneLocal && !platform.SupportsPOSIXPermissions() {
@@ -1017,10 +1076,7 @@ func (m *App) filesFooterHint() string {
 	if pane.connecting {
 		return "connecting… esc"
 	}
-	if pane.pickingHost() {
-		return "enter connect · / search · esc back · ?"
-	}
-	return "tab · c copy · m move · f jump · esc back · ?"
+	return ""
 }
 
 func (m *App) filesTransferHint() string {

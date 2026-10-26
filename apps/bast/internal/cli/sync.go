@@ -12,7 +12,7 @@ import (
 
 func (r *Runner) sync(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|box|upstash|fly|status|disable>")
+		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean|status|disable>")
 		return nil
 	}
 	engine := sync.New(r.Paths, r.store)
@@ -23,12 +23,22 @@ func (r *Runner) sync(args []string) error {
 		return r.syncAWS(engine, args[1:])
 	case "azure":
 		return r.syncAzure(engine, args[1:])
-	case "box":
-		return r.syncBox(engine, args[1:])
+	case "boat":
+		return r.syncBoat(engine, args[1:])
 	case "upstash":
 		return r.syncUpstash(engine, args[1:])
+	case "vercel":
+		return r.syncVercel(engine, args[1:])
+	case "hetzner":
+		return r.syncHetzner(engine, args[1:])
+	case "bitqate":
+		return r.syncBitqate(engine, args[1:])
+	case "railway":
+		return r.syncRailway(engine, args[1:])
 	case "fly":
 		return r.syncFly(engine, args[1:])
+	case "digitalocean", "do":
+		return r.syncDigitalOcean(engine, args[1:])
 	case "status":
 		return r.syncStatus(engine, args[1:])
 	case "disable":
@@ -38,23 +48,23 @@ func (r *Runner) sync(args []string) error {
 	}
 }
 
-func (r *Runner) syncBox(engine *sync.Engine, args []string) error {
-	fs := newFlagSet("sync box")
+func (r *Runner) syncBoat(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync boat")
 	if err := fs.Parse(args); err != nil {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 0 {
-		return usagef("usage: bast sync box")
+		return usagef("usage: bast sync boat")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	result, err := engine.SyncBox(ctx)
+	result, err := engine.SyncBoat(ctx)
 	if err != nil {
-		telemetry.Track("sync_box_fail", r.Version)
+		telemetry.Track("sync_boat_fail", r.Version)
 		return fail("sync_failed", err.Error())
 	}
-	telemetry.Track("sync_box", r.Version)
-	msg := fmt.Sprintf("Synced %d boxes", result.Count)
+	telemetry.Track("sync_boat", r.Version)
+	msg := fmt.Sprintf("Synced %d sandboxes", result.Count)
 	if result.Error != "" {
 		msg += "\nWarning: " + result.Error
 	}
@@ -77,30 +87,72 @@ func (r *Runner) syncUpstash(engine *sync.Engine, args []string) error {
 		return fail("sync_failed", err.Error())
 	}
 	telemetry.Track("sync_upstash", r.Version)
-	msg := fmt.Sprintf("Synced %d Upstash boxes", result.Count)
+	msg := fmt.Sprintf("Synced %d Upstash sandboxes", result.Count)
 	if result.Error != "" {
 		msg += "\nWarning: " + result.Error
 	}
 	return r.success(result, msg)
 }
 
-func (r *Runner) syncFly(engine *sync.Engine, args []string) error {
-	fs := newFlagSet("sync fly")
+func (r *Runner) syncVercel(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync vercel")
 	if err := fs.Parse(args); err != nil {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 0 {
-		return usagef("usage: bast sync fly")
+		return usagef("usage: bast sync vercel")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	result, err := engine.SyncFly(ctx)
+	result, err := engine.SyncVercel(ctx)
 	if err != nil {
-		telemetry.Track("sync_fly_fail", r.Version)
+		telemetry.Track("sync_vercel_fail", r.Version)
 		return fail("sync_failed", err.Error())
 	}
-	telemetry.Track("sync_fly", r.Version)
-	msg := fmt.Sprintf("Synced %d Fly Machines", result.Count)
+	telemetry.Track("sync_vercel", r.Version)
+	msg := fmt.Sprintf("Synced %d Vercel sandboxes", result.Count)
+	if result.Error != "" {
+		msg += "\nWarning: " + result.Error
+	}
+	return r.success(result, msg)
+}
+
+func (r *Runner) syncBitqate(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync bitqate")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync bitqate")
+	}
+	ctx := context.Background()
+	result, err := engine.SyncBitqate(ctx)
+	if err != nil {
+		telemetry.Track("sync_bitqate_fail", r.Version)
+		return fail("sync_bitqate", err.Error())
+	}
+	telemetry.Track("sync_bitqate", r.Version)
+	msg := fmt.Sprintf("Synced %d BitQate VMs", result.Count)
+	return r.success(result, msg)
+}
+
+func (r *Runner) syncHetzner(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync hetzner")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync hetzner")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	result, err := engine.SyncHetzner(ctx)
+	if err != nil {
+		telemetry.Track("sync_hetzner_fail", r.Version)
+		return fail("sync_failed", err.Error())
+	}
+	telemetry.Track("sync_hetzner", r.Version)
+	msg := fmt.Sprintf("Synced %d Hetzner servers", result.Count)
 	if result.Error != "" {
 		msg += "\nWarning: " + result.Error
 	}
@@ -186,13 +238,21 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	_, ran, autoSyncErr := engine.MaybeAutoConnectBox(ctx)
+	_, ran, autoSyncErr := engine.MaybeAutoConnectBoat(ctx)
 	if autoSyncErr == nil && ran {
-		telemetry.Track("sync_box_auto", r.Version)
+		telemetry.Track("sync_boat_auto", r.Version)
 	}
 	_, upstashRan, upstashAutoErr := engine.MaybeAutoConnectUpstash(ctx)
 	if upstashAutoErr == nil && upstashRan {
 		telemetry.Track("sync_upstash_auto", r.Version)
+	}
+	_, vercelRan, vercelAutoErr := engine.MaybeAutoConnectVercel(ctx)
+	if vercelAutoErr == nil && vercelRan {
+		telemetry.Track("sync_vercel_auto", r.Version)
+	}
+	_, railwayRan, railwayAutoErr := engine.MaybeAutoConnectRailway(ctx)
+	if railwayAutoErr == nil && railwayRan {
+		telemetry.Track("sync_railway_auto", r.Version)
 	}
 	_, flyRan, flyAutoErr := engine.MaybeAutoConnectFly(ctx)
 	if flyAutoErr == nil && flyRan {
@@ -203,10 +263,16 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 		return fail("sync_status", err.Error())
 	}
 	if autoSyncErr != nil {
-		status.Box.LastSyncError = autoSyncErr.Error()
+		status.Boat.LastSyncError = autoSyncErr.Error()
 	}
 	if upstashAutoErr != nil {
 		status.Upstash.LastSyncError = upstashAutoErr.Error()
+	}
+	if vercelAutoErr != nil {
+		status.Vercel.LastSyncError = vercelAutoErr.Error()
+	}
+	if railwayAutoErr != nil {
+		status.Railway.LastSyncError = railwayAutoErr.Error()
 	}
 	if flyAutoErr != nil {
 		status.Fly.LastSyncError = flyAutoErr.Error()
@@ -304,34 +370,34 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if azure.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", azure.LastSyncError)
 	}
-	box := status.Box
-	fmt.Fprintln(r.Out, "Box")
-	fmt.Fprintf(r.Out, "  Enabled: %t\n", box.Enabled)
-	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", box.AutoSync)
-	if box.Disabled {
+	boat := status.Boat
+	fmt.Fprintln(r.Out, "Boat")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", boat.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", boat.AutoSync)
+	if boat.Disabled {
 		fmt.Fprintln(r.Out, "  Disabled: true (sticky; will not auto-connect)")
 	}
-	if box.BoxCLIError != "" {
-		fmt.Fprintf(r.Out, "  box: %s\n", box.BoxCLIError)
-	} else if box.Authenticated {
-		login := box.Login
+	if boat.BoatCLIError != "" {
+		fmt.Fprintf(r.Out, "  boat: %s\n", boat.BoatCLIError)
+	} else if boat.Authenticated {
+		login := boat.Login
 		if login == "" {
 			login = "authenticated"
 		}
 		fmt.Fprintf(r.Out, "  Account: %s\n", login)
-		if box.Plan != "" {
-			fmt.Fprintf(r.Out, "  Plan: %s\n", box.Plan)
+		if boat.Plan != "" {
+			fmt.Fprintf(r.Out, "  Plan: %s\n", boat.Plan)
 		}
 	} else {
 		fmt.Fprintln(r.Out, "  Account: not logged in")
 	}
-	if box.LastSyncAt != nil {
-		fmt.Fprintf(r.Out, "  Last sync: %s (%d boxes)\n", box.LastSyncAt.Local().Format(time.RFC3339), box.LastInstanceCount)
+	if boat.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d sandboxes)\n", boat.LastSyncAt.Local().Format(time.RFC3339), boat.LastInstanceCount)
 	} else {
 		fmt.Fprintln(r.Out, "  Last sync: never")
 	}
-	if box.LastSyncError != "" {
-		fmt.Fprintf(r.Out, "  Last error: %s\n", box.LastSyncError)
+	if boat.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", boat.LastSyncError)
 	}
 	upstash := status.Upstash
 	fmt.Fprintln(r.Out, "Upstash")
@@ -350,22 +416,148 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 		fmt.Fprintln(r.Out, "  Account: no API key")
 	}
 	if upstash.LastSyncAt != nil {
-		fmt.Fprintf(r.Out, "  Last sync: %s (%d boxes)\n", upstash.LastSyncAt.Local().Format(time.RFC3339), upstash.LastInstanceCount)
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d sandboxes)\n", upstash.LastSyncAt.Local().Format(time.RFC3339), upstash.LastInstanceCount)
 	} else {
 		fmt.Fprintln(r.Out, "  Last sync: never")
 	}
 	if upstash.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", upstash.LastSyncError)
 	}
-	fly := status.Fly
-	fmt.Fprintln(r.Out, "Fly")
-	fmt.Fprintf(r.Out, "  Enabled: %t\n", fly.Enabled)
-	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", fly.AutoSync)
-	if fly.Disabled {
+	vercel := status.Vercel
+	fmt.Fprintln(r.Out, "Vercel")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", vercel.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", vercel.AutoSync)
+	if vercel.Disabled {
 		fmt.Fprintln(r.Out, "  Disabled: true (sticky; will not auto-connect)")
 	}
+	if vercel.Error != "" {
+		fmt.Fprintf(r.Out, "  API: %s\n", vercel.Error)
+	} else if vercel.Authenticated {
+		fmt.Fprintln(r.Out, "  Account: authenticated")
+	} else if vercel.HasToken {
+		fmt.Fprintln(r.Out, "  Account: token stored")
+	} else {
+		fmt.Fprintln(r.Out, "  Account: no access token")
+	}
+	if vercel.TeamID != "" {
+		fmt.Fprintf(r.Out, "  Team: %s\n", vercel.TeamID)
+	}
+	if projects := vercel.ProjectIDs; len(projects) > 0 {
+		fmt.Fprintf(r.Out, "  Project: %s\n", strings.Join(projects, ", "))
+	} else if vercel.ProjectID != "" {
+		fmt.Fprintf(r.Out, "  Project: %s\n", vercel.ProjectID)
+	}
+	if vercel.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d sandboxes)\n", vercel.LastSyncAt.Local().Format(time.RFC3339), vercel.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if vercel.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", vercel.LastSyncError)
+	}
+	if len(vercel.Unrestorable) > 0 {
+		fmt.Fprintf(r.Out, "  Unrestorable: %s\n", strings.Join(vercel.Unrestorable, ", "))
+	}
+	hetzner := status.Hetzner
+	fmt.Fprintln(r.Out, "Hetzner")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", hetzner.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", hetzner.AutoSync)
+	if hetzner.Error != "" {
+		fmt.Fprintf(r.Out, "  API: %s\n", hetzner.Error)
+	} else if hetzner.Authenticated {
+		fmt.Fprintln(r.Out, "  Account: authenticated")
+	} else if hetzner.HasToken {
+		fmt.Fprintln(r.Out, "  Account: token stored")
+	} else {
+		fmt.Fprintln(r.Out, "  Account: no API token")
+	}
+	if len(hetzner.Contexts) > 0 {
+		fmt.Fprintf(r.Out, "  Contexts: %s\n", strings.Join(hetzner.Contexts, ", "))
+	}
+	if len(hetzner.ContextFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Context filter: %s\n", strings.Join(hetzner.ContextFilter, ", "))
+	}
+	if len(hetzner.LocationFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Location filter: %s\n", strings.Join(hetzner.LocationFilter, ", "))
+	}
+	if hetzner.DefaultSSHUser != "" {
+		fmt.Fprintf(r.Out, "  Default SSH user: %s\n", hetzner.DefaultSSHUser)
+	}
+	if hetzner.DefaultSSHPort != "" {
+		fmt.Fprintf(r.Out, "  Default SSH port: %s\n", hetzner.DefaultSSHPort)
+	}
+	if hetzner.PreferPrivateIP {
+		fmt.Fprintln(r.Out, "  SSH address: private Cloud Network first")
+	}
+	if hetzner.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d servers)\n", hetzner.LastSyncAt.Local().Format(time.RFC3339), hetzner.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if hetzner.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", hetzner.LastSyncError)
+	}
+	bitqate := status.Bitqate
+	fmt.Fprintln(r.Out, "BitQate")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", bitqate.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", bitqate.AutoSync)
+	if bitqate.Error != "" {
+		fmt.Fprintf(r.Out, "  API: %s\n", bitqate.Error)
+	} else if bitqate.Authenticated {
+		fmt.Fprintln(r.Out, "  API: authenticated")
+	} else if bitqate.HasToken {
+		fmt.Fprintln(r.Out, "  API: token stored")
+	} else {
+		fmt.Fprintln(r.Out, "  API: no API token")
+	}
+	if len(bitqate.RegionFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Region filter: %s\n", strings.Join(bitqate.RegionFilter, ", "))
+	}
+	if bitqate.DefaultSSHUser != "" {
+		fmt.Fprintf(r.Out, "  Default SSH user: %s\n", bitqate.DefaultSSHUser)
+	}
+	if bitqate.DefaultSSHPort != "" {
+		fmt.Fprintf(r.Out, "  Default SSH port: %s\n", bitqate.DefaultSSHPort)
+	}
+	if bitqate.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d VMs)\n", bitqate.LastSyncAt.Local().Format(time.RFC3339), bitqate.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if bitqate.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", bitqate.LastSyncError)
+	}
+	railway := status.Railway
+	fmt.Fprintln(r.Out, "Railway")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", railway.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", railway.AutoSync)
+	if railway.Error != "" {
+		fmt.Fprintf(r.Out, "  API: %s\n", railway.Error)
+	} else if railway.Authenticated {
+		account := strings.TrimSpace(strings.TrimSpace(railway.Name + " " + railway.Email))
+		if account == "" {
+			account = "authenticated"
+		}
+		fmt.Fprintf(r.Out, "  Account: %s\n", account)
+	} else if railway.HasToken {
+		fmt.Fprintln(r.Out, "  Account: token stored")
+	} else {
+		fmt.Fprintln(r.Out, "  Account: no API token")
+	}
+	if railway.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d services)\n", railway.LastSyncAt.Local().Format(time.RFC3339), railway.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if railway.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", railway.LastSyncError)
+	}
+	fly := status.Fly
+	fmt.Fprintln(r.Out, "Fly.io")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", fly.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", fly.AutoSync)
 	if fly.FlyCLIError != "" {
-		fmt.Fprintf(r.Out, "  fly: %s\n", fly.FlyCLIError)
+		fmt.Fprintf(r.Out, "  flyctl: %s\n", fly.FlyCLIError)
 	} else if fly.Authenticated {
 		login := fly.Login
 		if login == "" {
@@ -392,7 +584,104 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if fly.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", fly.LastSyncError)
 	}
+	droplet := status.DigitalOcean
+	fmt.Fprintln(r.Out, "DigitalOcean")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", droplet.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", droplet.AutoSync)
+	if droplet.DOCTLError != "" {
+		fmt.Fprintf(r.Out, "  doctl: %s\n", droplet.DOCTLError)
+	} else if len(droplet.Contexts) > 0 {
+		fmt.Fprintf(r.Out, "  Contexts: %s\n", strings.Join(droplet.Contexts, ", "))
+	} else {
+		fmt.Fprintln(r.Out, "  Contexts: none")
+	}
+	if len(droplet.ContextFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Context filter: %s\n", strings.Join(droplet.ContextFilter, ", "))
+	}
+	if len(droplet.RegionFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Region filter: %s\n", strings.Join(droplet.RegionFilter, ", "))
+	}
+	if droplet.DefaultSSHUser != "" {
+		fmt.Fprintf(r.Out, "  Default SSH user: %s\n", droplet.DefaultSSHUser)
+	}
+	if droplet.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d Droplets)\n", droplet.LastSyncAt.Local().Format(time.RFC3339), droplet.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if droplet.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", droplet.LastSyncError)
+	}
 	return nil
+}
+
+func (r *Runner) syncRailway(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync railway")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync railway")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	result, err := engine.SyncRailway(ctx)
+	if err != nil {
+		telemetry.Track("sync_railway_fail", r.Version)
+		return fail("sync_failed", err.Error())
+	}
+	telemetry.Track("sync_railway", r.Version)
+	msg := fmt.Sprintf("Synced %d services", result.Count)
+	if result.Error != "" {
+		msg += "\nWarning: " + result.Error
+	}
+	return r.success(result, msg)
+}
+
+func (r *Runner) syncFly(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync fly")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync fly")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	result, err := engine.SyncFly(ctx)
+	if err != nil {
+		telemetry.Track("sync_fly_fail", r.Version)
+		return fail("sync_failed", err.Error())
+	}
+	telemetry.Track("sync_fly", r.Version)
+	msg := fmt.Sprintf("Synced %d machines", result.Count)
+	if result.Error != "" {
+		msg += "\nWarning: " + result.Error
+	}
+	return r.success(result, msg)
+}
+
+func (r *Runner) syncDigitalOcean(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync digitalocean")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync digitalocean")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	result, err := engine.SyncDigitalOcean(ctx)
+	if err != nil {
+		telemetry.Track("sync_digitalocean_fail", r.Version)
+		return fail("sync_failed", err.Error())
+	}
+	telemetry.Track("sync_digitalocean", r.Version)
+	msg := fmt.Sprintf("Synced %d Droplets", result.Count)
+	if result.Error != "" {
+		msg += "\nWarning: " + result.Error
+	}
+	return r.success(result, msg)
 }
 
 func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
@@ -401,10 +690,13 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 1 {
-		return usagef("usage: bast sync disable <gcp|aws|azure|box|upstash|fly>")
+		return usagef("usage: bast sync disable <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean>")
 	}
 	provider := fs.Arg(0)
-	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "box" && provider != "upstash" && provider != "fly" {
+	if provider == "do" {
+		provider = "digitalocean"
+	}
+	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "boat" && provider != "upstash" && provider != "vercel" && provider != "hetzner" && provider != "bitqate" && provider != "railway" && provider != "fly" && provider != "digitalocean" {
 		return usagef("unknown sync provider %q", provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -417,12 +709,22 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		err = engine.DisableAWS(ctx)
 	case "azure":
 		err = engine.DisableAzure(ctx)
-	case "box":
-		err = engine.DisableBox(ctx)
+	case "boat":
+		err = engine.DisableBoat(ctx)
 	case "upstash":
 		err = engine.DisableUpstash(ctx)
+	case "vercel":
+		err = engine.DisableVercel(ctx)
+	case "hetzner":
+		err = engine.DisableHetzner(ctx)
+	case "bitqate":
+		err = engine.DisableBitqate(ctx)
+	case "railway":
+		err = engine.DisableRailway(ctx)
 	case "fly":
 		err = engine.DisableFly(ctx)
+	case "digitalocean":
+		err = engine.DisableDigitalOcean(ctx)
 	}
 	if err != nil {
 		return fail("sync_disable", err.Error())

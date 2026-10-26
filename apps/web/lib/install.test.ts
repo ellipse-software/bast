@@ -30,14 +30,21 @@ describe("installPlatforms", () => {
 });
 
 describe("methodsForPlatform", () => {
-  test("unix platforms offer the script, Homebrew, and source", () => {
+  test("macOS offers the script, Homebrew, and source", () => {
     expect(methodsForPlatform("macos").map(({ id }) => id)).toEqual([
       "script",
       "homebrew",
       "source",
     ]);
+  });
+
+  test("Linux offers the script, native packages, Homebrew, and source", () => {
     expect(methodsForPlatform("linux").map(({ id }) => id)).toEqual([
       "script",
+      "apt",
+      "dnf",
+      "pacman",
+      "apk",
       "homebrew",
       "source",
     ]);
@@ -58,6 +65,23 @@ describe("methodsForPlatform", () => {
 });
 
 describe("resolveMethod", () => {
+  test("keeps WinGet selected when the flag is enabled", () => {
+    const method = resolveMethod("windows", "winget", true);
+    expect(method).toBe("winget");
+    expect(installCommand(method, true)).toBe("winget install EllipseSoftware.Bast");
+    expect(methodSupportsNightly(method)).toBe(false);
+  });
+
+  test("falls back to PowerShell when WinGet is disabled", () => {
+    expect(resolveMethod("windows", "winget", false)).toBe("powershell");
+    expect(resolveMethod("windows", "winget")).toBe("powershell");
+  });
+
+  test("does not allow WinGet on other platforms when enabled", () => {
+    expect(resolveMethod("macos", "winget", true)).toBe("script");
+    expect(resolveMethod("linux", "winget", true)).toBe("script");
+  });
+
   test("keeps a method that is valid on the next platform", () => {
     expect(resolveMethod("linux", "homebrew")).toBe("homebrew");
   });
@@ -65,6 +89,8 @@ describe("resolveMethod", () => {
   test("falls back to the platform default when the method is unavailable", () => {
     expect(resolveMethod("windows", "script")).toBe("powershell");
     expect(resolveMethod("macos", "winget")).toBe("script");
+    expect(resolveMethod("macos", "apt")).toBe("script");
+    expect(resolveMethod("linux", "apt")).toBe("apt");
     expect(defaultMethodFor("linux")).toBe("script");
   });
 });
@@ -171,11 +197,30 @@ describe("installCommand", () => {
     expect(installCommand("source", true)).toContain("go build");
   });
 
+  test("returns Linux package repository setup commands", () => {
+    expect(installCommand("apt", false)).toBe(
+      "curl -fsSL https://packages.bast.sh/setup.sh | sudo sh -s -- apt",
+    );
+    expect(installCommand("dnf", true)).toBe(
+      "curl -fsSL https://packages.bast.sh/setup.sh | sudo sh -s -- dnf",
+    );
+    expect(installCommand("pacman", false)).toBe(
+      "curl -fsSL https://packages.bast.sh/setup.sh | sudo sh -s -- pacman",
+    );
+    expect(installCommand("apk", false)).toBe(
+      "curl -fsSL https://packages.bast.sh/setup.sh | sudo sh -s -- apk",
+    );
+  });
+
   test("only script, PowerShell, and Homebrew have a nightly channel", () => {
     expect(methodSupportsNightly("script")).toBe(true);
     expect(methodSupportsNightly("powershell")).toBe(true);
     expect(methodSupportsNightly("homebrew")).toBe(true);
     expect(methodSupportsNightly("winget")).toBe(false);
+    expect(methodSupportsNightly("apt")).toBe(false);
+    expect(methodSupportsNightly("dnf")).toBe(false);
+    expect(methodSupportsNightly("pacman")).toBe(false);
+    expect(methodSupportsNightly("apk")).toBe(false);
     expect(methodSupportsNightly("source")).toBe(false);
   });
 

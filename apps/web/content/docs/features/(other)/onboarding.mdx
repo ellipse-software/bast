@@ -1,0 +1,42 @@
+---
+title: First launch
+description: What Bast shows the first time you open the TUI with no hosts, and how to skip it.
+---
+
+If this machine has no SSH hosts yet, the first TUI launch is a welcome with what Bast found on this machine, then destinations: add a host, history suggestions, Vault, or Sync. Each listed key goes somewhere different. Esc closes it and lands on Hosts.
+
+If `~/.ssh/config` already has hosts, Bast opens the picker. History suggestions still appear in the list.
+
+## Keys
+
+Listed in the box when they apply:
+
+| Key | Action |
+| --- | --- |
+| `a` | Add a host |
+| `Enter` | History suggestions, when some exist and there are no hosts yet |
+| `3` | Vault (sync this app across computers) |
+| `4` | Sync (import cloud VMs) |
+| `Esc` | Close and use Hosts |
+
+`q` quits without dismissing, so the chooser can return next launch.
+
+## When it appears
+
+Only the interactive TUI (`bast` or `bast tui`), and only when discover finds no hosts. Direct connects (`bast <label>`), CLI commands, and `--json` never show it.
+
+Upgrading an existing install does not show it. A machine that already has hosts is marked done without the overlay.
+
+Press `v` (About), then `o`, to show the chooser again without changing first-run eligibility.
+
+## Skip from the environment
+
+```sh
+BAST_NO_ONBOARDING=1 bast
+```
+
+Useful for screenshots and non-interactive terminals that still attach a TTY.
+
+## After you skip
+
+Empty Hosts and Keys tabs use the same seal language as an unlinked Vault: a fact, not a keybinding lecture. The footer still has `a add` / `a generate`. SSH destinations from history stay in the collapsible **(Suggested)** group. See [Import from shell history](/docs/features/history-import).

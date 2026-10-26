@@ -11,7 +11,11 @@ func detectNerdFont(getenv func(string) string) bool {
 	}
 
 	if strings.TrimSpace(getenv("WEZTERM_PANE")) != "" ||
+		strings.TrimSpace(getenv("WEZTERM_EXECUTABLE")) != "" ||
+		strings.TrimSpace(getenv("WEZTERM_UNIX_SOCKET")) != "" ||
 		strings.TrimSpace(getenv("KITTY_WINDOW_ID")) != "" ||
+		strings.TrimSpace(getenv("GHOSTTY_RESOURCES_DIR")) != "" ||
+		strings.TrimSpace(getenv("ITERM_SESSION_ID")) != "" ||
 		strings.TrimSpace(getenv("WT_SESSION")) != "" {
 		return true
 	}

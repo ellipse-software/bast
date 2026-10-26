@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"bast/internal/hostpass"
 	"bast/internal/openssh"
 	"bast/internal/paths"
 )
@@ -47,6 +48,71 @@ func TestHostCommandsRoundTripWithJSON(t *testing.T) {
 	if err != nil || errOut != "" || !strings.Contains(out, `"ok":true`) {
 		t.Fatalf("delete output=%q stderr=%q err=%v", out, errOut, err)
 	}
+}
+
+func TestHostPasswordStorageAndJSON(t *testing.T) {
+	home := t.TempDir()
+	client := fakeOpenSSH(t)
+	out, errOut, err := runTestCLI(t, home, client, "--json", "hosts", "add", "legacy", "--hostname", "legacy.example", "--password-only")
+	if err != nil || errOut != "" {
+		t.Fatalf("add output=%q stderr=%q err=%v", out, errOut, err)
+	}
+	managed, err := os.ReadFile(filepath.Join(home, ".ssh", "bast", "config"))
+	if err != nil || !strings.Contains(string(managed), "PubkeyAuthentication no") {
+		t.Fatalf("managed config=%q err=%v", managed, err)
+	}
+	if strings.Contains(string(managed), "s3cret") {
+		t.Fatal("password leaked into SSH config")
+	}
+	out, _, err = runTestCLI(t, home, client, "--json", "hosts", "show", "legacy")
+	if err != nil || strings.Contains(out, `"passwordStored":true`) || strings.Contains(out, "s3cret") {
+		t.Fatalf("show before store = %q err=%v", out, err)
+	}
+
+	id := managedHostID(t, managed)
+	if err := hostpass.Save(filepath.Join(home, ".config", "bast", "passwords"), id, "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err = runTestCLI(t, home, client, "--json", "hosts", "show", "legacy")
+	if err != nil || !strings.Contains(out, `"passwordStored":true`) || strings.Contains(out, "s3cret") {
+		t.Fatalf("show after store = %q err=%v", out, err)
+	}
+
+	_, errOut, err = runTestCLI(t, home, client, "--json", "hosts", "edit", "legacy", "--clear-password")
+	if err != nil || errOut != "" {
+		t.Fatalf("clear-password stderr=%q err=%v", errOut, err)
+	}
+	out, _, err = runTestCLI(t, home, client, "--json", "hosts", "show", "legacy")
+	if err != nil || strings.Contains(out, `"passwordStored":true`) {
+		t.Fatalf("show after clear = %q err=%v", out, err)
+	}
+
+	if err := hostpass.Save(filepath.Join(home, ".config", "bast", "passwords"), id, "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	_, errOut, err = runTestCLI(t, home, client, "--json", "hosts", "delete", "legacy", "--yes")
+	if err != nil || errOut != "" {
+		t.Fatalf("delete stderr=%q err=%v", errOut, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "bast", "passwords", id)); !os.IsNotExist(err) {
+		t.Fatalf("password file survived delete: %v", err)
+	}
+
+	_, errOut, err = runTestCLI(t, home, client, "--json", "--no-input", "hosts", "add", "other", "--hostname", "other.example", "--password")
+	if err == nil || !strings.Contains(errOut, "input_required") && !strings.Contains(errOut, "Password") {
+		t.Fatalf("expected --password to require a terminal, stderr=%q err=%v", errOut, err)
+	}
+}
+
+func managedHostID(t *testing.T, config []byte) string {
+	t.Helper()
+	for _, line := range strings.Split(string(config), "\n") {
+		if after, ok := strings.CutPrefix(strings.TrimSpace(line), "# bast:id="); ok {
+			return after
+		}
+	}
+	t.Fatalf("no managed id in config:\n%s", config)
+	return ""
 }
 
 func TestHostAddLabelPathSetsGroup(t *testing.T) {
@@ -174,7 +240,7 @@ func TestKeyCommandsImportEditExportAndDelete(t *testing.T) {
 }
 
 func TestInvocationAndCommandHelp(t *testing.T) {
-	if !IsInvocation([]string{"--json", "hosts", "list"}) || !IsInvocation([]string{"connect", "prod"}) || !IsInvocation([]string{"update"}) || IsInvocation([]string{"prod"}) {
+	if !IsInvocation([]string{"--json", "hosts", "list"}) || !IsInvocation([]string{"connect", "prod"}) || !IsInvocation([]string{"update"}) || !IsInvocation([]string{"doctor"}) || !IsInvocation([]string{"completion", "bash"}) || IsInvocation([]string{"prod"}) {
 		t.Fatal("command invocation detection is incorrect")
 	}
 	out, errOut, err := runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "hosts", "add", "--help")
@@ -197,6 +263,14 @@ func TestInvocationAndCommandHelp(t *testing.T) {
 	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "sync", "gcp", "--help")
 	if err != nil || errOut != "" || out != "Usage: bast sync gcp\n" {
 		t.Fatalf("sync gcp help output=%q stderr=%q err=%v", out, errOut, err)
+	}
+	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "sync", "vercel", "--help")
+	if err != nil || errOut != "" || out != "Usage: bast sync vercel\n" {
+		t.Fatalf("sync vercel help output=%q stderr=%q err=%v", out, errOut, err)
+	}
+	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "vercel", "--help")
+	if err != nil || errOut != "" || !strings.Contains(out, "Usage: bast vercel") {
+		t.Fatalf("vercel help output=%q stderr=%q err=%v", out, errOut, err)
 	}
 }
 
@@ -237,6 +311,10 @@ func fakeOpenSSH(t *testing.T) openssh.Client {
 		return path
 	}
 	ssh := writeScript("ssh", `
+if [ "$1" = "-V" ]; then
+  echo OpenSSH_9.8p1 >&2
+  exit 0
+fi
 if [ "$1" = "-G" ]; then
   printf 'hostname resolved.example\nuser deploy\nport 22\nidentitiesonly no\npubkeyauthentication yes\npasswordauthentication yes\nproxyjump none\n'
   exit 0
@@ -249,6 +327,31 @@ if [ "$1" = "-y" ]; then printf 'ssh-ed25519 AAA-test derived\n'; exit 0; fi
 exit 0`)
 	sshAdd := writeScript("ssh-add", "exit 1")
 	return openssh.Client{SSH: ssh, SSHKeygen: keygen, SSHAdd: sshAdd}
+}
+
+func TestDoctorJSONReportsIncludeScoping(t *testing.T) {
+	home := t.TempDir()
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(filepath.Join(sshDir, "bast"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "bast", "config"), []byte("Host managed\n  HostName managed.example\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte("Host work\n  HostName work.example\n  Include ~/.ssh/bast/config\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out, errOut, err := runTestCLI(t, home, fakeOpenSSH(t), "--json", "doctor")
+	code, ok := ExitCode(err)
+	if !ok || code != 1 {
+		t.Fatalf("expected exit 1, err=%v stderr=%q", err, errOut)
+	}
+	if errOut != "" {
+		t.Fatalf("stderr=%q", errOut)
+	}
+	if !strings.Contains(out, `"ok":true`) || !strings.Contains(out, `"healthy":false`) || !strings.Contains(out, "ssh_config.include_not_toplevel") {
+		t.Fatalf("output=%q", out)
+	}
 }
 
 func TestVaultLoginRequiresAcceptTerms(t *testing.T) {
