@@ -6,6 +6,18 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### :)
 
+## v0.11.0 - 2026-10-26
+
+### Added
+
+- BitQate sync over the public API: import VPS instances as SSH hosts, then start, stop, and restart them from the TUI and CLI. The token is read from `BITQATE_TOKEN` or `~/.config/bast/bitqate-token` and is not written to SSH config or Vault. List and sync need `vms:read`. Power actions also need `vms:power`. SSH uses port 22 unless a default port is set. Suspended instances stay distinct from stopped ones and cannot be started from Bast. Instances with no public IPv4 are skipped, and instances removed from the account are removed from the synced SSH config.
+
+### Fixed
+
+- Sync tab Nerd Font icons render in nested WezTerm, Ghostty, and iTerm sessions, and on narrow provider tiles.
+
+Get started at [https://bast.sh](https://bast.sh) or update with `bast update`.
+
 ## v0.10.4 - 2026-10-03
 
 - Migrated ASCII Box to Boat across sync, sandbox lifecycle commands, SSH preparation, and diagnostics. Use `bast boat` and `bast sync boat`; previous commands remain aliases. Existing host aliases, metadata, and sync preferences migrate automatically.
