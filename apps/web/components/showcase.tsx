@@ -36,7 +36,7 @@ const features: {
   {
     title: "Cloud sync",
     description:
-      "Pull live hosts from GCP, AWS, Azure, Hetzner Cloud, Boat, Upstash Box, and Vercel Sandbox. Synced hosts stay read-only and owned by the cloud.",
+      "Pull live hosts from GCP, AWS, Azure, Boat, Fly.io, and DigitalOcean through their CLIs, and from Hetzner Cloud, Upstash Box, Vercel Sandbox, BitQate, and Railway over their APIs. Synced hosts stay read-only and owned by the cloud.",
     icon: Cloud,
     href: "/docs/features/gcp",
   },

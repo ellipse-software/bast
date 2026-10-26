@@ -28,7 +28,7 @@ const rows: Row[] = [
   },
   {
     question: "Cloud hosts?",
-    bast: "Imports from GCP, AWS, Azure, Hetzner Cloud, and Boat",
+    bast: "CLIs for GCP, AWS, Azure, Boat, Fly.io, and DigitalOcean; APIs for Hetzner, Upstash, Vercel, BitQate, and Railway",
     termius: "Mostly manual setup",
     putty: "Not built in",
   },

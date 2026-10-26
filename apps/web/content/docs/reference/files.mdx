@@ -61,6 +61,46 @@ Upstash Box sandboxes are written here. The API key is stored separately at `~/.
 
 Vercel Sandboxes are written here as picker records (`HostName vercel.sandbox.invalid`). Connect uses Bast’s WebSocket PTY, not OpenSSH. The access token is stored separately at `~/.config/bast/vercel-token`. See [Vercel Sandbox](/docs/features/vercel).
 
+## Hetzner Cloud sync config
+
+```
+~/.ssh/bast/sync/hetzner/config
+```
+
+Hetzner Cloud servers are written here. API tokens are stored separately at `~/.config/bast/hetzner/tokens/<name>` and are not written into SSH config or Vault. See [Hetzner Cloud](/docs/features/hetzner).
+
+## BitQate sync config
+
+```
+~/.ssh/bast/sync/bitqate/config
+```
+
+BitQate VPS instances are written here. The API token is stored separately at `~/.config/bast/bitqate-token` and is not written into SSH config or Vault. See [BitQate](/docs/features/bitqate).
+
+## Railway sync config
+
+```
+~/.ssh/bast/sync/railway/config
+```
+
+Railway services are written here. SSH goes to `ssh.railway.com` as the service instance ID, using `~/.ssh/bast/keys/railway`. The API token is stored separately at `~/.config/bast/railway-api-token` and is not written into SSH config or Vault. See [Railway](/docs/features/railway).
+
+## Fly.io sync config
+
+```
+~/.ssh/bast/sync/fly/config
+```
+
+Fly Machines are written here. Bast does not store a Fly API token. `flyctl` must be logged in on the machine. SSH uses a short-lived certificate under `~/.ssh/bast/keys`. See [Fly.io](/docs/features/fly).
+
+## DigitalOcean sync config
+
+```
+~/.ssh/bast/sync/digitalocean/config
+```
+
+DigitalOcean Droplets are written here. Bast does not store a DigitalOcean token. `doctl` auth contexts select the account. See [DigitalOcean](/docs/features/digitalocean).
+
 ## Managed keys
 
 ```

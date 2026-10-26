@@ -36,8 +36,9 @@ export const syncSshHostsGuide: GuidePage = {
     </>,
     <>
       Cloud host inventory is separate on purpose: re-sync GCP, AWS, Azure,
-      Boat, Upstash Box, or Hetzner Cloud per machine so cloud credentials stay
-      where they belong.
+      Boat, Upstash Box, Vercel Sandbox, Hetzner Cloud, BitQate, Railway,
+      Fly.io, or DigitalOcean per machine so cloud credentials stay where they
+      belong.
     </>,
   ],
   stepsTitle: "Link two machines",

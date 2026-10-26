@@ -1,7 +1,7 @@
 "use client";
 
 import localFont from "next/font/local";
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 const nerdSymbols = localFont({
   src: "../fonts/bast-nerd-symbols.woff2",
@@ -11,7 +11,19 @@ const nerdSymbols = localFont({
 });
 
 type Section = "hosts" | "keys" | "vault" | "sync" | "files";
-type SyncProvider = "" | "gcp" | "aws" | "azure" | "boat" | "upstash" | "vercel" | "hetzner";
+type SyncProvider =
+  | ""
+  | "gcp"
+  | "aws"
+  | "azure"
+  | "boat"
+  | "upstash"
+  | "vercel"
+  | "hetzner"
+  | "bitqate"
+  | "railway"
+  | "fly"
+  | "digitalocean";
 
 const providerNerdIcon: Record<Exclude<SyncProvider, "">, string> = {
   gcp: "\ue7f1",
@@ -21,6 +33,38 @@ const providerNerdIcon: Record<Exclude<SyncProvider, "">, string> = {
   upstash: "\uf1b2",
   vercel: "\u25b2",
   hetzner: "\uf233",
+  bitqate: "\uf0a0",
+  railway: "\uf238",
+  fly: "\uf072",
+  digitalocean: "\ue7ae",
+};
+
+const providerLabel: Record<Exclude<SyncProvider, "">, string> = {
+  gcp: "Google Cloud",
+  aws: "Amazon EC2",
+  azure: "Microsoft Azure",
+  boat: "Boat",
+  upstash: "Upstash",
+  vercel: "Vercel",
+  hetzner: "Hetzner Cloud",
+  bitqate: "BitQate",
+  railway: "Railway",
+  fly: "Fly.io",
+  digitalocean: "DigitalOcean",
+};
+
+const providerColor: Record<Exclude<SyncProvider, "">, string> = {
+  gcp: "text-[#4285F4]",
+  aws: "text-[#FF9900]",
+  azure: "text-[#0078D4]",
+  boat: "text-foreground",
+  upstash: "text-[#00E9A3]",
+  vercel: "text-foreground",
+  hetzner: "text-[#D50C2D]",
+  bitqate: "text-foreground",
+  railway: "text-[#853BCC]",
+  fly: "text-[#8B5CF6]",
+  digitalocean: "text-[#0080FF]",
 };
 
 type DetailRow = { label: string; value: string };
@@ -304,6 +348,30 @@ const syncTiles: SyncTile[] = [
     detail: "1 running",
     description: "Import Hetzner Cloud servers into Bast",
   },
+  {
+    id: "bitqate",
+    title: "BitQate",
+    detail: "2 running",
+    description: "Import BitQate VPS instances into Bast",
+  },
+  {
+    id: "railway",
+    title: "Railway",
+    detail: "2 running",
+    description: "Import Railway services into Bast",
+  },
+  {
+    id: "fly",
+    title: "Fly.io",
+    detail: "1 running",
+    description: "Import Fly Machines into Bast",
+  },
+  {
+    id: "digitalocean",
+    title: "DigitalOcean",
+    detail: "3 running",
+    description: "Create and import Droplets in Bast",
+  },
 ];
 
 const vaultMenu: SyncMenuItem[] = [
@@ -409,6 +477,51 @@ const providerPages: Record<Exclude<SyncProvider, "">, ProviderPage> = {
       { label: "Prefer private IP" },
       { label: "Default SSH user" },
       { label: "Default SSH port" },
+      { label: "Refresh status" },
+    ],
+  },
+  bitqate: {
+    identity: ["enabled · 2 running", "token stored · auto-sync on"],
+    chips: ["Sync", "API token"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Disable auto-sync" },
+      { label: "Default SSH user" },
+      { label: "Default SSH port" },
+      { label: "Region filter" },
+      { label: "Refresh status" },
+    ],
+  },
+  railway: {
+    identity: ["enabled · 2 running", "token stored · auto-sync on"],
+    chips: ["Sync", "New service", "API token"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Disable auto-sync" },
+      { label: "Refresh status" },
+    ],
+  },
+  fly: {
+    identity: ["enabled · 1 running", "flyctl · auto-sync on"],
+    chips: ["Sync", "New machine"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Disable auto-sync" },
+      { label: "Default SSH user" },
+      { label: "Org filter" },
+      { label: "App filter" },
+      { label: "Refresh status" },
+    ],
+  },
+  digitalocean: {
+    identity: ["enabled · 3 running", "default · auto-sync on"],
+    chips: ["Sync", "New droplet"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Disable auto-sync" },
+      { label: "Default SSH user" },
+      { label: "Context filter" },
+      { label: "Region filter" },
       { label: "Refresh status" },
     ],
   },
@@ -1779,6 +1892,13 @@ function SyncPanel({
 }) {
   const page = provider ? providerPages[provider] : null;
   const selectedTile = syncTiles[cursor];
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (provider) return;
+    listRef.current
+      ?.querySelector<HTMLElement>(`[data-sync-index="${cursor}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [cursor, provider]);
   return (
     <DemoPane footerDesktop={footerDesktop} footerMobile={footerMobile}>
       {page && provider ? (
@@ -1790,23 +1910,26 @@ function SyncPanel({
           onBack={onBack}
         />
       ) : (
-        <>
-          <div className="grid min-w-0 grid-cols-1 gap-x-2 gap-y-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            {syncTiles.map((tile, index) => (
-              <SyncTileButton
-                key={tile.id}
-                tile={tile}
-                selected={index === cursor}
-                onClick={() => onSelectTile(index)}
-              />
-            ))}
+        <div className="flex h-full min-h-0 flex-col">
+          <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
+            <div className="grid min-w-0 grid-cols-1 gap-x-2 gap-y-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              {syncTiles.map((tile, index) => (
+                <SyncTileButton
+                  key={tile.id}
+                  tile={tile}
+                  index={index}
+                  selected={index === cursor}
+                  onClick={() => onSelectTile(index)}
+                />
+              ))}
+            </div>
           </div>
           {selectedTile ? (
-            <p className="mt-2 truncate pl-2 text-muted">
+            <p className="mt-2 shrink-0 truncate pl-2 text-muted">
               {selectedTile.description}
             </p>
           ) : null}
-        </>
+        </div>
       )}
     </DemoPane>
   );
@@ -1834,10 +1957,12 @@ function BoxRule({
 
 function SyncTileButton({
   tile,
+  index,
   selected,
   onClick,
 }: {
   tile: SyncTile;
+  index: number;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -1845,6 +1970,7 @@ function SyncTileButton({
   return (
     <button
       type="button"
+      data-sync-index={index}
       onClick={onClick}
       className="flex w-full min-w-0 cursor-pointer flex-col border-0 bg-transparent p-0 text-left font-[inherit]"
     >
@@ -2031,37 +2157,15 @@ function ProviderTitle({
   if (provider === "gcp") {
     return (
       <span className="inline-flex items-baseline font-bold">
-        <span className="text-[#4285F4]">{glyph}</span>
+        <span className={providerColor.gcp}>{glyph}</span>
         <GoogleCloudLabel />
       </span>
     );
   }
-  const color =
-    provider === "aws"
-      ? "text-[#FF9900]"
-      : provider === "azure"
-        ? "text-[#0078D4]"
-        : provider === "upstash"
-          ? "text-[#00E9A3]"
-          : provider === "hetzner"
-            ? "text-[#D50C2D]"
-            : "text-foreground";
-  const label =
-    provider === "aws"
-      ? "Amazon EC2"
-      : provider === "azure"
-        ? "Microsoft Azure"
-        : provider === "boat"
-          ? "Boat"
-          : provider === "upstash"
-            ? "Upstash"
-            : provider === "vercel"
-              ? "Vercel"
-              : "Hetzner Cloud";
   return (
-    <span className={`inline-flex items-baseline font-bold ${color}`}>
+    <span className={`inline-flex items-baseline font-bold ${providerColor[provider]}`}>
       {glyph}
-      {label}
+      {providerLabel[provider]}
     </span>
   );
 }

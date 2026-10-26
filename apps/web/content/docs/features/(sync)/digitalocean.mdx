@@ -1,13 +1,13 @@
 ---
 title: DigitalOcean
-description: Import DigitalOcean Droplets into Bast and manage create, power off, power on, fork, and delete through doctl.
+description: Import DigitalOcean Droplets into Bast and manage create, shut down, power on, fork, and delete through doctl.
 ---
 
 The **Sync** tab (`4`) imports Linux Droplets into Bast. Synced hosts remain ordinary OpenSSH entries, while their connection details, label, and group stay owned by DigitalOcean sync.
 
 Bast uses the native **doctl** CLI on your machine. It does not store DigitalOcean tokens or use a separate cloud agent. Discovery, create, power, snapshot, and SSH key matching run through the doctl auth contexts you already use.
 
-Bast supports **GCP**, **AWS**, **Azure**, **DigitalOcean**, and **box.ascii.dev** through each provider's native CLI, and **Upstash Box** through its API.
+Bast supports **GCP**, **AWS**, **Azure**, **Boat**, **Fly.io**, and **DigitalOcean** through each provider's native CLI, and **Upstash Box**, **Vercel Sandbox**, **Hetzner Cloud**, **BitQate**, and **Railway** through their APIs.
 
 ## Requirements
 

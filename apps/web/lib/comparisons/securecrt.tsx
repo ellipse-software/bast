@@ -43,7 +43,7 @@ export const securecrtComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud hosts",
-      bast: "CLIs for GCP, AWS, Azure, and Boat; APIs for Hetzner, Upstash, and Vercel",
+      bast: "CLIs for GCP, AWS, Azure, Boat, Fly.io, and DigitalOcean; APIs for Hetzner, Upstash, Vercel, BitQate, and Railway",
       competitor: "Manual or scripted session maintenance",
     },
     {
@@ -110,9 +110,9 @@ export const securecrtComparison: ComparisonCaseStudy = {
       title: "Cloud inventory and agent-ready CLI",
       paragraphs: [
         <>
-          Bast imports cloud VMs through provider CLIs and exposes stable JSON
-          for scripts and coding agents. That matters when SSH inventory is
-          dynamic and partly owned by automation.
+          Bast imports cloud VMs through provider CLIs and APIs and exposes
+          stable JSON for scripts and coding agents. That matters when SSH
+          inventory is dynamic and partly owned by automation.
         </>,
         <>
           SecureCRT can be scripted, but the center of gravity remains a

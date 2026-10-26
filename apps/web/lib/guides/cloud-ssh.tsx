@@ -3,9 +3,9 @@ import type { GuidePage } from "@/lib/guides/types";
 
 export const cloudSshGuide: GuidePage = {
   slug: "cloud-ssh",
-  title: "SSH into GCP, AWS, Azure, Hetzner, and Boat sandboxes",
+  title: "SSH into cloud VMs and sandboxes",
   description:
-    "Import live GCP, AWS, Azure, and Hetzner Cloud VMs plus Boat, Upstash Box, and Vercel Sandboxes into Bast as read-only hosts. Keep OpenSSH as the connection path for cloud VMs, and stop maintaining cloud host spreadsheets.",
+    "Import live GCP, AWS, Azure, Boat, Upstash Box, Vercel Sandbox, Hetzner Cloud, BitQate, Railway, Fly.io, and DigitalOcean hosts into Bast as read-only inventory. Keep OpenSSH as the connection path for cloud VMs.",
   keywords: [
     "GCP SSH",
     "AWS SSH",
@@ -13,12 +13,16 @@ export const cloudSshGuide: GuidePage = {
     "Hetzner SSH",
     "Boat SSH",
     "Boat",
+    "BitQate SSH",
+    "Railway SSH",
+    "Fly.io SSH",
+    "DigitalOcean SSH",
     "SSH into EC2",
     "gcloud SSH alternative",
     "cloud VM SSH",
     "Bast.sh",
   ],
-  lead: "Cloud consoles and one-off CLI copy-paste are fine until you have dozens of hosts. Bast imports live inventory from GCP, AWS, Azure, Hetzner Cloud, Boat, Upstash Box, and Vercel Sandbox, then connects from the picker.",
+  lead: "Cloud consoles and one-off CLI copy-paste are fine until you have dozens of hosts. Bast imports live inventory from GCP, AWS, Azure, Boat, Upstash Box, Vercel Sandbox, Hetzner Cloud, BitQate, Railway, Fly.io, and DigitalOcean, then connects from the picker.",
   problemTitle: "Cloud inventory goes stale the moment you bookmark it",
   problem: [
     <>
@@ -35,10 +39,10 @@ export const cloudSshGuide: GuidePage = {
   solution: [
     <>
       Bast sync pulls hosts through <Code>gcloud</Code>, AWS CLI v2, Azure CLI,
-      the Boat <Code>boat</Code> CLI, the Upstash Box API, the Vercel
-      Sandbox API, or the Hetzner Cloud API. Synced hosts are read-only
-      reflections of cloud inventory. When sync runs again, the list updates
-      instead of rotting.
+      the Boat <Code>boat</Code> CLI, <Code>flyctl</Code>, and <Code>doctl</Code>,
+      or through the Upstash Box, Vercel Sandbox, Hetzner Cloud, BitQate, and
+      Railway APIs. Synced hosts are read-only reflections of cloud inventory.
+      When sync runs again, the list updates instead of rotting.
     </>,
     <>
       Cloud VMs still use your system <Code>ssh</Code> binary. Vercel Sandboxes
@@ -49,27 +53,33 @@ export const cloudSshGuide: GuidePage = {
   steps: [
     <>
       Authenticate the provider CLI on your machine (<Code>gcloud</Code>,{" "}
-      <Code>aws</Code>, <Code>az</Code>, or <Code>boat</Code>), store an
-      Upstash Box API key with <Code>bast upstash key</Code>, a Vercel token
-      with <Code>bast vercel token</Code>, or a Hetzner Cloud token with{" "}
-      <Code>bast hetzner key</Code>.
+      <Code>aws</Code>, <Code>az</Code>, <Code>boat</Code>, <Code>flyctl</Code>,
+      or <Code>doctl</Code>), or store a token with <Code>bast upstash key</Code>,{" "}
+      <Code>bast vercel token</Code>, <Code>bast hetzner key</Code>,{" "}
+      <Code>bast bitqate key</Code>, or <Code>bast railway key</Code>. Fly.io
+      and DigitalOcean do not store an API token in Bast.
     </>,
     <>
-      Run <Code>bast sync gcp</Code>, <Code>bast sync aws</Code>,{" "}
-      <Code>bast sync azure</Code>, <Code>bast sync boat</Code>,{" "}
-      <Code>bast sync upstash</Code>, <Code>bast sync vercel</Code>, or{" "}
-      <Code>bast sync hetzner</Code> (or use the Sync tab in the TUI).
+      Run <Code>bast sync</Code> for <Code>gcp</Code>, <Code>aws</Code>,{" "}
+      <Code>azure</Code>, <Code>boat</Code>, <Code>upstash</Code>,{" "}
+      <Code>vercel</Code>, <Code>hetzner</Code>, <Code>bitqate</Code>,{" "}
+      <Code>railway</Code>, <Code>fly</Code>, or <Code>digitalocean</Code> (or
+      use the Sync tab in the TUI). <Code>bast sync do</Code> is an alias of{" "}
+      <Code>bast sync digitalocean</Code>.
     </>,
     <>
-      Open Bast, find the imported hosts, and connect. Start with the{" "}
+      Open Bast, find the imported hosts, and connect. Provider notes:{" "}
       <DocLink href="/docs/features/gcp">GCP</DocLink>,{" "}
       <DocLink href="/docs/features/aws">AWS</DocLink>,{" "}
       <DocLink href="/docs/features/azure">Azure</DocLink>,{" "}
       <DocLink href="/docs/features/boat">Boat</DocLink>,{" "}
       <DocLink href="/docs/features/upstash">Upstash Box</DocLink>,{" "}
-      <DocLink href="/docs/features/vercel">Vercel Sandbox</DocLink>, or{" "}
-      <DocLink href="/docs/features/hetzner">Hetzner Cloud</DocLink> guide for
-      provider notes.
+      <DocLink href="/docs/features/vercel">Vercel Sandbox</DocLink>,{" "}
+      <DocLink href="/docs/features/hetzner">Hetzner Cloud</DocLink>,{" "}
+      <DocLink href="/docs/features/bitqate">BitQate</DocLink>,{" "}
+      <DocLink href="/docs/features/railway">Railway</DocLink>,{" "}
+      <DocLink href="/docs/features/fly">Fly.io</DocLink>,{" "}
+      <DocLink href="/docs/features/digitalocean">DigitalOcean</DocLink>.
     </>,
   ],
   sections: [
@@ -78,9 +88,11 @@ export const cloudSshGuide: GuidePage = {
       paragraphs: [
         <>
           Bast writes local OpenSSH config for imported hosts. GCP, AWS, Azure,
-          and Boat authenticate through their CLIs. Upstash Box, Vercel,
-          and Hetzner Cloud store tokens in local 0600 files, not in SSH config
-          or Vault. Vercel connect is a WebSocket PTY rather than OpenSSH.
+          Boat, Fly.io, and DigitalOcean authenticate through their CLIs. Fly.io
+          and DigitalOcean do not store an API token. Upstash Box, Vercel,
+          Hetzner Cloud, BitQate, and Railway store tokens in local 0600 files,
+          not in SSH config or Vault. Vercel connect is a WebSocket PTY rather
+          than OpenSSH.
         </>,
       ],
     },
