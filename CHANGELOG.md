@@ -6,6 +6,10 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- Railway sync over the GraphQL API: import services as SSH hosts, then create, stop, resume, and delete them from the TUI and CLI. SSH is OpenSSH to `ssh.railway.com` as the service instance ID, with a key at `~/.ssh/bast/keys/railway`. Account and workspace tokens work (`RAILWAY_API_TOKEN` or `~/.config/bast/railway-api-token`). Project tokens are rejected. The token is not written to SSH config or Vault. Delete removes the service from that environment only.
+- Fly.io sync through `flyctl`: import Machines, then create, stop, start, clone, and destroy them. SSH stays OpenSSH through a local `fly proxy` tunnel (`bast __fly-proxy`). Bast does not store a Fly API token. `flyctl` must be installed and logged in. Cloning a Machine does not copy mounted volumes.
+- DigitalOcean sync through `doctl`: import Linux Droplets that have a public address, then create, shut down, power on, fork, and delete them. `bast do` is an alias of `bast digitalocean`. Fork snapshots are deleted after the new Droplet exists. Shutdown keeps the disk billing until delete. Bast does not store a DigitalOcean token. `doctl` auth contexts select the account.
+
 ## v0.11.0 - 2026-10-26
 
 ### Added

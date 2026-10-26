@@ -179,6 +179,9 @@ func (a Applier) RestoreEnabledSyncIncludes() error {
 		{a.Store.Vercel().Enabled, a.Paths.SyncVercelConfig},
 		{a.Store.Hetzner().Enabled, a.Paths.SyncHetznerConfig},
 		{a.Store.Bitqate().Enabled, a.Paths.SyncBitqateConfig},
+		{a.Store.Railway().Enabled, a.Paths.SyncRailwayConfig},
+		{a.Store.Fly().Enabled, a.Paths.SyncFlyConfig},
+		{a.Store.DigitalOcean().Enabled, a.Paths.SyncDigitalOceanConfig},
 	} {
 		if !it.on {
 			continue
@@ -260,6 +263,36 @@ func applyIntegrations(store *metadata.Store, in VaultIntegrations) error {
 		cur.DefaultSSHPort = in.Bitqate.DefaultSSHPort
 		cur.RegionFilter = append([]string(nil), in.Bitqate.RegionFilter...)
 		if err := store.SetBitqate(cur); err != nil {
+			return err
+		}
+	}
+	if in.Railway != nil {
+		cur := store.Railway()
+		cur.Enabled = in.Railway.Enabled
+		cur.AutoSync = in.Railway.AutoSync
+		if err := store.SetRailway(cur); err != nil {
+			return err
+		}
+	}
+	if in.Fly != nil {
+		cur := store.Fly()
+		cur.Enabled = in.Fly.Enabled
+		cur.AutoSync = in.Fly.AutoSync
+		cur.OrgFilter = append([]string(nil), in.Fly.OrgFilter...)
+		cur.AppFilter = append([]string(nil), in.Fly.AppFilter...)
+		cur.DefaultSSHUser = in.Fly.DefaultSSHUser
+		if err := store.SetFly(cur); err != nil {
+			return err
+		}
+	}
+	if in.DigitalOcean != nil {
+		cur := store.DigitalOcean()
+		cur.Enabled = in.DigitalOcean.Enabled
+		cur.AutoSync = in.DigitalOcean.AutoSync
+		cur.ContextFilter = append([]string(nil), in.DigitalOcean.ContextFilter...)
+		cur.RegionFilter = append([]string(nil), in.DigitalOcean.RegionFilter...)
+		cur.DefaultSSHUser = in.DigitalOcean.DefaultSSHUser
+		if err := store.SetDigitalOcean(cur); err != nil {
 			return err
 		}
 	}

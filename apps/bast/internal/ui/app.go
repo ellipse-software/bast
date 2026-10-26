@@ -257,7 +257,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig, SyncRailwayConfig: p.SyncRailwayConfig, SyncFlyConfig: p.SyncFlyConfig, SyncDigitalOceanConfig: p.SyncDigitalOceanConfig,
 		},
 		openSSH:          client,
 		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
@@ -325,6 +325,12 @@ func (m *App) clearProviderProbeError(provider string) {
 		m.syncStatus.Hetzner.Error = ""
 	case "bitqate":
 		m.syncStatus.Bitqate.Error = ""
+	case "railway":
+		m.syncStatus.Railway.Error = ""
+	case "fly":
+		m.syncStatus.Fly.FlyCLIError = ""
+	case "digitalocean":
+		m.syncStatus.DigitalOcean.DOCTLError = ""
 	}
 }
 
@@ -365,6 +371,9 @@ func (m *App) syncCompletionNotice(provider string, count int) string {
 		{id: "vercel", name: "Vercel", enabled: vercel.Enabled, count: vercel.LastInstanceCount},
 		{id: "hetzner", name: "Hetzner", enabled: m.metadata.Hetzner().Enabled, count: m.metadata.Hetzner().LastInstanceCount},
 		{id: "bitqate", name: "BitQate", enabled: m.metadata.Bitqate().Enabled, count: m.metadata.Bitqate().LastInstanceCount},
+		{id: "railway", name: "Railway", enabled: m.metadata.Railway().Enabled, count: m.metadata.Railway().LastInstanceCount},
+		{id: "fly", name: "Fly", enabled: m.metadata.Fly().Enabled, count: m.metadata.Fly().LastInstanceCount},
+		{id: "digitalocean", name: "DigitalOcean", enabled: m.metadata.DigitalOcean().Enabled, count: m.metadata.DigitalOcean().LastInstanceCount},
 	}
 	parts := make([]string, 0, len(providers))
 	for _, item := range providers {
@@ -446,6 +455,23 @@ func (m *App) autoSyncCmds() tea.Cmd {
 	if bitqate := m.metadata.Bitqate(); bitqate.Enabled && bitqate.AutoSync && !m.syncingProviders["bitqate"] {
 		m.beginProviderOp("bitqate")
 		autoSyncCmds = append(autoSyncCmds, m.syncBitqateCmd())
+	}
+	if railway := m.metadata.Railway(); !railway.Disabled && !m.syncingProviders["railway"] {
+		if railway.Enabled && railway.AutoSync {
+			m.beginProviderOp("railway")
+			autoSyncCmds = append(autoSyncCmds, m.syncRailwayCmd())
+		} else if !railway.Enabled && m.railwayHasToken() {
+			m.beginProviderOp("railway")
+			autoSyncCmds = append(autoSyncCmds, m.autoConnectRailwayCmd())
+		}
+	}
+	if fly := m.metadata.Fly(); !fly.Disabled && fly.Enabled && fly.AutoSync && !m.syncingProviders["fly"] {
+		m.beginProviderOp("fly")
+		autoSyncCmds = append(autoSyncCmds, m.syncFlyCmd())
+	}
+	if ocean := m.metadata.DigitalOcean(); ocean.Enabled && ocean.AutoSync && !m.syncingProviders["digitalocean"] {
+		m.beginProviderOp("digitalocean")
+		autoSyncCmds = append(autoSyncCmds, m.syncDigitalOceanCmd())
 	}
 	if pull := m.vaultPullCmd(false); pull != nil {
 		autoSyncCmds = append(autoSyncCmds, pull)

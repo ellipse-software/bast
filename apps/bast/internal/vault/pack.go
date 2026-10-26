@@ -232,5 +232,29 @@ func packIntegrations(in metadata.Integrations) VaultIntegrations {
 			RegionFilter:   append([]string(nil), in.Bitqate.RegionFilter...),
 		}
 	}
+	if in.Railway != nil {
+		out.Railway = &VaultRailwayIntegration{
+			Enabled:  in.Railway.Enabled,
+			AutoSync: in.Railway.AutoSync,
+		}
+	}
+	if in.Fly != nil {
+		out.Fly = &VaultFlyIntegration{
+			Enabled:        in.Fly.Enabled,
+			AutoSync:       in.Fly.AutoSync,
+			OrgFilter:      append([]string(nil), in.Fly.OrgFilter...),
+			AppFilter:      append([]string(nil), in.Fly.AppFilter...),
+			DefaultSSHUser: in.Fly.DefaultSSHUser,
+		}
+	}
+	if in.DigitalOcean != nil {
+		out.DigitalOcean = &VaultDigitalOceanIntegration{
+			Enabled:        in.DigitalOcean.Enabled,
+			AutoSync:       in.DigitalOcean.AutoSync,
+			ContextFilter:  append([]string(nil), in.DigitalOcean.ContextFilter...),
+			RegionFilter:   append([]string(nil), in.DigitalOcean.RegionFilter...),
+			DefaultSSHUser: in.DigitalOcean.DefaultSSHUser,
+		}
+	}
 	return out
 }

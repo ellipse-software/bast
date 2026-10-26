@@ -197,6 +197,45 @@ func TestBitqateIntegrationRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRailwayFlyDigitalOceanIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetRailway(RailwayIntegration{Enabled: true, AutoSync: true, LastInstanceCount: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetFly(FlyIntegration{
+		Enabled: true, AutoSync: true, OrgFilter: []string{"personal"}, AppFilter: []string{"web"},
+		DefaultSSHUser: "root", LastInstanceCount: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetDigitalOcean(DigitalOceanIntegration{
+		Enabled: true, AutoSync: true, ContextFilter: []string{"default"}, RegionFilter: []string{"nyc3"},
+		DefaultSSHUser: "root", LastInstanceCount: 4,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	railway := reopened.Railway()
+	if !railway.Enabled || !railway.AutoSync || railway.LastInstanceCount != 2 {
+		t.Fatalf("railway = %+v", railway)
+	}
+	fly := reopened.Fly()
+	if !fly.Enabled || fly.DefaultSSHUser != "root" || len(fly.OrgFilter) != 1 || fly.OrgFilter[0] != "personal" || len(fly.AppFilter) != 1 {
+		t.Fatalf("fly = %+v", fly)
+	}
+	droplet := reopened.DigitalOcean()
+	if !droplet.Enabled || droplet.DefaultSSHUser != "root" || len(droplet.ContextFilter) != 1 || droplet.ContextFilter[0] != "default" || droplet.LastInstanceCount != 4 {
+		t.Fatalf("digitalocean = %+v", droplet)
+	}
+}
+
 func TestHetznerIntegrationRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	store, err := Open(path)

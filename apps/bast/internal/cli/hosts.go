@@ -10,7 +10,10 @@ import (
 	"time"
 
 	bitqatecloud "bast/internal/cloud/bitqate"
+	docloud "bast/internal/cloud/digitalocean"
+	flycloud "bast/internal/cloud/fly"
 	hetznercloud "bast/internal/cloud/hetzner"
+	railwaycloud "bast/internal/cloud/railway"
 	"bast/internal/cloud/sync"
 	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/connectbanner"
@@ -862,6 +865,57 @@ func (r *Runner) connect(args []string) error {
 		}
 		if err := engine.EnsureBitqateAccess(ctx, host.raw, connectbanner.Status(r.Out)); err != nil {
 			return fail("bitqate_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "railway" && host.SyncID != "" {
+		timeout := 90 * time.Second
+		if railwaycloud.HostLooksStopped(host.Tags) {
+			timeout = 6 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if railwaycloud.HostLooksStopped(host.Tags) {
+			if _, err := engine.ResumeRailway(ctx, host.SyncID); err != nil {
+				return fail("railway_resume", err.Error())
+			}
+		}
+		if err := engine.EnsureRailwayAccess(ctx, host.raw, connectbanner.Status(r.Out)); err != nil {
+			return fail("railway_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "fly" && host.SyncID != "" {
+		timeout := 90 * time.Second
+		if flycloud.HostLooksStopped(host.Hostname, host.Tags) {
+			timeout = 6 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if flycloud.HostLooksStopped(host.Hostname, host.Tags) {
+			if _, err := engine.ResumeFly(ctx, host.SyncID); err != nil {
+				return fail("fly_resume", err.Error())
+			}
+		}
+		if err := engine.EnsureFlyAccess(ctx, host.raw, connectbanner.Status(r.Out)); err != nil {
+			return fail("fly_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "digitalocean" && host.SyncID != "" {
+		timeout := 90 * time.Second
+		if docloud.HostLooksStopped(host.Tags, "") {
+			timeout = 6 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if docloud.HostLooksStopped(host.Tags, "") {
+			if _, err := engine.ResumeDigitalOcean(ctx, host.SyncID); err != nil {
+				return fail("digitalocean_resume", err.Error())
+			}
+		}
+		if err := engine.EnsureDigitalOceanAccess(ctx, host.raw, connectbanner.Status(r.Out)); err != nil {
+			return fail("digitalocean_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
 	}

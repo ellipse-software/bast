@@ -45,6 +45,9 @@ Usage:
   bast vercel <command>        Create and manage Vercel Sandboxes
   bast hetzner <command>       Start, stop, and restart Hetzner Cloud servers
   bast bitqate <command>       List, start, stop, and restart BitQate VPS instances
+  bast railway <command>       Create and manage Railway services
+  bast fly <command>           Create and manage Fly Machines
+  bast digitalocean <command>  Create and manage DigitalOcean Droplets
   bast vault <command>         Sync Bast-managed config via encrypted vault
   bast completion <shell>      Print a shell completion script
 
@@ -57,7 +60,8 @@ Key commands:
   public, copy, delete
 
 Sync commands:
-  gcp, aws, azure, boat, upstash, vercel, hetzner, bitqate, status, disable
+  gcp, aws, azure, boat, upstash, vercel, hetzner, bitqate, railway, fly,
+  digitalocean, status, disable
 
 Boat commands:
   new, fork, stop, resume, delete, snapshots, snapshot
@@ -74,6 +78,15 @@ Hetzner commands:
 BitQate commands:
   list, start, stop, restart, key
 
+Railway commands:
+  new, stop, resume, delete, key
+
+Fly commands:
+  new, fork, stop, resume, delete
+
+DigitalOcean commands:
+  new, fork, stop, resume, delete
+
 Vault commands:
   login, status, push, pull, logout, passphrase
 
@@ -83,7 +96,9 @@ Global options:
 
 Run "bast doctor --help", "bast hosts <command> --help", "bast keys <command> --help",
 "bast sync <command> --help", "bast boat <command> --help", "bast upstash <command> --help",
-"bast vercel <command> --help", "bast hetzner <command> --help", "bast bitqate <command> --help", "bast vault <command> --help", or "bast completion --help" for details.
+"bast vercel <command> --help", "bast hetzner <command> --help", "bast bitqate <command> --help",
+"bast railway <command> --help", "bast fly <command> --help", "bast digitalocean <command> --help",
+"bast vault <command> --help", or "bast completion --help" for details.
 `
 
 func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
@@ -133,7 +148,7 @@ func fail(code, message string) error { return &commandError{code: code, message
 func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writer) (*Runner, error) {
 	runner := &Runner{
 		Paths: p, OpenSSH: client, Version: "dev", In: in, Out: out, Err: errOut,
-		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig},
+		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig, SyncRailwayConfig: p.SyncRailwayConfig, SyncFlyConfig: p.SyncFlyConfig, SyncDigitalOceanConfig: p.SyncDigitalOceanConfig},
 		keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
 		reader:  bufio.NewReader(in),
 	}
@@ -149,7 +164,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "doctor", "connect", "hosts", "keys", "sync", "boat", "box", "upstash", "vercel", "hetzner", "bitqate", "vault", "completion", "__complete":
+	case "tui", "update", "doctor", "connect", "hosts", "keys", "sync", "boat", "box", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "do", "vault", "completion", "__complete":
 		return true
 	}
 	return false
@@ -157,7 +172,7 @@ func IsCommand(arg string) bool {
 
 func commandUsesOpenSSH(cmd string) bool {
 	switch cmd {
-	case "boat", "box", "upstash", "vercel", "hetzner", "bitqate":
+	case "boat", "box", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "do":
 		return false
 	default:
 		return true
@@ -230,6 +245,12 @@ func (r *Runner) Run(args []string) error {
 				err = r.hetznerCmd(args[1:])
 			case "bitqate":
 				err = r.bitqateCmd(args[1:])
+			case "railway":
+				err = r.railwayCmd(args[1:])
+			case "fly":
+				err = r.flyCmd(args[1:])
+			case "digitalocean", "do":
+				err = r.digitalOceanCmd(args[1:])
 			case "vault":
 				err = r.vault(args[1:])
 			default:
@@ -305,72 +326,95 @@ option to restore a default or remove values.`,
 
 Commands: list, show, generate, import, promote, comment, export, install,
           passphrase, public, copy, delete`,
-		"keys list":         "Usage: bast keys list [--search text]",
-		"keys show":         "Usage: bast keys show <name>",
-		"keys generate":     "Usage: bast keys generate [name] [--algorithm ed25519|rsa] [--no-passphrase]",
-		"keys import":       "Usage: bast keys import [name] --private path|- [--public path|-] [--comment text]",
-		"keys promote":      "Usage: bast keys promote <key> [--name managed-name]",
-		"keys comment":      "Usage: bast keys comment <name> (--comment text|--clear-comment)",
-		"keys export":       "Usage: bast keys export <name> --directory path [--yes]",
-		"keys install":      "Usage: bast keys install <name> --host host",
-		"keys passphrase":   "Usage: bast keys passphrase <name>",
-		"keys public":       "Usage: bast keys public <name>",
-		"keys copy":         "Usage: bast keys copy <name>",
-		"keys delete":       "Usage: bast keys delete <name> [--yes]",
-		"connect --help":    "Usage: bast connect <host>",
-		"sync gcp":          "Usage: bast sync gcp",
-		"sync aws":          "Usage: bast sync aws",
-		"sync azure":        "Usage: bast sync azure",
-		"sync boat":         "Usage: bast sync boat",
-		"sync upstash":      "Usage: bast sync upstash",
-		"sync vercel":       "Usage: bast sync vercel",
-		"sync hetzner":      "Usage: bast sync hetzner",
-		"sync bitqate":      "Usage: bast sync bitqate",
-		"sync status":       "Usage: bast sync status",
-		"sync disable":      "Usage: bast sync disable <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate>",
-		"sync --help":       "Usage: bast sync <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|status|disable>",
-		"boat --help":       "Usage: bast boat <new|fork|stop|resume|delete|snapshots|snapshot>",
-		"boat new":          "Usage: bast boat new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
-		"boat fork":         "Usage: bast boat fork <host|id> [--type small|default|large] [--no-env]",
-		"boat stop":         "Usage: bast boat stop <host|id>",
-		"boat resume":       "Usage: bast boat resume <host|id> [--type small|default|large] [--no-env]",
-		"boat delete":       "Usage: bast boat delete <host|id> [--yes]",
-		"boat snapshots":    "Usage: bast boat snapshots [host|id]",
-		"boat snapshot":     "Usage: bast boat snapshot delete <snapshot-id> [--yes]\n       bast boat snapshot rm <name>",
-		"upstash --help":    "Usage: bast upstash <new|fork|stop|resume|delete|key>",
-		"upstash new":       "Usage: bast upstash new [--name name] [--runtime node|python|golang|ruby|rust] [--size small|medium|large] [--keep-alive]",
-		"upstash fork":      "Usage: bast upstash fork <host|id>",
-		"upstash stop":      "Usage: bast upstash stop <host|id>",
-		"upstash resume":    "Usage: bast upstash resume <host|id>",
-		"upstash delete":    "Usage: bast upstash delete <host|id> [--yes]",
-		"upstash key":       "Usage: bast upstash key [--key-file path]",
-		"vercel --help":     "Usage: bast vercel <new|fork|stop|resume|delete|cleanup|token>",
-		"vercel new":        "Usage: bast vercel new [--name name] [--project id] [--vcpus 1|2|4] [--timeout 15m|1h|5h] [--ephemeral]",
-		"vercel fork":       "Usage: bast vercel fork <host|id> [--name name]",
-		"vercel stop":       "Usage: bast vercel stop <host|id>",
-		"vercel resume":     "Usage: bast vercel resume <host|id>",
-		"vercel delete":     "Usage: bast vercel delete <host|id> [--yes]",
-		"vercel cleanup":    "Usage: bast vercel cleanup [--yes]",
-		"vercel token":      "Usage: bast vercel token [--token-file path] [--team team_id] [--project id[,id...]]\n       bast vercel token --remove project_id",
-		"hetzner --help":    "Usage: bast hetzner <start|stop|restart|key>",
-		"hetzner start":     "Usage: bast hetzner start <host|id>",
-		"hetzner stop":      "Usage: bast hetzner stop <host|id> [--force]",
-		"hetzner restart":   "Usage: bast hetzner restart <host|id> [--force]",
-		"bitqate --help":    "Usage: bast bitqate <list|start|stop|restart|key>",
-		"bitqate list":      "Usage: bast bitqate list",
-		"bitqate start":     "Usage: bast bitqate start <host|id>",
-		"bitqate stop":      "Usage: bast bitqate stop <host|id>",
-		"bitqate restart":   "Usage: bast bitqate restart <host|id>",
-		"bitqate key":       "Usage: bast bitqate key [--token-file path] | bast bitqate key --clear",
-		"hetzner key":       "Usage: bast hetzner key [--name project] [--key-file path]\n       bast hetzner key --remove project",
-		"vault --help":      "Usage: bast vault <login|status|push|pull|logout|passphrase>",
-		"vault login":       "Usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]",
-		"vault status":      "Usage: bast vault status",
-		"vault push":        "Usage: bast vault push",
-		"vault pull":        "Usage: bast vault pull [--mode merge|replace_local|replace_remote]",
-		"vault logout":      "Usage: bast vault logout",
-		"vault passphrase":  "Usage: bast vault passphrase [--force]",
-		"completion --help": strings.TrimSuffix(completionUsage, "\n"),
+		"keys list":           "Usage: bast keys list [--search text]",
+		"keys show":           "Usage: bast keys show <name>",
+		"keys generate":       "Usage: bast keys generate [name] [--algorithm ed25519|rsa] [--no-passphrase]",
+		"keys import":         "Usage: bast keys import [name] --private path|- [--public path|-] [--comment text]",
+		"keys promote":        "Usage: bast keys promote <key> [--name managed-name]",
+		"keys comment":        "Usage: bast keys comment <name> (--comment text|--clear-comment)",
+		"keys export":         "Usage: bast keys export <name> --directory path [--yes]",
+		"keys install":        "Usage: bast keys install <name> --host host",
+		"keys passphrase":     "Usage: bast keys passphrase <name>",
+		"keys public":         "Usage: bast keys public <name>",
+		"keys copy":           "Usage: bast keys copy <name>",
+		"keys delete":         "Usage: bast keys delete <name> [--yes]",
+		"connect --help":      "Usage: bast connect <host>",
+		"sync gcp":            "Usage: bast sync gcp",
+		"sync aws":            "Usage: bast sync aws",
+		"sync azure":          "Usage: bast sync azure",
+		"sync boat":           "Usage: bast sync boat",
+		"sync upstash":        "Usage: bast sync upstash",
+		"sync vercel":         "Usage: bast sync vercel",
+		"sync hetzner":        "Usage: bast sync hetzner",
+		"sync bitqate":        "Usage: bast sync bitqate",
+		"sync railway":        "Usage: bast sync railway",
+		"sync fly":            "Usage: bast sync fly",
+		"sync digitalocean":   "Usage: bast sync digitalocean",
+		"sync do":             "Usage: bast sync digitalocean",
+		"sync status":         "Usage: bast sync status",
+		"sync disable":        "Usage: bast sync disable <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean>",
+		"sync --help":         "Usage: bast sync <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean|status|disable>",
+		"boat --help":         "Usage: bast boat <new|fork|stop|resume|delete|snapshots|snapshot>",
+		"boat new":            "Usage: bast boat new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
+		"boat fork":           "Usage: bast boat fork <host|id> [--type small|default|large] [--no-env]",
+		"boat stop":           "Usage: bast boat stop <host|id>",
+		"boat resume":         "Usage: bast boat resume <host|id> [--type small|default|large] [--no-env]",
+		"boat delete":         "Usage: bast boat delete <host|id> [--yes]",
+		"boat snapshots":      "Usage: bast boat snapshots [host|id]",
+		"boat snapshot":       "Usage: bast boat snapshot delete <snapshot-id> [--yes]\n       bast boat snapshot rm <name>",
+		"upstash --help":      "Usage: bast upstash <new|fork|stop|resume|delete|key>",
+		"upstash new":         "Usage: bast upstash new [--name name] [--runtime node|python|golang|ruby|rust] [--size small|medium|large] [--keep-alive]",
+		"upstash fork":        "Usage: bast upstash fork <host|id>",
+		"upstash stop":        "Usage: bast upstash stop <host|id>",
+		"upstash resume":      "Usage: bast upstash resume <host|id>",
+		"upstash delete":      "Usage: bast upstash delete <host|id> [--yes]",
+		"upstash key":         "Usage: bast upstash key [--key-file path]",
+		"vercel --help":       "Usage: bast vercel <new|fork|stop|resume|delete|cleanup|token>",
+		"vercel new":          "Usage: bast vercel new [--name name] [--project id] [--vcpus 1|2|4] [--timeout 15m|1h|5h] [--ephemeral]",
+		"vercel fork":         "Usage: bast vercel fork <host|id> [--name name]",
+		"vercel stop":         "Usage: bast vercel stop <host|id>",
+		"vercel resume":       "Usage: bast vercel resume <host|id>",
+		"vercel delete":       "Usage: bast vercel delete <host|id> [--yes]",
+		"vercel cleanup":      "Usage: bast vercel cleanup [--yes]",
+		"vercel token":        "Usage: bast vercel token [--token-file path] [--team team_id] [--project id[,id...]]\n       bast vercel token --remove project_id",
+		"hetzner --help":      "Usage: bast hetzner <start|stop|restart|key>",
+		"hetzner start":       "Usage: bast hetzner start <host|id>",
+		"hetzner stop":        "Usage: bast hetzner stop <host|id> [--force]",
+		"hetzner restart":     "Usage: bast hetzner restart <host|id> [--force]",
+		"bitqate --help":      "Usage: bast bitqate <list|start|stop|restart|key>",
+		"bitqate list":        "Usage: bast bitqate list",
+		"bitqate start":       "Usage: bast bitqate start <host|id>",
+		"bitqate stop":        "Usage: bast bitqate stop <host|id>",
+		"bitqate restart":     "Usage: bast bitqate restart <host|id>",
+		"bitqate key":         "Usage: bast bitqate key [--token-file path] | bast bitqate key --clear",
+		"railway --help":      "Usage: bast railway <new|stop|resume|delete|key>",
+		"railway new":         "Usage: bast railway new --name name [--image image] [--start-command command] (--project id|name | --new-project name) [--environment id]",
+		"railway stop":        "Usage: bast railway stop <host|id>",
+		"railway resume":      "Usage: bast railway resume <host|id>",
+		"railway delete":      "Usage: bast railway delete <host|id> [--yes]",
+		"railway key":         "Usage: bast railway key [--key-file path]",
+		"fly --help":          "Usage: bast fly <new|fork|stop|resume|delete>",
+		"fly new":             "Usage: bast fly new --app app --image image [--org slug] [--region code] [--size size] [--name name]",
+		"fly fork":            "Usage: bast fly fork <host|id> [--region code]",
+		"fly stop":            "Usage: bast fly stop <host|id>",
+		"fly resume":          "Usage: bast fly resume <host|id>",
+		"fly delete":          "Usage: bast fly delete <host|id> [--yes]",
+		"digitalocean --help": "Usage: bast digitalocean <new|fork|stop|resume|delete>",
+		"digitalocean new":    "Usage: bast digitalocean new --name name [--region slug] [--size slug] [--image slug] [--context name]",
+		"digitalocean fork":   "Usage: bast digitalocean fork <host|id>",
+		"digitalocean stop":   "Usage: bast digitalocean stop <host|id>",
+		"digitalocean resume": "Usage: bast digitalocean resume <host|id>",
+		"digitalocean delete": "Usage: bast digitalocean delete <host|id> [--yes]",
+		"do --help":           "Usage: bast digitalocean <new|fork|stop|resume|delete>",
+		"hetzner key":         "Usage: bast hetzner key [--name project] [--key-file path]\n       bast hetzner key --remove project",
+		"vault --help":        "Usage: bast vault <login|status|push|pull|logout|passphrase>",
+		"vault login":         "Usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]",
+		"vault status":        "Usage: bast vault status",
+		"vault push":          "Usage: bast vault push",
+		"vault pull":          "Usage: bast vault pull [--mode merge|replace_local|replace_remote]",
+		"vault logout":        "Usage: bast vault logout",
+		"vault passphrase":    "Usage: bast vault passphrase [--force]",
+		"completion --help":   strings.TrimSuffix(completionUsage, "\n"),
 	}
 	if value := usage[resource+" "+command]; value != "" {
 		return value

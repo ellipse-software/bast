@@ -11,7 +11,10 @@ import (
 	"bast/internal/cloud"
 	bitqatecloud "bast/internal/cloud/bitqate"
 	boatcloud "bast/internal/cloud/boat"
+	docloud "bast/internal/cloud/digitalocean"
+	flycloud "bast/internal/cloud/fly"
 	hetznercloud "bast/internal/cloud/hetzner"
+	railwaycloud "bast/internal/cloud/railway"
 	cloudsync "bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
 	vercelcloud "bast/internal/cloud/vercel"
@@ -1003,6 +1006,15 @@ func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
 	if kind == cloud.Bitqate {
 		return bitqatecloud.HostLooksStopped(meta.Tags)
 	}
+	if kind == cloud.Railway {
+		return railwaycloud.HostLooksStopped(meta.Tags)
+	}
+	if kind == cloud.Fly {
+		return flycloud.HostLooksStopped(host.Resolved.HostName, meta.Tags)
+	}
+	if kind == cloud.DigitalOcean {
+		return docloud.HostLooksStopped(meta.Tags, "")
+	}
 	return false
 }
 func hostIdentity(h sshconfig.Host, passwordStored bool) string {
@@ -1057,6 +1069,24 @@ func hostStatusLine(h sshconfig.Host, meta metadata.Host) string {
 			parts = append(parts, "Upstash paused")
 		} else {
 			parts = append(parts, "Upstash synced")
+		}
+	case h.Synced && h.SyncSource == "railway":
+		if hostLooksStopped(h, meta) {
+			parts = append(parts, "Railway stopped")
+		} else {
+			parts = append(parts, "Railway synced")
+		}
+	case h.Synced && h.SyncSource == "fly":
+		if hostLooksStopped(h, meta) {
+			parts = append(parts, "Fly stopped")
+		} else {
+			parts = append(parts, "Fly synced")
+		}
+	case h.Synced && h.SyncSource == "digitalocean":
+		if hostLooksStopped(h, meta) {
+			parts = append(parts, "DigitalOcean stopped")
+		} else {
+			parts = append(parts, "DigitalOcean synced")
 		}
 	case h.Synced:
 		parts = append(parts, h.SyncSource+" synced")

@@ -13,6 +13,9 @@ import (
 
 	"bast/internal/cloud"
 	boatcloud "bast/internal/cloud/boat"
+	docloud "bast/internal/cloud/digitalocean"
+	flycloud "bast/internal/cloud/fly"
+	railwaycloud "bast/internal/cloud/railway"
 	"bast/internal/cloud/sync"
 	upstashcloud "bast/internal/cloud/upstash"
 	vercelcloud "bast/internal/cloud/vercel"
@@ -65,7 +68,7 @@ func (m *App) syncProviders() []syncMenuItem {
 	for _, d := range cloud.Descriptors() {
 		detail := m.providerDetail(string(d.Kind))
 		text := "disabled"
-		if d.Kind == cloud.Boat || d.Kind == cloud.Upstash || d.Kind == cloud.Vercel {
+		if d.Kind == cloud.Boat || d.Kind == cloud.Upstash || d.Kind == cloud.Vercel || d.Kind == cloud.Railway || d.Kind == cloud.Fly || d.Kind == cloud.DigitalOcean {
 			running, stopped := m.providerGroupStats(d.GroupRoot)
 			if !detail.enabled && running+stopped == 0 {
 				text = "disabled"
@@ -279,6 +282,76 @@ func (m *App) providerDetail(provider string) providerDetail {
 			filters = append([]providerRow{{"SSH port", integration.DefaultSSHPort}}, filters...)
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, statusRows, filters}
+	case "railway":
+		integration := m.metadata.Railway()
+		status := m.syncStatus.Railway
+		accountLabel, accountValue := "Account", "no API token"
+		if status.Error != "" {
+			accountLabel, accountValue = "API", status.Error
+		} else if status.Authenticated {
+			accountValue = status.Name
+			if accountValue == "" {
+				accountValue = status.Email
+			}
+			if accountValue == "" {
+				accountValue = "authenticated"
+			}
+		} else if status.HasToken || m.railwayHasToken() {
+			accountValue = "token stored"
+		} else if integration.Disabled {
+			accountValue = "disabled"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		if integration.Disabled {
+			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
+	case "fly":
+		integration := m.metadata.Fly()
+		status := m.syncStatus.Fly
+		accountLabel, accountValue := "Account", "not logged in"
+		if status.FlyCLIError != "" {
+			accountLabel, accountValue = "fly", status.FlyCLIError
+		} else if status.Authenticated {
+			accountValue = status.Login
+			if accountValue == "" {
+				accountValue = "authenticated"
+			}
+		} else if integration.Disabled {
+			accountValue = "disabled"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		if integration.Disabled {
+			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
+		}
+		orgs := "all"
+		if len(integration.OrgFilter) > 0 {
+			orgs = strings.Join(integration.OrgFilter, ", ")
+		}
+		apps := "all"
+		if len(integration.AppFilter) > 0 {
+			apps = strings.Join(integration.AppFilter, ", ")
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, statusRows, []providerRow{{"Org filter", orgs}, {"App filter", apps}}}
+	case "digitalocean":
+		integration := m.metadata.DigitalOcean()
+		status := m.syncStatus.DigitalOcean
+		contextValue := "none"
+		contextLabel := "Contexts"
+		if status.DOCTLError != "" {
+			contextLabel, contextValue = "doctl", status.DOCTLError
+		} else if len(status.Contexts) > 0 {
+			contextValue = strings.Join(status.Contexts, ", ")
+		}
+		contexts := "all"
+		if len(integration.ContextFilter) > 0 {
+			contexts = strings.Join(integration.ContextFilter, ", ")
+		}
+		regions := "all"
+		if len(integration.RegionFilter) > 0 {
+			regions = strings.Join(integration.RegionFilter, ", ")
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, []providerRow{{contextLabel, contextValue}}, []providerRow{{"Context filter", contexts}, {"Regions", regions}}}
 	default:
 		return providerDetail{}
 	}
@@ -325,6 +398,18 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 	}
 	if provider == "bitqate" {
 		life = append(life, syncMenuItem{label: "API token", action: "bitqate_key"})
+	}
+	if caps.Create && provider == "railway" && m.railwayHasToken() {
+		life = append(life, syncMenuItem{label: "New service", action: "railway_new"})
+	}
+	if provider == "railway" {
+		life = append(life, syncMenuItem{label: "API token", action: "railway_key"})
+	}
+	if caps.Create && provider == "fly" && (m.syncStatus.Fly.Authenticated || detail.enabled) {
+		life = append(life, syncMenuItem{label: "New machine", action: "fly_new"})
+	}
+	if caps.Create && provider == "digitalocean" {
+		life = append(life, syncMenuItem{label: "New droplet", action: "digitalocean_new"})
 	}
 	if detail.enabled {
 		config = append(config, syncMenuItem{label: "Disconnect", action: "disable"})
@@ -373,6 +458,18 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 			syncMenuItem{label: "Default SSH port", action: "port"},
 			syncMenuItem{label: "Context filter", action: "contexts"},
 			syncMenuItem{label: "Location filter", action: "locations"},
+		)
+	case "fly":
+		config = append(config,
+			syncMenuItem{label: "Default SSH user", action: "user"},
+			syncMenuItem{label: "Org filter", action: "orgs"},
+			syncMenuItem{label: "App filter", action: "apps"},
+		)
+	case "digitalocean":
+		config = append(config,
+			syncMenuItem{label: "Default SSH user", action: "user"},
+			syncMenuItem{label: "Context filter", action: "contexts"},
+			syncMenuItem{label: "Region filter", action: "do_regions"},
 		)
 	}
 	config = append(config, syncMenuItem{label: "Refresh status", action: "refresh"})
@@ -455,6 +552,49 @@ func (m *App) syncHetznerCmd() tea.Cmd {
 		defer cancel()
 		result, err := m.syncer.SyncHetzner(ctx)
 		return syncDoneMsg{provider: "hetzner", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) syncRailwayCmd() tea.Cmd {
+	opGen := m.providerOpGen("railway")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncRailway(ctx)
+		return syncDoneMsg{provider: "railway", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) autoConnectRailwayCmd() tea.Cmd {
+	opGen := m.providerOpGen("railway")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, ran, err := m.syncer.MaybeAutoConnectRailway(ctx)
+		if !ran {
+			return syncDoneMsg{provider: "railway", result: result, err: nil, skipped: true, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "railway", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) syncFlyCmd() tea.Cmd {
+	opGen := m.providerOpGen("fly")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncFly(ctx)
+		return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) syncDigitalOceanCmd() tea.Cmd {
+	opGen := m.providerOpGen("digitalocean")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncDigitalOcean(ctx)
+		return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
 	}
 }
 
@@ -618,6 +758,42 @@ func (m *App) disableHetznerCmd() tea.Cmd {
 			return syncDoneMsg{provider: "hetzner", err: err, opGen: opGen}
 		}
 		return syncDoneMsg{provider: "hetzner", result: sync.Result{Provider: "hetzner", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableRailwayCmd() tea.Cmd {
+	opGen := m.providerOpGen("railway")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableRailway(ctx); err != nil {
+			return syncDoneMsg{provider: "railway", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "railway", result: sync.Result{Provider: "railway", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableFlyCmd() tea.Cmd {
+	opGen := m.providerOpGen("fly")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableFly(ctx); err != nil {
+			return syncDoneMsg{provider: "fly", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "fly", result: sync.Result{Provider: "fly", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableDigitalOceanCmd() tea.Cmd {
+	opGen := m.providerOpGen("digitalocean")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableDigitalOcean(ctx); err != nil {
+			return syncDoneMsg{provider: "digitalocean", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "digitalocean", result: sync.Result{Provider: "digitalocean", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
@@ -1637,6 +1813,49 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Batch(m.syncHetznerCmd(), m.setNotice("Syncing Hetzner…"))
+		case "railway":
+			if action == "enable" && !m.railwayHasToken() {
+				delete(m.syncingProviders, "railway")
+				m.openRailwayKeyForm()
+				return m, nil
+			}
+			railway := m.metadata.Railway()
+			railway.Disabled = false
+			railway.Enabled = true
+			if action == "enable" {
+				railway.AutoSync = true
+			}
+			if err := m.metadata.SetRailway(railway); err != nil {
+				delete(m.syncingProviders, "railway")
+				m.setError(err)
+				return m, nil
+			}
+			return m, tea.Batch(m.syncRailwayCmd(), m.setNotice("Syncing Railway…"))
+		case "fly":
+			fly := m.metadata.Fly()
+			fly.Disabled = false
+			fly.Enabled = true
+			if action == "enable" {
+				fly.AutoSync = true
+			}
+			if err := m.metadata.SetFly(fly); err != nil {
+				delete(m.syncingProviders, "fly")
+				m.setError(err)
+				return m, nil
+			}
+			return m, tea.Batch(m.syncFlyCmd(), m.setNotice("Syncing Fly…"))
+		case "digitalocean":
+			ocean := m.metadata.DigitalOcean()
+			ocean.Enabled = true
+			if action == "enable" {
+				ocean.AutoSync = true
+			}
+			if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+				delete(m.syncingProviders, "digitalocean")
+				m.setError(err)
+				return m, nil
+			}
+			return m, tea.Batch(m.syncDigitalOceanCmd(), m.setNotice("Syncing DigitalOcean…"))
 		}
 		return m, tea.Batch(m.syncGCPCmd(), m.setNotice("Syncing GCP…"))
 	case "disable":
@@ -1661,6 +1880,15 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		}
 		if m.syncProvider == "hetzner" {
 			return m, m.disableHetznerCmd()
+		}
+		if m.syncProvider == "railway" {
+			return m, m.disableRailwayCmd()
+		}
+		if m.syncProvider == "fly" {
+			return m, m.disableFlyCmd()
+		}
+		if m.syncProvider == "digitalocean" {
+			return m, m.disableDigitalOceanCmd()
 		}
 		return m, m.disableGCPCmd()
 	case "boat_new":
@@ -1694,6 +1922,18 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "hetzner_key_remove":
 		m.openHetznerKeyRemoveForm()
+		return m, nil
+	case "railway_new":
+		m.openRailwayNewForm()
+		return m, nil
+	case "railway_key":
+		m.openRailwayKeyForm()
+		return m, nil
+	case "fly_new":
+		m.openFlyNewForm()
+		return m, nil
+	case "digitalocean_new":
+		m.openDigitalOceanNewForm()
 		return m, nil
 	case "auto_on":
 		if m.syncProvider == "aws" {
@@ -1757,6 +1997,35 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			hetzner := m.metadata.Hetzner()
 			hetzner.AutoSync = true
 			if err := m.metadata.SetHetzner(hetzner); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "railway" {
+			railway := m.metadata.Railway()
+			railway.AutoSync = true
+			railway.Disabled = false
+			if err := m.metadata.SetRailway(railway); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "fly" {
+			fly := m.metadata.Fly()
+			fly.AutoSync = true
+			fly.Disabled = false
+			if err := m.metadata.SetFly(fly); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "digitalocean" {
+			ocean := m.metadata.DigitalOcean()
+			ocean.AutoSync = true
+			if err := m.metadata.SetDigitalOcean(ocean); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -1833,6 +2102,33 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			}
 			return m, m.setNotice("Auto-sync disabled")
 		}
+		if m.syncProvider == "railway" {
+			railway := m.metadata.Railway()
+			railway.AutoSync = false
+			if err := m.metadata.SetRailway(railway); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
+		if m.syncProvider == "fly" {
+			fly := m.metadata.Fly()
+			fly.AutoSync = false
+			if err := m.metadata.SetFly(fly); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
+		if m.syncProvider == "digitalocean" {
+			ocean := m.metadata.DigitalOcean()
+			ocean.AutoSync = false
+			if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
 		gcp := m.metadata.GCP()
 		gcp.AutoSync = false
 		if err := m.metadata.SetGCP(gcp); err != nil {
@@ -1871,6 +2167,21 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			})
 			break
 		}
+		if m.syncProvider == "fly" {
+			m.openForm("Default Fly SSH user", "sync_fly_user", []field{
+				{label: "SSH user", description: "Blank uses root", value: m.metadata.Fly().DefaultSSHUser, optional: true, placeholder: "root"},
+			})
+			break
+		}
+		if m.syncProvider == "digitalocean" {
+			m.openForm("Default DigitalOcean SSH user", "sync_digitalocean_user", []field{
+				{label: "SSH user", description: "Blank uses root for most images", value: m.metadata.DigitalOcean().DefaultSSHUser, optional: true, placeholder: "root"},
+			})
+			break
+		}
+		if m.syncProvider == "railway" {
+			return m, m.setNotice("Railway SSH user is the service instance id")
+		}
 		m.openForm("Default GCP SSH user", "sync_gcp_user", []field{
 			{label: "SSH user", description: "Blank uses OS Login or instance metadata when available", value: m.metadata.GCP().DefaultSSHUser, optional: true, placeholder: "ubuntu"},
 		})
@@ -1904,8 +2215,26 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		}
 		return m, m.setNotice("SSH will use the public IP when one exists")
 	case "contexts":
+		if m.syncProvider == "digitalocean" {
+			m.openForm("DigitalOcean context filter", "sync_digitalocean_contexts", []field{
+				{label: "Contexts", description: "Comma-separated doctl auth contexts; blank = all", value: strings.Join(m.metadata.DigitalOcean().ContextFilter, ", "), optional: true, placeholder: "default, work"},
+			})
+			return m, nil
+		}
 		m.openForm("Hetzner context filter", "sync_hetzner_contexts", []field{
 			{label: "Contexts", description: "Comma-separated context names; blank = all tokens", value: strings.Join(m.metadata.Hetzner().ContextFilter, ", "), optional: true, placeholder: "prod, staging"},
+		})
+	case "orgs":
+		m.openForm("Fly org filter", "sync_fly_orgs", []field{
+			{label: "Orgs", description: "Comma-separated org slugs; blank = all", value: strings.Join(m.metadata.Fly().OrgFilter, ", "), optional: true, placeholder: "personal"},
+		})
+	case "apps":
+		m.openForm("Fly app filter", "sync_fly_apps", []field{
+			{label: "Apps", description: "Comma-separated app names; blank = all", value: strings.Join(m.metadata.Fly().AppFilter, ", "), optional: true, placeholder: "my-app"},
+		})
+	case "do_regions":
+		m.openForm("DigitalOcean region filter", "sync_digitalocean_regions", []field{
+			{label: "Regions", description: "Comma-separated region slugs; blank = all", value: strings.Join(m.metadata.DigitalOcean().RegionFilter, ", "), optional: true, placeholder: "nyc3, sfo3"},
 		})
 	case "locations":
 		m.openForm("Hetzner location filter", "sync_hetzner_locations", []field{
@@ -2742,6 +3071,389 @@ func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
 			result, err := m.syncer.RestartHetzner(ctx, syncID, force)
 			return syncDoneMsg{provider: "hetzner", result: result, err: err, opGen: opGen}
 		}
+	case "railway_key":
+		key := strings.TrimSpace(values["API token"])
+		if key == "" {
+			if m.form != nil {
+				m.form.validationError = "API token is required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["railway"] {
+			return m.setNotice("Railway operation already in progress")
+		}
+		opGen := m.beginProviderOp("railway")
+		m.beginSyncBusy("Connecting Railway…")
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.SaveRailwayToken(ctx, key)
+			return syncDoneMsg{provider: "railway", result: result, err: err, opGen: opGen}
+		}
+	case "railway_new":
+		name := strings.TrimSpace(values["Name"])
+		if name == "" {
+			if m.form != nil {
+				m.form.validationError = "name is required"
+			}
+			return nil
+		}
+		opts := railwaycloud.CreateOpts{
+			Name:         name,
+			Image:        strings.TrimSpace(values["Image"]),
+			StartCommand: strings.TrimSpace(values["Start command"]),
+		}
+		if truthyForm(values["New project"]) {
+			opts.NewProject = strings.TrimSpace(values["New project name"])
+			if opts.NewProject == "" {
+				opts.NewProject = name
+			}
+		} else {
+			opts.ProjectID = strings.TrimSpace(values["Project"])
+			if opts.ProjectID == "" {
+				if m.form != nil {
+					m.form.validationError = "project is required"
+				}
+				return nil
+			}
+		}
+		m.form = nil
+		if m.syncingProviders["railway"] {
+			return m.setNotice("Railway operation already in progress")
+		}
+		opGen := m.beginProviderOp("railway")
+		if m.section == syncSection {
+			m.beginSyncBusy("Creating Railway service…")
+		} else {
+			m.syncActivity = "creating…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			if opts.NewProject == "" {
+				resolved, err := m.syncer.Railway.ResolveProject(ctx, opts.ProjectID)
+				if err != nil {
+					return syncDoneMsg{provider: "railway", err: err, opGen: opGen}
+				}
+				opts.ProjectID = resolved.ID
+			}
+			result, alias, err := m.syncer.NewRailway(ctx, opts)
+			if err != nil {
+				return syncDoneMsg{provider: "railway", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "railway", result: result, err: nil, focusAlias: alias, opGen: opGen}
+		}
+	case "railway_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["railway"] {
+			return m.setNotice("Railway operation already in progress")
+		}
+		opGen := m.beginProviderOp("railway")
+		m.syncActivity = "stopping…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopRailway(ctx, syncID)
+			return syncDoneMsg{provider: "railway", result: result, err: err, opGen: opGen}
+		}
+	case "railway_delete":
+		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
+			if m.form != nil {
+				m.form.validationError = "type delete to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["railway"] {
+			return m.setNotice("Railway operation already in progress")
+		}
+		opGen := m.beginProviderOp("railway")
+		m.syncActivity = "deleting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteRailway(ctx, syncID)
+			return syncDoneMsg{provider: "railway", result: result, err: err, opGen: opGen}
+		}
+	case "fly_new":
+		app := strings.TrimSpace(values["App"])
+		image := strings.TrimSpace(values["Image"])
+		region := strings.TrimSpace(values["Region"])
+		if app == "" || image == "" {
+			if m.form != nil {
+				m.form.validationError = "app and image are required"
+			}
+			return nil
+		}
+		if region == "" {
+			if m.form != nil {
+				m.form.validationError = "region is required"
+			}
+			return nil
+		}
+		m.form = nil
+		if m.syncingProviders["fly"] {
+			return m.setNotice("Fly operation already in progress")
+		}
+		opGen := m.beginProviderOp("fly")
+		if m.section == syncSection {
+			m.beginSyncBusy("Creating Fly Machine…")
+		} else {
+			m.syncActivity = "creating…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.NewFly(ctx, flycloud.CreateOpts{
+				App: app, Image: image, Org: strings.TrimSpace(values["Org"]),
+				Region: region, Size: strings.TrimSpace(values["Size"]),
+				Name: strings.TrimSpace(values["Name"]),
+			})
+			if err != nil {
+				return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "fly", result: result, err: nil, focusAlias: alias, opGen: opGen}
+		}
+	case "fly_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["fly"] {
+			return m.setNotice("Fly operation already in progress")
+		}
+		opGen := m.beginProviderOp("fly")
+		m.syncActivity = "stopping…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopFly(ctx, syncID)
+			return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+		}
+	case "fly_fork":
+		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
+			if m.form != nil {
+				m.form.validationError = "type fork to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		region := strings.TrimSpace(values["Region"])
+		m.form = nil
+		if m.syncingProviders["fly"] {
+			return m.setNotice("Fly operation already in progress")
+		}
+		opGen := m.beginProviderOp("fly")
+		if m.section == syncSection {
+			m.beginSyncBusy("Cloning Fly Machine…")
+		} else {
+			m.syncActivity = "cloning…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.ForkFly(ctx, syncID, flycloud.ForkOpts{Region: region})
+			if err != nil {
+				return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "fly", result: result, focusAlias: alias, opGen: opGen}
+		}
+	case "fly_delete":
+		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
+			if m.form != nil {
+				m.form.validationError = "type delete to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["fly"] {
+			return m.setNotice("Fly operation already in progress")
+		}
+		opGen := m.beginProviderOp("fly")
+		m.syncActivity = "destroying…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteFly(ctx, syncID)
+			return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+		}
+	case "sync_fly_user":
+		fly := m.metadata.Fly()
+		fly.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
+		if err := m.metadata.SetFly(fly); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default Fly SSH user updated")
+	case "sync_fly_orgs":
+		fly := m.metadata.Fly()
+		fly.OrgFilter = splitCSV(values["Orgs"])
+		if err := m.metadata.SetFly(fly); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Fly org filter updated")
+	case "sync_fly_apps":
+		fly := m.metadata.Fly()
+		fly.AppFilter = splitCSV(values["Apps"])
+		if err := m.metadata.SetFly(fly); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Fly app filter updated")
+	case "digitalocean_new":
+		name := strings.TrimSpace(values["Name"])
+		if name == "" {
+			if m.form != nil {
+				m.form.validationError = "name is required"
+			}
+			return nil
+		}
+		defaults := docloud.DefaultNewOpts()
+		region := strings.TrimSpace(values["Region"])
+		if region == "" {
+			region = defaults.Region
+		}
+		size := strings.TrimSpace(values["Size"])
+		if size == "" {
+			size = defaults.Size
+		}
+		image := strings.TrimSpace(values["Image"])
+		if image == "" {
+			image = defaults.Image
+		}
+		m.form = nil
+		if m.syncingProviders["digitalocean"] {
+			return m.setNotice("DigitalOcean operation already in progress")
+		}
+		opGen := m.beginProviderOp("digitalocean")
+		if m.section == syncSection {
+			m.beginSyncBusy("Creating Droplet…")
+		} else {
+			m.syncActivity = "creating…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.NewDigitalOcean(ctx, docloud.NewOpts{
+				Name: name, Region: region, Size: size, Image: image, Context: strings.TrimSpace(values["Context"]),
+			})
+			if err != nil {
+				return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "digitalocean", result: result, err: nil, focusAlias: alias, opGen: opGen}
+		}
+	case "digitalocean_stop":
+		if strings.TrimSpace(values["Type stop to confirm"]) != "stop" {
+			if m.form != nil {
+				m.form.validationError = "type stop to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["digitalocean"] {
+			return m.setNotice("DigitalOcean operation already in progress")
+		}
+		opGen := m.beginProviderOp("digitalocean")
+		m.syncActivity = "shutting down…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+			defer cancel()
+			result, err := m.syncer.StopDigitalOcean(ctx, syncID)
+			return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
+		}
+	case "digitalocean_fork":
+		if strings.TrimSpace(values["Type fork to confirm"]) != "fork" {
+			if m.form != nil {
+				m.form.validationError = "type fork to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["digitalocean"] {
+			return m.setNotice("DigitalOcean operation already in progress")
+		}
+		opGen := m.beginProviderOp("digitalocean")
+		if m.section == syncSection {
+			m.beginSyncBusy("Forking Droplet…")
+		} else {
+			m.syncActivity = "forking…"
+		}
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			result, alias, err := m.syncer.ForkDigitalOcean(ctx, syncID)
+			if err != nil {
+				return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
+			}
+			return syncDoneMsg{provider: "digitalocean", result: result, focusAlias: alias, opGen: opGen}
+		}
+	case "digitalocean_delete":
+		if strings.TrimSpace(values["Type delete to confirm"]) != "delete" {
+			if m.form != nil {
+				m.form.validationError = "type delete to confirm"
+			}
+			return nil
+		}
+		syncID := strings.TrimSpace(values["SyncID"])
+		m.form = nil
+		if m.syncingProviders["digitalocean"] {
+			return m.setNotice("DigitalOcean operation already in progress")
+		}
+		opGen := m.beginProviderOp("digitalocean")
+		m.syncActivity = "deleting…"
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := m.syncer.DeleteDigitalOcean(ctx, syncID)
+			return syncDoneMsg{provider: "digitalocean", result: result, err: err, opGen: opGen}
+		}
+	case "sync_digitalocean_user":
+		ocean := m.metadata.DigitalOcean()
+		ocean.DefaultSSHUser = strings.TrimSpace(values["SSH user"])
+		if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("Default DigitalOcean SSH user updated")
+	case "sync_digitalocean_contexts":
+		ocean := m.metadata.DigitalOcean()
+		ocean.ContextFilter = splitCSV(values["Contexts"])
+		if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("DigitalOcean context filter updated")
+	case "sync_digitalocean_regions":
+		ocean := m.metadata.DigitalOcean()
+		ocean.RegionFilter = splitCSV(values["Regions"])
+		if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+			m.setError(err)
+			return nil
+		}
+		m.form = nil
+		return m.setNotice("DigitalOcean region filter updated")
 	}
 	return nil
 }
