@@ -1625,6 +1625,7 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			if action == "enable" && !m.bitqateHasToken() {
 				delete(m.syncingProviders, "bitqate")
 				m.openBitqateKeyForm()
+				return m, nil
 			}
 			return m, tea.Batch(m.syncBitqateCmd(), m.setNotice("Syncing BitQate…"))
 		case "hetzner":
@@ -1746,7 +1747,9 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			bitqate.AutoSync = true
 			if err := m.metadata.SetBitqate(bitqate); err != nil {
 				m.setError(err)
+				return m, nil
 			}
+			return m, m.setNotice("Auto-sync enabled")
 		}
 		if m.syncProvider == "hetzner" {
 			hetzner := m.metadata.Hetzner()
@@ -1815,7 +1818,9 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			bitqate.AutoSync = false
 			if err := m.metadata.SetBitqate(bitqate); err != nil {
 				m.setError(err)
+				return m, nil
 			}
+			return m, m.setNotice("Auto-sync disabled")
 		}
 		if m.syncProvider == "hetzner" {
 			hetzner := m.metadata.Hetzner()
@@ -1856,6 +1861,7 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			m.openForm("Default BitQate SSH user", "sync_bitqate_user", []field{
 				{label: "SSH user", description: "Blank uses root - BitQate provisions root", value: m.metadata.Bitqate().DefaultSSHUser, optional: true, placeholder: "root"},
 			})
+			break
 		}
 		if m.syncProvider == "hetzner" {
 			m.openForm("Default Hetzner SSH user", "sync_hetzner_user", []field{
@@ -1900,12 +1906,6 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			{label: "Contexts", description: "Comma-separated context names; blank = all tokens", value: strings.Join(m.metadata.Hetzner().ContextFilter, ", "), optional: true, placeholder: "prod, staging"},
 		})
 	case "locations":
-		if m.syncProvider == "bitqate" {
-			m.openForm("BitQate region filter", "sync_bitqate_regions", []field{
-				{label: "Regions", description: "Comma-separated region names; blank = all", value: strings.Join(m.metadata.Bitqate().RegionFilter, ", "), optional: true, placeholder: "Falkenstein, Helsinki"},
-			})
-			return m, nil
-		}
 		m.openForm("Hetzner location filter", "sync_hetzner_locations", []field{
 			{label: "Locations", description: "Comma-separated locations; blank = all", value: strings.Join(m.metadata.Hetzner().LocationFilter, ", "), optional: true, placeholder: "fsn1, nbg1, hel1"},
 		})
@@ -1918,6 +1918,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			{label: "Profiles", description: "Comma-separated AWS CLI profiles; blank = all configured", value: strings.Join(m.metadata.AWS().ProfileFilter, ", "), optional: true, placeholder: "default, production"},
 		})
 	case "regions":
+		if m.syncProvider == "bitqate" {
+			m.openForm("BitQate region filter", "sync_bitqate_regions", []field{
+				{label: "Regions", description: "Comma-separated region names; blank = all", value: strings.Join(m.metadata.Bitqate().RegionFilter, ", "), optional: true, placeholder: "Falkenstein, Helsinki"},
+			})
+			return m, nil
+		}
 		m.openForm("AWS region filter", "sync_aws_regions", []field{
 			{label: "Regions", description: "Comma-separated AWS regions; blank = all enabled", value: strings.Join(m.metadata.AWS().RegionFilter, ", "), optional: true, placeholder: "eu-west-1, us-east-1"},
 		})

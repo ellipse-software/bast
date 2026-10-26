@@ -54,8 +54,12 @@ func (c *Client) EnsureAccess(ctx context.Context, syncID string, cfg EnsureConf
 			return EnsureResult{}, err
 		}
 	}
-	host := strings.TrimSpace(vm.IPv4)
+	rawHost := strings.TrimSpace(vm.IPv4)
+	host := normalizeIPv4(rawHost)
 	if host == "" {
+		if rawHost != "" {
+			return EnsureResult{}, fmt.Errorf("VM %s has an invalid IPv4 address", vmName(vm))
+		}
 		return EnsureResult{}, fmt.Errorf("VM %s has no IPv4 address", vmName(vm))
 	}
 	user := strings.TrimSpace(cfg.DefaultSSHUser)

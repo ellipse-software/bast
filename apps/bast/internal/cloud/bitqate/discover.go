@@ -3,7 +3,9 @@ package bitqate
 import (
 	"context"
 	"fmt"
+	"net"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -36,6 +38,9 @@ type Discovery struct {
 	Instances []Instance
 	Warnings  []string
 	Complete  bool
+	// Seen holds every region-eligible VM, including ones skipped for a missing
+	// address. Sync uses it to tell a deleted VM from one that is still provisioning.
+	Seen map[string]bool
 }
 
 func (c *Client) Discover(ctx context.Context, cfg DiscoverConfig) (Discovery, error) {
@@ -51,11 +56,14 @@ func (c *Client) Discover(ctx context.Context, cfg DiscoverConfig) (Discovery, e
 		}
 		return Discovery{}, err
 	}
-	out := Discovery{Complete: true}
+	out := Discovery{Complete: true, Seen: map[string]bool{}}
 	for _, vm := range vms {
 		inst, skip, warn := instanceFromVM(vm, cfg)
 		if warn != "" {
 			out.Warnings = append(out.Warnings, warn)
+		}
+		if inst.SyncID != "" {
+			out.Seen[inst.SyncID] = true
 		}
 		if skip {
 			continue
@@ -97,9 +105,15 @@ func instanceFromVM(vm apiVM, cfg DiscoverConfig) (Instance, bool, string) {
 	if name == "" {
 		name = id
 	}
-	host := strings.TrimSpace(vm.IPv4)
+	syncID := FormatSyncID(id)
+	rawHost := strings.TrimSpace(vm.IPv4)
+	host := normalizeIPv4(rawHost)
 	if host == "" {
-		return Instance{}, true, fmt.Sprintf("skipped %s: no IPv4 address", name)
+		reason := "no IPv4 address"
+		if rawHost != "" {
+			reason = "invalid IPv4 address"
+		}
+		return Instance{SyncID: syncID}, true, fmt.Sprintf("skipped %s: %s", name, reason)
 	}
 	user := strings.TrimSpace(cfg.DefaultSSHUser)
 	if user == "" {
@@ -124,7 +138,7 @@ func instanceFromVM(vm apiVM, cfg DiscoverConfig) (Instance, bool, string) {
 	}
 	sort.Strings(tags[1:])
 	return Instance{
-		SyncID:             FormatSyncID(id),
+		SyncID:             syncID,
 		Name:               name,
 		Region:             region,
 		HostName:           host,
@@ -139,16 +153,28 @@ func instanceFromVM(vm apiVM, cfg DiscoverConfig) (Instance, bool, string) {
 	}, false, ""
 }
 
+func normalizeIPv4(raw string) string {
+	parsed := net.ParseIP(strings.TrimSpace(raw))
+	if parsed == nil {
+		return ""
+	}
+	v4 := parsed.To4()
+	if v4 == nil {
+		return ""
+	}
+	return v4.String()
+}
+
 func configuredSSHPort(fallback string) string {
 	port := strings.TrimSpace(fallback)
-	if port == "" || port == "22" {
+	if port == "" {
 		return ""
 	}
-	var n int
-	if _, err := fmt.Sscanf(port, "%d", &n); err != nil || n <= 0 || n > 65535 {
+	n, err := strconv.Atoi(port)
+	if err != nil || n <= 0 || n > 65535 || n == 22 {
 		return ""
 	}
-	return port
+	return strconv.Itoa(n)
 }
 
 func normalizeState(status string) string {

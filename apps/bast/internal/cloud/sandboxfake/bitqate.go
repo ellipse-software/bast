@@ -51,6 +51,12 @@ func (a *Bitqate) Put(vm BitqateVM) {
 	a.vms[vm.ID] = &cloned
 }
 
+func (a *Bitqate) Delete(id string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.vms, id)
+}
+
 func (a *Bitqate) Get(id string) *BitqateVM {
 	a.mu.Lock()
 	defer a.mu.Unlock()

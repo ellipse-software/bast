@@ -71,6 +71,9 @@ Vercel commands:
 Hetzner commands:
   start, stop, restart, key
 
+BitQate commands:
+  list, start, stop, restart, key
+
 Vault commands:
   login, status, push, pull, logout, passphrase
 

@@ -61,6 +61,44 @@ func TestDiscoverSkipsEmptyIPv4(t *testing.T) {
 	if len(discovery.Instances) != 0 || len(discovery.Warnings) == 0 {
 		t.Fatalf("instances=%d warnings=%v", len(discovery.Instances), discovery.Warnings)
 	}
+	if !discovery.Seen["bitqate/vm-1"] {
+		t.Fatalf("unaddressed VM must stay seen: %+v", discovery.Seen)
+	}
+}
+
+func TestDiscoverRejectsInvalidIPv4(t *testing.T) {
+	api := sandboxfake.NewBitqate(t)
+	api.Put(sandboxfake.BitqateVM{ID: "vm-1", Name: "bad", Status: "running", IPv4: "203.0.113.10\nHost evil"})
+	discovery, err := testClient(t, api).Discover(context.Background(), DiscoverConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(discovery.Instances) != 0 || !discovery.Seen["bitqate/vm-1"] {
+		t.Fatalf("instances=%d seen=%v warnings=%v", len(discovery.Instances), discovery.Seen, discovery.Warnings)
+	}
+	if len(discovery.Warnings) == 0 || !strings.Contains(discovery.Warnings[0], "invalid IPv4") {
+		t.Fatalf("warnings=%v", discovery.Warnings)
+	}
+}
+
+func TestConfiguredSSHPort(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", ""},
+		{"22", ""},
+		{" 22 ", ""},
+		{"2222", "2222"},
+		{"02222", "2222"},
+		{"22abc", ""},
+		{"0", ""},
+		{"65536", ""},
+		{"-1", ""},
+		{"443", "443"},
+	}
+	for _, tc := range cases {
+		if got := configuredSSHPort(tc.in); got != tc.want {
+			t.Fatalf("configuredSSHPort(%q)=%q want %q", tc.in, got, tc.want)
+		}
+	}
 }
 
 func TestDiscoverNullOSRegion(t *testing.T) {
@@ -138,6 +176,9 @@ func TestDiscoverRegionFilter(t *testing.T) {
 	}
 	if len(discovery.Instances) != 1 || discovery.Instances[0].Region != "Helsinki" {
 		t.Fatalf("filter: %+v", discovery.Instances)
+	}
+	if !discovery.Seen["bitqate/vm-2"] || discovery.Seen["bitqate/vm-1"] {
+		t.Fatalf("seen=%v", discovery.Seen)
 	}
 }
 

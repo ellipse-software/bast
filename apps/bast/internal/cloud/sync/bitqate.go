@@ -91,6 +91,12 @@ func (e *Engine) syncBitqateLocked(ctx context.Context) (Result, error) {
 		if activeSyncIDs[syncID] {
 			continue
 		}
+		// Seen is nil only when discovery did not report which VMs still exist.
+		// Treat that as incomplete and keep the host rather than deleting it.
+		if discovery.Complete && discovery.Seen != nil && !discovery.Seen[syncID] {
+			metadataDeletes = append(metadataDeletes, host.Alias)
+			continue
+		}
 		meta := e.Store.Host(host.Alias)
 		region := bitqatecloud.RegionFromGroup(meta.Group)
 		if region != "" && bitqateRegionExcluded(region, integration.RegionFilter) {
@@ -255,6 +261,9 @@ func (e *Engine) SaveBitqateKey(ctx context.Context, key string) (Result, error)
 func (e *Engine) DeleteBitqateToken(ctx context.Context) (Result, error) {
 	if err := e.Bitqate.DeleteToken(); err != nil {
 		return Result{}, err
+	}
+	if !e.Bitqate.HasToken() {
+		return Result{Provider: bitqatecloud.ProviderName, SyncedAt: time.Now().UTC()}, nil
 	}
 	return e.SyncBitqate(ctx)
 }

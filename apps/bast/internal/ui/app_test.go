@@ -4648,3 +4648,53 @@ func TestProviderGroupHiddenWhenNoActiveHosts(t *testing.T) {
 		t.Fatalf(". should reveal stopped hosts, boat=%v vercel=%v", sawBoat, sawVercel)
 	}
 }
+
+func TestBitqateSyncActionsStayOnBitqate(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetGCP(metadata.GCPIntegration{AutoSync: false, DefaultSSHUser: "gcp-user"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetAWS(metadata.AWSIntegration{RegionFilter: []string{"us-east-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.syncProvider = "bitqate"
+
+	if _, cmd := m.runSyncAction("enable"); cmd != nil || m.form == nil || m.form.action != "bitqate_key" {
+		t.Fatalf("enable without a token started a sync, form=%#v cmd=%v", m.form, cmd)
+	}
+	if m.syncingProviders["bitqate"] {
+		t.Fatal("token form left BitQate marked syncing")
+	}
+
+	m.form = nil
+	m.runSyncAction("auto_on")
+	if !m.metadata.Bitqate().AutoSync {
+		t.Fatal("auto-sync was not enabled")
+	}
+	if m.metadata.GCP().AutoSync {
+		t.Fatal("BitQate auto-sync enabled GCP auto-sync")
+	}
+
+	m.runSyncAction("auto_off")
+	if m.metadata.Bitqate().AutoSync {
+		t.Fatal("auto-sync stayed enabled")
+	}
+	if m.metadata.GCP().AutoSync {
+		t.Fatal("BitQate auto-sync disabled GCP auto-sync")
+	}
+
+	m.runSyncAction("user")
+	if m.form == nil || m.form.action != "sync_bitqate_user" {
+		t.Fatalf("SSH user form = %#v", m.form)
+	}
+	m.runSyncAction("regions")
+	if m.form == nil || m.form.action != "sync_bitqate_regions" {
+		t.Fatalf("region form = %#v", m.form)
+	}
+	if got := m.metadata.AWS().RegionFilter; len(got) != 1 || got[0] != "us-east-1" {
+		t.Fatalf("AWS region filter changed: %v", got)
+	}
+	if m.metadata.GCP().DefaultSSHUser != "gcp-user" {
+		t.Fatalf("GCP SSH user changed: %q", m.metadata.GCP().DefaultSSHUser)
+	}
+}

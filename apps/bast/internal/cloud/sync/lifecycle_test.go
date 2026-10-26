@@ -289,6 +289,7 @@ func TestBitqateEngineLifecycle(t *testing.T) {
 	ctx := context.Background()
 
 	caps := cloud.CapabilitiesFor(cloud.Bitqate)
+	exercised := cloud.Capabilities{}
 	if caps.Create || caps.Fork || caps.Delete {
 		t.Fatalf("bitqate should not advertise create/fork/delete: %+v", caps)
 	}
@@ -314,6 +315,7 @@ func TestBitqateEngineLifecycle(t *testing.T) {
 	if _, err = engine.StopBitqate(ctx, syncID); err != nil {
 		t.Fatal(err)
 	}
+	exercised.Stop = true
 	if api.Get("vm-1").Status != "stopped" {
 		t.Fatal("vm not stopped")
 	}
@@ -323,14 +325,95 @@ func TestBitqateEngineLifecycle(t *testing.T) {
 	if _, err = engine.StartBitqate(ctx, syncID); err != nil {
 		t.Fatal(err)
 	}
+	exercised.Start = true
 	if api.Get("vm-1").Status != "running" || bitqatecloud.HostLooksStopped(store.Host(alias).Tags) {
 		t.Fatal("vm not running")
 	}
 	if _, err = engine.RestartBitqate(ctx, syncID); err != nil {
 		t.Fatal(err)
 	}
+	exercised.Restart = true
 	if api.Get("vm-1").Status != "running" {
 		t.Fatal("vm not running after restart")
+	}
+	if exercised != caps {
+		t.Fatalf("exercised %+v, advertised %+v", exercised, caps)
+	}
+}
+
+func TestBitqateSyncRemovesDeletedVMs(t *testing.T) {
+	engine, p, store := testEngine(t)
+	api := sandboxfake.NewBitqate(t)
+	api.Put(sandboxfake.BitqateVM{ID: "vm-1", Name: "web", Status: "running", IPv4: "203.0.113.10", Region: "Falkenstein"})
+	api.Put(sandboxfake.BitqateVM{ID: "vm-2", Name: "db", Status: "running", IPv4: "203.0.113.20", Region: "Helsinki"})
+	if err := bitqatecloud.WriteTokenFile(p.BitqateToken, sandboxfake.BitqateToken); err != nil {
+		t.Fatal(err)
+	}
+	engine.Bitqate.BaseURL = api.URL()
+	engine.Bitqate.HTTP = api.Server.Client()
+	engine.Bitqate.PollWait = time.Millisecond
+	engine.Bitqate.Getenv = func(string) string { return "" }
+	ctx := context.Background()
+	if _, err := engine.SyncBitqate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	kept := hostBySyncID(loadProviderConfig(t, p.SyncBitqateConfig), bitqatecloud.FormatSyncID("vm-1"))
+	gone := hostBySyncID(loadProviderConfig(t, p.SyncBitqateConfig), bitqatecloud.FormatSyncID("vm-2"))
+	if kept.Alias == "" || gone.Alias == "" {
+		t.Fatal("expected both VMs in the first sync")
+	}
+	api.Delete("vm-2")
+	api.Put(sandboxfake.BitqateVM{ID: "vm-1", Name: "web", Status: "running", Region: "Falkenstein"})
+	result, err := engine.SyncBitqate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Count != 1 {
+		t.Fatalf("count = %d", result.Count)
+	}
+	blocks := loadProviderConfig(t, p.SyncBitqateConfig)
+	if hostBySyncID(blocks, bitqatecloud.FormatSyncID("vm-2")).Alias != "" {
+		t.Fatal("deleted VM stayed in SSH config")
+	}
+	if _, ok := store.Hosts()[gone.Alias]; ok {
+		t.Fatal("deleted VM stayed in metadata")
+	}
+	retained := hostBySyncID(blocks, bitqatecloud.FormatSyncID("vm-1"))
+	if retained.Alias == "" || retained.HostName != "203.0.113.10" {
+		t.Fatalf("VM with no current address was dropped: %+v", retained)
+	}
+}
+
+func TestDeleteBitqateTokenWithoutRemainingCredential(t *testing.T) {
+	engine, p, store := testEngine(t)
+	api := sandboxfake.NewBitqate(t)
+	api.Put(sandboxfake.BitqateVM{ID: "vm-1", Name: "web", Status: "running", IPv4: "203.0.113.10"})
+	if err := bitqatecloud.WriteTokenFile(p.BitqateToken, sandboxfake.BitqateToken); err != nil {
+		t.Fatal(err)
+	}
+	engine.Bitqate.BaseURL = api.URL()
+	engine.Bitqate.HTTP = api.Server.Client()
+	engine.Bitqate.PollWait = time.Millisecond
+	engine.Bitqate.Getenv = func(string) string { return "" }
+	ctx := context.Background()
+	if _, err := engine.SyncBitqate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	result, err := engine.DeleteBitqateToken(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Provider != bitqatecloud.ProviderName || result.Count != 0 {
+		t.Fatalf("result = %+v", result)
+	}
+	if _, err := os.Stat(p.BitqateToken); !os.IsNotExist(err) {
+		t.Fatalf("token file err = %v", err)
+	}
+	if strings.Contains(store.Bitqate().LastSyncError, "no API token") {
+		t.Fatalf("clearing the token recorded a sync error: %q", store.Bitqate().LastSyncError)
+	}
+	if hostBySyncID(loadProviderConfig(t, p.SyncBitqateConfig), bitqatecloud.FormatSyncID("vm-1")).Alias == "" {
+		t.Fatal("clearing the token removed synced hosts")
 	}
 }
 
@@ -546,9 +629,10 @@ func TestAdvertisedLifecycleOpsMatchEngineCoverage(t *testing.T) {
 		cloud.Vercel:  {"Create": "NewVercel", "Stop": "StopVercel", "Start": "ResumeVercel", "Fork": "ForkVercel", "Delete": "DeleteVercel"},
 		cloud.Upstash: {"Create": "NewUpstash", "Stop": "StopUpstash", "Start": "ResumeUpstash", "Fork": "ForkUpstash", "Delete": "DeleteUpstash"},
 		cloud.Hetzner: {"Start": "StartHetzner", "Stop": "StopHetzner", "Restart": "RestartHetzner"},
+		cloud.Bitqate: {"Start": "StartBitqate", "Stop": "StopBitqate", "Restart": "RestartBitqate"},
 		cloud.Boat:    {"Create": "NewBoat", "Stop": "StopBoat", "Start": "ResumeBoat", "Fork": "ForkBoat", "Delete": "DeleteBoat"},
 	}
-	for _, kind := range []cloud.Kind{cloud.Boat, cloud.Upstash, cloud.Vercel, cloud.Hetzner} {
+	for _, kind := range []cloud.Kind{cloud.Boat, cloud.Upstash, cloud.Vercel, cloud.Hetzner, cloud.Bitqate} {
 		caps := cloud.CapabilitiesFor(kind)
 		want, ok := methods[kind]
 		if !ok {
