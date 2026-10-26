@@ -1,9 +1,27 @@
 "use client";
 
+import localFont from "next/font/local";
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+
+const nerdSymbols = localFont({
+  src: "../fonts/bast-nerd-symbols.woff2",
+  display: "swap",
+  preload: false,
+  adjustFontFallback: false,
+});
 
 type Section = "hosts" | "keys" | "vault" | "sync" | "files";
 type SyncProvider = "" | "gcp" | "aws" | "azure" | "boat" | "upstash" | "vercel" | "hetzner";
+
+const providerNerdIcon: Record<Exclude<SyncProvider, "">, string> = {
+  gcp: "\ue7f1",
+  aws: "\ue7ad",
+  azure: "\ue754",
+  boat: "\u{f0ec8}",
+  upstash: "\uf1b2",
+  vercel: "\u25b2",
+  hetzner: "\uf233",
+};
 
 type DetailRow = { label: string; value: string };
 
@@ -1504,11 +1522,11 @@ function HostList({
               >
                 {indicator}{" "}
                 {row.googleCloud ? (
-                  <GoogleCloudLabel />
+                  <ProviderTitle provider="gcp" />
                 ) : row.label === "Amazon EC2" ? (
-                  <span className="font-bold text-[#FF9900]">Amazon EC2</span>
+                  <ProviderTitle provider="aws" />
                 ) : row.label === "Microsoft Azure" ? (
-                  <span className="font-bold text-[#0078D4]">Microsoft Azure</span>
+                  <ProviderTitle provider="azure" />
                 ) : (
                   row.label
                 )}{" "}
@@ -1989,27 +2007,63 @@ function MenuRow({
   );
 }
 
+function ProviderGlyph({
+  provider,
+}: {
+  provider: Exclude<SyncProvider, "">;
+}) {
+  return (
+    <span
+      className={`${nerdSymbols.className} mr-1 inline-block w-[1ch] shrink-0`}
+      aria-hidden
+    >
+      {providerNerdIcon[provider]}
+    </span>
+  );
+}
+
 function ProviderTitle({
   provider,
 }: {
   provider: Exclude<SyncProvider, "">;
 }) {
-  switch (provider) {
-    case "gcp":
-      return <GoogleCloudLabel />;
-    case "aws":
-      return <span className="font-bold text-[#FF9900]">Amazon EC2</span>;
-    case "azure":
-      return <span className="font-bold text-[#0078D4]">Microsoft Azure</span>;
-    case "boat":
-      return <span className="font-bold text-foreground">Boat</span>;
-    case "upstash":
-      return <span className="font-bold text-[#00E9A3]">Upstash</span>;
-    case "vercel":
-      return <span className="font-bold text-[#FFFFFF]">Vercel</span>;
-    case "hetzner":
-      return <span className="font-bold text-[#D50C2D]">Hetzner Cloud</span>;
+  const glyph = <ProviderGlyph provider={provider} />;
+  if (provider === "gcp") {
+    return (
+      <span className="inline-flex items-baseline font-bold">
+        <span className="text-[#4285F4]">{glyph}</span>
+        <GoogleCloudLabel />
+      </span>
+    );
   }
+  const color =
+    provider === "aws"
+      ? "text-[#FF9900]"
+      : provider === "azure"
+        ? "text-[#0078D4]"
+        : provider === "upstash"
+          ? "text-[#00E9A3]"
+          : provider === "hetzner"
+            ? "text-[#D50C2D]"
+            : "text-foreground";
+  const label =
+    provider === "aws"
+      ? "Amazon EC2"
+      : provider === "azure"
+        ? "Microsoft Azure"
+        : provider === "boat"
+          ? "Boat"
+          : provider === "upstash"
+            ? "Upstash"
+            : provider === "vercel"
+              ? "Vercel"
+              : "Hetzner Cloud";
+  return (
+    <span className={`inline-flex items-baseline font-bold ${color}`}>
+      {glyph}
+      {label}
+    </span>
+  );
 }
 
 function IdentityLine({ line }: { line: string }) {

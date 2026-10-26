@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseSponsorAmountUsd, parseSponsorInterval, usdToCents } from "@/lib/sponsors";
+import {
+  parseSponsorAmountUsd,
+  parseSponsorInterval,
+  partitionSponsorLayout,
+  resolveSponsors,
+  sponsors,
+  usdToCents,
+} from "@/lib/sponsors";
 
 describe("parseSponsorAmountUsd", () => {
   test("accepts dollar amounts in range", () => {
@@ -40,5 +47,98 @@ describe("usdToCents", () => {
   test("rounds to nearest cent", () => {
     expect(usdToCents(1)).toBe(100);
     expect(usdToCents(19.99)).toBe(1999);
+  });
+});
+
+describe("resolveSponsors", () => {
+  test("keeps named site sponsors and sorts by amount", () => {
+    const listed = resolveSponsors([
+      {
+        href: "https://x.com/leodev",
+        amount: 20,
+      },
+      {
+        href: "https://rdke.dev",
+        name: "Tom Benjamin Radtke",
+        avatar: "http://galileo.ted.ac/dQbmFFHNaO.jpg",
+        message: "Finally a clean alternative for people with hundreds of hosts.",
+        amount: 250,
+      },
+    ]);
+
+    expect(listed).toEqual([
+      {
+        href: "https://rdke.dev",
+        name: "Tom Benjamin Radtke",
+        username: null,
+        avatar: "https://galileo.ted.ac/dQbmFFHNaO.jpg",
+        message: "Finally a clean alternative for people with hundreds of hosts.",
+        amount: 250,
+        anonymous: undefined,
+      },
+      {
+        href: "https://x.com/leodev",
+        name: "leodev",
+        username: "leodev",
+        avatar: undefined,
+        message: undefined,
+        amount: 20,
+        anonymous: undefined,
+      },
+    ]);
+  });
+
+  test("drops entries that are neither an X profile nor a named sponsor", () => {
+    expect(
+      resolveSponsors([{ href: "https://example.com", amount: 10 }]),
+    ).toEqual([]);
+  });
+
+  test("lists Tom Benjamin Radtke first on the landing page", () => {
+    const listed = resolveSponsors(sponsors);
+    expect(listed[0]).toMatchObject({
+      href: "https://rdke.dev",
+      name: "Tom Benjamin Radtke",
+      amount: 250,
+    });
+  });
+});
+
+describe("partitionSponsorLayout", () => {
+  test("promotes one leftover as featured", () => {
+    expect(partitionSponsorLayout([1, 2, 3, 4])).toEqual({
+      featured: [1],
+      rest: [2, 3, 4],
+    });
+    expect(partitionSponsorLayout([1])).toEqual({
+      featured: [1],
+      rest: [],
+    });
+  });
+
+  test("promotes two leftovers as a featured pair", () => {
+    expect(partitionSponsorLayout([1, 2, 3, 4, 5])).toEqual({
+      featured: [1, 2],
+      rest: [3, 4, 5],
+    });
+    expect(partitionSponsorLayout([1, 2])).toEqual({
+      featured: [1, 2],
+      rest: [],
+    });
+  });
+
+  test("keeps complete rows in the grid", () => {
+    expect(partitionSponsorLayout([1, 2, 3])).toEqual({
+      featured: [],
+      rest: [1, 2, 3],
+    });
+    expect(partitionSponsorLayout([1, 2, 3, 4, 5, 6])).toEqual({
+      featured: [],
+      rest: [1, 2, 3, 4, 5, 6],
+    });
+    expect(partitionSponsorLayout([])).toEqual({
+      featured: [],
+      rest: [],
+    });
   });
 });
