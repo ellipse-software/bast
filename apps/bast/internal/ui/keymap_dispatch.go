@@ -163,6 +163,11 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case ActionOpenRDP:
+		if m.section == hostsSection {
+			return m.openSelectedRDP()
+		}
+		return m, nil
 	case ActionHideHost:
 		return m.actionHideHost()
 	case ActionHostsEnter:
@@ -337,6 +342,9 @@ func (m *App) actionMoveX(delta int) (tea.Model, tea.Cmd) {
 	}
 	if m.section == filesSection && delta > 0 {
 		return m.activateFilesSelection()
+	}
+	if m.section == hostsSection {
+		return m, m.moveHostGroup(delta)
 	}
 	return m, nil
 }

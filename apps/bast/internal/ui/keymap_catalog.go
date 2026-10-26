@@ -77,6 +77,9 @@ func buildCatalog() []Binding {
 		bind(ActionDelete, []string{"d"}, ScopeHosts, "Delete host", ""),
 		bind(ActionPromote, []string{"p"}, ScopeHosts, "Promote external host", ""),
 		bind(ActionToggleGroup, []string{"space"}, ScopeHosts, "Collapse or expand group", "").chord("␣"),
+		bind(ActionMoveLeft, []string{"left"}, ScopeHosts, "Collapse group or focus parent", "").noHelp(),
+		bind(ActionMoveRight, []string{"right"}, ScopeHosts, "Expand group", "").noHelp(),
+		bind(ActionNone, nil, ScopeHosts, "Expand, collapse, or move to the parent group", "").chord("←  →").helpOnly(),
 		bind(ActionCollapseAll, []string{"["}, ScopeHosts, "Collapse all groups", ""),
 		bind(ActionExpandAll, []string{"]"}, ScopeHosts, "Expand all groups", ""),
 		bind(ActionSortOrSync, []string{"s"}, ScopeHosts, "Cycle sort, or sync provider group", "sync"),
@@ -88,6 +91,7 @@ func buildCatalog() []Binding {
 		bind(ActionStopSandbox, []string{"o"}, ScopeHosts, "Stop or pause sandbox, or stop a Hetzner server or BitQate VM", "stop"),
 		bind(ActionRestartHost, []string{"R"}, ScopeHosts, "Restart a Hetzner Cloud server or BitQate VM", "restart"),
 		bind(ActionKnownHosts, []string{"K"}, ScopeHosts, "Remove known-host entry", ""),
+		bind(ActionOpenRDP, []string{"ctrl+o"}, ScopeHosts, "Open Remote Desktop", ""),
 
 		// Hosts footer variants.
 		bind(ActionToggleHidden, []string{"."}, ScopeHosts, "Show hidden", "show hidden").withFooter(10).when(hostsFooterEmptyHidden).noHelp(),
@@ -132,6 +136,7 @@ func buildCatalog() []Binding {
 		bind(ActionHostsEnter, []string{"enter"}, ScopeHosts, "Connect", "").withFooter(10).when(hostsFooterLocalDesktop).noHelp(),
 		bind(ActionEdit, []string{"e"}, ScopeHosts, "Edit", "edit").withFooter(20).when(hostsFooterLocalDesktop).noHelp(),
 		bind(ActionOpenFiles, []string{"F"}, ScopeHosts, "Files", "files").withFooter(30).when(hostsFooterLocalDesktop).noHelp(),
+		bind(ActionOpenRDP, []string{"ctrl+o"}, ScopeHosts, "RDP", "rdp").withFooter(15).when(hostsFooterRDP).noHelp(),
 
 		// Keys.
 		bind(ActionGenerateKey, []string{"g"}, ScopeKeys, "Generate key", "generate"),
@@ -360,6 +365,11 @@ func hostsFooterLocalMobile(m *App) bool {
 func hostsFooterLocalDesktop(m *App) bool {
 	host, ok := m.selectedHost()
 	return ok && !host.Synced && !m.isMobileLayout()
+}
+
+func hostsFooterRDP(m *App) bool {
+	host, ok := m.selectedHost()
+	return ok && m.hostMetadata()[host.Alias].RDP
 }
 
 func keysFooterEmpty(m *App) bool {

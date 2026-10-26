@@ -37,6 +37,7 @@ const (
 	descHostEnvironment    = "Optional - Environment name like production or staging"
 	descHostColor          = "Optional - Hex colour for the host label"
 	descHostNotes          = "Optional - Short note in details and search"
+	descHostRDP            = "Optional - Show a Remote Desktop action for this host"
 	descKeyName            = "Required - Short name for this keypair"
 	descKeyAlgorithm       = "Required - Key algorithm: ed25519 or rsa"
 	descKeyPrivate         = "Required - Private key path or pasted PEM"
@@ -361,7 +362,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			input.ExtraOptions = append([]string{"IdentitiesOnly yes"}, input.ExtraOptions...)
 		}
 		oldAlias := values["Original label"]
-		meta := metadata.Host{Label: label, Group: group, Tags: splitCSV(values["Tags"]), Environment: values["Environment"], Color: values["Color"], Notes: values["Notes"]}
+		meta := metadata.Host{Label: label, Group: group, Tags: splitCSV(values["Tags"]), Environment: values["Environment"], Color: values["Color"], Notes: values["Notes"], RDP: values[rdpFieldLabel] == rdpOnValue}
 		if meta.Label == input.Alias {
 			meta.Label = ""
 		}
@@ -428,6 +429,7 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		}
 		groupCreated := group != "" && !m.groupExists(group)
 		old.Label, old.Group, old.Tags, old.Environment, old.Color, old.Notes = label, group, splitCSV(values["Tags"]), values["Environment"], values["Color"], values["Notes"]
+		old.RDP = values[rdpFieldLabel] == rdpOnValue
 		if old.Label == alias {
 			old.Label = ""
 		}
@@ -716,7 +718,7 @@ func (m *App) openEditHostForm() {
 	if !host.Managed {
 		m.openHostForm("Edit metadata: "+m.hostLabel(host), "metadata_edit", hostFormFields(m, metadataHostValues{
 			label: labelPath, tags: strings.Join(meta.Tags, ", "),
-			environment: meta.Environment, color: meta.Color, notes: meta.Notes,
+			environment: meta.Environment, color: meta.Color, notes: meta.Notes, rdp: meta.RDP,
 			labelDesc: "Optional - Display name; use / for groups; SSH alias stays " + host.Alias,
 		}, hostConnectionValues{}, []field{{label: "Alias", value: host.Alias, hidden: true}}))
 		return
@@ -731,7 +733,7 @@ func (m *App) openEditHostForm() {
 	passwordStored := hostpass.Exists(m.paths.PasswordsDir, host.ManagedID)
 	m.openHostForm("Edit host: "+m.hostLabel(host), "host_edit", hostFormFields(m, metadataHostValues{
 		label: labelPath, tags: strings.Join(meta.Tags, ", "),
-		environment: meta.Environment, color: meta.Color, notes: meta.Notes,
+		environment: meta.Environment, color: meta.Color, notes: meta.Notes, rdp: meta.RDP,
 	}, hostConnectionValues{
 		includeConnection: true,
 		hostname:          host.Resolved.HostName,

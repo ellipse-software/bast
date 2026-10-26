@@ -141,6 +141,12 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.section == hostsSection {
+		if x, y, width, ok := m.rdpButtonBounds(layout); ok {
+			inDetail := layout.mobile || mouse.X > listWidth
+			if inDetail && mouse.Y == y && mouse.X >= x && mouse.X < x+width {
+				return m.openSelectedRDP()
+			}
+		}
 		action := ""
 		if host, ok := m.selectedHost(); ok {
 			action = m.hostPrimaryAction(host)

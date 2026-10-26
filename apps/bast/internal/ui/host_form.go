@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"runtime"
 	"strings"
 	"time"
 
@@ -20,6 +21,8 @@ const (
 	formSectionMetadata     = "metadata"
 	hostFormSaveButtonLabel = " Save "
 	hostSaveHintInterval    = 2 * time.Second
+	rdpFieldLabel           = "Open RDP"
+	rdpOnValue              = "on"
 )
 
 type hostHubItem struct {
@@ -145,6 +148,9 @@ func (m *App) hostFormSummary(section string) string {
 		}
 		if tags := fieldDisplay(f, "Tags"); tags != "" && tags != "-" {
 			parts = append(parts, tags)
+		}
+		if rdp := fieldDisplay(f, rdpFieldLabel); rdp == "On" {
+			parts = append(parts, "RDP")
 		}
 		if len(parts) == 0 {
 			return "-"
@@ -399,12 +405,7 @@ func (m *App) updateHostForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	f := m.form
 
-	if msg.Code == tea.KeyEnter && msg.Mod&tea.ModCtrl != 0 {
-		m.commitFormField()
-		return m.submitForm()
-	}
-
-	if key == "ctrl+j" {
+	if isHostFormSaveKey(msg) {
 		m.commitFormField()
 		return m.submitForm()
 	}
@@ -753,11 +754,32 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 	return b.String()
 }
 
-func hostFormHint(f *form, textInputActive, showEnterKey bool) string {
-	save := "Ctrl+J save"
-	if showEnterKey {
-		save = "Ctrl+↵ save"
+func isHostFormSaveKey(msg tea.KeyPressMsg) bool {
+	if msg.Code == tea.KeyEnter && msg.Mod&tea.ModCtrl != 0 {
+		return true
 	}
+	// Keystroke keeps the modifier when Text is also set. Ctrl+J stays as an
+	// unadvertised alias for terminals that swallow Ctrl+S.
+	switch msg.Keystroke() {
+	case "ctrl+s", "ctrl+j", "super+s", "meta+s", "cmd+s":
+		return true
+	default:
+		return false
+	}
+}
+
+func hostFormSaveHint(showEnterKey bool) string {
+	if showEnterKey {
+		return "Ctrl+↵ save"
+	}
+	if runtime.GOOS == "darwin" {
+		return "Cmd+S save"
+	}
+	return "Ctrl+S save"
+}
+
+func hostFormHint(f *form, textInputActive, showEnterKey bool) string {
+	save := hostFormSaveHint(showEnterKey)
 	if f.screen == formScreenAdvancedHub {
 		return "Enter open section • ↑/↓ or j/k move • ⌫/Esc back • " + save + " • q quit"
 	}
@@ -816,12 +838,32 @@ func hostFormFields(m *App, meta metadataHostValues, conn hostConnectionValues, 
 		field{label: "Environment", section: formSectionMetadata, description: descHostEnvironment, value: meta.environment, placeholder: "production", optional: true},
 		field{label: "Color", section: formSectionMetadata, description: descHostColor, value: meta.color, placeholder: "#7C3AED", optional: true},
 		field{label: "Notes", section: formSectionMetadata, description: descHostNotes, value: meta.notes, optional: true},
+		rdpFormField(meta.rdp),
 	)
 	return fields
 }
 
+func rdpFormField(enabled bool) field {
+	item := field{
+		label:       rdpFieldLabel,
+		section:     formSectionMetadata,
+		description: descHostRDP,
+		optional:    true,
+		options: []fieldOption{
+			{label: "Off", value: ""},
+			{label: "On", value: rdpOnValue},
+		},
+	}
+	if enabled {
+		item.selected = 1
+		item.value = rdpOnValue
+	}
+	return item
+}
+
 type metadataHostValues struct {
 	label, tags, environment, color, notes, labelDesc string
+	rdp                                               bool
 }
 
 type hostConnectionValues struct {

@@ -60,6 +60,7 @@ const (
 	ActionNewOrFork
 	ActionFavorite
 	ActionOpenFiles
+	ActionOpenRDP
 	ActionHideHost
 	ActionHostsEnter
 	ActionSortOrSync
@@ -291,6 +292,10 @@ func formatKey(key string, nerd bool) string {
 		return "Ctrl+H"
 	case "ctrl+j":
 		return "Ctrl+J"
+	case "ctrl+o":
+		return "Ctrl+O"
+	case "ctrl+s":
+		return "Ctrl+S"
 	default:
 		return key
 	}

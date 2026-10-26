@@ -665,6 +665,93 @@ func (m *App) groupExists(group string) bool {
 	return false
 }
 
+func (m *App) moveHostGroup(delta int) tea.Cmd {
+	rows := m.hostListRows()
+	if m.cursor < 0 || m.cursor >= len(rows) {
+		return nil
+	}
+	row := rows[m.cursor]
+	if row.historyHeader || row.suggestion != nil {
+		return nil
+	}
+	if delta > 0 {
+		if !row.header || row.group == "" || !m.collapsedGroups[row.group] {
+			return nil
+		}
+		return m.setGroupCollapsed(row.group, false)
+	}
+	if row.header {
+		if row.group == "" {
+			return nil
+		}
+		if m.collapsedGroups[row.group] {
+			return m.focusParentGroup(row.group)
+		}
+		return m.setGroupCollapsed(row.group, true)
+	}
+	if row.group == "" {
+		return nil
+	}
+	m.focusGroupHeader(row.group)
+	return nil
+}
+
+func (m *App) focusParentGroup(group string) tea.Cmd {
+	parent, ok := parentGroupPath(group)
+	if !ok {
+		return nil
+	}
+	m.focusGroupHeader(parent)
+	return nil
+}
+
+func parentGroupPath(group string) (string, bool) {
+	slash := strings.LastIndex(group, "/")
+	if slash <= 0 {
+		return "", false
+	}
+	return group[:slash], true
+}
+
+func (m *App) focusGroupHeader(group string) bool {
+	rows := m.hostListRows()
+	for i, row := range rows {
+		if row.header && !row.historyHeader && row.group == group {
+			m.cursor = i
+			return true
+		}
+	}
+	return false
+}
+
+func (m *App) setGroupCollapsed(group string, collapsed bool) tea.Cmd {
+	if m.collapsedGroups == nil {
+		m.collapsedGroups = map[string]bool{}
+	}
+	if m.collapsedGroups[group] == collapsed {
+		return nil
+	}
+	if collapsed && m.searchText() != "" {
+		return m.setNotice("Clear the search filter to collapse groups")
+	}
+	if collapsed {
+		m.collapsedGroups[group] = true
+	} else {
+		delete(m.collapsedGroups, group)
+	}
+	m.collapseRevision++
+	for i, row := range m.hostRows() {
+		if row.header && row.group == group {
+			m.cursor = i
+			break
+		}
+	}
+	if err := m.persistCollapsedGroups(); err != nil {
+		m.setError(err)
+	}
+	return nil
+}
+
 func (m *App) toggleSelectedGroup() tea.Cmd {
 	if m.searchText() != "" {
 		return m.setNotice("Clear the search filter to collapse groups")

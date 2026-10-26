@@ -26,6 +26,7 @@ import (
 	"bast/internal/metadata"
 	"bast/internal/openssh"
 	"bast/internal/paths"
+	"bast/internal/rdp"
 	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
 	"bast/internal/vault"
@@ -82,6 +83,18 @@ func ctrlEnter() tea.KeyPressMsg {
 
 func ctrlJ() tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Code: 'j', Mod: tea.ModCtrl})
+}
+
+func ctrlS() tea.KeyPressMsg {
+	return tea.KeyPressMsg(tea.Key{Code: 's', Mod: tea.ModCtrl})
+}
+
+func superS() tea.KeyPressMsg {
+	return tea.KeyPressMsg(tea.Key{Code: 's', Mod: tea.ModSuper})
+}
+
+func ctrlO() tea.KeyPressMsg {
+	return tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl})
 }
 
 func ctrlC() tea.KeyPressMsg {
@@ -617,6 +630,126 @@ func TestHostGroupsSupportFiveNestedLevels(t *testing.T) {
 	}
 }
 
+func TestHostGroupArrowsFollowTheTree(t *testing.T) {
+	m := testApp(t)
+	m.hosts = append(m.hosts, sshconfig.Host{Alias: "gamma"}, sshconfig.Host{Alias: "delta"}, sshconfig.Host{Alias: "loose"})
+	groups := map[string]string{
+		"alpha": "test/abc",
+		"beta":  "test/def",
+		"gamma": "test",
+		"delta": "one/two/three/four/five",
+	}
+	for alias, group := range groups {
+		if err := m.metadata.SetHost(alias, metadata.Host{Group: group}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.sortHosts()
+
+	index := func(match func(hostRow) bool) int {
+		t.Helper()
+		for i, row := range m.hostListRows() {
+			if match(row) {
+				return i
+			}
+		}
+		t.Fatal("row not found")
+		return -1
+	}
+	left := tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft})
+	right := tea.KeyPressMsg(tea.Key{Code: tea.KeyRight})
+	up := tea.KeyPressMsg(tea.Key{Code: tea.KeyUp})
+	down := tea.KeyPressMsg(tea.Key{Code: tea.KeyDown})
+
+	alpha := index(func(row hostRow) bool { return row.host.Alias == "alpha" })
+	m.cursor = alpha
+	m.Update(up)
+	if m.cursor != alpha-1 {
+		t.Fatalf("up moved to %d, want %d", m.cursor, alpha-1)
+	}
+	m.Update(down)
+	if m.cursor != alpha {
+		t.Fatalf("down moved to %d, want %d", m.cursor, alpha)
+	}
+
+	m.Update(left)
+	if m.cursor != index(func(row hostRow) bool { return row.header && row.group == "test/abc" }) {
+		t.Fatalf("left on a host did not focus test/abc: cursor=%d rows=%+v", m.cursor, m.hostRows())
+	}
+	m.Update(left)
+	if !m.collapsedGroups["test/abc"] || m.hostRows()[m.cursor].group != "test/abc" || !m.hostRows()[m.cursor].header {
+		t.Fatalf("left on an expanded group did not collapse it: collapsed=%v cursor=%d", m.collapsedGroups, m.cursor)
+	}
+	m.Update(right)
+	if m.collapsedGroups["test/abc"] {
+		t.Fatal("right did not expand the collapsed subgroup")
+	}
+	expanded := m.cursor
+	m.Update(right)
+	if m.cursor != expanded || m.collapsedGroups["test/abc"] {
+		t.Fatal("right on an expanded group changed the selection")
+	}
+	m.Update(left)
+	m.Update(left)
+	if m.cursor != index(func(row hostRow) bool { return row.header && row.group == "test" }) {
+		t.Fatalf("left on a collapsed group did not focus its parent: cursor=%d", m.cursor)
+	}
+
+	m.cursor = index(func(row hostRow) bool { return row.header && row.group == "test" })
+	m.Update(press("h"))
+	if m.collapsedGroups["test"] {
+		t.Fatal("h collapsed a group")
+	}
+	m.Update(left)
+	if !m.collapsedGroups["test"] {
+		t.Fatal("left did not collapse the expanded parent")
+	}
+	stayed := m.cursor
+	m.Update(left)
+	if m.cursor != stayed || !m.collapsedGroups["test"] {
+		t.Fatalf("left on a top-level collapsed group moved: cursor=%d collapsed=%v", m.cursor, m.collapsedGroups)
+	}
+	m.Update(right)
+	if m.collapsedGroups["test"] {
+		t.Fatal("right did not expand the parent")
+	}
+
+	m.cursor = index(func(row hostRow) bool { return row.host.Alias == "delta" })
+	m.Update(left)
+	flat := index(func(row hostRow) bool { return row.header && row.group == "one/two/three/four/five" })
+	if m.cursor != flat {
+		t.Fatalf("left on a host in a flattened chain did not focus the visible header: cursor=%d", m.cursor)
+	}
+	m.Update(left)
+	if !m.collapsedGroups["one/two/three/four/five"] {
+		t.Fatal("left did not collapse the flattened header")
+	}
+	m.Update(left)
+	if m.cursor != flat || !m.collapsedGroups["one/two/three/four/five"] {
+		t.Fatalf("left looked for a parent row that flattening removed: cursor=%d collapsed=%v", m.cursor, m.collapsedGroups)
+	}
+
+	m.cursor = index(func(row hostRow) bool { return row.host.Alias == "loose" })
+	loose := m.cursor
+	m.Update(left)
+	m.Update(right)
+	if m.cursor != loose || m.collapsedGroups["loose"] {
+		t.Fatalf("arrows changed an ungrouped host: cursor=%d collapsed=%v", m.cursor, m.collapsedGroups)
+	}
+
+	m.search = "a"
+	m.cursor = index(func(row hostRow) bool { return row.header && row.group == "test" })
+	m.Update(left)
+	if m.collapsedGroups["test"] || !strings.Contains(m.status, "Clear the search filter") {
+		t.Fatalf("search left collapsed or stayed quiet: collapsed=%v status=%q", m.collapsedGroups, m.status)
+	}
+	m.cursor = index(func(row hostRow) bool { return row.host.Alias == "alpha" })
+	m.Update(left)
+	if m.cursor != index(func(row hostRow) bool { return row.header && row.group == "test/abc" }) {
+		t.Fatal("left during search did not move from a host to its parent")
+	}
+}
+
 func TestSyncedProviderRootStaysSeparateFromCompactedChildren(t *testing.T) {
 	m := testApp(t)
 	m.hosts = []sshconfig.Host{
@@ -1029,6 +1162,48 @@ func TestHostEditorSaveIsVisiblePortableAndClickable(t *testing.T) {
 		}
 	})
 
+	t.Run("Ctrl+S", func(t *testing.T) {
+		m := testApp(t)
+		if err := m.metadata.SetHost("alpha", metadata.Host{Favorite: true, ConnectionCount: 4, Notes: "keep"}); err != nil {
+			t.Fatal(err)
+		}
+		m.openEditHostForm()
+		enterHostFormSection(t, m, formSectionMetadata)
+		focused := false
+		for i := range m.form.fields {
+			if m.form.fields[i].label == rdpFieldLabel {
+				m.form.index = i
+				m.form.fields[i].selected = 1
+				focused = true
+				break
+			}
+		}
+		if !focused {
+			t.Fatal("metadata section has no Open RDP field")
+		}
+		m.updateForm(ctrlS())
+		if m.form != nil {
+			t.Fatal("Ctrl+S did not save from a host form section")
+		}
+		got := m.metadata.Host("alpha")
+		if !got.RDP || !got.Favorite || got.ConnectionCount != 4 || got.Notes != "keep" {
+			t.Fatalf("metadata = %+v", got)
+		}
+	})
+
+	t.Run("Cmd+S", func(t *testing.T) {
+		m := testApp(t)
+		m.openEditHostForm()
+		m.form.input.SetValue("Saved with command")
+		m.updateForm(superS())
+		if m.form != nil {
+			t.Fatal("Cmd+S did not save the host form")
+		}
+		if got := m.metadata.Host("alpha").Label; got != "Saved with command" {
+			t.Fatalf("saved label = %q", got)
+		}
+	})
+
 	t.Run("click", func(t *testing.T) {
 		m := testApp(t)
 		m.openEditHostForm()
@@ -1092,7 +1267,7 @@ func TestHostEditorSaveHintAlternatesWithoutStaleTicks(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("opening the host editor did not schedule the save hint")
 	}
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+J save") || strings.Contains(footer, "Ctrl+↵ save") {
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, hostFormSaveHint(false)) || strings.Contains(footer, "Ctrl+↵ save") || strings.Contains(footer, "Ctrl+J") {
 		t.Fatalf("initial save hint = %q", footer)
 	}
 
@@ -1101,7 +1276,7 @@ func TestHostEditorSaveHintAlternatesWithoutStaleTicks(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("active host editor did not schedule the next save hint")
 	}
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+↵ save") || strings.Contains(footer, "Ctrl+J save") {
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+↵ save") || strings.Contains(footer, hostFormSaveHint(false)) {
 		t.Fatalf("alternate save hint = %q", footer)
 	}
 
@@ -1153,7 +1328,7 @@ func TestExternalHostEditOnlyOffersMetadataAndIsFullyRevealed(t *testing.T) {
 		t.Fatalf("metadata section was not opened:\n%s", rendered)
 	}
 	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "Ctrl+J save") || strings.Contains(footer, "connect") {
+	if !strings.Contains(footer, hostFormSaveHint(false)) || strings.Contains(footer, "Ctrl+J") || strings.Contains(footer, "connect") {
 		t.Fatalf("metadata editor footer is incorrect: %q", footer)
 	}
 }
@@ -1161,12 +1336,12 @@ func TestExternalHostEditOnlyOffersMetadataAndIsFullyRevealed(t *testing.T) {
 func TestFooterShowsControlsForTheActiveFormState(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Enter next") || !strings.Contains(footer, "Ctrl+J save") || !strings.Contains(footer, "Esc cancel") || strings.Contains(footer, "connect") {
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Enter next") || !strings.Contains(footer, hostFormSaveHint(false)) || strings.Contains(footer, "Ctrl+J") || !strings.Contains(footer, "Esc cancel") || strings.Contains(footer, "connect") {
 		t.Fatalf("create footer = %q", footer)
 	}
 
 	m.openEditHostForm()
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+J save") || !strings.Contains(footer, "Tab move") || strings.Contains(footer, "connect") {
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, hostFormSaveHint(false)) || strings.Contains(footer, "Ctrl+J") || !strings.Contains(footer, "Tab move") || strings.Contains(footer, "connect") {
 		t.Fatalf("edit footer = %q", footer)
 	}
 	enterHostFormSection(t, m, formSectionMetadata)
@@ -2420,6 +2595,116 @@ func TestDesktopConnectButtonIsClickable(t *testing.T) {
 	_, cmd := m.Update(tea.MouseClickMsg(tea.Mouse{X: btnX, Y: btnY, Button: tea.MouseLeft}))
 	if cmd == nil {
 		t.Fatal("desktop connect button click did not trigger connect")
+	}
+}
+
+func TestOpenRDPUsesTheHostAddress(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 100, 30
+	m.hosts[0].Resolved = sshconfig.Resolved{HostName: "rdp.example", User: "alice", Port: "2222"}
+	m.hosts[0].Synced = true
+	var got rdp.Session
+	calls := 0
+	prev := launchRDP
+	launchRDP = func(session rdp.Session) error {
+		if _, _, err := rdp.Command("linux", session); err != nil {
+			return err
+		}
+		calls++
+		got = session
+		return nil
+	}
+	t.Cleanup(func() { launchRDP = prev })
+
+	selectHostAlias(t, m, "alpha")
+	m.Update(ctrlO())
+	if calls != 1 || got.Address != "rdp.example" || got.User != "" || got.Domain != "" {
+		t.Fatalf("session = %+v calls=%d", got, calls)
+	}
+	if m.statusError || !strings.Contains(m.status, "rdp.example") {
+		t.Fatalf("status = %q error=%v", m.status, m.statusError)
+	}
+	if strings.Contains(m.renderFooter(m.styles()), "Ctrl+O") {
+		t.Fatal("RDP footer is visible before the host enables it")
+	}
+
+	m.hosts[0].Resolved.HostName = ""
+	m.Update(ctrlO())
+	if got.Address != "alpha" {
+		t.Fatalf("alias fallback = %q", got.Address)
+	}
+
+	m.hosts[0].Resolved.HostName = "bad;rm -rf /"
+	m.Update(ctrlO())
+	if !m.statusError || strings.Contains(m.status, "rm") || strings.Contains(m.status, "executable file not found") {
+		t.Fatalf("invalid address status = %q", m.status)
+	}
+
+	if err := m.metadata.SetHost("alpha", metadata.Host{RDP: true}); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshHostMetadata()
+	m.hosts[0].Resolved.HostName = "rdp.example"
+	m.status, m.statusError = "", false
+	body := m.renderHosts(m.styles())
+	if !strings.Contains(body, rdpAction) || !strings.Contains(body, connectAction) {
+		t.Fatalf("detail is missing the RDP chip:\n%s", body)
+	}
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+O") || !strings.Contains(footer, "rdp") {
+		t.Fatalf("footer = %q", footer)
+	}
+	help := m.helpGroups()
+	foundHelp := false
+	for _, group := range help {
+		for _, row := range group.rows {
+			if strings.Contains(row.name, "Remote Desktop") {
+				foundHelp = true
+			}
+		}
+	}
+	if !foundHelp {
+		t.Fatal("help does not list Open Remote Desktop")
+	}
+
+	calls = 0
+	m.statusError = false
+	layout := m.panelLayout()
+	x, y, width, ok := m.rdpButtonBounds(layout)
+	if !ok || x <= layout.listWidth {
+		t.Fatalf("rdp bounds = %d,%d,%d ok=%v", x, y, width, ok)
+	}
+	connectX, connectY, _ := m.connectButtonBounds(layout)
+	if x < connectX+1 || y != connectY {
+		t.Fatalf("rdp chip is not on the connect row: connect=%d,%d rdp=%d,%d", connectX, connectY, x, y)
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x + width/2, Y: y, Button: tea.MouseLeft}))
+	if calls != 1 {
+		t.Fatalf("RDP chip calls = %d", calls)
+	}
+	calls = 0
+	_, cmd := m.Update(tea.MouseClickMsg(tea.Mouse{X: connectX, Y: connectY, Button: tea.MouseLeft}))
+	if calls != 0 || cmd == nil {
+		t.Fatalf("connect chip launched RDP or did not connect: calls=%d cmd=%v", calls, cmd != nil)
+	}
+
+	if err := m.metadata.SetHost("beta", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	m.sortHosts()
+	m.cursor = -1
+	for i, row := range m.hostListRows() {
+		if row.header && row.group == "Work" {
+			m.cursor = i
+			break
+		}
+	}
+	if m.cursor < 0 {
+		t.Fatal("Work header was not listed")
+	}
+	calls = 0
+	m.Update(ctrlO())
+	if calls != 0 || !strings.Contains(m.status, "Select a host") {
+		t.Fatalf("group row launched RDP: calls=%d status=%q", calls, m.status)
 	}
 }
 

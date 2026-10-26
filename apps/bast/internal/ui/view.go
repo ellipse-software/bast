@@ -21,6 +21,7 @@ const (
 	headerTabSpacing     = "   "
 	connectAction        = " Connect "
 	resumeAction         = " Resume "
+	rdpAction            = " RDP "
 	addAction            = " Add "
 	connectActionRow     = 2
 	mobileScrollbarWidth = 3
@@ -58,6 +59,24 @@ func (m *App) hostActionButtonBounds(layout panelLayout, action string) (x, y, w
 
 func (m *App) renderDetailActionChip(s styleSet, action string) string {
 	return "\n  " + s.title.Render(action) + "\n\n"
+}
+
+func (m *App) renderHostDetailActions(s styleSet, host sshconfig.Host, primary string) string {
+	line := "\n  " + s.title.Render(primary)
+	if m.hostMetadata()[host.Alias].RDP {
+		line += " " + s.title.Render(rdpAction)
+	}
+	return line + "\n\n"
+}
+
+func (m *App) rdpButtonBounds(layout panelLayout) (x, y, width int, ok bool) {
+	host, selected := m.selectedHost()
+	if !selected || !m.hostMetadata()[host.Alias].RDP {
+		return 0, 0, 0, false
+	}
+	primaryX, primaryY, primaryWidth := m.hostActionButtonBounds(layout, m.hostPrimaryAction(host))
+	width = lipgloss.Width(m.styles().title.Render(rdpAction))
+	return primaryX + primaryWidth + 1, primaryY, width, true
 }
 
 func (m *App) render() string {
@@ -551,9 +570,9 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 			state = "expanded for search"
 		}
 	}
-	hint := "␣ " + m.collapseActionLabel() + " · e rename"
+	hint := "→ expand · ← parent · ␣ " + m.collapseActionLabel() + " · e rename"
 	if sync.IsSyncedGroup(row.group) {
-		hint = "␣ " + m.collapseActionLabel() + " · cloud sync (read-only)"
+		hint = "→ expand · ← parent · ␣ " + m.collapseActionLabel() + " · cloud sync (read-only)"
 	}
 	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont))
 	name := truncate(row.group, max(2, width-3-iconWidth))
@@ -737,7 +756,7 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	}
 	titlePart := titleStyle.Render(title)
 	b.WriteString("  " + titlePart + "\n")
-	b.WriteString(m.renderDetailActionChip(s, primaryAction))
+	b.WriteString(m.renderHostDetailActions(s, host, primaryAction))
 	b.WriteString("  " + destStyle.Render(truncate(dest, max(4, width-3))) + "\n")
 	b.WriteString("  " + s.muted.Render(truncate(hostStatusLine(host, meta), max(4, width-3))) + "\n")
 

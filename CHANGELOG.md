@@ -4,13 +4,19 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ## Unreleased
 
-### :)
+### Added
 
 ## v0.11.0 - 2026-10-26
 
 ### Added
 
 - BitQate sync over the public API: import VPS instances as SSH hosts, then start, stop, and restart them from the TUI and CLI. The token is read from `BITQATE_TOKEN` or `~/.config/bast/bitqate-token` and is not written to SSH config or Vault. List and sync need `vms:read`. Power actions also need `vms:power`. SSH uses port 22 unless a default port is set. Suspended instances stay distinct from stopped ones and cannot be started from Bast. Instances with no public IPv4 are skipped, and instances removed from the account are removed from the synced SSH config.
+- Open Remote Desktop for an existing host with Ctrl+O. Turn on Open RDP in that host's metadata to show an RDP chip beside Connect. Bast starts the system client and does not take over the terminal.
+
+### Changes
+
+- Host forms save with Ctrl+S, or Cmd+S on macOS. Ctrl+Enter still saves.
+- In the host list, Right expands the focused group and Left collapses it. Left on a host, or on a group that is already collapsed, moves to the parent group.
 
 ### Fixed
 

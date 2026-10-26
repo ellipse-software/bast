@@ -28,6 +28,7 @@ type Host struct {
 	Environment     string     `json:"environment,omitempty"`
 	Color           string     `json:"color,omitempty"`
 	Notes           string     `json:"notes,omitempty"`
+	RDP             bool       `json:"rdp,omitempty"`
 }
 
 type Preferences struct {
