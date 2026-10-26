@@ -7,9 +7,9 @@ export const defaultDescription =
 
 export const ogImage = {
   url: "/og-image.png",
-  width: 1200,
-  height: 630,
-  alt: "Bast.sh SSH picker and key manager",
+  width: 1800,
+  height: 950,
+  alt: "The fast way into the servers you use everyday.",
 } as const;
 
 export function pageTitle(title: string): string {
