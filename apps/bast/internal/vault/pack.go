@@ -114,17 +114,44 @@ func (p Packer) Pack() (Document, error) {
 	}
 
 	doc := Document{
-		Version:   DocumentVersion,
-		UpdatedAt: now,
-		Hosts:     entries,
-		Keys:      keyEntries,
-		Metadata:  metaOut,
+		Version:    DocumentVersion,
+		UpdatedAt:  now,
+		Hosts:      entries,
+		Keys:       keyEntries,
+		Metadata:   metaOut,
+		Tombstones: packTombstones(p.Store, p.Previous.Tombstones, entries, keyEntries),
 	}
 	if p.Store != nil {
 		doc.Preferences = p.Store.Preferences()
 		doc.Integrations = packIntegrations(p.Store.Integrations())
 	}
 	return doc, nil
+}
+
+func packTombstones(store *metadata.Store, previous Tombstones, liveHosts []HostEntry, liveKeys []KeyEntry) Tombstones {
+	hosts := mergeTombstones(previous.Hosts, nil)
+	keys := mergeTombstones(previous.Keys, nil)
+	if store != nil {
+		stored := store.VaultTombstones()
+		hosts = mergeTombstones(hosts, stored.Hosts)
+		keys = mergeTombstones(keys, stored.Keys)
+	}
+	for _, host := range liveHosts {
+		delete(hosts, host.ManagedID)
+	}
+	for _, key := range liveKeys {
+		delete(keys, keyID(key))
+		if key.Name != "" {
+			delete(keys, "name:"+key.Name)
+		}
+	}
+	if len(hosts) == 0 {
+		hosts = nil
+	}
+	if len(keys) == 0 {
+		keys = nil
+	}
+	return Tombstones{Hosts: hosts, Keys: keys}
 }
 
 func hostEntryEqual(a, b HostEntry) bool {
@@ -173,19 +200,60 @@ func packIntegrations(in metadata.Integrations) VaultIntegrations {
 			AutoSync:            in.Azure.AutoSync,
 		}
 	}
-	if in.DigitalOcean != nil {
-		out.DigitalOcean = &VaultDigitalOceanIntegration{
-			Enabled:        in.DigitalOcean.Enabled,
-			ContextFilter:  append([]string(nil), in.DigitalOcean.ContextFilter...),
-			RegionFilter:   append([]string(nil), in.DigitalOcean.RegionFilter...),
-			DefaultSSHUser: in.DigitalOcean.DefaultSSHUser,
-			AutoSync:       in.DigitalOcean.AutoSync,
-		}
-	}
 	if in.Upstash != nil {
 		out.Upstash = &VaultUpstashIntegration{
 			Enabled:  in.Upstash.Enabled,
 			AutoSync: in.Upstash.AutoSync,
+		}
+	}
+	if in.Vercel != nil {
+		out.Vercel = &VaultVercelIntegration{
+			Enabled:  in.Vercel.Enabled,
+			AutoSync: in.Vercel.AutoSync,
+		}
+	}
+	if in.Hetzner != nil {
+		out.Hetzner = &VaultHetznerIntegration{
+			Enabled:         in.Hetzner.Enabled,
+			AutoSync:        in.Hetzner.AutoSync,
+			DefaultSSHUser:  in.Hetzner.DefaultSSHUser,
+			DefaultSSHPort:  in.Hetzner.DefaultSSHPort,
+			PreferPrivateIP: in.Hetzner.PreferPrivateIP,
+			ContextFilter:   append([]string(nil), in.Hetzner.ContextFilter...),
+			LocationFilter:  append([]string(nil), in.Hetzner.LocationFilter...),
+		}
+	}
+	if in.Bitqate != nil {
+		out.Bitqate = &VaultBitqateIntegration{
+			Enabled:        in.Bitqate.Enabled,
+			AutoSync:       in.Bitqate.AutoSync,
+			DefaultSSHUser: in.Bitqate.DefaultSSHUser,
+			DefaultSSHPort: in.Bitqate.DefaultSSHPort,
+			RegionFilter:   append([]string(nil), in.Bitqate.RegionFilter...),
+		}
+	}
+	if in.Railway != nil {
+		out.Railway = &VaultRailwayIntegration{
+			Enabled:  in.Railway.Enabled,
+			AutoSync: in.Railway.AutoSync,
+		}
+	}
+	if in.Fly != nil {
+		out.Fly = &VaultFlyIntegration{
+			Enabled:        in.Fly.Enabled,
+			AutoSync:       in.Fly.AutoSync,
+			OrgFilter:      append([]string(nil), in.Fly.OrgFilter...),
+			AppFilter:      append([]string(nil), in.Fly.AppFilter...),
+			DefaultSSHUser: in.Fly.DefaultSSHUser,
+		}
+	}
+	if in.DigitalOcean != nil {
+		out.DigitalOcean = &VaultDigitalOceanIntegration{
+			Enabled:        in.DigitalOcean.Enabled,
+			AutoSync:       in.DigitalOcean.AutoSync,
+			ContextFilter:  append([]string(nil), in.DigitalOcean.ContextFilter...),
+			RegionFilter:   append([]string(nil), in.DigitalOcean.RegionFilter...),
+			DefaultSSHUser: in.DigitalOcean.DefaultSSHUser,
 		}
 	}
 	return out

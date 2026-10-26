@@ -65,6 +65,23 @@ describe("methodsForPlatform", () => {
 });
 
 describe("resolveMethod", () => {
+  test("keeps WinGet selected when the flag is enabled", () => {
+    const method = resolveMethod("windows", "winget", true);
+    expect(method).toBe("winget");
+    expect(installCommand(method, true)).toBe("winget install EllipseSoftware.Bast");
+    expect(methodSupportsNightly(method)).toBe(false);
+  });
+
+  test("falls back to PowerShell when WinGet is disabled", () => {
+    expect(resolveMethod("windows", "winget", false)).toBe("powershell");
+    expect(resolveMethod("windows", "winget")).toBe("powershell");
+  });
+
+  test("does not allow WinGet on other platforms when enabled", () => {
+    expect(resolveMethod("macos", "winget", true)).toBe("script");
+    expect(resolveMethod("linux", "winget", true)).toBe("script");
+  });
+
   test("keeps a method that is valid on the next platform", () => {
     expect(resolveMethod("linux", "homebrew")).toBe("homebrew");
   });

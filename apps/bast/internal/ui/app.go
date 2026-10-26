@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/cloud/sync"
+	"bast/internal/doctor"
 	"bast/internal/history"
 	"bast/internal/keys"
 	"bast/internal/metadata"
@@ -84,12 +85,19 @@ type syncDoneMsg struct {
 	err        error
 	skipped    bool
 	focusAlias string // when set, jump to Hosts with this alias selected
+	notice     string
 	opGen      uint64
 }
 
 type syncStatusMsg struct {
 	status sync.Status
 	err    error
+}
+
+type syncProgressMsg struct {
+	provider string
+	opGen    uint64
+	label    string
 }
 
 type processDoneMsg struct {
@@ -152,6 +160,7 @@ type styleCache struct {
 }
 
 type App struct {
+	boatMigrationConflict       *sshconfig.BoatMigrationConflict
 	paths                       paths.Paths
 	config                      sshconfig.Manager
 	openSSH                     openssh.Client
@@ -179,6 +188,14 @@ type App struct {
 	help                bool
 	helpOffset          int
 	credits             bool
+	onboarding          bool
+	onboardingTracked   bool
+	onboardingReplay    bool
+	onboardingPending   bool
+	doctor              bool
+	doctorOffset        int
+	doctorLoading       bool
+	doctorReport        doctor.Report
 	showHidden          bool
 	loading             bool
 	enriching           bool
@@ -217,9 +234,10 @@ type App struct {
 	vaultOpGen          uint64
 	vaultRemoteRetry    bool // one-shot auto-recovery after ErrRemoteUpdated
 	vaultConflict       *vaultConflictState
-	syncBusy            string          // full-screen Sync overlay for long ops (e.g. box create)
+	syncBusy            string          // full-screen Sync overlay for long ops (e.g. boat create)
 	syncActivity        string          // footer label while a provider op runs (e.g. "resuming…")
-	boxConnectAfter     string          // after box resume+reload, SSH into this alias
+	syncProgressCh      chan string     // live labels for long Sync ops (Vercel cleanup)
+	sandboxConnectAfter string          // after sandbox resume+reload, SSH into this alias
 	syncInvCollapsed    map[string]bool // session-only status-group collapse on provider pages
 
 	files filesState
@@ -239,7 +257,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncDigitalOceanConfig: p.SyncDigitalOceanConfig, SyncBoxConfig: p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig, SyncRailwayConfig: p.SyncRailwayConfig, SyncFlyConfig: p.SyncFlyConfig, SyncDigitalOceanConfig: p.SyncDigitalOceanConfig,
 		},
 		openSSH:          client,
 		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
@@ -253,8 +271,12 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		syncingProviders: map[string]bool{},
 		syncOpGen:        map[string]uint64{},
 	}
+	if err := app.config.MigrateBoatSync(); err != nil && !errors.As(err, &app.boatMigrationConflict) {
+		return nil, err
+	}
 	app.hostMeta, app.hostMetaRevision = store.HostsSnapshot()
 	app.historySuggestions = store.HistoryImport().Pending
+	app.onboardingPending = store.ShouldOnboard()
 	if pass, err := vault.LoadPassphrase(vault.PassphrasePath(p.StateFile)); err == nil && pass != "" {
 		app.vaultPassphrase = pass
 	}
@@ -279,7 +301,37 @@ func (m *App) beginProviderOp(provider string) uint64 {
 	}
 	m.syncOpGen[provider]++
 	m.syncingProviders[provider] = true
+	m.clearProviderProbeError(provider)
 	return m.syncOpGen[provider]
+}
+
+func (m *App) clearProviderProbeError(provider string) {
+	switch provider {
+	case "gcp":
+		m.syncStatus.GCP.GCloudError = ""
+	case "aws":
+		m.syncStatus.AWS.AWSCLIError = ""
+	case "azure":
+		m.syncStatus.Azure.AzureCLIError = ""
+		m.syncStatus.Azure.SSHExtensionError = ""
+		m.syncStatus.Azure.BastionExtensionError = ""
+	case "boat":
+		m.syncStatus.Boat.BoatCLIError = ""
+	case "upstash":
+		m.syncStatus.Upstash.Error = ""
+	case "vercel":
+		m.syncStatus.Vercel.Error = ""
+	case "hetzner":
+		m.syncStatus.Hetzner.Error = ""
+	case "bitqate":
+		m.syncStatus.Bitqate.Error = ""
+	case "railway":
+		m.syncStatus.Railway.Error = ""
+	case "fly":
+		m.syncStatus.Fly.FlyCLIError = ""
+	case "digitalocean":
+		m.syncStatus.DigitalOcean.DOCTLError = ""
+	}
 }
 
 func (m *App) providerOpGen(provider string) uint64 {
@@ -289,11 +341,12 @@ func (m *App) providerOpGen(provider string) uint64 {
 	return m.syncOpGen[provider]
 }
 
+func (m *App) staleOpGen(provider string, opGen uint64) bool {
+	return opGen != 0 && m.providerOpGen(provider) != opGen
+}
+
 func (m *App) staleProviderOp(msg syncDoneMsg) bool {
-	if msg.opGen == 0 {
-		return false
-	}
-	return m.providerOpGen(msg.provider) != msg.opGen
+	return m.staleOpGen(msg.provider, msg.opGen)
 }
 
 func (m *App) syncCompletionNotice(provider string, count int) string {
@@ -306,16 +359,21 @@ func (m *App) syncCompletionNotice(provider string, count int) string {
 	gcp := m.metadata.GCP()
 	aws := m.metadata.AWS()
 	azure := m.metadata.Azure()
-	ocean := m.metadata.DigitalOcean()
-	box := m.metadata.Box()
+	boat := m.metadata.Boat()
 	upstash := m.metadata.Upstash()
+	vercel := m.metadata.Vercel()
 	providers := []providerCount{
 		{id: "gcp", name: "GCP", enabled: gcp.Enabled, count: gcp.LastInstanceCount},
 		{id: "aws", name: "AWS", enabled: aws.Enabled, count: aws.LastInstanceCount},
 		{id: "azure", name: "Azure", enabled: azure.Enabled, count: azure.LastInstanceCount},
-		{id: "digitalocean", name: "DigitalOcean", enabled: ocean.Enabled, count: ocean.LastInstanceCount},
-		{id: "box", name: "Box", enabled: box.Enabled, count: box.LastInstanceCount},
+		{id: "boat", name: "Boat", enabled: boat.Enabled, count: boat.LastInstanceCount},
 		{id: "upstash", name: "Upstash", enabled: upstash.Enabled, count: upstash.LastInstanceCount},
+		{id: "vercel", name: "Vercel", enabled: vercel.Enabled, count: vercel.LastInstanceCount},
+		{id: "hetzner", name: "Hetzner", enabled: m.metadata.Hetzner().Enabled, count: m.metadata.Hetzner().LastInstanceCount},
+		{id: "bitqate", name: "BitQate", enabled: m.metadata.Bitqate().Enabled, count: m.metadata.Bitqate().LastInstanceCount},
+		{id: "railway", name: "Railway", enabled: m.metadata.Railway().Enabled, count: m.metadata.Railway().LastInstanceCount},
+		{id: "fly", name: "Fly", enabled: m.metadata.Fly().Enabled, count: m.metadata.Fly().LastInstanceCount},
+		{id: "digitalocean", name: "DigitalOcean", enabled: m.metadata.DigitalOcean().Enabled, count: m.metadata.DigitalOcean().LastInstanceCount},
 	}
 	parts := make([]string, 0, len(providers))
 	for _, item := range providers {
@@ -363,17 +421,13 @@ func (m *App) autoSyncCmds() tea.Cmd {
 		m.beginProviderOp("azure")
 		autoSyncCmds = append(autoSyncCmds, m.syncAzureCmd())
 	}
-	if m.metadata.DigitalOcean().Enabled && m.metadata.DigitalOcean().AutoSync && !m.syncingProviders["digitalocean"] {
-		m.beginProviderOp("digitalocean")
-		autoSyncCmds = append(autoSyncCmds, m.syncDigitalOceanCmd())
-	}
-	if box := m.metadata.Box(); !box.Disabled && !m.syncingProviders["box"] {
-		if box.Enabled && box.AutoSync {
-			m.beginProviderOp("box")
-			autoSyncCmds = append(autoSyncCmds, m.syncBoxCmd())
-		} else if !box.Enabled {
-			m.beginProviderOp("box")
-			autoSyncCmds = append(autoSyncCmds, m.autoConnectBoxCmd())
+	if boat := m.metadata.Boat(); !boat.Disabled && m.boatMigrationConflict == nil && !m.syncingProviders["boat"] {
+		if boat.Enabled && boat.AutoSync {
+			m.beginProviderOp("boat")
+			autoSyncCmds = append(autoSyncCmds, m.syncBoatCmd())
+		} else if !boat.Enabled {
+			m.beginProviderOp("boat")
+			autoSyncCmds = append(autoSyncCmds, m.autoConnectBoatCmd())
 		}
 	}
 	if upstash := m.metadata.Upstash(); !upstash.Disabled && !m.syncingProviders["upstash"] {
@@ -384,6 +438,40 @@ func (m *App) autoSyncCmds() tea.Cmd {
 			m.beginProviderOp("upstash")
 			autoSyncCmds = append(autoSyncCmds, m.autoConnectUpstashCmd())
 		}
+	}
+	if vercel := m.metadata.Vercel(); !vercel.Disabled && !m.syncingProviders["vercel"] {
+		if vercel.Enabled && vercel.AutoSync {
+			m.beginProviderOp("vercel")
+			autoSyncCmds = append(autoSyncCmds, m.syncVercelCmd())
+		} else if !vercel.Enabled && m.vercelReady() {
+			m.beginProviderOp("vercel")
+			autoSyncCmds = append(autoSyncCmds, m.autoConnectVercelCmd())
+		}
+	}
+	if hetzner := m.metadata.Hetzner(); hetzner.Enabled && hetzner.AutoSync && !m.syncingProviders["hetzner"] {
+		m.beginProviderOp("hetzner")
+		autoSyncCmds = append(autoSyncCmds, m.syncHetznerCmd())
+	}
+	if bitqate := m.metadata.Bitqate(); bitqate.Enabled && bitqate.AutoSync && !m.syncingProviders["bitqate"] {
+		m.beginProviderOp("bitqate")
+		autoSyncCmds = append(autoSyncCmds, m.syncBitqateCmd())
+	}
+	if railway := m.metadata.Railway(); !railway.Disabled && !m.syncingProviders["railway"] {
+		if railway.Enabled && railway.AutoSync {
+			m.beginProviderOp("railway")
+			autoSyncCmds = append(autoSyncCmds, m.syncRailwayCmd())
+		} else if !railway.Enabled && m.railwayHasToken() {
+			m.beginProviderOp("railway")
+			autoSyncCmds = append(autoSyncCmds, m.autoConnectRailwayCmd())
+		}
+	}
+	if fly := m.metadata.Fly(); !fly.Disabled && fly.Enabled && fly.AutoSync && !m.syncingProviders["fly"] {
+		m.beginProviderOp("fly")
+		autoSyncCmds = append(autoSyncCmds, m.syncFlyCmd())
+	}
+	if ocean := m.metadata.DigitalOcean(); ocean.Enabled && ocean.AutoSync && !m.syncingProviders["digitalocean"] {
+		m.beginProviderOp("digitalocean")
+		autoSyncCmds = append(autoSyncCmds, m.syncDigitalOceanCmd())
 	}
 	if pull := m.vaultPullCmd(false); pull != nil {
 		autoSyncCmds = append(autoSyncCmds, pull)
@@ -432,6 +520,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.help {
 			m.clampHelpOffset()
 		}
+		if m.doctor {
+			m.clampDoctorOffset()
+		}
 		return m, nil
 	case tea.BackgroundColorMsg:
 		m.dark = msg.IsDark()
@@ -448,13 +539,13 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.sortHosts()
 		}
 		if msg.err != nil {
-			m.boxConnectAfter = ""
+			m.sandboxConnectAfter = ""
 			m.setError(msg.err)
 			return m, m.autoSyncCmds()
 		}
 		m.keys = msg.keys
 		m.selectAfterLoad()
-		if cmd := m.connectAfterBoxResume(); cmd != nil {
+		if cmd := m.connectAfterSandboxResume(); cmd != nil {
 			cmds := []tea.Cmd{cmd}
 			if msg.enrichmentErrors > 0 {
 				cmds = append(cmds, m.setNotice(fmt.Sprintf("%d host details could not be resolved", msg.enrichmentErrors)))
@@ -465,10 +556,19 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.autoSyncCmds(), m.setNotice(fmt.Sprintf("%d host details could not be resolved", msg.enrichmentErrors)))
 		}
 		return m, m.autoSyncCmds()
+	case doctorDoneMsg:
+		if !m.doctor {
+			return m, nil
+		}
+		m.doctorLoading = false
+		m.doctorReport = msg.report
+		m.clampDoctorOffset()
+		return m, nil
 	case discoveredMsg:
 		if msg.err != nil {
 			m.loading = false
 			m.enriching = false
+			m.onboardingPending = false
 			m.setError(msg.err)
 			cmds := []tea.Cmd{tea.RequestBackgroundColor}
 			if cmd := m.postPaintCmds(); cmd != nil {
@@ -498,6 +598,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		// Hosts are usable from config parse; clear loading now and enrich quietly.
 		m.loading = false
 		m.enriching = true
+		m.decideOnboarding()
 		cmds := []tea.Cmd{m.enrichCmd(m.hosts), tea.RequestBackgroundColor}
 		if cmd := m.postPaintCmds(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -536,31 +637,43 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.setNotice("Couldn't send report")
 		}
 		return m, m.setNotice("Report sent")
+	case syncProgressMsg:
+		return m, m.handleSyncProgress(msg)
 	case syncDoneMsg:
 		if m.staleProviderOp(msg) {
 			return m, nil
 		}
 		delete(m.syncingProviders, msg.provider)
+		m.syncProgressCh = nil
 		m.clearSyncBusy()
 		m.syncActivity = ""
 		m.clampSyncCursor(m.syncMenuItems())
 		if msg.skipped {
-			m.boxConnectAfter = ""
+			m.sandboxConnectAfter = ""
 			return m, m.syncStatusCmd()
 		}
 		if msg.err != nil {
-			m.boxConnectAfter = ""
+			m.sandboxConnectAfter = ""
 			telemetry.Track("sync_"+msg.provider+"_fail", m.version)
 			m.setError(msg.err)
 			return m, m.syncStatusCmd()
 		}
+		m.clearProviderProbeError(msg.provider)
 		label := strings.ToUpper(msg.provider)
 		notice := m.syncCompletionNotice(msg.provider, msg.result.Count)
-		connectAfter := m.boxConnectAfter
+		if msg.provider == "vercel" {
+			if n := len(m.metadata.Vercel().Unrestorable); n > 0 && msg.notice == "" {
+				notice += fmt.Sprintf(" · %d unrestorable", n)
+			}
+		}
+		connectAfter := m.sandboxConnectAfter
 		if msg.result.Error == "disabled" {
-			m.boxConnectAfter = ""
+			m.sandboxConnectAfter = ""
 			notice = label + " sync disconnected"
 			telemetry.Track("sync_"+msg.provider+"_disable", m.version)
+		} else if msg.notice != "" {
+			notice = msg.notice
+			telemetry.Track("sync_"+msg.provider, m.version)
 		} else if msg.focusAlias != "" {
 			notice = "Created " + msg.focusAlias
 			m.selectAfterLoadSection = hostsSection
@@ -584,7 +697,7 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if notice != "" {
 				notice = "Created " + notice
 			} else {
-				notice = "Box created"
+				notice = "Sandbox created"
 			}
 			telemetry.Track("sync_"+msg.provider, m.version)
 		} else {
@@ -805,6 +918,8 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleFilesTransferProgress(msg)
 	case filesOpDoneMsg:
 		return m, m.handleFilesOpDone(msg)
+	case filesPreviewMsg:
+		return m, m.handleFilesPreviewMsg(msg)
 	case clearStatusMsg:
 		if uint64(msg) == m.statusID && !m.statusError {
 			m.status = ""
@@ -876,6 +991,9 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.form != nil {
 			return m.updateForm(msg)
+		}
+		if m.onboarding {
+			return m.updateOnboarding(msg.String())
 		}
 		model, cmd := m.updateKeys(msg)
 		if m.form != nil && isHostForm(m.form) {

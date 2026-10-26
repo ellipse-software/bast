@@ -113,23 +113,23 @@ func (m *App) importSelectedHistorySuggestion() (tea.Model, tea.Cmd) {
 	input := historyHostInput(suggestion, alias)
 	m.historyImporting = suggestion.ID
 	return m, func() tea.Msg {
-		err := m.addHistoryHost(input, metadata.Host{}, suggestion.ID)
+		_, err := m.addHistoryHost(input, metadata.Host{}, suggestion.ID)
 		return historyImportDoneMsg{id: suggestion.ID, alias: alias, err: err}
 	}
 }
 
-func (m *App) addHistoryHost(input sshconfig.HostInput, meta metadata.Host, suggestionID string) error {
+func (m *App) addHistoryHost(input sshconfig.HostInput, meta metadata.Host, suggestionID string) (sshconfig.Host, error) {
 	added, err := m.config.Add(input)
 	if err != nil {
-		return fmt.Errorf("add history host: %w", err)
+		return sshconfig.Host{}, fmt.Errorf("add history host: %w", err)
 	}
 	if err := m.metadata.AcceptHistorySuggestion(input.Alias, meta, suggestionID); err != nil {
 		if rollbackErr := m.config.Delete(added.ManagedID); rollbackErr != nil {
-			return fmt.Errorf("save history host: %w; rollback failed: %v", err, rollbackErr)
+			return sshconfig.Host{}, fmt.Errorf("save history host: %w; rollback failed: %v", err, rollbackErr)
 		}
-		return fmt.Errorf("save history host: %w", err)
+		return sshconfig.Host{}, fmt.Errorf("save history host: %w", err)
 	}
-	return nil
+	return added, nil
 }
 
 func historyHostInput(suggestion metadata.HistorySuggestion, alias string) sshconfig.HostInput {

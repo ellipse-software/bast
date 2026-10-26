@@ -123,7 +123,7 @@ func (r *Runner) digitalOceanStop(engine *sync.Engine, args []string) error {
 		return fail("digitalocean_stop", err.Error())
 	}
 	telemetry.Track("digitalocean_stop", r.Version)
-	return r.success(result, fmt.Sprintf("Powered off droplet (%d synced)", result.Count))
+	return r.success(result, fmt.Sprintf("Shut down droplet (%d synced)", result.Count))
 }
 
 func (r *Runner) digitalOceanResume(engine *sync.Engine, args []string) error {

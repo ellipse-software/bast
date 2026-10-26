@@ -17,6 +17,58 @@ func (m *App) selectedProviderRoot() (cloud.Kind, bool) {
 	return cloud.KindForGroup(group)
 }
 
+func (m *App) providerEnabled(kind cloud.Kind) bool {
+	switch kind {
+	case cloud.GCP:
+		return m.metadata.GCP().Enabled
+	case cloud.AWS:
+		return m.metadata.AWS().Enabled
+	case cloud.Azure:
+		return m.metadata.Azure().Enabled
+	case cloud.Boat:
+		return m.metadata.Boat().Enabled
+	case cloud.Upstash:
+		return m.metadata.Upstash().Enabled
+	case cloud.Vercel:
+		return m.metadata.Vercel().Enabled
+	case cloud.Hetzner:
+		return m.metadata.Hetzner().Enabled
+	case cloud.Bitqate:
+		return m.metadata.Bitqate().Enabled
+	case cloud.Railway:
+		return m.metadata.Railway().Enabled
+	case cloud.Fly:
+		return m.metadata.Fly().Enabled
+	case cloud.DigitalOcean:
+		return m.metadata.DigitalOcean().Enabled
+	default:
+		return false
+	}
+}
+
+func (m *App) shouldInjectProviderRoot(kind cloud.Kind) bool {
+	if _, ok := cloud.DescriptorForKind(kind); !ok {
+		return false
+	}
+	// Visible hosts already create the group. An empty header is only useful
+	// when `.` is revealing stopped or user-hidden hosts that would otherwise
+	// have no parent row. Create still lives on the Sync tab.
+	if !m.showHidden || m.searchText() != "" {
+		return false
+	}
+	hostMetadata := m.hostMetadata()
+	for _, host := range m.hosts {
+		if !host.Synced || host.SyncSource != string(kind) {
+			continue
+		}
+		meta := hostMetadata[host.Alias]
+		if meta.Hidden || hostLooksStopped(host, meta) {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *App) providerGroupStats(group string) (running, stopped int) {
 	hostMetadata := m.hostMetadata()
 	for _, host := range m.hosts {
@@ -35,11 +87,17 @@ func (m *App) providerGroupStats(group string) (running, stopped int) {
 
 func (m *App) providerGroupPrimaryAction(kind cloud.Kind) string {
 	if cloud.CapabilitiesFor(kind).Create {
-		if kind == cloud.Box || kind == cloud.Upstash {
+		if kind == cloud.Upstash {
 			return " New box "
 		}
-		if kind == cloud.DigitalOcean {
-			return " New droplet "
+		if kind == cloud.Boat || kind == cloud.Vercel {
+			return " New sandbox "
+		}
+		if kind == cloud.Railway {
+			return " New service "
+		}
+		if kind == cloud.Fly {
+			return " New machine "
 		}
 		return " New "
 	}
@@ -78,11 +136,40 @@ func (m *App) stopSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	switch host.SyncSource {
 	case "upstash":
 		m.openUpstashStopForm(host)
-	case "box":
-		m.openBoxStopForm(host)
+	case "boat":
+		m.openBoatStopForm(host)
+	case "vercel":
+		m.openVercelStopForm(host)
+	case "hetzner":
+		m.openHetznerStopForm(host)
+	case "bitqate":
+		m.openBitqateStopForm(host)
+	case "railway":
+		m.openRailwayStopForm(host)
+	case "fly":
+		m.openFlyStopForm(host)
 	case "digitalocean":
 		m.openDigitalOceanStopForm(host)
 	default:
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *App) restartSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
+	if !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Restart }) {
+		return m, nil
+	}
+	if m.syncingProviders[host.SyncSource] {
+		return m, m.setNotice("Operation already in progress")
+	}
+	if m.hostLooksStopped(host) {
+		return m, m.setNotice("Start the server before restarting")
+	}
+	if host.SyncSource == "hetzner" {
+		m.openHetznerRestartForm(host)
+	} else if host.SyncSource == "bitqate" {
+		m.openBitqateRestartForm(host)
 		return m, nil
 	}
 	return m, nil
@@ -98,8 +185,12 @@ func (m *App) forkSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	switch host.SyncSource {
 	case "upstash":
 		m.openUpstashForkForm(host)
-	case "box":
-		m.openBoxForkForm(host)
+	case "boat":
+		m.openBoatForkForm(host)
+	case "vercel":
+		m.openVercelForkForm(host)
+	case "fly":
+		m.openFlyForkForm(host)
 	case "digitalocean":
 		m.openDigitalOceanForkForm(host)
 	default:
@@ -115,6 +206,14 @@ func (m *App) deleteSyncedHost(host sshconfig.Host) bool {
 	switch host.SyncSource {
 	case "upstash":
 		m.openUpstashDeleteForm(host)
+	case "vercel":
+		m.openVercelDeleteForm(host)
+	case "boat":
+		m.openBoatDeleteForm(host)
+	case "railway":
+		m.openRailwayDeleteForm(host)
+	case "fly":
+		m.openFlyDeleteForm(host)
 	case "digitalocean":
 		m.openDigitalOceanDeleteForm(host)
 	default:
@@ -130,8 +229,18 @@ func (m *App) resumeSyncedHost(host sshconfig.Host, thenConnect bool) tea.Cmd {
 	switch host.SyncSource {
 	case "upstash":
 		return m.resumeSelectedUpstash(host, thenConnect)
-	case "box":
-		return m.resumeSelectedBox(host, thenConnect)
+	case "boat":
+		return m.resumeSelectedBoat(host, thenConnect)
+	case "vercel":
+		return m.resumeSelectedVercel(host, thenConnect)
+	case "hetzner":
+		return m.startSelectedHetzner(host, thenConnect)
+	case "bitqate":
+		return m.startSelectedBitqate(host, thenConnect)
+	case "railway":
+		return m.resumeSelectedRailway(host, thenConnect)
+	case "fly":
+		return m.resumeSelectedFly(host, thenConnect)
 	case "digitalocean":
 		return m.resumeSelectedDigitalOcean(host, thenConnect)
 	default:
@@ -148,11 +257,11 @@ func (m *App) runProviderGroupPrimary(kind cloud.Kind) (tea.Model, tea.Cmd) {
 
 func (m *App) runProviderGroupCreate(kind cloud.Kind) (tea.Model, tea.Cmd) {
 	switch kind {
-	case cloud.Box:
-		if m.syncingProviders["box"] {
-			return m, m.setNotice("Box operation already in progress")
+	case cloud.Boat:
+		if m.syncingProviders["boat"] {
+			return m, m.setNotice("Boat operation already in progress")
 		}
-		m.openBoxNewForm()
+		m.openBoatNewForm()
 		return m, nil
 	case cloud.Upstash:
 		if m.syncingProviders["upstash"] {
@@ -163,6 +272,35 @@ func (m *App) runProviderGroupCreate(kind cloud.Kind) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.openUpstashNewForm()
+		return m, nil
+	case cloud.Vercel:
+		if m.syncingProviders["vercel"] {
+			return m, m.setNotice("Vercel operation already in progress")
+		}
+		if !m.vercelReady() {
+			m.openVercelTokenForm()
+			return m, nil
+		}
+		m.openVercelNewForm()
+		return m, nil
+	case cloud.Railway:
+		if m.syncingProviders["railway"] {
+			return m, m.setNotice("Railway operation already in progress")
+		}
+		if !m.railwayHasToken() {
+			m.openRailwayKeyForm()
+			return m, nil
+		}
+		m.openRailwayNewForm()
+		return m, nil
+	case cloud.Fly:
+		if m.syncingProviders["fly"] {
+			return m, m.setNotice("Fly operation already in progress")
+		}
+		if !m.syncStatus.Fly.Authenticated && !m.metadata.Fly().Enabled {
+			return m, m.setNotice("Connect Fly on the Sync tab first")
+		}
+		m.openFlyNewForm()
 		return m, nil
 	case cloud.DigitalOcean:
 		if m.syncingProviders["digitalocean"] {

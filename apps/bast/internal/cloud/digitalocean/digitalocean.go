@@ -117,7 +117,7 @@ func New() *Client { return &Client{DOCTL: "doctl", Run: defaultRunner} }
 
 func defaultRunner(ctx context.Context, args []string, env []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = doctlEnv(env)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -126,12 +126,39 @@ func defaultRunner(ctx context.Context, args []string, env []string) ([]byte, er
 		if msg == "" {
 			msg = err.Error()
 		}
+		// droplet create --wait can print the Droplet and still exit non-zero.
+		if len(out) > 0 {
+			return out, fmt.Errorf("doctl: %s", msg)
+		}
 		return nil, fmt.Errorf("doctl: %s", msg)
 	}
 	if len(out) == 0 && stderr.Len() > 0 {
 		return bytes.TrimSpace(stderr.Bytes()), nil
 	}
 	return out, nil
+}
+
+func doctlEnv(extra []string) []string {
+	base := os.Environ()
+	out := make([]string, 0, len(base)+len(extra))
+	for _, item := range base {
+		key, _, _ := strings.Cut(item, "=")
+		if key == "DIGITALOCEAN_ACCESS_TOKEN" || key == "DIGITALOCEAN_CONTEXT" {
+			continue
+		}
+		out = append(out, item)
+	}
+	return append(out, extra...)
+}
+
+func validatePositional(label, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s is required", label)
+	}
+	if strings.HasPrefix(value, "-") || strings.ContainsAny(value, " \t\r\n") {
+		return fmt.Errorf("%s %q contains unsupported characters", label, value)
+	}
+	return nil
 }
 
 func (c *Client) bin() string {
@@ -241,6 +268,10 @@ func (c *Client) Discover(ctx context.Context, cfg DiscoverConfig) (Discovery, e
 	g.SetLimit(4)
 	for i, contextName := range selected {
 		g.Go(func() error {
+			if err := validatePositional("context", contextName); err != nil {
+				results[i] = contextResult{context: contextName, warning: err.Error()}
+				return nil
+			}
 			instances, err := c.listContext(groupCtx, contextName, cfg)
 			if err != nil {
 				results[i] = contextResult{
@@ -432,6 +463,12 @@ func (c *Client) listSSHKeys(ctx context.Context, contextName string) ([]sshKey,
 }
 
 func (c *Client) getDroplet(ctx context.Context, contextName, dropletID string) (droplet, error) {
+	if err := validatePositional("context", contextName); err != nil {
+		return droplet{}, err
+	}
+	if _, err := strconv.Atoi(dropletID); err != nil || strings.HasPrefix(dropletID, "-") {
+		return droplet{}, fmt.Errorf("droplet id %q contains unsupported characters", dropletID)
+	}
 	out, err := c.run(ctx, "compute", "droplet", "get", dropletID, "--context", contextName, "--output", "json")
 	if err != nil {
 		return droplet{}, err

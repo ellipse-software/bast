@@ -73,6 +73,14 @@ brew install ellipse-software/tap/bast
 irm https://bast.sh/install.ps1 | iex
 ```
 
+Or with WinGet:
+
+```powershell
+winget install EllipseSoftware.Bast
+```
+
+Update WinGet installs with `winget upgrade --id EllipseSoftware.Bast --exact`. New releases become available after review in the WinGet community repository.
+
 Requires the Windows OpenSSH Client (`ssh`, `ssh-keygen`, `ssh-add`).
 
 </details>
@@ -84,11 +92,12 @@ Then run `bast`. Nightly builds, custom install paths, and building from source 
 ```sh
 bast                    # host picker
 bast production         # connect by label
+bast doctor             # diagnose SSH config and setup
 bast hosts list         # list hosts
 bast keys list          # list keys
 ```
 
-Press `?` in the TUI for keybindings. [Documentation](https://bast.sh/docs) covers hosts, keys, Vault, cloud sync, Files, and the CLI.
+Press `?` in the TUI for keybindings. [Documentation](https://bast.sh/docs) covers hosts, keys, Vault, cloud sync, Files, doctor, and the CLI.
 
 ## Agent skill
 

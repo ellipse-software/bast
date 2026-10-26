@@ -71,34 +71,34 @@ Each Droplet becomes an SSH host under:
 The host picker groups Droplets by the doctl context and region used to discover them:
 
 ```text
-DigitalOcean / <context> / <region>
+DigitalOcean/<context>/<region>
   droplet-name
 ```
 
 For example:
 
 ```text
-DigitalOcean / default / nyc3
+DigitalOcean/default/nyc3
   web-01
 ```
 
 Detail shows **DigitalOcean synced**, or **DigitalOcean stopped** when the Droplet is powered off. Connection settings, group, and label are read-only. Favoriting and hiding still work. Bast uses the Droplet name as the label.
 
-The DigitalOcean provider page on Sync (`4`) lists those Droplets in collapsible **Running** and **Stopped** groups. Enter connects (power on first if the Droplet is off).
+Powered-off Droplets stay in the inventory and are hidden from the host list until you press `.`. Enter connects, and powers the Droplet on first when it is off.
 
 ## Lifecycle
 
 | Action | What DigitalOcean does |
 | --- | --- |
 | New | `doctl compute droplet create` with region, size, image, and every account SSH key |
-| Stop (`o` / `bast digitalocean stop`) | `power-off`. Disk still bills until you delete the Droplet |
+| Stop (`o` / `bast digitalocean stop`) | ACPI shutdown. The disk still bills until you delete the Droplet |
 | Resume (`r` / Enter on a powered-off Droplet) | `power-on`, then SSH |
-| Fork (`n`) | Snapshot, then create a new Droplet from that snapshot |
-| Delete (`d`) | Destroys the Droplet. Snapshots remain |
+| Fork (`n`) | Snapshot, create a new Droplet from that snapshot, then delete the snapshot |
+| Delete (`d`) | Destroys the Droplet. Snapshots you created separately remain |
 
 Create defaults: region `nyc3`, size `s-1vcpu-1gb`, image `ubuntu-24-04-x64`. Create fails if the account has no SSH keys.
 
-Power-off does not pause DigitalOcean billing. Delete the Droplet when you want the disk charge to stop.
+Shutdown does not pause DigitalOcean billing. Delete the Droplet when you want the disk charge to stop. Fork snapshots are deleted after the new Droplet exists, because snapshots keep billing.
 
 ## Host keys (Hosts tab)
 

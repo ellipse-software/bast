@@ -88,7 +88,7 @@ func (m *App) cancelVaultOp() {
 }
 
 // vaultBusyBlocksBody replaces Vault or Sync content while a network step or
-// long Sync op (e.g. box create from the Sync tab) runs. Other sections keep
+// long Sync op (e.g. boat create from the Sync tab) runs. Other sections keep
 // their normal body and only show the footer busy hint.
 func (m *App) vaultBusyBlocksBody() bool {
 	if m.vaultBusy != "" && m.section == vaultSection {
@@ -263,6 +263,52 @@ func (m *App) beginSyncBusy(label string) {
 
 func (m *App) clearSyncBusy() {
 	m.syncBusy = ""
+}
+
+func (m *App) handleSyncProgress(msg syncProgressMsg) tea.Cmd {
+	if m.staleOpGen(msg.provider, msg.opGen) {
+		return nil
+	}
+	if msg.label != "" {
+		if m.syncBusy != "" {
+			m.syncBusy = msg.label
+		} else {
+			m.syncActivity = msg.label
+		}
+	}
+	return m.listenSyncProgress(msg.provider, msg.opGen)
+}
+
+func (m *App) listenSyncProgress(provider string, opGen uint64) tea.Cmd {
+	ch := m.syncProgressCh
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		label, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return syncProgressMsg{provider: provider, opGen: opGen, label: label}
+	}
+}
+
+func sendSyncProgress(ch chan string, label string) {
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- label:
+	default:
+		select {
+		case <-ch:
+		default:
+		}
+		select {
+		case ch <- label:
+		default:
+		}
+	}
 }
 
 func (m *App) openVaultConflictForm(msg vaultConflictMsg) {
@@ -561,41 +607,17 @@ func (m *App) renderVaultStatus(s styleSet) string {
 }
 
 func (m *App) renderUnlinkedVault(s styleSet) string {
-	inner := min(50, max(8, m.terminalWidth()-2))
-	content := max(4, inner-2)
-	border := s.muted
-	top := border.Render("╭" + strings.Repeat("─", inner) + "╮")
-	bot := border.Render("╰" + strings.Repeat("─", inner) + "╯")
-	side := border.Render("│")
-	row := func(line string) string {
-		if lipgloss.Width(line) > content {
-			line = truncate(line, content)
-		}
-		return side + " " + padVisual(line, content) + " " + side
-	}
-
-	var b strings.Builder
-	b.WriteString(top + "\n")
-	b.WriteString(row(s.active.Render("◇  No vault yet")) + "\n")
-	b.WriteString(row("") + "\n")
-	for _, line := range []string{
-		"Sync hosts and keys between your computers.",
-		"The passphrase never leaves this machine.",
-	} {
-		for _, wrapped := range wrapWords(line, content) {
-			b.WriteString(row(s.muted.Render(wrapped)) + "\n")
-		}
-	}
-	b.WriteString(row("") + "\n")
-	b.WriteString(row(unlinkedVaultMeta(s, m.preferredVaultAPIBase(), content)) + "\n")
+	content := max(4, min(50, max(8, m.terminalWidth()-2))-2)
+	extra := []string{unlinkedVaultMeta(s, m.preferredVaultAPIBase(), content)}
 	if m.vaultStatus != "" {
 		for _, wrapped := range wrapWords(m.vaultStatus, content) {
-			b.WriteString(row(s.error.Render(wrapped)) + "\n")
+			extra = append(extra, s.error.Render(wrapped))
 		}
 	}
-	b.WriteString(bot)
-	placed := lipgloss.PlaceHorizontal(m.terminalWidth(), lipgloss.Center, b.String())
-	return "\n" + placed + "\n"
+	return m.renderSeal(s, "◇  No vault yet", []string{
+		"Sync hosts and keys between your computers.",
+		"The passphrase never leaves this machine.",
+	}, extra)
 }
 
 func unlinkedVaultMeta(s styleSet, apiBase string, width int) string {

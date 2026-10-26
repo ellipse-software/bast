@@ -18,12 +18,15 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"bast/internal/cloud"
 	cloudsync "bast/internal/cloud/sync"
 	"bast/internal/connectbanner"
+	"bast/internal/doctor"
 	keymodel "bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/openssh"
 	"bast/internal/paths"
+	"bast/internal/rdp"
 	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
 	"bast/internal/vault"
@@ -82,6 +85,18 @@ func ctrlJ() tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Code: 'j', Mod: tea.ModCtrl})
 }
 
+func ctrlS() tea.KeyPressMsg {
+	return tea.KeyPressMsg(tea.Key{Code: 's', Mod: tea.ModCtrl})
+}
+
+func superS() tea.KeyPressMsg {
+	return tea.KeyPressMsg(tea.Key{Code: 's', Mod: tea.ModSuper})
+}
+
+func ctrlO() tea.KeyPressMsg {
+	return tea.KeyPressMsg(tea.Key{Code: 'o', Mod: tea.ModCtrl})
+}
+
 func ctrlC() tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl})
 }
@@ -94,6 +109,17 @@ func requireQuit(t *testing.T, cmd tea.Cmd) {
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Fatal("command did not return tea.Quit")
 	}
+}
+
+func hostHubIndex(t *testing.T, m *App, id string) int {
+	t.Helper()
+	for i, item := range hostHubItems(m.form) {
+		if item.id == id {
+			return i
+		}
+	}
+	t.Fatalf("hub item %q not found", id)
+	return -1
 }
 
 func enterHostFormSection(t *testing.T, m *App, section string) {
@@ -170,11 +196,13 @@ func TestNumberedNavigationAndSearch(t *testing.T) {
 
 func TestCtrlCQuitsFromEveryBastContext(t *testing.T) {
 	contexts := map[string]func(*App){
-		"root":   func(*App) {},
-		"help":   func(m *App) { m.help = true },
-		"about":  func(m *App) { m.credits = true },
-		"search": func(m *App) { m.search = "\x00query" },
-		"error":  func(m *App) { m.status, m.statusError = "failed", true },
+		"root":       func(*App) {},
+		"help":       func(m *App) { m.help = true },
+		"about":      func(m *App) { m.credits = true },
+		"onboarding": func(m *App) { m.onboarding = true },
+		"doctor":     func(m *App) { m.doctor = true },
+		"search":     func(m *App) { m.search = "\x00query" },
+		"error":      func(m *App) { m.status, m.statusError = "failed", true },
 		"host form": func(m *App) {
 			m.openAddHostForm()
 		},
@@ -193,11 +221,13 @@ func TestCtrlCQuitsFromEveryBastContext(t *testing.T) {
 }
 
 func TestQQuitsOutsideTextInput(t *testing.T) {
-	for _, context := range []string{"root", "help", "about"} {
+	for _, context := range []string{"root", "help", "about", "onboarding", "doctor"} {
 		t.Run(context, func(t *testing.T) {
 			m := testApp(t)
 			m.help = context == "help"
 			m.credits = context == "about"
+			m.onboarding = context == "onboarding"
+			m.doctor = context == "doctor"
 			_, cmd := m.Update(press("q"))
 			requireQuit(t, cmd)
 		})
@@ -389,6 +419,60 @@ func TestCloudSyncRootShowsRightAlignedErrorIcon(t *testing.T) {
 	}
 }
 
+func TestVercelAndHetznerSyncErrorsShowIcon(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{Alias: "sandbox"}, {Alias: "web"}}
+	if err := m.metadata.SetHost("sandbox", metadata.Host{Group: "Vercel"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("web", metadata.Host{Group: "Hetzner Cloud/default/fsn1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetVercel(metadata.VercelIntegration{Enabled: true, LastSyncError: "team required"}); err != nil {
+		t.Fatal(err)
+	}
+	m.sortHosts()
+	if rendered := m.renderHosts(m.styles()); strings.Count(rendered, "⚠") != 1 {
+		t.Fatalf("expected Vercel error icon:\n%s", rendered)
+	}
+
+	vercel := m.metadata.Vercel()
+	vercel.LastSyncError = ""
+	if err := m.metadata.SetVercel(vercel); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHetzner(metadata.HetznerIntegration{Enabled: true, LastSyncError: "401"}); err != nil {
+		t.Fatal(err)
+	}
+	if rendered := m.renderHosts(m.styles()); strings.Count(rendered, "⚠") != 1 {
+		t.Fatalf("expected Hetzner error icon:\n%s", rendered)
+	}
+}
+
+func TestProviderConnectClearsStaleSyncErrorImmediately(t *testing.T) {
+	m := testApp(t)
+	m.syncProvider = "vercel"
+	m.syncStatus.Vercel.Error = "team required"
+	if err := m.metadata.SetVercel(metadata.VercelIntegration{Enabled: true, TeamID: "team_1", ProjectID: "prj_1", LastSyncError: "old list error"}); err != nil {
+		t.Fatal(err)
+	}
+	m.beginProviderOp("vercel")
+	if m.syncStatus.Vercel.Error != "" {
+		t.Fatalf("probe error survived begin: %q", m.syncStatus.Vercel.Error)
+	}
+	identity := m.renderProviderIdentity(m.styles(), "vercel")
+	if strings.Contains(identity, "team required") || strings.Contains(identity, "old list error") {
+		t.Fatalf("stale error still visible while connecting:\n%s", identity)
+	}
+	if err := m.metadata.SetVercel(metadata.VercelIntegration{Enabled: true, TeamID: "team_1", ProjectID: "prj_1"}); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(syncDoneMsg{provider: "vercel", opGen: m.providerOpGen("vercel")})
+	if m.syncStatus.Vercel.Error != "" {
+		t.Fatalf("probe error survived success: %q", m.syncStatus.Vercel.Error)
+	}
+}
+
 func TestCloudSyncRootShowsCurrentCLIError(t *testing.T) {
 	m := testApp(t)
 	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Amazon EC2/default/eu-west-2"}); err != nil {
@@ -543,6 +627,126 @@ func TestHostGroupsSupportFiveNestedLevels(t *testing.T) {
 		if strings.HasPrefix(row.group, "test/") || row.host.Alias == "gamma" {
 			t.Fatalf("collapsed parent still shows a descendant: %+v", row)
 		}
+	}
+}
+
+func TestHostGroupArrowsFollowTheTree(t *testing.T) {
+	m := testApp(t)
+	m.hosts = append(m.hosts, sshconfig.Host{Alias: "gamma"}, sshconfig.Host{Alias: "delta"}, sshconfig.Host{Alias: "loose"})
+	groups := map[string]string{
+		"alpha": "test/abc",
+		"beta":  "test/def",
+		"gamma": "test",
+		"delta": "one/two/three/four/five",
+	}
+	for alias, group := range groups {
+		if err := m.metadata.SetHost(alias, metadata.Host{Group: group}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.sortHosts()
+
+	index := func(match func(hostRow) bool) int {
+		t.Helper()
+		for i, row := range m.hostListRows() {
+			if match(row) {
+				return i
+			}
+		}
+		t.Fatal("row not found")
+		return -1
+	}
+	left := tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft})
+	right := tea.KeyPressMsg(tea.Key{Code: tea.KeyRight})
+	up := tea.KeyPressMsg(tea.Key{Code: tea.KeyUp})
+	down := tea.KeyPressMsg(tea.Key{Code: tea.KeyDown})
+
+	alpha := index(func(row hostRow) bool { return row.host.Alias == "alpha" })
+	m.cursor = alpha
+	m.Update(up)
+	if m.cursor != alpha-1 {
+		t.Fatalf("up moved to %d, want %d", m.cursor, alpha-1)
+	}
+	m.Update(down)
+	if m.cursor != alpha {
+		t.Fatalf("down moved to %d, want %d", m.cursor, alpha)
+	}
+
+	m.Update(left)
+	if m.cursor != index(func(row hostRow) bool { return row.header && row.group == "test/abc" }) {
+		t.Fatalf("left on a host did not focus test/abc: cursor=%d rows=%+v", m.cursor, m.hostRows())
+	}
+	m.Update(left)
+	if !m.collapsedGroups["test/abc"] || m.hostRows()[m.cursor].group != "test/abc" || !m.hostRows()[m.cursor].header {
+		t.Fatalf("left on an expanded group did not collapse it: collapsed=%v cursor=%d", m.collapsedGroups, m.cursor)
+	}
+	m.Update(right)
+	if m.collapsedGroups["test/abc"] {
+		t.Fatal("right did not expand the collapsed subgroup")
+	}
+	expanded := m.cursor
+	m.Update(right)
+	if m.cursor != expanded || m.collapsedGroups["test/abc"] {
+		t.Fatal("right on an expanded group changed the selection")
+	}
+	m.Update(left)
+	m.Update(left)
+	if m.cursor != index(func(row hostRow) bool { return row.header && row.group == "test" }) {
+		t.Fatalf("left on a collapsed group did not focus its parent: cursor=%d", m.cursor)
+	}
+
+	m.cursor = index(func(row hostRow) bool { return row.header && row.group == "test" })
+	m.Update(press("h"))
+	if m.collapsedGroups["test"] {
+		t.Fatal("h collapsed a group")
+	}
+	m.Update(left)
+	if !m.collapsedGroups["test"] {
+		t.Fatal("left did not collapse the expanded parent")
+	}
+	stayed := m.cursor
+	m.Update(left)
+	if m.cursor != stayed || !m.collapsedGroups["test"] {
+		t.Fatalf("left on a top-level collapsed group moved: cursor=%d collapsed=%v", m.cursor, m.collapsedGroups)
+	}
+	m.Update(right)
+	if m.collapsedGroups["test"] {
+		t.Fatal("right did not expand the parent")
+	}
+
+	m.cursor = index(func(row hostRow) bool { return row.host.Alias == "delta" })
+	m.Update(left)
+	flat := index(func(row hostRow) bool { return row.header && row.group == "one/two/three/four/five" })
+	if m.cursor != flat {
+		t.Fatalf("left on a host in a flattened chain did not focus the visible header: cursor=%d", m.cursor)
+	}
+	m.Update(left)
+	if !m.collapsedGroups["one/two/three/four/five"] {
+		t.Fatal("left did not collapse the flattened header")
+	}
+	m.Update(left)
+	if m.cursor != flat || !m.collapsedGroups["one/two/three/four/five"] {
+		t.Fatalf("left looked for a parent row that flattening removed: cursor=%d collapsed=%v", m.cursor, m.collapsedGroups)
+	}
+
+	m.cursor = index(func(row hostRow) bool { return row.host.Alias == "loose" })
+	loose := m.cursor
+	m.Update(left)
+	m.Update(right)
+	if m.cursor != loose || m.collapsedGroups["loose"] {
+		t.Fatalf("arrows changed an ungrouped host: cursor=%d collapsed=%v", m.cursor, m.collapsedGroups)
+	}
+
+	m.search = "a"
+	m.cursor = index(func(row hostRow) bool { return row.header && row.group == "test" })
+	m.Update(left)
+	if m.collapsedGroups["test"] || !strings.Contains(m.status, "Clear the search filter") {
+		t.Fatalf("search left collapsed or stayed quiet: collapsed=%v status=%q", m.collapsedGroups, m.status)
+	}
+	m.cursor = index(func(row hostRow) bool { return row.host.Alias == "alpha" })
+	m.Update(left)
+	if m.cursor != index(func(row hostRow) bool { return row.header && row.group == "test/abc" }) {
+		t.Fatal("left during search did not move from a host to its parent")
 	}
 }
 
@@ -958,6 +1162,48 @@ func TestHostEditorSaveIsVisiblePortableAndClickable(t *testing.T) {
 		}
 	})
 
+	t.Run("Ctrl+S", func(t *testing.T) {
+		m := testApp(t)
+		if err := m.metadata.SetHost("alpha", metadata.Host{Favorite: true, ConnectionCount: 4, Notes: "keep"}); err != nil {
+			t.Fatal(err)
+		}
+		m.openEditHostForm()
+		enterHostFormSection(t, m, formSectionMetadata)
+		focused := false
+		for i := range m.form.fields {
+			if m.form.fields[i].label == rdpFieldLabel {
+				m.form.index = i
+				m.form.fields[i].selected = 1
+				focused = true
+				break
+			}
+		}
+		if !focused {
+			t.Fatal("metadata section has no Open RDP field")
+		}
+		m.updateForm(ctrlS())
+		if m.form != nil {
+			t.Fatal("Ctrl+S did not save from a host form section")
+		}
+		got := m.metadata.Host("alpha")
+		if !got.RDP || !got.Favorite || got.ConnectionCount != 4 || got.Notes != "keep" {
+			t.Fatalf("metadata = %+v", got)
+		}
+	})
+
+	t.Run("Cmd+S", func(t *testing.T) {
+		m := testApp(t)
+		m.openEditHostForm()
+		m.form.input.SetValue("Saved with command")
+		m.updateForm(superS())
+		if m.form != nil {
+			t.Fatal("Cmd+S did not save the host form")
+		}
+		if got := m.metadata.Host("alpha").Label; got != "Saved with command" {
+			t.Fatalf("saved label = %q", got)
+		}
+	})
+
 	t.Run("click", func(t *testing.T) {
 		m := testApp(t)
 		m.openEditHostForm()
@@ -1021,7 +1267,7 @@ func TestHostEditorSaveHintAlternatesWithoutStaleTicks(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("opening the host editor did not schedule the save hint")
 	}
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+J save") || strings.Contains(footer, "Ctrl+↵ save") {
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, hostFormSaveHint(false)) || strings.Contains(footer, "Ctrl+↵ save") || strings.Contains(footer, "Ctrl+J") {
 		t.Fatalf("initial save hint = %q", footer)
 	}
 
@@ -1030,7 +1276,7 @@ func TestHostEditorSaveHintAlternatesWithoutStaleTicks(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("active host editor did not schedule the next save hint")
 	}
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+↵ save") || strings.Contains(footer, "Ctrl+J save") {
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+↵ save") || strings.Contains(footer, hostFormSaveHint(false)) {
 		t.Fatalf("alternate save hint = %q", footer)
 	}
 
@@ -1082,7 +1328,7 @@ func TestExternalHostEditOnlyOffersMetadataAndIsFullyRevealed(t *testing.T) {
 		t.Fatalf("metadata section was not opened:\n%s", rendered)
 	}
 	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "Ctrl+J save") || strings.Contains(footer, "connect") {
+	if !strings.Contains(footer, hostFormSaveHint(false)) || strings.Contains(footer, "Ctrl+J") || strings.Contains(footer, "connect") {
 		t.Fatalf("metadata editor footer is incorrect: %q", footer)
 	}
 }
@@ -1090,12 +1336,12 @@ func TestExternalHostEditOnlyOffersMetadataAndIsFullyRevealed(t *testing.T) {
 func TestFooterShowsControlsForTheActiveFormState(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Enter next") || !strings.Contains(footer, "Ctrl+J save") || !strings.Contains(footer, "Esc cancel") || strings.Contains(footer, "connect") {
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Enter next") || !strings.Contains(footer, hostFormSaveHint(false)) || strings.Contains(footer, "Ctrl+J") || !strings.Contains(footer, "Esc cancel") || strings.Contains(footer, "connect") {
 		t.Fatalf("create footer = %q", footer)
 	}
 
 	m.openEditHostForm()
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+J save") || !strings.Contains(footer, "Tab move") || strings.Contains(footer, "connect") {
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, hostFormSaveHint(false)) || strings.Contains(footer, "Ctrl+J") || !strings.Contains(footer, "Tab move") || strings.Contains(footer, "connect") {
 		t.Fatalf("edit footer = %q", footer)
 	}
 	enterHostFormSection(t, m, formSectionMetadata)
@@ -1106,8 +1352,6 @@ func TestFooterShowsControlsForTheActiveFormState(t *testing.T) {
 	m.hosts[0].Managed = true
 	m.openEditHostForm()
 	enterHostFormSection(t, m, formSectionAuth)
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "q quit") {
 		t.Fatalf("selectable host field does not advertise q as quit: %q", footer)
 	}
@@ -1144,29 +1388,28 @@ func TestEditFormUsesSpaceToChangeAChoice(t *testing.T) {
 	m.hosts = []sshconfig.Host{{Alias: "alpha", Managed: true, ManagedID: "alpha"}}
 	m.openEditHostForm()
 	enterHostFormSection(t, m, formSectionAuth)
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.form.fields[m.form.index].label != "Identity file" || m.form.selecting {
-		t.Fatal("arrow navigation did not focus the identity field")
+	if m.form.fields[m.form.index].label != methodFieldLabel || m.form.selecting {
+		t.Fatal("auth section did not open on the method field")
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
 	if !m.form.selecting {
-		t.Fatal("Space did not open the identity choices")
+		t.Fatal("Space did not open the method choices")
 	}
 	m.updateForm(press("j"))
+	m.updateForm(press("j"))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if m.form.selecting || m.form.fields[m.form.index].label != "Identity file" {
-		t.Fatal("Enter did not confirm the identity choice in place")
+	if m.form.fields[m.form.index].label != passwordFieldLabel {
+		t.Fatal("choosing Password did not move to the password field")
 	}
-	if got := m.form.fields[m.form.index].value; got != passwordOnlyIdentity {
-		t.Fatalf("selected identity = %q", got)
+	if got := formFieldByLabel(m, methodFieldLabel).value; got != passwordOnlyIdentity {
+		t.Fatalf("selected method = %q", got)
 	}
 }
 
 func TestHostFormQuitKeysWorkFromMenus(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
-	m.form.hubIndex = 2
+	m.form.hubIndex = hostHubIndex(t, m, "auth")
 	m.focusHostHubItem()
 	_, cmd := m.updateForm(press("q"))
 	if cmd == nil {
@@ -1220,7 +1463,7 @@ func TestHostFormBackspaceNavigatesSubmenus(t *testing.T) {
 		t.Fatal("backspace in an empty hostname field should remain in the field")
 	}
 
-	m.form.hubIndex = 3
+	m.form.hubIndex = hostHubIndex(t, m, "auth")
 	m.focusHostHubItem()
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
 	if m.form != nil {
@@ -1353,13 +1596,13 @@ func TestFormRevealsFieldsProgressivelyAndRevisitsThem(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
 	initial := m.renderForm(m.styles())
-	if !strings.Contains(initial, "Label") || !strings.Contains(initial, "Authentication") || strings.Contains(initial, "User") {
+	if !strings.Contains(initial, "Label") || !strings.Contains(initial, "Authentication") || !strings.Contains(initial, "User") {
 		t.Fatalf("initial hub form layout is incorrect:\n%s", initial)
 	}
 	m.form.input.SetValue("prod")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	second := m.renderForm(m.styles())
-	if !strings.Contains(second, "Label  prod") || !strings.Contains(second, "› Hostname") || strings.Contains(second, "User") {
+	if !strings.Contains(second, "Label  prod") || !strings.Contains(second, "› Hostname") {
 		t.Fatalf("Enter did not advance to hostname:\n%s", second)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
@@ -1371,9 +1614,13 @@ func TestFormRevealsFieldsProgressivelyAndRevisitsThem(t *testing.T) {
 		t.Fatalf("down did not return to hostname: hubIndex=%d", m.form.hubIndex)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if m.form.hubIndex != hostHubIndex(t, m, "user") {
+		t.Fatalf("down did not move to user: hubIndex=%d", m.form.hubIndex)
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	third := m.renderForm(m.styles())
-	if !strings.Contains(third, "› Authentication") || strings.Contains(third, "User") {
-		t.Fatal("down moved to authentication menu without opening it, or leaked section fields")
+	if !strings.Contains(third, "› Authentication") {
+		t.Fatal("down did not move to authentication menu")
 	}
 }
 
@@ -1471,63 +1718,51 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 	}
 	m.openAddHostForm()
 	enterHostFormSection(t, m, formSectionAuth)
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.form.fields[m.form.index].label != "Identity file" {
-		t.Fatalf("identity field was not focused: %+v", m.form)
+	if m.form.fields[m.form.index].label != methodFieldLabel {
+		t.Fatalf("method field was not focused: %+v", m.form)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if !m.form.selecting {
-		t.Fatal("Enter did not open the identity picker")
+		t.Fatal("Enter did not open the method picker")
 	}
 	view := m.renderForm(m.styles())
-	if !strings.Contains(view, "OpenSSH defaults / agent") || !strings.Contains(view, "work · ~/.ssh/bast/keys/work") || !strings.Contains(view, "Manual path…") {
-		t.Fatalf("identity picker is missing expected choices:\n%s", view)
+	if !strings.Contains(view, "OpenSSH defaults / agent") || !strings.Contains(view, "work · ~/.ssh/bast/keys/work") || !strings.Contains(view, "Manual path…") || !strings.Contains(view, "Password") {
+		t.Fatalf("method picker is missing expected choices:\n%s", view)
 	}
 	if strings.Contains(view, "agent-only") {
-		t.Fatalf("agent-only key was offered as an IdentityFile:\n%s", view)
+		t.Fatalf("agent-only key was offered as a method:\n%s", view)
 	}
-	if !m.form.selecting {
-		t.Fatal("identity picker closed while rendering")
+	method := formFieldByLabel(m, methodFieldLabel)
+	if method.options[len(method.options)-1].value != passwordOnlyIdentity {
+		t.Fatalf("Password should be last: %+v", method.options)
 	}
 
 	m.updateForm(press("j"))
-	if option := m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected]; option.value != passwordOnlyIdentity {
-		t.Fatalf("j did not select password-only authentication: %+v", option)
-	}
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.form.screen != "hub" {
-		t.Fatal("password-only selection did not return to the hub")
-	}
-	enterAdvancedSubsection(t, m, formSectionAdvancedJump)
-	if m.form.fields[m.form.index].label != "Proxy jump" {
-		t.Fatal("jump subsection did not open on proxy jump")
-	}
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
-	enterHostFormSection(t, m, formSectionAuth)
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.form.fields[m.form.index].label != "Identity file" {
-		t.Fatal("did not return to the identity field")
-	}
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	m.updateForm(press("j"))
 	if option := m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected]; option.value != "~/.ssh/bast/keys/work" {
-		t.Fatalf("second j selected wrong identity option: %+v", option)
+		t.Fatalf("j did not select the first key: %+v", option)
 	}
-	m.updateForm(press("k"))
-	if option := m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected]; option.value != passwordOnlyIdentity {
-		t.Fatalf("k selected wrong identity option: %+v", option)
-	}
-	m.updateForm(press("j"))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if got := formFieldByLabel(m, "Identity file").value; got != "~/.ssh/bast/keys/work" {
-		t.Fatalf("selected identity = %q", got)
+	if got := formFieldByLabel(m, methodFieldLabel).value; got != "~/.ssh/bast/keys/work" {
+		t.Fatalf("selected method = %q", got)
 	}
-	if m.form.screen != "hub" {
-		t.Fatalf("selecting a key did not return to the hub: screen=%q", m.form.screen)
+	if !formFieldByLabel(m, passwordFieldLabel).hidden {
+		t.Fatal("password field should stay hidden for a key")
+	}
+
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	for m.form.fields[m.form.index].options[m.form.fields[m.form.index].selected].value != passwordOnlyIdentity {
+		prev := m.form.fields[m.form.index].selected
+		m.updateForm(press("j"))
+		if m.form.fields[m.form.index].selected == prev {
+			t.Fatal("could not reach Password in the method picker")
+		}
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.form.fields[m.form.index].label != passwordFieldLabel {
+		t.Fatal("choosing Password did not focus the password field")
+	}
+	if formFieldByLabel(m, passwordFieldLabel).hidden {
+		t.Fatal("password field stayed hidden")
 	}
 
 	m = testApp(t)
@@ -1535,25 +1770,22 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 	m.keys = []keymodel.Key{{Name: "work", PrivatePath: manualTestPath}}
 	m.openAddHostForm()
 	enterHostFormSection(t, m, formSectionAuth)
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	m.updateForm(press("j"))
 	m.updateForm(press("j"))
-	m.updateForm(press("j"))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if m.form.selecting || m.form.fields[m.form.index].label != "Identity file" {
+	if m.form.selecting || m.form.fields[m.form.index].label != methodFieldLabel {
 		t.Fatal("manual choice did not switch the picker to path entry")
 	}
 	m.form.input.SetValue("~/.ssh/special_key")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
-	identityIdx := m.form.fieldIndex("Identity file")
-	if !m.form.selecting || m.form.fields[identityIdx].customValue != "~/.ssh/special_key" {
+	methodIdx := m.form.fieldIndex(methodFieldLabel)
+	if !m.form.selecting || m.form.fields[methodIdx].customValue != "~/.ssh/special_key" {
 		t.Fatal("Esc did not return manual path entry to the key choices")
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if got := formFieldByLabel(m, "Identity file").value; got != "~/.ssh/special_key" {
+	if got := formFieldByLabel(m, methodFieldLabel).value; got != "~/.ssh/special_key" {
 		t.Fatalf("manual identity = %q", got)
 	}
 
@@ -1562,9 +1794,9 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 	m.keys = []keymodel.Key{{Name: "work", PrivatePath: editPath}}
 	m.hosts = []sshconfig.Host{{Alias: "alpha", Managed: true, ManagedID: "alpha", Resolved: sshconfig.Resolved{IdentityFiles: []string{editPath}}}}
 	m.openEditHostForm()
-	identity := formFieldByLabel(m, "Identity file")
-	if identity.options[identity.selected].value != "~/.ssh/bast/keys/work" {
-		t.Fatalf("existing detected identity was not preselected: %+v", identity)
+	method = formFieldByLabel(m, methodFieldLabel)
+	if method.options[method.selected].value != "~/.ssh/bast/keys/work" {
+		t.Fatalf("existing detected identity was not preselected: %+v", method)
 	}
 	enterHostFormSection(t, m, formSectionMetadata)
 	rendered := m.renderForm(m.styles())
@@ -1574,9 +1806,70 @@ func TestHostFormSelectsDetectedKeysAndKeepsManualPathOption(t *testing.T) {
 
 	m.hosts[0].Resolved = sshconfig.Resolved{PubkeyAuthentication: "no", PasswordAuthentication: "yes"}
 	m.openEditHostForm()
-	identity = formFieldByLabel(m, "Identity file")
-	if identity.options[identity.selected].value != passwordOnlyIdentity {
-		t.Fatalf("password-only authentication was not preselected: %+v", identity)
+	method = formFieldByLabel(m, methodFieldLabel)
+	if method.options[method.selected].value != passwordOnlyIdentity {
+		t.Fatalf("password authentication was not preselected: %+v", method)
+	}
+}
+
+func TestHostFormStoresAndClearsPasswords(t *testing.T) {
+	m := testApp(t)
+	m.config = sshconfig.Manager{
+		Home: m.paths.Home, MainConfig: m.paths.MainConfig, ManagedDir: m.paths.ManagedDir,
+		ManagedConfig: m.paths.ManagedConfig, ManagedKeys: m.paths.ManagedKeys,
+	}
+	m.openAddHostForm()
+	m.form.fieldByLabel("Label").value = "legacy"
+	m.form.fieldByLabel("Hostname").value = "legacy.example"
+	m.form.fieldByLabel(methodFieldLabel).value = passwordOnlyIdentity
+	pwd := m.form.fieldByLabel(passwordFieldLabel)
+	pwd.value = "s3cret"
+	pwd.hidden = false
+	m.submitForm()
+	if m.statusError {
+		t.Fatalf("save failed: %s", m.status)
+	}
+	hosts, err := m.config.Discover()
+	if err != nil || len(hosts) != 1 {
+		t.Fatalf("hosts = %v err=%v", hosts, err)
+	}
+	id := hosts[0].ManagedID
+	got, err := os.ReadFile(filepath.Join(m.paths.PasswordsDir, id))
+	if err != nil || strings.TrimSpace(string(got)) != "s3cret" {
+		t.Fatalf("stored password = %q err=%v", got, err)
+	}
+	config, err := os.ReadFile(m.paths.ManagedConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(config), "PubkeyAuthentication no") || strings.Contains(string(config), "s3cret") {
+		t.Fatalf("managed config = %s", config)
+	}
+
+	m.hosts = hosts
+	m.hosts[0].Resolved = sshconfig.Resolved{HostName: "legacy.example", PubkeyAuthentication: "no", PasswordAuthentication: "yes"}
+	m.openEditHostForm()
+	if formFieldByLabel(m, passwordFieldLabel).hidden {
+		t.Fatal("stored password did not reveal the password field")
+	}
+	if formFieldByLabel(m, passwordFieldLabel).value != passwordKeepValue {
+		t.Fatal("edit did not default to keeping the stored password")
+	}
+	m.form.fieldByLabel(passwordFieldLabel).value = ""
+	m.submitForm()
+	got, err = os.ReadFile(filepath.Join(m.paths.PasswordsDir, id))
+	if err != nil || strings.TrimSpace(string(got)) != "s3cret" {
+		t.Fatalf("blank edit cleared the password: %q err=%v", got, err)
+	}
+
+	m.openEditHostForm()
+	method := m.form.fieldByLabel(methodFieldLabel)
+	method.value = ""
+	method.selected = 0
+	m.syncHostPasswordField()
+	m.submitForm()
+	if _, err := os.Stat(filepath.Join(m.paths.PasswordsDir, id)); !os.IsNotExist(err) {
+		t.Fatalf("switching method left the password file: %v", err)
 	}
 }
 
@@ -1586,7 +1879,7 @@ func TestSelectedPublicKeyCanOpenServerPickerFromKeyOrMouse(t *testing.T) {
 	m.keys = []keymodel.Key{{Name: "work", PublicPath: filepath.Join(m.paths.ManagedKeys, "work.pub")}}
 	m.hosts[0].Resolved = sshconfig.Resolved{HostName: "alpha.example", User: "deploy", Port: "22"}
 
-	m.Update(press("u"))
+	m.Update(press("a"))
 	if m.form == nil || m.form.action != "key_install" || len(m.form.fields[1].options) != 2 {
 		t.Fatalf("server picker was not opened: %+v", m.form)
 	}
@@ -1980,6 +2273,7 @@ func TestHelpUsesTerminalWidthWithoutWrapping(t *testing.T) {
 func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 	m := testApp(t)
 	m.width = 50
+	m.height = 40
 	m.section = syncSection
 	if !m.isMobileLayout() {
 		t.Fatal("expected mobile layout")
@@ -1988,11 +2282,127 @@ func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 		t.Fatalf("mobile grid cols = %d", m.syncGridCols())
 	}
 	body := m.renderSync(m.styles())
-	if strings.Count(body, "┌") != 6 {
+	if strings.Count(body, "┌") != 8 {
 		t.Fatalf("mobile should keep one boxed tile per provider:\n%s", body)
 	}
-	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Box") || !strings.Contains(body, "Upstash") {
+	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Boat") || !strings.Contains(body, "Upstash") || !strings.Contains(body, "Vercel") || !strings.Contains(body, "Hetzner") || !strings.Contains(body, "BitQate") {
 		t.Fatalf("mobile grid body:\n%s", body)
+	}
+}
+
+func TestSyncGridShowsNerdIconsWhenEnabled(t *testing.T) {
+	m := testApp(t)
+	m.width = 80
+	m.height = 40
+	m.section = syncSection
+	m.nerdFont = true
+	body := m.renderSync(m.styles())
+	for _, icon := range []string{"\ue7f1", "\ue7ad", "\ue754", "\U000f0ec8", "\uf1b2", "\u25b2", "\uf233"} {
+		if !strings.Contains(body, icon) {
+			t.Fatalf("missing icon %q in:\n%s", icon, body)
+		}
+	}
+}
+
+func TestProviderChooserTitleKeepsIconWhenNarrow(t *testing.T) {
+	m := testApp(t)
+	m.nerdFont = true
+	title := m.providerChooserTitle(cloud.Azure, 12)
+	if !strings.Contains(title, "\ue754") {
+		t.Fatalf("narrow title dropped icon: %q", title)
+	}
+}
+
+func TestSyncGridScrollsWhenProvidersOverflow(t *testing.T) {
+	m := testApp(t)
+	m.width = 50
+	m.height = 16
+	m.section = syncSection
+	m.syncCursor = 0
+	if !m.isMobileLayout() {
+		t.Fatal("expected mobile layout")
+	}
+	body := m.renderSync(m.styles())
+	if strings.Contains(body, "BitQate") {
+		t.Fatalf("short mobile view should clip later providers:\n%s", body)
+	}
+	if !strings.Contains(body, "Amazon EC2") {
+		t.Fatalf("first providers should be visible:\n%s", body)
+	}
+
+	m.updateSyncKeys("G")
+	body = m.renderSync(m.styles())
+	if !strings.Contains(body, "DigitalOcean") {
+		t.Fatalf("jumping to the last provider should reveal it:\n%s", body)
+	}
+	if strings.Contains(body, "Amazon EC2") {
+		t.Fatalf("first providers should scroll away:\n%s", body)
+	}
+
+	m.Update(tea.MouseWheelMsg(tea.Mouse{X: 4, Y: 4, Button: tea.MouseWheelUp}))
+	body = m.renderSync(m.styles())
+	if m.syncCursor != len(m.syncMenuItems())-2 {
+		t.Fatalf("wheel up should move one provider, cursor=%d", m.syncCursor)
+	}
+	if !strings.Contains(body, "Fly.io") {
+		t.Fatalf("wheel should keep the focused provider in view:\n%s", body)
+	}
+
+	startRow, _, _ := m.syncGridWindow(m.syncMenuItems())
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: 3, Button: tea.MouseLeft}))
+	if m.syncCursor != startRow {
+		t.Fatalf("click on first visible tile should select row %d, got %d", startRow, m.syncCursor)
+	}
+
+	m.width = 100
+	m.height = 12
+	m.syncCursor = 0
+	if m.isMobileLayout() {
+		t.Fatal("expected desktop layout")
+	}
+	body = m.renderSync(m.styles())
+	if strings.Contains(body, "Hetzner") {
+		t.Fatalf("short desktop view should clip later provider rows:\n%s", body)
+	}
+	m.updateSyncKeys("G")
+	if view := m.render(); !strings.Contains(view, "DigitalOcean") {
+		t.Fatalf("full view should show the focused provider after scroll:\n%s", view)
+	}
+}
+
+func TestProviderPageScrollsWhenInventoryOverflows(t *testing.T) {
+	m := testApp(t)
+	m.width = 80
+	m.height = 14
+	m.section = syncSection
+	m.syncProvider = "gcp"
+	m.hosts = make([]sshconfig.Host, 0, 24)
+	for i := 0; i < 24; i++ {
+		alias := fmt.Sprintf("gcp_host_%02d", i)
+		m.hosts = append(m.hosts, sshconfig.Host{
+			Alias: alias, Synced: true, SyncSource: "gcp",
+			SyncID: "projects/p/zones/z/instances/" + alias,
+		})
+		if err := m.metadata.SetHost(alias, metadata.Host{Label: alias, Group: "Google Cloud"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.syncCursor = 0
+	body := m.renderSync(m.styles())
+	if strings.Contains(body, "Refresh status") {
+		t.Fatalf("short provider page should clip later config:\n%s", body)
+	}
+	if !strings.Contains(body, "Connect") && !strings.Contains(body, "Sync") {
+		t.Fatalf("top of provider page should stay visible:\n%s", body)
+	}
+
+	m.updateSyncKeys("G")
+	body = m.renderSync(m.styles())
+	if !strings.Contains(body, "Refresh status") {
+		t.Fatalf("last config row should scroll into view:\n%s", body)
+	}
+	if strings.Contains(body, "gcp_host_00") {
+		t.Fatalf("early inventory should scroll away:\n%s", body)
 	}
 }
 
@@ -2188,6 +2598,116 @@ func TestDesktopConnectButtonIsClickable(t *testing.T) {
 	}
 }
 
+func TestOpenRDPUsesTheHostAddress(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 100, 30
+	m.hosts[0].Resolved = sshconfig.Resolved{HostName: "rdp.example", User: "alice", Port: "2222"}
+	m.hosts[0].Synced = true
+	var got rdp.Session
+	calls := 0
+	prev := launchRDP
+	launchRDP = func(session rdp.Session) error {
+		if _, _, err := rdp.Command("linux", session); err != nil {
+			return err
+		}
+		calls++
+		got = session
+		return nil
+	}
+	t.Cleanup(func() { launchRDP = prev })
+
+	selectHostAlias(t, m, "alpha")
+	m.Update(ctrlO())
+	if calls != 1 || got.Address != "rdp.example" || got.User != "" || got.Domain != "" {
+		t.Fatalf("session = %+v calls=%d", got, calls)
+	}
+	if m.statusError || !strings.Contains(m.status, "rdp.example") {
+		t.Fatalf("status = %q error=%v", m.status, m.statusError)
+	}
+	if strings.Contains(m.renderFooter(m.styles()), "Ctrl+O") {
+		t.Fatal("RDP footer is visible before the host enables it")
+	}
+
+	m.hosts[0].Resolved.HostName = ""
+	m.Update(ctrlO())
+	if got.Address != "alpha" {
+		t.Fatalf("alias fallback = %q", got.Address)
+	}
+
+	m.hosts[0].Resolved.HostName = "bad;rm -rf /"
+	m.Update(ctrlO())
+	if !m.statusError || strings.Contains(m.status, "rm") || strings.Contains(m.status, "executable file not found") {
+		t.Fatalf("invalid address status = %q", m.status)
+	}
+
+	if err := m.metadata.SetHost("alpha", metadata.Host{RDP: true}); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshHostMetadata()
+	m.hosts[0].Resolved.HostName = "rdp.example"
+	m.status, m.statusError = "", false
+	body := m.renderHosts(m.styles())
+	if !strings.Contains(body, rdpAction) || !strings.Contains(body, connectAction) {
+		t.Fatalf("detail is missing the RDP chip:\n%s", body)
+	}
+	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+O") || !strings.Contains(footer, "rdp") {
+		t.Fatalf("footer = %q", footer)
+	}
+	help := m.helpGroups()
+	foundHelp := false
+	for _, group := range help {
+		for _, row := range group.rows {
+			if strings.Contains(row.name, "Remote Desktop") {
+				foundHelp = true
+			}
+		}
+	}
+	if !foundHelp {
+		t.Fatal("help does not list Open Remote Desktop")
+	}
+
+	calls = 0
+	m.statusError = false
+	layout := m.panelLayout()
+	x, y, width, ok := m.rdpButtonBounds(layout)
+	if !ok || x <= layout.listWidth {
+		t.Fatalf("rdp bounds = %d,%d,%d ok=%v", x, y, width, ok)
+	}
+	connectX, connectY, _ := m.connectButtonBounds(layout)
+	if x < connectX+1 || y != connectY {
+		t.Fatalf("rdp chip is not on the connect row: connect=%d,%d rdp=%d,%d", connectX, connectY, x, y)
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x + width/2, Y: y, Button: tea.MouseLeft}))
+	if calls != 1 {
+		t.Fatalf("RDP chip calls = %d", calls)
+	}
+	calls = 0
+	_, cmd := m.Update(tea.MouseClickMsg(tea.Mouse{X: connectX, Y: connectY, Button: tea.MouseLeft}))
+	if calls != 0 || cmd == nil {
+		t.Fatalf("connect chip launched RDP or did not connect: calls=%d cmd=%v", calls, cmd != nil)
+	}
+
+	if err := m.metadata.SetHost("beta", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	m.sortHosts()
+	m.cursor = -1
+	for i, row := range m.hostListRows() {
+		if row.header && row.group == "Work" {
+			m.cursor = i
+			break
+		}
+	}
+	if m.cursor < 0 {
+		t.Fatal("Work header was not listed")
+	}
+	calls = 0
+	m.Update(ctrlO())
+	if calls != 0 || !strings.Contains(m.status, "Select a host") {
+		t.Fatalf("group row launched RDP: calls=%d status=%q", calls, m.status)
+	}
+}
+
 func TestMobileConnectButtonIsClickable(t *testing.T) {
 	m := testApp(t)
 	m.width, m.height = 40, 24
@@ -2257,6 +2777,9 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 		"github.com/ellipse-software/bast",
 		"MIT License",
 		"v1.2.3",
+		"Sponsor",
+		"s sponsor",
+		"o intro",
 		"v / Esc / ⌫ close",
 	} {
 		if !strings.Contains(rendered, text) {
@@ -2277,6 +2800,42 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 	}
 }
 
+func TestCreditsSponsorOpensBastSponsorPage(t *testing.T) {
+	var opened string
+	prev := openBrowser
+	openBrowser = func(raw string) error {
+		opened = raw
+		return nil
+	}
+	t.Cleanup(func() { openBrowser = prev })
+
+	m := testApp(t)
+	m.Update(press("v"))
+	if !m.credits {
+		t.Fatal("v should open about")
+	}
+	m.Update(press("s"))
+	if opened != sponsorURL || !m.credits {
+		t.Fatalf("s should open %s from about, opened=%q credits=%v", sponsorURL, opened, m.credits)
+	}
+
+	opened = ""
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if opened != sponsorURL {
+		t.Fatalf("enter should open sponsor, opened=%q", opened)
+	}
+
+	opened = ""
+	x, y, width := m.creditsSponsorBounds()
+	if width == 0 {
+		t.Fatal("sponsor chip bounds missing")
+	}
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x, Y: y, Button: tea.MouseLeft}))
+	if opened != sponsorURL {
+		t.Fatalf("click should open sponsor at (%d,%d), opened=%q", x, y, opened)
+	}
+}
+
 func TestHelpScreenIsSpacedAndScrollable(t *testing.T) {
 	m := testApp(t)
 	m.width, m.height = 80, 18
@@ -2286,10 +2845,9 @@ func TestHelpScreenIsSpacedAndScrollable(t *testing.T) {
 	}
 	rendered := m.render()
 	for _, text := range []string{
-		"Keyboard shortcuts",
-		"Navigation",
 		"Hosts",
-		"Move selection",
+		"Add host",
+		"Move",
 		"↑/↓ scroll",
 		"? / Esc / ⌫ close",
 	} {
@@ -2331,6 +2889,42 @@ func TestHelpScreenIsSpacedAndScrollable(t *testing.T) {
 	}
 }
 
+func TestDoctorOpensOutsideFilesAndCloses(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 80, 24
+	_, cmd := m.Update(press("D"))
+	if !m.doctor || m.help || cmd == nil {
+		t.Fatalf("D should open doctor: doctor=%v help=%v cmd=%v", m.doctor, m.help, cmd)
+	}
+	m.Update(doctorDoneMsg{report: doctor.Report{
+		Healthy: true,
+		Findings: []doctor.Finding{{
+			ID: "env.openssh_ok", Severity: doctor.SeverityOK, Category: doctor.CatEnv, Title: "ssh ok",
+		}},
+	}})
+	if m.doctorLoading {
+		t.Fatal("doctor should finish loading")
+	}
+	rendered := m.render()
+	if !strings.Contains(rendered, "Doctor") || !strings.Contains(rendered, "ssh ok") {
+		t.Fatalf("doctor overlay missing content:\n%s", rendered)
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	if m.doctor {
+		t.Fatal("Esc did not close doctor")
+	}
+}
+
+func TestFilesDDoesNotOpenDoctor(t *testing.T) {
+	m := testApp(t)
+	m.section = filesSection
+	m.initFilesState()
+	m.Update(press("D"))
+	if m.doctor {
+		t.Fatal("D on Files opened doctor")
+	}
+}
+
 func TestAvailableUpdateAppearsInFooterAndCredits(t *testing.T) {
 	m := testApp(t)
 	m.version = "v1.2.3"
@@ -2363,8 +2957,11 @@ func TestEmptyHostListInvitesFirstHost(t *testing.T) {
 	m := testApp(t)
 	m.hosts = nil
 	view := m.renderHosts(m.styles())
-	if !strings.Contains(view, "No hosts yet") || !strings.Contains(view, "Press a to add your first destination") {
+	if !strings.Contains(view, "No hosts yet") || !strings.Contains(view, "Your SSH map is empty.") || !strings.Contains(view, "[a] Add host") {
 		t.Fatalf("empty host state is not helpful:\n%s", view)
+	}
+	if strings.Contains(view, "Press") {
+		t.Fatalf("empty hosts should not narrate the key:\n%s", view)
 	}
 }
 
@@ -2394,7 +2991,7 @@ func TestDetailsAreCompactAndOmitEmptyMetadata(t *testing.T) {
 	if strings.Contains(key, "Name") || strings.Contains(key, "Public") || strings.Contains(key, "Used by") {
 		t.Fatalf("key details contain redundant or empty fields:\n%s", key)
 	}
-	if !strings.Contains(key, keyInstallAction) {
+	if !strings.Contains(key, m.keyInstallChip()) {
 		t.Fatalf("key details do not show the server action:\n%s", key)
 	}
 	if lipgloss.Height(key) > 8 {
@@ -2434,17 +3031,24 @@ func TestHostDetailShowsConnectReadySections(t *testing.T) {
 }
 
 func TestHostAuthSummary(t *testing.T) {
-	if got := hostAuthSummary(sshconfig.Host{}); got != "agent/defaults" {
+	if got := hostAuthSummary(sshconfig.Host{}, false); got != "agent/defaults" {
 		t.Fatalf("empty = %q", got)
 	}
-	if got := hostAuthSummary(sshconfig.Host{Synced: true}); got != "SSH access ensured on connect" {
+	if got := hostAuthSummary(sshconfig.Host{Synced: true}, false); got != "SSH access ensured on connect" {
 		t.Fatalf("synced empty = %q", got)
 	}
 	got := hostAuthSummary(sshconfig.Host{Synced: true, Resolved: sshconfig.Resolved{
 		User: "ubuntu", IdentityFiles: []string{"~/.ssh/bast/keys/IRIS"},
-	}})
+	}}, false)
 	if got != "~/.ssh/bast/keys/IRIS" {
 		t.Fatalf("synced key = %q", got)
+	}
+	passwordHost := sshconfig.Host{Resolved: sshconfig.Resolved{PubkeyAuthentication: "no", PasswordAuthentication: "yes"}}
+	if got := hostAuthSummary(passwordHost, false); got != "password" {
+		t.Fatalf("password = %q", got)
+	}
+	if got := hostAuthSummary(passwordHost, true); got != "password · saved" {
+		t.Fatalf("saved password = %q", got)
 	}
 }
 
@@ -2667,23 +3271,23 @@ func TestMicrosoftAzureGroupNameUsesOneBrandColor(t *testing.T) {
 	}
 }
 
-func TestDigitalOceanGroupNameUsesOneBrandColor(t *testing.T) {
-	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	rendered := renderManagedGroupName("DigitalOcean/default/nyc3", restStyle, false)
-	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0080FF")).Render("DigitalOcean")
-	if !strings.HasPrefix(rendered, provider) {
-		t.Fatalf("DigitalOcean brand colour was not applied uniformly: %q", rendered)
-	}
-	if !strings.Contains(rendered, restStyle.Render("/default/nyc3")) {
-		t.Fatalf("DigitalOcean group path did not retain the normal style: %q", rendered)
+func TestBoatGroupNameIsWhite(t *testing.T) {
+	rendered := renderManagedGroupName("Boat", lipgloss.NewStyle(), false)
+	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Boat")
+	if rendered != provider {
+		t.Fatalf("Boat brand colour was not applied: %q", rendered)
 	}
 }
 
-func TestBoxGroupNameIsWhite(t *testing.T) {
-	rendered := renderManagedGroupName("Box", lipgloss.NewStyle(), false)
-	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Box")
+func TestVercelGroupNameIsWhiteTriangle(t *testing.T) {
+	rendered := renderManagedGroupName("Vercel", lipgloss.NewStyle(), false)
+	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Vercel")
 	if rendered != provider {
-		t.Fatalf("Box brand colour was not applied: %q", rendered)
+		t.Fatalf("Vercel brand colour was not applied: %q", rendered)
+	}
+	withIcon := renderManagedGroupName("Vercel", lipgloss.NewStyle(), true)
+	if !strings.Contains(withIcon, "\u25b2") {
+		t.Fatalf("Vercel triangle icon missing: %q", withIcon)
 	}
 }
 
@@ -2767,6 +3371,11 @@ func TestSyncTileSelectedBorderUsesProviderColor(t *testing.T) {
 	if !strings.Contains(upSel, "38;2;0;233;163") {
 		t.Fatalf("selected Upstash tile should use green border:\n%q", upSel)
 	}
+
+	vercelSel := m.renderSyncTile(m.styles(), 0, syncMenuItem{provider: "vercel"}, 24)
+	if !strings.Contains(vercelSel, "38;2;255;255;255") {
+		t.Fatalf("selected Vercel tile should use white border:\n%q", vercelSel)
+	}
 }
 
 func TestProviderGroupRowsUseBrandColor(t *testing.T) {
@@ -2824,29 +3433,29 @@ func TestProviderGroupRowsUseBrandColor(t *testing.T) {
 	}
 }
 
-func TestBoxCreateBusyThenSelectsHost(t *testing.T) {
+func TestBoatCreateBusyThenSelectsHost(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
-	m.beginSyncBusy("Creating box…")
-	m.syncingProviders = map[string]bool{"box": true}
+	m.syncProvider = "boat"
+	m.beginSyncBusy("Creating sandbox…")
+	m.syncingProviders = map[string]bool{"boat": true}
 	if !m.vaultBusyBlocksBody() {
 		t.Fatal("expected create busy to replace the sync body")
 	}
 	busy := m.renderVaultBusy(m.styles())
-	if !strings.Contains(busy, "box.ascii.dev") || !strings.Contains(busy, "Creating box…") {
+	if !strings.Contains(busy, "boat.dev") || !strings.Contains(busy, "Creating sandbox…") {
 		t.Fatalf("create busy body:\n%s", busy)
 	}
 
-	if err := m.metadata.SetHost("box_sunny", metadata.Host{Label: "sunny", Group: "Box"}); err != nil {
+	if err := m.metadata.SetHost("boat_sunny", metadata.Host{Label: "sunny", Group: "Boat"}); err != nil {
 		t.Fatal(err)
 	}
-	m.collapsedGroups = map[string]bool{"Box": true}
+	m.collapsedGroups = map[string]bool{"Boat": true}
 
 	_, _ = m.Update(syncDoneMsg{
-		provider:   "box",
-		result:     cloudsync.Result{Provider: "box", Count: 1},
-		focusAlias: "box_sunny",
+		provider:   "boat",
+		result:     cloudsync.Result{Provider: "boat", Count: 1},
+		focusAlias: "boat_sunny",
 	})
 	if m.syncBusy != "" {
 		t.Fatalf("busy should clear after create, got %q", m.syncBusy)
@@ -2854,39 +3463,39 @@ func TestBoxCreateBusyThenSelectsHost(t *testing.T) {
 	if m.section != hostsSection || m.syncProvider != "" {
 		t.Fatalf("expected Hosts after create, section=%v provider=%q", m.section, m.syncProvider)
 	}
-	if m.selectAfterLoadName != "box_sunny" {
+	if m.selectAfterLoadName != "boat_sunny" {
 		t.Fatalf("selectAfterLoadName = %q", m.selectAfterLoadName)
 	}
 
 	_, _ = m.Update(loadedMsg{hosts: []sshconfig.Host{{
-		Alias: "box_sunny", Synced: true, SyncSource: "box",
+		Alias: "boat_sunny", Synced: true, SyncSource: "boat",
 		Resolved: sshconfig.Resolved{HostName: "1.2.3.4", User: "user"},
 	}}})
 	host, ok := m.selectedHost()
-	if !ok || host.Alias != "box_sunny" {
-		t.Fatalf("new box was not selected: ok=%v host=%+v cursor=%d", ok, host, m.cursor)
+	if !ok || host.Alias != "boat_sunny" {
+		t.Fatalf("new sandbox was not selected: ok=%v host=%+v cursor=%d", ok, host, m.cursor)
 	}
-	if m.collapsedGroups["Box"] {
-		t.Fatalf("Box group should be expanded for selection: %v", m.collapsedGroups)
+	if m.collapsedGroups["Boat"] {
+		t.Fatalf("Boat group should be expanded for selection: %v", m.collapsedGroups)
 	}
 }
 
-func TestStoppedBoxHiddenUntilToggled(t *testing.T) {
+func TestStoppedBoatHiddenUntilToggled(t *testing.T) {
 	m := testApp(t)
 	m.hosts = []sshconfig.Host{
 		{
-			Alias: "box_live", Synced: true, SyncSource: "box",
+			Alias: "boat_live", Synced: true, SyncSource: "boat",
 			Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"},
 		},
 		{
-			Alias: "box_idle", Synced: true, SyncSource: "box",
-			Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"},
+			Alias: "boat_idle", Synced: true, SyncSource: "boat",
+			Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"},
 		},
 	}
-	if err := m.metadata.SetHost("box_live", metadata.Host{Label: "live", Group: "Box", Tags: []string{"state:idle"}}); err != nil {
+	if err := m.metadata.SetHost("boat_live", metadata.Host{Label: "live", Group: "Boat", Tags: []string{"state:idle"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+	if err := m.metadata.SetHost("boat_idle", metadata.Host{Label: "idle", Group: "Boat", Tags: []string{"state:stopped"}}); err != nil {
 		t.Fatal(err)
 	}
 	m.collapsedGroups = map[string]bool{}
@@ -2897,17 +3506,17 @@ func TestStoppedBoxHiddenUntilToggled(t *testing.T) {
 			continue
 		}
 		switch row.host.Alias {
-		case "box_live":
+		case "boat_live":
 			sawRunning = true
-		case "box_idle":
+		case "boat_idle":
 			sawStopped = true
 		}
 	}
 	if !sawRunning {
-		t.Fatal("running box should stay visible")
+		t.Fatal("running boat should stay visible")
 	}
 	if sawStopped {
-		t.Fatal("stopped box should be hidden by default")
+		t.Fatal("stopped boat should be hidden by default")
 	}
 
 	m.showHidden = true
@@ -2917,33 +3526,33 @@ func TestStoppedBoxHiddenUntilToggled(t *testing.T) {
 			continue
 		}
 		switch row.host.Alias {
-		case "box_live":
+		case "boat_live":
 			sawRunning = true
-		case "box_idle":
+		case "boat_idle":
 			sawStopped = true
 			if !m.hostLooksStopped(row.host) {
-				t.Fatal("stopped box should look stopped")
+				t.Fatal("stopped boat should look stopped")
 			}
 		}
 	}
 	if !sawRunning || !sawStopped {
-		t.Fatalf("expected both boxes after ., running=%v stopped=%v", sawRunning, sawStopped)
+		t.Fatalf("expected both sandboxes after ., running=%v stopped=%v", sawRunning, sawStopped)
 	}
 
 	m.showHidden = false
 	m.search = "idle"
 	sawStopped = false
 	for _, row := range m.hostRows() {
-		if !row.header && row.host.Alias == "box_idle" {
+		if !row.header && row.host.Alias == "boat_idle" {
 			sawStopped = true
 		}
 	}
 	if !sawStopped {
-		t.Fatal("search should reveal matching stopped boxes")
+		t.Fatal("search should reveal matching stopped sandboxes")
 	}
 
 	detail := m.renderHostDetail(m.styles(), m.hosts[1], 60)
-	if !strings.Contains(detail, "stopped") || !strings.Contains(detail, "Box stopped") {
+	if !strings.Contains(detail, "stopped") || !strings.Contains(detail, "Boat stopped") {
 		t.Fatalf("stopped detail:\n%s", detail)
 	}
 	if !strings.Contains(detail, resumeAction) || strings.Contains(detail, connectAction) {
@@ -2951,21 +3560,86 @@ func TestStoppedBoxHiddenUntilToggled(t *testing.T) {
 	}
 }
 
-func TestBoxResumeActionsAreStateAware(t *testing.T) {
+func TestHetznerGroupHiddenWhenEveryServerIsOff(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "hetzner_off", Synced: true, SyncSource: "hetzner", SyncID: "hetzner/1",
+		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "root"},
+	}}
+	if err := m.metadata.SetHetzner(metadata.HetznerIntegration{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("hetzner_off", metadata.Host{Label: "vpn", Group: "Hetzner Cloud/ted.ac/nbg1", Tags: []string{"state:off"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.collapsedGroups = map[string]bool{}
+
+	for _, row := range m.hostRows() {
+		if strings.HasPrefix(row.group, "Hetzner Cloud") || row.label == "Hetzner Cloud" || (!row.header && row.host.Alias == "hetzner_off") {
+			t.Fatalf("stopped-only Hetzner inventory should hide the group, row=%+v", row)
+		}
+	}
+
+	m.showHidden = true
+	var sawGroup, sawHost bool
+	for _, row := range m.hostRows() {
+		if row.header && strings.HasPrefix(row.group, "Hetzner Cloud") {
+			sawGroup = true
+		}
+		if !row.header && row.host.Alias == "hetzner_off" {
+			sawHost = true
+		}
+	}
+	if !sawGroup || !sawHost {
+		t.Fatalf(". should reveal the Hetzner group and off server, group=%v host=%v", sawGroup, sawHost)
+	}
+
+	m.showHidden = false
+	m.hosts = append(m.hosts, sshconfig.Host{
+		Alias: "hetzner_on", Synced: true, SyncSource: "hetzner", SyncID: "hetzner/2",
+		Resolved: sshconfig.Resolved{HostName: "203.0.113.11", User: "root"},
+	})
+	if err := m.metadata.SetHost("hetzner_on", metadata.Host{Label: "web", Group: "Hetzner Cloud/ted.ac/nbg1", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	sawGroup, sawHost, sawOff := false, false, false
+	for _, row := range m.hostRows() {
+		if row.header && strings.HasPrefix(row.group, "Hetzner Cloud") {
+			sawGroup = true
+		}
+		if row.header {
+			continue
+		}
+		switch row.host.Alias {
+		case "hetzner_on":
+			sawHost = true
+		case "hetzner_off":
+			sawOff = true
+		}
+	}
+	if !sawGroup || !sawHost {
+		t.Fatal("a running server should show the Hetzner group")
+	}
+	if sawOff {
+		t.Fatal("off servers stay hidden while a running one is visible")
+	}
+}
+
+func TestBoatResumeActionsAreStateAware(t *testing.T) {
 	m := testApp(t)
 	running := sshconfig.Host{
-		Alias: "box_live", Synced: true, SyncSource: "box", SyncID: "bx_live01",
+		Alias: "boat_live", Synced: true, SyncSource: "boat", SyncID: "bx_live01",
 		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"},
 	}
 	stopped := sshconfig.Host{
-		Alias: "box_idle", Synced: true, SyncSource: "box", SyncID: "bx_idle01",
-		Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"},
+		Alias: "boat_idle", Synced: true, SyncSource: "boat", SyncID: "bx_idle01",
+		Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"},
 	}
 	m.hosts = []sshconfig.Host{running, stopped}
-	if err := m.metadata.SetHost("box_live", metadata.Host{Label: "live", Group: "Box", Tags: []string{"state:idle"}}); err != nil {
+	if err := m.metadata.SetHost("boat_live", metadata.Host{Label: "live", Group: "Boat", Tags: []string{"state:idle"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+	if err := m.metadata.SetHost("boat_idle", metadata.Host{Label: "idle", Group: "Boat", Tags: []string{"state:stopped"}}); err != nil {
 		t.Fatal(err)
 	}
 	m.collapsedGroups = map[string]bool{}
@@ -2983,26 +3657,26 @@ func TestBoxResumeActionsAreStateAware(t *testing.T) {
 		t.Fatalf("host %q not found", alias)
 	}
 
-	selectHost("box_live")
-	footer := strings.Join(m.hostsFooterParts(), " · ")
+	selectHost("boat_live")
+	footer := m.browseFooterHint(80)
 	if strings.Contains(footer, "resume") || !strings.Contains(footer, "o stop") {
 		t.Fatalf("running footer = %q", footer)
 	}
 	if m.hostPrimaryAction(running) != connectAction {
 		t.Fatalf("running primary action = %q", m.hostPrimaryAction(running))
 	}
-	if cmd := m.resumeSelectedBox(running, false); cmd == nil {
-		t.Fatal("expected notice cmd when resuming a running box")
+	if cmd := m.resumeSelectedBoat(running, false); cmd == nil {
+		t.Fatal("expected notice cmd when resuming a running boat")
 	}
-	// r on a running box should reload, not resume
+	// r on a running boat should reload, not resume
 	m.syncingProviders = map[string]bool{}
 	_, _ = m.updateKeys(press("r"))
-	if m.syncingProviders["box"] {
-		t.Fatal("r on running box should not start resume")
+	if m.syncingProviders["boat"] {
+		t.Fatal("r on running boat should not start resume")
 	}
 
-	selectHost("box_idle")
-	footer = strings.Join(m.hostsFooterParts(), " · ")
+	selectHost("boat_idle")
+	footer = m.browseFooterHint(80)
 	if !strings.Contains(footer, "enter connect") || !strings.Contains(footer, "r resume") || strings.Contains(footer, "o stop") {
 		t.Fatalf("stopped footer = %q", footer)
 	}
@@ -3010,11 +3684,11 @@ func TestBoxResumeActionsAreStateAware(t *testing.T) {
 		t.Fatalf("stopped primary action = %q", m.hostPrimaryAction(stopped))
 	}
 	_, cmd := m.connectSelected()
-	if !m.syncingProviders["box"] || m.syncActivity != "resuming…" {
-		t.Fatalf("enter should resume with activity label, syncing=%v activity=%q", m.syncingProviders["box"], m.syncActivity)
+	if !m.syncingProviders["boat"] || m.syncActivity != "resuming…" {
+		t.Fatalf("enter should resume with activity label, syncing=%v activity=%q", m.syncingProviders["boat"], m.syncActivity)
 	}
-	if m.boxConnectAfter != "box_idle" {
-		t.Fatalf("enter should queue SSH after resume, got %q", m.boxConnectAfter)
+	if m.sandboxConnectAfter != "boat_idle" {
+		t.Fatalf("enter should queue SSH after resume, got %q", m.sandboxConnectAfter)
 	}
 	if cmd == nil {
 		t.Fatal("expected resume command")
@@ -3024,20 +3698,20 @@ func TestBoxResumeActionsAreStateAware(t *testing.T) {
 		t.Fatalf("footer during resume = %q", footerLeft)
 	}
 
-	// After a successful resume reload, connect into the woken box.
+	// After a successful resume reload, connect into the woken boat.
 	m.syncingProviders = map[string]bool{}
 	m.syncActivity = ""
 	m.hosts = []sshconfig.Host{{
-		Alias: "box_idle", Synced: true, SyncSource: "box", SyncID: "bx_idle01",
+		Alias: "boat_idle", Synced: true, SyncSource: "boat", SyncID: "bx_idle01",
 		Resolved: sshconfig.Resolved{HostName: "203.0.113.20", User: "user"},
 	}}
-	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:idle"}}); err != nil {
+	if err := m.metadata.SetHost("boat_idle", metadata.Host{Label: "idle", Group: "Boat", Tags: []string{"state:idle"}}); err != nil {
 		t.Fatal(err)
 	}
-	m.selectAfterLoadSection, m.selectAfterLoadName = hostsSection, "box_idle"
+	m.selectAfterLoadSection, m.selectAfterLoadName = hostsSection, "boat_idle"
 	_, cmd = m.Update(loadedMsg{hosts: m.hosts})
-	if m.boxConnectAfter != "" {
-		t.Fatal("boxConnectAfter should clear once connect is queued")
+	if m.sandboxConnectAfter != "" {
+		t.Fatal("sandboxConnectAfter should clear once connect is queued")
 	}
 	if cmd == nil {
 		t.Fatal("expected SSH connect command after resume reload")
@@ -3052,8 +3726,7 @@ func TestSyncTabRenders(t *testing.T) {
 		t.Fatalf("sync grid should not include Vault:\n%s", body)
 	}
 	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Amazon EC2") ||
-		!strings.Contains(body, "Microsoft Azure") || !strings.Contains(body, "DigitalOcean") ||
-		!strings.Contains(body, "Box") {
+		!strings.Contains(body, "Microsoft Azure") || !strings.Contains(body, "Boat") {
 		t.Fatalf("sync grid body:\n%s", body)
 	}
 	if strings.Contains(body, "Sync now") {
@@ -3069,7 +3742,7 @@ func TestSyncTabRenders(t *testing.T) {
 	}
 	m.updateSyncKeys("j")
 	if m.syncCursor != 3 {
-		t.Fatalf("j should move to DigitalOcean tile, cursor=%d", m.syncCursor)
+		t.Fatalf("j should move to Boat tile, cursor=%d", m.syncCursor)
 	}
 	m.updateSyncKeys("h")
 	if m.syncCursor != 2 {
@@ -3108,36 +3781,36 @@ func TestSyncTabRenders(t *testing.T) {
 	}
 }
 
-func TestBoxProviderLifecycleRow(t *testing.T) {
+func TestBoatProviderLifecycleRow(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
+	m.syncProvider = "boat"
 	m.syncCursor = 0
-	m.syncStatus.Box.Authenticated = true
+	m.syncStatus.Boat.Authenticated = true
 	body := m.renderSync(m.styles())
-	if !strings.Contains(body, "New box") {
-		t.Fatalf("box page should offer New box:\n%s", body)
+	if !strings.Contains(body, "New sandbox") {
+		t.Fatalf("boat page should offer New sandbox:\n%s", body)
 	}
 	if !strings.Contains(body, "disabled") && !strings.Contains(body, "enabled") {
-		t.Fatalf("box page should show status:\n%s", body)
+		t.Fatalf("boat page should show status:\n%s", body)
 	}
 	sameRow := false
 	for _, line := range strings.Split(body, "\n") {
-		if strings.Contains(line, "New box") && (strings.Contains(line, "Sync") || strings.Contains(line, "Connect")) {
+		if strings.Contains(line, "New sandbox") && (strings.Contains(line, "Sync") || strings.Contains(line, "Connect")) {
 			sameRow = true
 			break
 		}
 	}
 	if !sameRow {
-		t.Fatalf("Sync/Connect and New box should share a row:\n%s", body)
+		t.Fatalf("Sync/Connect and New sandbox should share a row:\n%s", body)
 	}
 	m.updateSyncKeys("l")
 	if m.syncCursor != 1 {
-		t.Fatalf("l should move to New box, cursor=%d", m.syncCursor)
+		t.Fatalf("l should move to New sandbox, cursor=%d", m.syncCursor)
 	}
 	m.updateSyncKeys("enter")
-	if m.form == nil || m.form.action != "box_new" {
-		t.Fatalf("enter on New box should open form, got %#v", m.form)
+	if m.form == nil || m.form.action != "boat_new" {
+		t.Fatalf("enter on New sandbox should open form, got %#v", m.form)
 	}
 }
 
@@ -3178,6 +3851,181 @@ func TestUpstashDeleteUsesRemoteConfirm(t *testing.T) {
 	_, _ = m.updateKeys(press("d"))
 	if m.form == nil || m.form.action != "upstash_delete" {
 		t.Fatalf("d on upstash host should confirm remote delete, got %#v", m.form)
+	}
+}
+
+func TestBoatDeleteUsesRemoteConfirm(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "boat_dev", Synced: true, SyncSource: "boat", SyncID: "bx_dev0001",
+		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"},
+	}}
+	if err := m.metadata.SetHost("boat_dev", metadata.Host{Label: "dev", Group: "Boat", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.section = hostsSection
+	selectHostAlias(t, m, "boat_dev")
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "boat_delete" {
+		t.Fatalf("d on boat host should confirm remote delete, got %#v", m.form)
+	}
+}
+
+func TestVercelProviderLifecycleRow(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vercel"
+	m.syncCursor = 0
+	m.syncStatus.Vercel.HasToken = true
+	if err := m.metadata.SetVercel(metadata.VercelIntegration{TeamID: "team_1", ProjectID: "prj_1"}); err != nil {
+		t.Fatal(err)
+	}
+	body := m.renderSync(m.styles())
+	if !strings.Contains(body, "New sandbox") {
+		t.Fatalf("vercel page should offer New sandbox:\n%s", body)
+	}
+	if !strings.Contains(body, "Token") {
+		t.Fatalf("vercel page should offer Token:\n%s", body)
+	}
+	m.updateSyncKeys("l")
+	if m.syncCursor != 1 {
+		t.Fatalf("l should move to New sandbox, cursor=%d", m.syncCursor)
+	}
+	m.updateSyncKeys("enter")
+	if m.form == nil || m.form.action != "vercel_new" {
+		t.Fatalf("enter on New sandbox should open form, got %#v", m.form)
+	}
+}
+
+func TestVercelCleanupAction(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vercel"
+	m.syncCursor = 0
+	m.syncStatus.Vercel.HasToken = true
+	if err := m.metadata.SetVercel(metadata.VercelIntegration{
+		Enabled: true, TeamID: "team_1", ProjectID: "prj_1", Unrestorable: []string{"idle", "temp"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body := m.renderSync(m.styles())
+	if !strings.Contains(body, "Cleanup") {
+		t.Fatalf("vercel page should offer Cleanup:\n%s", body)
+	}
+	if !strings.Contains(body, "2 unrestorable") {
+		t.Fatalf("vercel page should show unrestorable count:\n%s", body)
+	}
+	life, _ := m.providerActionLayout()
+	cleanupAt := -1
+	for i, item := range life {
+		if item.action == "vercel_cleanup" {
+			cleanupAt = i
+			break
+		}
+	}
+	if cleanupAt < 0 {
+		t.Fatalf("expected cleanup action, life=%+v", life)
+	}
+	m.syncCursor = cleanupAt
+	m.updateSyncKeys("enter")
+	if m.form == nil || m.form.action != "vercel_cleanup" {
+		t.Fatalf("enter on Cleanup should open form, got %#v", m.form)
+	}
+	if m.form.fields[0].placeholder != "cleanup" {
+		t.Fatalf("cleanup confirm placeholder = %q", m.form.fields[0].placeholder)
+	}
+	if !strings.Contains(m.form.fields[0].description, "idle") || !strings.Contains(m.form.fields[0].description, "temp") {
+		t.Fatalf("cleanup form should list sandboxes, got %q", m.form.fields[0].description)
+	}
+}
+
+func TestUpstashAndHetznerTokenFormsLinkToConsole(t *testing.T) {
+	m := testApp(t)
+	m.openUpstashKeyForm()
+	if m.form == nil || m.form.action != "upstash_key" || len(m.form.fields) == 0 {
+		t.Fatalf("upstash form=%#v", m.form)
+	}
+	if got := m.form.fields[0].description; got != "https://console.upstash.com" {
+		t.Fatalf("upstash key description = %q", got)
+	}
+
+	m.form = nil
+	m.openHetznerKeyForm()
+	if m.form == nil || m.form.action != "hetzner_key" {
+		t.Fatalf("hetzner form=%#v", m.form)
+	}
+	found := false
+	for _, field := range m.form.fields {
+		if strings.Contains(field.description, "~/.config") || strings.Contains(field.description, "stored") {
+			t.Fatalf("token form should not describe local storage: %+v", field)
+		}
+		if field.label == "API token" {
+			found = true
+			if field.description != "https://console.hetzner.cloud" {
+				t.Fatalf("hetzner token description = %q", field.description)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected API token field")
+	}
+}
+
+func TestVercelCleanupProgressUpdatesBusy(t *testing.T) {
+	m := testApp(t)
+	m.section = syncSection
+	m.syncProvider = "vercel"
+	m.syncOpGen = map[string]uint64{"vercel": 1}
+	m.syncingProviders = map[string]bool{"vercel": true}
+	m.beginSyncBusy("Cleaning up Vercel…")
+	if !m.vaultBusyBlocksBody() {
+		t.Fatal("cleanup should replace the sync body")
+	}
+	_, cmd := m.Update(syncProgressMsg{provider: "vercel", opGen: 1, label: "Cleaning up Vercel 12/340"})
+	if m.syncBusy != "Cleaning up Vercel 12/340" {
+		t.Fatalf("busy = %q", m.syncBusy)
+	}
+	body := m.renderVaultBusy(m.styles())
+	if !strings.Contains(body, "12/340") {
+		t.Fatalf("busy body:\n%s", body)
+	}
+	footer := m.renderFooter(m.styles())
+	if !strings.Contains(footer, "12/340") {
+		t.Fatalf("footer = %q", footer)
+	}
+	_ = cmd
+	_, _ = m.Update(syncDoneMsg{provider: "vercel", opGen: 1, notice: "Deleted 340 unrestorable sandboxes"})
+	if m.syncBusy != "" {
+		t.Fatalf("busy should clear after cleanup, got %q", m.syncBusy)
+	}
+}
+
+func TestVercelFilesUnavailable(t *testing.T) {
+	m := testApp(t)
+	host := sshconfig.Host{Alias: "vercel_dev", Synced: true, SyncSource: "vercel", SyncID: "prj_1/dev"}
+	cmd := m.openFilesForHost(host)
+	if m.section == filesSection {
+		t.Fatal("Vercel Files should stay on Hosts")
+	}
+	if cmd == nil {
+		t.Fatal("expected SFTP unavailable notice")
+	}
+}
+
+func TestVercelDeleteUsesRemoteConfirm(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{{
+		Alias: "vercel_dev", Synced: true, SyncSource: "vercel", SyncID: "prj_1/dev",
+		Resolved: sshconfig.Resolved{HostName: "vercel.sandbox.invalid"},
+	}}
+	if err := m.metadata.SetHost("vercel_dev", metadata.Host{Label: "dev", Group: "Vercel", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.section = hostsSection
+	selectHostAlias(t, m, "vercel_dev")
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "vercel_delete" {
+		t.Fatalf("d on vercel host should confirm remote delete, got %#v", m.form)
 	}
 }
 
@@ -3241,26 +4089,26 @@ func TestVaultTermsFormMouse(t *testing.T) {
 func TestProviderInventoryGroupsByStatus(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
+	m.syncProvider = "boat"
 	m.syncCursor = -1
 	m.hosts = []sshconfig.Host{
-		{Alias: "box_run", Synced: true, SyncSource: "box", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"}},
-		{Alias: "box_stop", Synced: true, SyncSource: "box", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"}},
+		{Alias: "boat_run", Synced: true, SyncSource: "boat", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"}},
+		{Alias: "boat_stop", Synced: true, SyncSource: "boat", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"}},
 	}
-	if err := m.metadata.SetHost("box_run", metadata.Host{Label: "alpha-box", Group: "Box", Tags: []string{"state:running"}}); err != nil {
+	if err := m.metadata.SetHost("boat_run", metadata.Host{Label: "alpha-boat", Group: "Boat", Tags: []string{"state:running"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.metadata.SetHost("box_stop", metadata.Host{Label: "idle-box", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+	if err := m.metadata.SetHost("boat_stop", metadata.Host{Label: "idle-boat", Group: "Boat", Tags: []string{"state:stopped"}}); err != nil {
 		t.Fatal(err)
 	}
 	body := m.renderSync(m.styles())
 	if !strings.Contains(body, "Running") || !strings.Contains(body, "Stopped") {
 		t.Fatalf("expected status groups:\n%s", body)
 	}
-	if !strings.Contains(body, "alpha-box") {
+	if !strings.Contains(body, "alpha-boat") {
 		t.Fatalf("running host should be visible:\n%s", body)
 	}
-	if strings.Contains(body, "idle-box") {
+	if strings.Contains(body, "idle-boat") {
 		t.Fatalf("stopped group should start collapsed:\n%s", body)
 	}
 
@@ -3281,14 +4129,14 @@ func TestProviderInventoryGroupsByStatus(t *testing.T) {
 	}
 	m.updateSyncKeys("space")
 	body = m.renderSync(m.styles())
-	if !strings.Contains(body, "idle-box") {
+	if !strings.Contains(body, "idle-boat") {
 		t.Fatalf("space should expand stopped:\n%s", body)
 	}
 
 	m.updateSyncKeys("j")
 	_, cmd := m.updateSyncKeys("enter")
-	if m.boxConnectAfter != "box_stop" {
-		t.Fatalf("enter on stopped box should resume+connect, after=%q", m.boxConnectAfter)
+	if m.sandboxConnectAfter != "boat_stop" {
+		t.Fatalf("enter on stopped boat should resume+connect, after=%q", m.sandboxConnectAfter)
 	}
 	if cmd == nil {
 		t.Fatal("expected resume command")
@@ -3298,40 +4146,45 @@ func TestProviderInventoryGroupsByStatus(t *testing.T) {
 func TestProviderInventorySandboxLifecycle(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
-	m.syncStatus.Box.Authenticated = true
+	m.syncProvider = "boat"
+	m.syncStatus.Boat.Authenticated = true
 	m.hosts = []sshconfig.Host{
-		{Alias: "box_run", Synced: true, SyncSource: "box", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"}},
-		{Alias: "box_stop", Synced: true, SyncSource: "box", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"}},
+		{Alias: "boat_run", Synced: true, SyncSource: "boat", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"}},
+		{Alias: "boat_stop", Synced: true, SyncSource: "boat", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"}},
 	}
-	if err := m.metadata.SetHost("box_run", metadata.Host{Label: "alpha-box", Group: "Box", Tags: []string{"state:running", "snapshot"}}); err != nil {
+	if err := m.metadata.SetHost("boat_run", metadata.Host{Label: "alpha-boat", Group: "Boat", Tags: []string{"state:running", "snapshot"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.metadata.SetHost("box_stop", metadata.Host{Label: "idle-box", Group: "Box", Tags: []string{"state:stopped", "snapshot"}}); err != nil {
+	if err := m.metadata.SetHost("boat_stop", metadata.Host{Label: "idle-boat", Group: "Boat", Tags: []string{"state:stopped", "snapshot"}}); err != nil {
 		t.Fatal(err)
 	}
 	m.toggleProviderInv(invGroupStopped)
 
-	selectProviderHost(t, m, "box_run")
+	selectProviderHost(t, m, "boat_run")
 	_, _ = m.updateKeys(press("o"))
-	if m.form == nil || m.form.action != "box_stop" {
+	if m.form == nil || m.form.action != "boat_stop" {
 		t.Fatalf("o on running inventory host should stop, got %#v", m.form)
 	}
 	m.form = nil
 	_, _ = m.updateKeys(press("n"))
-	if m.form == nil || m.form.action != "box_fork" {
+	if m.form == nil || m.form.action != "boat_fork" {
 		t.Fatalf("n on running inventory host should fork, got %#v", m.form)
+	}
+	m.form = nil
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "boat_delete" {
+		t.Fatalf("d on running inventory host should delete, got %#v", m.form)
 	}
 
 	m.form = nil
 	m.syncCursor = 0
 	_, _ = m.updateKeys(press("n"))
-	if m.form == nil || m.form.action != "box_new" {
-		t.Fatalf("n on chips should still create a box, got %#v", m.form)
+	if m.form == nil || m.form.action != "boat_new" {
+		t.Fatalf("n on chips should still create a sandbox, got %#v", m.form)
 	}
 
 	m.form = nil
-	selectProviderHost(t, m, "box_stop")
+	selectProviderHost(t, m, "boat_stop")
 	footer := m.browseFooterHint(80)
 	if !strings.Contains(footer, "r resume") || strings.Contains(footer, "o stop") {
 		t.Fatalf("stopped inventory footer = %q", footer)
@@ -3340,8 +4193,8 @@ func TestProviderInventorySandboxLifecycle(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("r on stopped inventory host should resume")
 	}
-	if m.boxConnectAfter != "" {
-		t.Fatalf("r should resume without connecting, after=%q", m.boxConnectAfter)
+	if m.sandboxConnectAfter != "" {
+		t.Fatalf("r should resume without connecting, after=%q", m.sandboxConnectAfter)
 	}
 	if m.syncActivity != "resuming…" {
 		t.Fatalf("resume activity = %q", m.syncActivity)
@@ -3378,7 +4231,38 @@ func TestProviderInventorySandboxLifecycle(t *testing.T) {
 	m.syncCursor = 0
 	_, _ = m.updateKeys(press("n"))
 	if m.form == nil || m.form.action != "upstash_new" {
-		t.Fatalf("n on upstash chips should create a box, got %#v", m.form)
+		t.Fatalf("n on upstash chips should create a sandbox, got %#v", m.form)
+	}
+
+	m.form = nil
+	m.syncingProviders = map[string]bool{}
+	m.syncActivity = ""
+	m.syncProvider = "vercel"
+	m.syncStatus.Vercel.HasToken = true
+	if err := m.metadata.SetVercel(metadata.VercelIntegration{TeamID: "team_1", ProjectID: "prj_1"}); err != nil {
+		t.Fatal(err)
+	}
+	m.hosts = []sshconfig.Host{{
+		Alias: "vercel_dev", Synced: true, SyncSource: "vercel", SyncID: "prj_1/dev",
+		Resolved: sshconfig.Resolved{HostName: "vercel.sandbox.invalid"},
+	}}
+	if err := m.metadata.SetHost("vercel_dev", metadata.Host{Label: "dev", Group: "Vercel", Tags: []string{"state:running"}}); err != nil {
+		t.Fatal(err)
+	}
+	selectProviderHost(t, m, "vercel_dev")
+	_, _ = m.updateKeys(press("o"))
+	if m.form == nil || m.form.action != "vercel_stop" {
+		t.Fatalf("o on vercel inventory host should stop, got %#v", m.form)
+	}
+	m.form = nil
+	_, _ = m.updateKeys(press("n"))
+	if m.form == nil || m.form.action != "vercel_fork" {
+		t.Fatalf("n on vercel inventory host should fork, got %#v", m.form)
+	}
+	m.form = nil
+	_, _ = m.updateKeys(press("d"))
+	if m.form == nil || m.form.action != "vercel_delete" {
+		t.Fatalf("d on vercel inventory host should delete, got %#v", m.form)
 	}
 }
 
@@ -3409,18 +4293,18 @@ func TestProviderInstancesGroup(t *testing.T) {
 func TestProviderNavChipThenInventory(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
+	m.syncProvider = "boat"
 	m.syncCursor = -1
-	m.syncStatus.Box.Authenticated = true
+	m.syncStatus.Boat.Authenticated = true
 	m.hosts = []sshconfig.Host{
-		{Alias: "box_run", Synced: true, SyncSource: "box", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10"}},
+		{Alias: "boat_run", Synced: true, SyncSource: "boat", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10"}},
 	}
-	if err := m.metadata.SetHost("box_run", metadata.Host{Label: "alpha-box", Group: "Box", Tags: []string{"state:running"}}); err != nil {
+	if err := m.metadata.SetHost("boat_run", metadata.Host{Label: "alpha-boat", Group: "Boat", Tags: []string{"state:running"}}); err != nil {
 		t.Fatal(err)
 	}
 	m.updateSyncKeys("l")
 	if m.syncCursor != 1 {
-		t.Fatalf("l from Sync/Connect should hit New box, cursor=%d", m.syncCursor)
+		t.Fatalf("l from Sync/Connect should hit New sandbox, cursor=%d", m.syncCursor)
 	}
 	m.updateSyncKeys("j")
 	if m.syncCursor != 2 {
@@ -3455,22 +4339,22 @@ func TestProviderPageMouse(t *testing.T) {
 	}
 }
 
-func TestBoxLifecycleChipMouse(t *testing.T) {
+func TestBoatLifecycleChipMouse(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
+	m.syncProvider = "boat"
 	m.syncCursor = -1
-	m.syncStatus.Box.Authenticated = true
+	m.syncStatus.Boat.Authenticated = true
 	life, _ := m.providerActionLayout()
 	newIdx := -1
 	for i, item := range life {
-		if item.action == "box_new" {
+		if item.action == "boat_new" {
 			newIdx = i
 			break
 		}
 	}
 	if newIdx < 0 {
-		t.Fatal("expected New box action")
+		t.Fatal("expected New sandbox action")
 	}
 	var chip providerPageHit
 	found := false
@@ -3482,30 +4366,30 @@ func TestBoxLifecycleChipMouse(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("expected New box chip")
+		t.Fatal("expected New sandbox chip")
 	}
 	m.Update(tea.MouseClickMsg(tea.Mouse{X: chip.x0 + 1, Y: chip.y0, Button: tea.MouseLeft}))
 	if m.syncCursor != newIdx {
-		t.Fatalf("first click should select New box, cursor=%d", m.syncCursor)
+		t.Fatalf("first click should select New sandbox, cursor=%d", m.syncCursor)
 	}
 	m.Update(tea.MouseClickMsg(tea.Mouse{X: chip.x0 + 1, Y: chip.y0, Button: tea.MouseLeft}))
-	if m.form == nil || m.form.action != "box_new" {
-		t.Fatalf("second click should open New box, form=%#v", m.form)
+	if m.form == nil || m.form.action != "boat_new" {
+		t.Fatalf("second click should open New sandbox, form=%#v", m.form)
 	}
 }
 
 func TestProviderInventoryMouseToggle(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
-	m.syncProvider = "box"
+	m.syncProvider = "boat"
 	m.syncCursor = -1
 	m.hosts = []sshconfig.Host{
-		{Alias: "box_stop", Synced: true, SyncSource: "box", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"}},
+		{Alias: "boat_stop", Synced: true, SyncSource: "boat", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"}},
 	}
-	if err := m.metadata.SetHost("box_stop", metadata.Host{Label: "idle-box", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
+	if err := m.metadata.SetHost("boat_stop", metadata.Host{Label: "idle-boat", Group: "Boat", Tags: []string{"state:stopped"}}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(m.renderSync(m.styles()), "idle-box") {
+	if strings.Contains(m.renderSync(m.styles()), "idle-boat") {
 		t.Fatal("stopped host should start hidden")
 	}
 	var header providerPageHit
@@ -3521,7 +4405,7 @@ func TestProviderInventoryMouseToggle(t *testing.T) {
 		t.Fatal("expected stopped header hit")
 	}
 	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: header.y0, Button: tea.MouseLeft}))
-	if !strings.Contains(m.renderSync(m.styles()), "idle-box") {
+	if !strings.Contains(m.renderSync(m.styles()), "idle-boat") {
 		t.Fatal("clicking Stopped should expand the group")
 	}
 }
@@ -3761,7 +4645,7 @@ func TestInitDefersProviderAutoSyncUntilHostsDiscovered(t *testing.T) {
 	if err := m.metadata.SetAzure(metadata.AzureIntegration{Enabled: true, AutoSync: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.metadata.SetBox(metadata.BoxIntegration{Disabled: true}); err != nil {
+	if err := m.metadata.SetBoat(metadata.BoatIntegration{Disabled: true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3819,50 +4703,50 @@ func TestAutoSyncDoesNotRestartAfterSyncReload(t *testing.T) {
 	}
 }
 
-func TestBoxAutoConnectSkipsExplicitAutoSyncOff(t *testing.T) {
+func TestBoatAutoConnectSkipsExplicitAutoSyncOff(t *testing.T) {
 	m := testApp(t)
-	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true, AutoSync: false}); err != nil {
+	if err := m.metadata.SetBoat(metadata.BoatIntegration{Enabled: true, AutoSync: false}); err != nil {
 		t.Fatal(err)
 	}
 	if cmd := m.autoSyncCmds(); cmd != nil {
-		t.Fatal("enabled Box with auto-sync off should not auto-connect or sync")
+		t.Fatal("enabled Boat with auto-sync off should not auto-connect or sync")
 	}
-	if m.syncingProviders["box"] {
-		t.Fatal("Box should not be marked syncing")
+	if m.syncingProviders["boat"] {
+		t.Fatal("Boat should not be marked syncing")
 	}
 }
 
-func TestBoxAutoConnectRunsWhenNotEnabled(t *testing.T) {
+func TestBoatAutoConnectRunsWhenNotEnabled(t *testing.T) {
 	m := testApp(t)
-	if err := m.metadata.SetBox(metadata.BoxIntegration{}); err != nil {
+	if err := m.metadata.SetBoat(metadata.BoatIntegration{}); err != nil {
 		t.Fatal(err)
 	}
 	if cmd := m.autoSyncCmds(); cmd == nil {
-		t.Fatal("unconfigured Box should schedule auto-connect")
+		t.Fatal("unconfigured Boat should schedule auto-connect")
 	}
-	if !m.syncingProviders["box"] {
-		t.Fatal("Box should be marked syncing for auto-connect")
+	if !m.syncingProviders["boat"] {
+		t.Fatal("Boat should be marked syncing for auto-connect")
 	}
 }
 
-func TestStaleBoxSyncDoneDoesNotClearNewerOp(t *testing.T) {
+func TestStaleBoatSyncDoneDoesNotClearNewerOp(t *testing.T) {
 	m := testApp(t)
-	old := m.beginProviderOp("box")
+	old := m.beginProviderOp("boat")
 	m.syncActivity = "stopping…"
-	newer := m.beginProviderOp("box")
+	newer := m.beginProviderOp("boat")
 	if newer == old {
 		t.Fatal("expected a new op generation")
 	}
-	m.Update(syncDoneMsg{provider: "box", opGen: old})
-	if !m.syncingProviders["box"] {
-		t.Fatal("stale completion cleared an in-flight box op")
+	m.Update(syncDoneMsg{provider: "boat", opGen: old})
+	if !m.syncingProviders["boat"] {
+		t.Fatal("stale completion cleared an in-flight boat op")
 	}
 	if m.syncActivity != "stopping…" {
 		t.Fatalf("stale completion cleared activity: %q", m.syncActivity)
 	}
-	m.Update(syncDoneMsg{provider: "box", opGen: newer})
-	if m.syncingProviders["box"] {
-		t.Fatal("current completion should clear the box op")
+	m.Update(syncDoneMsg{provider: "boat", opGen: newer})
+	if m.syncingProviders["boat"] {
+		t.Fatal("current completion should clear the sandbox op")
 	}
 }
 
@@ -3894,8 +4778,8 @@ func TestSyncCompletionNoticeIncludesEveryEnabledProvider(t *testing.T) {
 }
 
 func TestPrepareTimeoutForHost(t *testing.T) {
-	if got := prepareTimeoutForHost(sshconfig.Host{Synced: true, SyncSource: "box"}); got != boxPrepareTimeout {
-		t.Fatalf("box timeout = %v, want %v", got, boxPrepareTimeout)
+	if got := prepareTimeoutForHost(sshconfig.Host{Synced: true, SyncSource: "boat"}); got != boatPrepareTimeout {
+		t.Fatalf("boat timeout = %v, want %v", got, boatPrepareTimeout)
 	}
 	if got := prepareTimeoutForHost(sshconfig.Host{Synced: true, SyncSource: "gcp"}); got != cloudPrepareTimeout {
 		t.Fatalf("gcp timeout = %v, want %v", got, cloudPrepareTimeout)
@@ -3903,23 +4787,23 @@ func TestPrepareTimeoutForHost(t *testing.T) {
 	if got := prepareTimeoutForHost(sshconfig.Host{}); got != cloudPrepareTimeout {
 		t.Fatalf("local timeout = %v, want %v", got, cloudPrepareTimeout)
 	}
-	if boxPrepareTimeout <= 3*time.Minute {
-		t.Fatalf("box prepare timeout %v must exceed Resume WaitReady (3m)", boxPrepareTimeout)
+	if boatPrepareTimeout <= 3*time.Minute {
+		t.Fatalf("boat prepare timeout %v must exceed Resume WaitReady (3m)", boatPrepareTimeout)
 	}
 }
 
-func TestFavoriteAndHiddenAllowedForNonBoxSyncedHosts(t *testing.T) {
+func TestFavoriteAndHiddenAllowedForNonBoatSyncedHosts(t *testing.T) {
 	m := testApp(t)
 	m.hosts = []sshconfig.Host{{
 		Alias: "gcp_demo_web", Synced: true, SyncSource: "gcp",
 		SyncID:   "projects/demo/zones/us-central1-a/instances/web",
 		Resolved: sshconfig.Resolved{HostName: "web", User: "ubuntu"},
 	}, {
-		Alias: "box_sunny", Synced: true, SyncSource: "box", SyncID: "bx_sunny01",
+		Alias: "boat_sunny", Synced: true, SyncSource: "boat", SyncID: "bx_sunny01",
 		Resolved: sshconfig.Resolved{HostName: "1.2.3.4", User: "user"},
 	}}
 	_ = m.metadata.SetHost("gcp_demo_web", metadata.Host{Label: "web"})
-	_ = m.metadata.SetHost("box_sunny", metadata.Host{Label: "sunny"})
+	_ = m.metadata.SetHost("boat_sunny", metadata.Host{Label: "sunny"})
 
 	selectHostAlias(t, m, "gcp_demo_web")
 	m.updateKeys(press("f"))
@@ -3931,22 +4815,22 @@ func TestFavoriteAndHiddenAllowedForNonBoxSyncedHosts(t *testing.T) {
 		t.Fatal("GCP synced host should allow hidden toggle")
 	}
 
-	selectHostAlias(t, m, "box_sunny")
+	selectHostAlias(t, m, "boat_sunny")
 	m.status = ""
 	m.updateKeys(press("f"))
-	if m.metadata.Host("box_sunny").Favorite {
-		t.Fatal("Box host should not toggle favorite")
+	if m.metadata.Host("boat_sunny").Favorite {
+		t.Fatal("Boat host should not toggle favorite")
 	}
 	if !strings.Contains(m.status, "Synced sandbox hosts are read-only") {
-		t.Fatalf("box favorite status = %q", m.status)
+		t.Fatalf("boat favorite status = %q", m.status)
 	}
 	m.status = ""
 	m.updateKeys(press("h"))
-	if m.metadata.Host("box_sunny").Hidden {
-		t.Fatal("Box host should not toggle hidden")
+	if m.metadata.Host("boat_sunny").Hidden {
+		t.Fatal("Boat host should not toggle hidden")
 	}
 	if !strings.Contains(m.status, "Synced sandbox hosts are read-only") {
-		t.Fatalf("box hidden status = %q", m.status)
+		t.Fatalf("boat hidden status = %q", m.status)
 	}
 }
 
@@ -3970,243 +4854,156 @@ func TestTabKeysOpenVaultSyncFiles(t *testing.T) {
 	}
 }
 
-func TestEmptyEnabledProviderGroupIsHidden(t *testing.T) {
-	m := testApp(t)
-	m.hosts = nil
-	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.metadata.SetDigitalOcean(metadata.DigitalOceanIntegration{Enabled: true}); err != nil {
-		t.Fatal(err)
-	}
-	rows := m.hostRows()
-	for _, row := range rows {
-		if row.header && (row.group == "Box" || row.group == "DigitalOcean" || strings.HasPrefix(row.group, "Box/") || strings.HasPrefix(row.group, "DigitalOcean/")) {
-			t.Fatalf("empty provider group should stay out of Hosts: %+v", row)
-		}
-	}
-}
-
-func TestHiddenProviderGroupAppearsWhenShowingHidden(t *testing.T) {
-	m := testApp(t)
-	m.hosts = []sshconfig.Host{
-		{Alias: "do_web", Synced: true, SyncSource: "digitalocean", SyncID: "do:acct:1"},
-		{Alias: "box_idle", Synced: true, SyncSource: "box", SyncID: "bx_idle01", Resolved: sshconfig.Resolved{HostName: "box.stopped.invalid", User: "user"}},
-	}
-	if err := m.metadata.SetHost("do_web", metadata.Host{Label: "web", Group: "DigitalOcean/default/nyc3", Hidden: true}); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.metadata.SetHost("box_idle", metadata.Host{Label: "idle", Group: "Box", Tags: []string{"state:stopped"}}); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, row := range m.hostRows() {
-		if row.group == "DigitalOcean" || strings.HasPrefix(row.group, "DigitalOcean/") || row.group == "Box" {
-			t.Fatalf("inactive provider group should be hidden until .: %+v", row)
-		}
-	}
-
-	m.showHidden = true
-	var sawDigitalOcean, sawBox bool
-	for _, row := range m.hostRows() {
-		if row.header && row.group == "DigitalOcean" {
-			sawDigitalOcean = true
-		}
-		if !row.header && row.host.Alias == "do_web" {
-			if row.group != "DigitalOcean/default/nyc3" {
-				t.Fatalf("hidden DigitalOcean host group = %q", row.group)
-			}
-			sawDigitalOcean = true
-		}
-		if row.header && row.group == "Box" {
-			sawBox = true
-		}
-		if !row.header && row.host.Alias == "box_idle" {
-			sawBox = true
-		}
-	}
-	if !sawDigitalOcean || !sawBox {
-		t.Fatalf(". should reveal inactive provider groups, digitalocean=%v box=%v rows=%+v", sawDigitalOcean, sawBox, m.hostRows())
-	}
-}
-
 func TestProviderGroupShowsCreate(t *testing.T) {
 	m := testApp(t)
-	m.hosts = []sshconfig.Host{{
-		Alias: "box_sunny", Synced: true, SyncSource: "box",
-		Resolved: sshconfig.Resolved{HostName: "1.2.3.4", User: "user"},
-	}}
-	if err := m.metadata.SetBox(metadata.BoxIntegration{Enabled: true}); err != nil {
+	m.hosts = []sshconfig.Host{
+		{
+			Alias: "boat_live", Synced: true, SyncSource: "boat",
+			Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"},
+		},
+	}
+	if err := m.metadata.SetBoat(metadata.BoatIntegration{Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.metadata.SetHost("box_sunny", metadata.Host{Label: "sunny", Group: "Box"}); err != nil {
+	if err := m.metadata.SetHost("boat_live", metadata.Host{Label: "live", Group: "Boat", Tags: []string{"state:idle"}}); err != nil {
 		t.Fatal(err)
 	}
 	m.collapsedGroups = map[string]bool{}
 	rows := m.hostRows()
-	if len(rows) == 0 || !rows[0].header || rows[0].group != "Box" {
-		t.Fatalf("expected Box group after a running host exists, rows=%+v", rows)
+	if len(rows) == 0 || !rows[0].header || rows[0].group != "Boat" {
+		t.Fatalf("expected Boat group, rows=%+v", rows)
 	}
 	m.cursor = 0
 	detail := m.renderGroupDetail(m.styles(), rows[0], 60)
-	if !strings.Contains(detail, "New box") {
-		t.Fatalf("Box group should offer New box:\n%s", detail)
+	if !strings.Contains(detail, "New sandbox") {
+		t.Fatalf("Boat group should offer New sandbox:\n%s", detail)
 	}
 	lines := strings.Split(detail, "\n")
-	if len(lines) < 3 || !strings.Contains(lines[0], "Box") || strings.Contains(lines[0], "New box") {
-		t.Fatalf("New box should sit under the Box title:\n%s", detail)
+	if len(lines) < 3 || !strings.Contains(lines[0], "Boat") || strings.Contains(lines[0], "New sandbox") {
+		t.Fatalf("New sandbox should sit under the Boat title:\n%s", detail)
 	}
-	if !strings.Contains(lines[2], "New box") {
-		t.Fatalf("New box chip should be on the action row:\n%s", detail)
+	if !strings.Contains(lines[2], "New sandbox") {
+		t.Fatalf("New sandbox chip should be on the action row:\n%s", detail)
 	}
 	_, cmd := m.updateKeys(press("n"))
 	_ = cmd
-	if m.form == nil || m.form.action != "box_new" {
-		t.Fatalf("n on Box group should open new form, got %#v", m.form)
+	if m.form == nil || m.form.action != "boat_new" {
+		t.Fatalf("n on Boat group should open new form, got %#v", m.form)
 	}
 	if len(m.form.fields) < 3 || len(m.form.fields[0].options) != 3 || m.form.fields[0].selected != 1 {
-		t.Fatalf("new box form should offer constrained type options, got %#v", m.form.fields)
+		t.Fatalf("new sandbox form should offer constrained type options, got %#v", m.form.fields)
 	}
 }
 
-func TestDigitalOceanProviderLifecycleRow(t *testing.T) {
+func TestProviderGroupHiddenWhenNoActiveHosts(t *testing.T) {
 	m := testApp(t)
-	m.section = syncSection
-	m.syncProvider = "digitalocean"
-	m.syncCursor = 0
-	body := m.renderSync(m.styles())
-	if !strings.Contains(body, "New droplet") {
-		t.Fatalf("digitalocean page should offer New droplet:\n%s", body)
-	}
-	m.updateSyncKeys("l")
-	if m.syncCursor != 1 {
-		t.Fatalf("l should move to New droplet, cursor=%d", m.syncCursor)
-	}
-	m.updateSyncKeys("enter")
-	if m.form == nil || m.form.action != "digitalocean_new" {
-		t.Fatalf("enter on New droplet should open form, got %#v", m.form)
-	}
-}
-
-func TestDigitalOceanDeleteUsesRemoteConfirm(t *testing.T) {
-	m := testApp(t)
-	m.hosts = []sshconfig.Host{{
-		Alias: "do_web", Synced: true, SyncSource: "digitalocean", SyncID: "do:acct-1:10",
-		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "root"},
-	}}
-	if err := m.metadata.SetHost("do_web", metadata.Host{Label: "web", Group: "DigitalOcean/default/nyc3", Tags: []string{"state:active"}}); err != nil {
+	m.hosts = nil
+	if err := m.metadata.SetBoat(metadata.BoatIntegration{Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	m.section = hostsSection
-	selectHostAlias(t, m, "do_web")
-	_, _ = m.updateKeys(press("d"))
-	if m.form == nil || m.form.action != "digitalocean_delete" {
-		t.Fatalf("d on digitalocean host should confirm remote delete, got %#v", m.form)
-	}
-}
-
-func TestStoppedDigitalOceanHostIsHidden(t *testing.T) {
-	m := testApp(t)
-	m.hosts = []sshconfig.Host{{
-		Alias: "do_web", Synced: true, SyncSource: "digitalocean", SyncID: "do:acct-1:10",
-		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "root"},
-	}}
-	if err := m.metadata.SetHost("do_web", metadata.Host{Label: "web", Group: "DigitalOcean/default/nyc3", Tags: []string{"state:off"}}); err != nil {
-		t.Fatal(err)
-	}
-	for _, row := range m.hostRows() {
-		if !row.header && row.host.Alias == "do_web" {
-			t.Fatal("powered-off droplet should be hidden until .")
-		}
-	}
-	m.showHidden = true
-	var found bool
-	for _, row := range m.hostRows() {
-		if !row.header && row.host.Alias == "do_web" {
-			found = true
-			if !m.hostLooksStopped(row.host) {
-				t.Fatal("powered-off droplet should look stopped")
-			}
-		}
-	}
-	if !found {
-		t.Fatal(". should reveal powered-off droplet")
-	}
-}
-
-func TestDigitalOceanProviderGroupShowsCreate(t *testing.T) {
-	m := testApp(t)
-	m.hosts = []sshconfig.Host{{
-		Alias: "do_web", Synced: true, SyncSource: "digitalocean", SyncID: "do:acct-1:10",
-		Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "root"},
-	}}
-	if err := m.metadata.SetHost("do_web", metadata.Host{Label: "web", Group: "DigitalOcean/default/nyc3"}); err != nil {
+	if err := m.metadata.SetVercel(metadata.VercelIntegration{Enabled: true, TeamID: "team_1", ProjectID: "prj_1"}); err != nil {
 		t.Fatal(err)
 	}
 	m.collapsedGroups = map[string]bool{}
-	rows := m.hostRows()
-	if len(rows) == 0 || !rows[0].header || rows[0].group != "DigitalOcean" {
-		t.Fatalf("expected DigitalOcean group, rows=%+v", rows)
+	if rows := m.hostRows(); len(rows) != 0 {
+		t.Fatalf("empty enabled providers should not inject groups, rows=%+v", rows)
 	}
-	m.cursor = 0
-	detail := m.renderGroupDetail(m.styles(), rows[0], 60)
-	if !strings.Contains(detail, "New droplet") {
-		t.Fatalf("DigitalOcean group should offer New droplet:\n%s", detail)
+
+	m.hosts = []sshconfig.Host{
+		{
+			Alias: "boat_idle", Synced: true, SyncSource: "boat",
+			Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"},
+		},
+		{
+			Alias: "vercel_idle", Synced: true, SyncSource: "vercel",
+			Resolved: sshconfig.Resolved{HostName: "vercel.sandbox.invalid"},
+		},
+		{Alias: "alpha"},
 	}
-	_, _ = m.updateKeys(press("n"))
-	if m.form == nil || m.form.action != "digitalocean_new" {
-		t.Fatalf("n on DigitalOcean group should open new form, got %#v", m.form)
+	if err := m.metadata.SetHost("boat_idle", metadata.Host{Label: "idle", Group: "Boat", Tags: []string{"state:stopped"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("vercel_idle", metadata.Host{Label: "idle", Group: "Vercel", Tags: []string{"state:stopped"}}); err != nil {
+		t.Fatal(err)
+	}
+	groups := map[string]bool{}
+	for _, row := range m.hostRows() {
+		if row.header {
+			groups[row.group] = true
+		}
+	}
+	if groups["Boat"] || groups["Vercel"] {
+		t.Fatalf("stopped-only provider groups should stay hidden, groups=%v rows=%+v", groups, m.hostRows())
+	}
+
+	m.showHidden = true
+	groups = map[string]bool{}
+	var sawBoat, sawVercel bool
+	for _, row := range m.hostRows() {
+		if row.header {
+			groups[row.group] = true
+		}
+		if row.host.Alias == "boat_idle" {
+			sawBoat = true
+		}
+		if row.host.Alias == "vercel_idle" {
+			sawVercel = true
+		}
+	}
+	if !groups["Boat"] || !groups["Vercel"] {
+		t.Fatalf(". should reveal stopped-only groups, groups=%v", groups)
+	}
+	if !sawBoat || !sawVercel {
+		t.Fatalf(". should reveal stopped hosts, boat=%v vercel=%v", sawBoat, sawVercel)
 	}
 }
 
-func TestDigitalOceanInventoryLifecycle(t *testing.T) {
+func TestBitqateSyncActionsStayOnBitqate(t *testing.T) {
 	m := testApp(t)
-	m.section = syncSection
-	m.syncProvider = "digitalocean"
-	m.hosts = []sshconfig.Host{
-		{Alias: "do_run", Synced: true, SyncSource: "digitalocean", SyncID: "do:acct-1:10", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "root"}},
-		{Alias: "do_off", Synced: true, SyncSource: "digitalocean", SyncID: "do:acct-1:11", Resolved: sshconfig.Resolved{HostName: "203.0.113.11", User: "root"}},
-	}
-	if err := m.metadata.SetHost("do_run", metadata.Host{Label: "web", Group: "DigitalOcean/default/nyc3", Tags: []string{"state:active"}}); err != nil {
+	if err := m.metadata.SetGCP(metadata.GCPIntegration{AutoSync: false, DefaultSSHUser: "gcp-user"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.metadata.SetHost("do_off", metadata.Host{Label: "db", Group: "DigitalOcean/default/nyc3", Tags: []string{"state:off"}}); err != nil {
+	if err := m.metadata.SetAWS(metadata.AWSIntegration{RegionFilter: []string{"us-east-1"}}); err != nil {
 		t.Fatal(err)
 	}
-	m.toggleProviderInv(invGroupStopped)
-	selectProviderHost(t, m, "do_run")
-	_, _ = m.updateKeys(press("o"))
-	if m.form == nil || m.form.action != "digitalocean_stop" {
-		t.Fatalf("o on running droplet should stop, got %#v", m.form)
+	m.syncProvider = "bitqate"
+
+	if _, cmd := m.runSyncAction("enable"); cmd != nil || m.form == nil || m.form.action != "bitqate_key" {
+		t.Fatalf("enable without a token started a sync, form=%#v cmd=%v", m.form, cmd)
 	}
+	if m.syncingProviders["bitqate"] {
+		t.Fatal("token form left BitQate marked syncing")
+	}
+
 	m.form = nil
-	_, _ = m.updateKeys(press("n"))
-	if m.form == nil || m.form.action != "digitalocean_fork" {
-		t.Fatalf("n on running droplet should fork, got %#v", m.form)
+	m.runSyncAction("auto_on")
+	if !m.metadata.Bitqate().AutoSync {
+		t.Fatal("auto-sync was not enabled")
 	}
-	m.form = nil
-	_, _ = m.updateKeys(press("d"))
-	if m.form == nil || m.form.action != "digitalocean_delete" {
-		t.Fatalf("d on running droplet should delete, got %#v", m.form)
+	if m.metadata.GCP().AutoSync {
+		t.Fatal("BitQate auto-sync enabled GCP auto-sync")
 	}
-	m.form = nil
-	selectProviderHost(t, m, "do_off")
-	footer := m.browseFooterHint(80)
-	if !strings.Contains(footer, "r resume") || strings.Contains(footer, "o stop") {
-		t.Fatalf("stopped droplet footer = %q", footer)
+
+	m.runSyncAction("auto_off")
+	if m.metadata.Bitqate().AutoSync {
+		t.Fatal("auto-sync stayed enabled")
 	}
-	_, cmd := m.updateKeys(press("r"))
-	if cmd == nil {
-		t.Fatal("r on stopped droplet should resume")
+	if m.metadata.GCP().AutoSync {
+		t.Fatal("BitQate auto-sync disabled GCP auto-sync")
 	}
-	if m.boxConnectAfter != "" {
-		t.Fatalf("r should resume without connecting, after=%q", m.boxConnectAfter)
+
+	m.runSyncAction("user")
+	if m.form == nil || m.form.action != "sync_bitqate_user" {
+		t.Fatalf("SSH user form = %#v", m.form)
 	}
-	m.syncingProviders = map[string]bool{}
-	m.syncActivity = ""
-	m.syncCursor = 0
-	_, _ = m.updateKeys(press("n"))
-	if m.form == nil || m.form.action != "digitalocean_new" {
-		t.Fatalf("n on chips should create a droplet, got %#v", m.form)
+	m.runSyncAction("regions")
+	if m.form == nil || m.form.action != "sync_bitqate_regions" {
+		t.Fatalf("region form = %#v", m.form)
+	}
+	if got := m.metadata.AWS().RegionFilter; len(got) != 1 || got[0] != "us-east-1" {
+		t.Fatalf("AWS region filter changed: %v", got)
+	}
+	if m.metadata.GCP().DefaultSSHUser != "gcp-user" {
+		t.Fatalf("GCP SSH user changed: %q", m.metadata.GCP().DefaultSSHUser)
 	}
 }

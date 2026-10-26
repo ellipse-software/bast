@@ -27,9 +27,9 @@ func (m *App) resumeSelectedDigitalOcean(host sshconfig.Host, thenConnect bool) 
 	opGen := m.beginProviderOp("digitalocean")
 	m.syncActivity = "powering on…"
 	if thenConnect {
-		m.boxConnectAfter = host.Alias
+		m.sandboxConnectAfter = host.Alias
 	} else {
-		m.boxConnectAfter = ""
+		m.sandboxConnectAfter = ""
 	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -88,14 +88,14 @@ func (m *App) openDigitalOceanStopForm(host sshconfig.Host) {
 	}
 	m.openForm("Stop Droplet", "digitalocean_stop", []field{
 		{label: "SyncID", value: host.SyncID, hidden: true},
-		{label: "Type stop to confirm", description: "Powers off. Disk still bills until you delete", placeholder: "stop"},
+		{label: "Type stop to confirm", description: "Shuts down. Disk still bills until you delete", placeholder: "stop"},
 	})
 }
 
 func (m *App) openDigitalOceanForkForm(host sshconfig.Host) {
 	m.openForm("Fork Droplet", "digitalocean_fork", []field{
 		{label: "SyncID", value: host.SyncID, hidden: true},
-		{label: "Type fork to confirm", description: "Snapshots this Droplet and creates a new one from it", placeholder: "fork"},
+		{label: "Type fork to confirm", description: "Snapshots this Droplet, creates a new one, then deletes the snapshot", placeholder: "fork"},
 	})
 }
 
@@ -103,6 +103,6 @@ func (m *App) openDigitalOceanDeleteForm(host sshconfig.Host) {
 	label := m.hostLabel(host)
 	m.openForm("Delete Droplet: "+label, "digitalocean_delete", []field{
 		{label: "SyncID", value: host.SyncID, hidden: true},
-		{label: "Type delete to confirm", description: "Permanently destroys the Droplet; snapshots are kept", placeholder: "delete"},
+		{label: "Type delete to confirm", description: "Permanently destroys the Droplet", placeholder: "delete"},
 	})
 }

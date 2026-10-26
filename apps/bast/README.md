@@ -2,7 +2,7 @@
 
 The native terminal application for [Bast](https://bast.sh), an SSH host picker and key manager built on OpenSSH.
 
-Bast reads existing SSH configuration, stores its managed hosts in included OpenSSH files, and launches the system `ssh` binary for connections. It also manages SSH keys, imports hosts from shell history, and can sync hosts from GCP, AWS, Azure, DigitalOcean, [box.ascii.dev](https://bast.sh/docs/features/box), and [Upstash Box](https://bast.sh/docs/features/upstash). See the [Bast documentation](https://bast.sh/docs) for installation, usage, and feature guides.
+Bast reads existing SSH configuration, stores its managed hosts in included OpenSSH files, and launches the system `ssh` binary for connections. Vercel Sandboxes are the exception: connect uses a WebSocket PTY, not OpenSSH. It also manages SSH keys, imports hosts from shell history, and can sync hosts from GCP, AWS, Azure, [Boat](https://bast.sh/docs/features/boat), [Upstash Box](https://bast.sh/docs/features/upstash), [Vercel Sandbox](https://bast.sh/docs/features/vercel), [Hetzner Cloud](https://bast.sh/docs/features/hetzner), [BitQate](https://bast.sh/docs/features/bitqate), [Railway](https://bast.sh/docs/features/railway), [Fly.io](https://bast.sh/docs/features/fly), and [DigitalOcean](https://bast.sh/docs/features/digitalocean). See the [Bast documentation](https://bast.sh/docs) for installation, usage, and feature guides.
 
 ## Development
 
@@ -20,3 +20,5 @@ The application is in `apps/bast`. Run `bun run check` from the repository root 
 ## Releases
 
 Stable and nightly binaries are built for supported macOS, Linux, and Windows architectures by the repository's release workflows. Windows executables are Authenticode-signed before packaging. Installation options and channel behavior are documented in the [installation guide](https://bast.sh/docs/install).
+
+Stable Windows releases are submitted to WinGet as `EllipseSoftware.Bast` after GitHub publication. WinGet installs update with `winget upgrade --id EllipseSoftware.Bast --exact`. Submission setup and retries are documented in [CONTRIBUTING.md](../../CONTRIBUTING.md#winget-submissions).

@@ -1,9 +1,27 @@
 "use client";
 
+import localFont from "next/font/local";
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 
+const nerdSymbols = localFont({
+  src: "../fonts/bast-nerd-symbols.woff2",
+  display: "swap",
+  preload: false,
+  adjustFontFallback: false,
+});
+
 type Section = "hosts" | "keys" | "vault" | "sync" | "files";
-type SyncProvider = "" | "gcp" | "aws" | "azure" | "digitalocean" | "box" | "upstash";
+type SyncProvider = "" | "gcp" | "aws" | "azure" | "boat" | "upstash" | "vercel" | "hetzner";
+
+const providerNerdIcon: Record<Exclude<SyncProvider, "">, string> = {
+  gcp: "\ue7f1",
+  aws: "\ue7ad",
+  azure: "\ue754",
+  boat: "\u{f0ec8}",
+  upstash: "\uf1b2",
+  vercel: "\u25b2",
+  hetzner: "\uf233",
+};
 
 type DetailRow = { label: string; value: string };
 
@@ -20,7 +38,7 @@ type HostItem = {
   name: string;
   alias?: string;
   favorite?: boolean;
-  synced?: "gcp" | "aws" | "azure" | "digitalocean";
+  synced?: "gcp" | "aws" | "azure";
   destination: string;
   summary: string;
   access?: DetailRow[];
@@ -157,30 +175,6 @@ const hostTree: HostGroupNode[] = [
     ],
   },
   {
-    path: "DigitalOcean",
-    label: "DigitalOcean",
-    synced: true,
-    children: [
-      {
-        path: "DigitalOcean/default/nyc3",
-        label: "default / nyc3",
-        hosts: [
-          {
-            name: "web-01",
-            alias: "do_default_nyc3_web-01",
-            synced: "digitalocean",
-            destination: "root@203.0.113.10",
-            summary: "DigitalOcean synced · known host",
-            access: [
-              { label: "Auth", value: "~/.ssh/id_ed25519" },
-              { label: "SSH name", value: "do_default_nyc3_web-01" },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-  {
     path: "Microsoft Azure",
     label: "Microsoft Azure",
     synced: true,
@@ -287,22 +281,28 @@ const syncTiles: SyncTile[] = [
     description: "Import Azure VMs into Bast",
   },
   {
-    id: "digitalocean",
-    title: "DigitalOcean",
+    id: "boat",
+    title: "Boat",
     detail: "2 running",
-    description: "Create and import Droplets in Bast",
-  },
-  {
-    id: "box",
-    title: "Box",
-    detail: "2 running",
-    description: "Import ASCII Box sandboxes into Bast",
+    description: "Import Boat sandboxes into Bast",
   },
   {
     id: "upstash",
     title: "Upstash",
     detail: "2 running",
     description: "Import Upstash Box sandboxes into Bast",
+  },
+  {
+    id: "vercel",
+    title: "Vercel",
+    detail: "1 running",
+    description: "Import Vercel Sandboxes into Bast",
+  },
+  {
+    id: "hetzner",
+    title: "Hetzner Cloud",
+    detail: "1 running",
+    description: "Import Hetzner Cloud servers into Bast",
   },
 ];
 
@@ -374,24 +374,9 @@ const providerPages: Record<Exclude<SyncProvider, "">, ProviderPage> = {
       { label: "Refresh status" },
     ],
   },
-  digitalocean: {
-    identity: [
-      "enabled · 2 running",
-      "default · auto-sync off",
-    ],
-    chips: ["Sync", "New droplet"],
-    config: [
-      { label: "Disconnect" },
-      { label: "Enable auto-sync" },
-      { label: "Default SSH user" },
-      { label: "Context filter" },
-      { label: "Region filter" },
-      { label: "Refresh status" },
-    ],
-  },
-  box: {
+  boat: {
     identity: ["enabled · 2 running", "ted · auto-sync on"],
-    chips: ["Sync", "New box"],
+    chips: ["Sync", "New sandbox"],
     config: [
       { label: "Disconnect" },
       { label: "Refresh status" },
@@ -403,6 +388,27 @@ const providerPages: Record<Exclude<SyncProvider, "">, ProviderPage> = {
     config: [
       { label: "Disconnect" },
       { label: "Disable auto-sync" },
+      { label: "Refresh status" },
+    ],
+  },
+  vercel: {
+    identity: ["enabled · 1 running", "token stored · auto-sync on"],
+    chips: ["Sync", "New sandbox", "Token"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Disable auto-sync" },
+      { label: "Refresh status" },
+    ],
+  },
+  hetzner: {
+    identity: ["enabled · 1 running", "token stored · auto-sync off"],
+    chips: ["Sync", "API token"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Enable auto-sync" },
+      { label: "Prefer private IP" },
+      { label: "Default SSH user" },
+      { label: "Default SSH port" },
       { label: "Refresh status" },
     ],
   },
@@ -454,6 +460,15 @@ const localFiles: FileEntry[] = [
     modified: "2026-06-02 08:18",
   },
 ];
+
+const filePreviewBodies: Record<string, string> = {
+  "notes.md":
+    "# roll\n\napi first\njump box last\nkeep secrets out of git\ncheck health after deploy\nrevert on 5xx\nwrite the postmortem",
+  "secret.env": "REGION=us-east-1\nLOG_LEVEL=info\nKEEPALIVE=30",
+  "id_ed25519.pub": "ssh-ed25519 AAAAC3… work",
+};
+
+const previewVisibleLines = 5;
 
 const remoteFiles: FileEntry[] = [
   {
@@ -596,6 +611,8 @@ export function TuiDemo() {
     "secret.env": true,
   });
   const [filesInfo, setFilesInfo] = useState(false);
+  const [filesPreview, setFilesPreview] = useState(false);
+  const [previewOffset, setPreviewOffset] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const hostRows = useMemo(() => buildHostRows(collapsed), [collapsed]);
@@ -620,6 +637,8 @@ export function TuiDemo() {
 
   const switchSection = useCallback((next: Section) => {
     setSection(next);
+    setFilesPreview(false);
+    setPreviewOffset(0);
     if (next === "sync") {
       setSyncProvider("");
       setSyncCursor(0);
@@ -688,6 +707,60 @@ export function TuiDemo() {
     [filesFocus],
   );
 
+  const focusedFilesEntry = useCallback(() => {
+    const entries = filesFocus === 0 ? localFiles : remoteFiles;
+    const cursor = filesFocus === 0 ? safeLocalCursor : safeRemoteCursor;
+    return entries[cursor];
+  }, [filesFocus, safeLocalCursor, safeRemoteCursor]);
+
+  const toggleFilesPreview = useCallback(() => {
+    const entry = focusedFilesEntry();
+    if (!entry || entry.isDir) return;
+    setFilesInfo(false);
+    setFilesPreview((open) => {
+      if (!open) {
+        setPreviewOffset(0);
+      }
+      return !open;
+    });
+  }, [focusedFilesEntry]);
+
+  const scrollFilesPreview = useCallback(
+    (delta: number) => {
+      const entry = focusedFilesEntry();
+      const body = entry ? (filePreviewBodies[entry.name] ?? "") : "";
+      const lineCount = body === "" ? 0 : body.split("\n").length;
+      const maxOffset = Math.max(0, lineCount - previewVisibleLines);
+      setPreviewOffset((current) =>
+        Math.max(0, Math.min(maxOffset, current + delta)),
+      );
+    },
+    [focusedFilesEntry],
+  );
+
+  const stepFilesPreview = useCallback(
+    (delta: number) => {
+      const entries = filesFocus === 0 ? localFiles : remoteFiles;
+      const cursor = filesFocus === 0 ? safeLocalCursor : safeRemoteCursor;
+      const setCursor = filesFocus === 0 ? setLocalCursor : setRemoteCursor;
+      for (let i = 1; i < entries.length; i += 1) {
+        const idx = cursor + delta * i;
+        if (idx < 0 || idx >= entries.length) {
+          return;
+        }
+        if (entries[idx].isDir) {
+          continue;
+        }
+        setCursor(idx);
+        setPreviewOffset(0);
+        setFilesInfo(false);
+        setFilesPreview(true);
+        return;
+      }
+    },
+    [filesFocus, safeLocalCursor, safeRemoteCursor],
+  );
+
   const toggleFilesMark = useCallback(() => {
     if (filesFocus !== 0) return;
     const entry = localFiles[safeLocalCursor];
@@ -728,6 +801,7 @@ export function TuiDemo() {
           event.preventDefault();
           if (section === "hosts") moveHosts(1);
           else if (section === "keys") moveKeys(1);
+          else if (section === "files" && filesPreview) scrollFilesPreview(1);
           else if (section === "files") moveFiles(1);
           else if (section === "vault") moveVault(1);
           else moveSync(1);
@@ -737,9 +811,22 @@ export function TuiDemo() {
           event.preventDefault();
           if (section === "hosts") moveHosts(-1);
           else if (section === "keys") moveKeys(-1);
+          else if (section === "files" && filesPreview) scrollFilesPreview(-1);
           else if (section === "files") moveFiles(-1);
           else if (section === "vault") moveVault(-1);
           else moveSync(-1);
+          break;
+        case "[":
+          if (section === "files" && filesPreview) {
+            event.preventDefault();
+            stepFilesPreview(-1);
+          }
+          break;
+        case "]":
+          if (section === "files" && filesPreview) {
+            event.preventDefault();
+            stepFilesPreview(1);
+          }
           break;
         case "h":
         case "ArrowLeft":
@@ -790,17 +877,34 @@ export function TuiDemo() {
         case "i":
           if (section === "files") {
             event.preventDefault();
+            setFilesPreview(false);
+            setPreviewOffset(0);
             setFilesInfo((current) => !current);
           }
           break;
+        case "o":
+          if (section === "files") {
+            event.preventDefault();
+            toggleFilesPreview();
+          }
+          break;
         case "Enter":
+          event.preventDefault();
+          if (section === "hosts" && selectedHostRow?.kind === "group") {
+            toggleGroup(selectedHostRow.id);
+          } else if (section === "sync") {
+            activateSync();
+          } else if (section === "files") {
+            toggleFilesPreview();
+          }
+          break;
         case " ":
           event.preventDefault();
           if (section === "hosts" && selectedHostRow?.kind === "group") {
             toggleGroup(selectedHostRow.id);
           } else if (section === "sync") {
             activateSync();
-          } else if (section === "files" && event.key === " ") {
+          } else if (section === "files" && !filesPreview) {
             toggleFilesMark();
           }
           break;
@@ -809,6 +913,10 @@ export function TuiDemo() {
             event.preventDefault();
             setSyncProvider("");
             setSyncCursor(0);
+          } else if (section === "files" && filesPreview) {
+            event.preventDefault();
+            setFilesPreview(false);
+            setPreviewOffset(0);
           } else if (section === "files" && filesInfo) {
             event.preventDefault();
             setFilesInfo(false);
@@ -822,8 +930,11 @@ export function TuiDemo() {
     [
       activateSync,
       filesInfo,
+      filesPreview,
       localMarked,
       moveFiles,
+      scrollFilesPreview,
+      stepFilesPreview,
       moveHosts,
       moveKeys,
       moveSync,
@@ -835,6 +946,7 @@ export function TuiDemo() {
       switchSection,
       syncProvider,
       toggleFilesMark,
+      toggleFilesPreview,
       toggleGroup,
     ],
   );
@@ -843,11 +955,13 @@ export function TuiDemo() {
     section === "hosts"
       ? "↵ connect • ␣ group • a add • e edit • 5 files • ? help"
       : section === "keys"
-        ? "a generate • i import • x export • u add to server • ? help"
+        ? "g generate • i import • x export • a add to server • ? help"
         : section === "files"
-          ? filesInfo
-            ? "j/k next • i/esc close"
-            : "tab pane • ␣ mark • i info • p chmod • ? help"
+          ? filesPreview
+            ? "j/k scroll • [ ] file • o/esc close"
+            : filesInfo
+              ? "j/k next • i/esc close"
+              : "tab pane • ␣ mark • o preview • i info • ? help"
           : section === "vault"
             ? "↵ action • 4 sync • ? help"
             : syncProvider
@@ -860,9 +974,11 @@ export function TuiDemo() {
       : section === "keys"
         ? "tap select • 1/2/3/4/5 tabs"
         : section === "files"
-          ? filesInfo
-            ? "i/esc close • 1/2/3/4/5 tabs"
-            : "tap pane • i info • 1/2/3/4/5 tabs"
+          ? filesPreview
+            ? "o/esc close • 1/2/3/4/5 tabs"
+            : filesInfo
+              ? "i/esc close • 1/2/3/4/5 tabs"
+              : "tap pane • o preview • i info • 1/2/3/4/5 tabs"
           : section === "vault"
             ? "tap action • 1/2/3/4/5 tabs"
             : "tap provider • 1/2/3/4/5 tabs";
@@ -956,6 +1072,8 @@ export function TuiDemo() {
           remoteCursor={safeRemoteCursor}
           localMarked={localMarked}
           info={filesInfo}
+          preview={filesPreview}
+          previewOffset={previewOffset}
           onFocus={setFilesFocus}
           onSelectLocal={setLocalCursor}
           onSelectRemote={setRemoteCursor}
@@ -970,7 +1088,11 @@ export function TuiDemo() {
               return next;
             });
           }}
-          onToggleInfo={() => setFilesInfo((current) => !current)}
+          onToggleInfo={() => {
+            setFilesPreview(false);
+            setFilesInfo((current) => !current);
+          }}
+          onTogglePreview={toggleFilesPreview}
           footerDesktop={footerHintDesktop}
           footerMobile={footerHintMobile}
         />
@@ -1086,11 +1208,14 @@ function FilesPanel({
   remoteCursor,
   localMarked,
   info,
+  preview,
+  previewOffset,
   onFocus,
   onSelectLocal,
   onSelectRemote,
   onToggleMark,
   onToggleInfo,
+  onTogglePreview,
   footerDesktop,
   footerMobile,
 }: {
@@ -1099,16 +1224,21 @@ function FilesPanel({
   remoteCursor: number;
   localMarked: Record<string, boolean>;
   info: boolean;
+  preview: boolean;
+  previewOffset: number;
   onFocus: (pane: 0 | 1) => void;
   onSelectLocal: (index: number) => void;
   onSelectRemote: (index: number) => void;
   onToggleMark: (name: string) => void;
   onToggleInfo: () => void;
+  onTogglePreview: () => void;
   footerDesktop: string;
   footerMobile: string;
 }) {
+  const previewEntry =
+    focus === 0 ? localFiles[localCursor] : remoteFiles[remoteCursor];
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       <div className={`h-px shrink-0 bg-border ${bleedMargin}`} />
 
       <div className="flex min-h-0 flex-1 flex-col gap-2 pt-2 md:hidden">
@@ -1186,7 +1316,48 @@ function FilesPanel({
       <footer className="mt-2 shrink-0 truncate text-right text-[10px] text-muted sm:text-xs md:hidden">
         {footerMobile}
       </footer>
+
+      {preview && previewEntry && !previewEntry.isDir ? (
+        <FilesPreview
+          entry={previewEntry}
+          offset={previewOffset}
+          onClose={onTogglePreview}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function FilesPreview({
+  entry,
+  offset,
+  onClose,
+}: {
+  entry: FileEntry;
+  offset: number;
+  onClose: () => void;
+}) {
+  const kind = entry.name.endsWith(".json") ? "json" : "text";
+  const body = filePreviewBodies[entry.name] ?? "";
+  const lines = body === "" ? [] : body.split("\n");
+  const visible = lines.slice(offset, offset + previewVisibleLines);
+  const title = `${entry.name} · ${kind} · ${entry.size}`;
+  return (
+    <button
+      type="button"
+      onClick={onClose}
+      className="absolute inset-0 z-20 flex cursor-pointer items-center justify-center border-0 bg-transparent p-3 font-[inherit] text-left"
+      aria-label="Close preview"
+    >
+      <div className="max-h-[80%] w-[min(100%,28rem)] overflow-hidden rounded-md border border-border bg-background px-3 py-2">
+        <p className="truncate font-bold text-accent">{title}</p>
+        {visible.length > 0 ? (
+          <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-foreground">
+            {visible.join("\n")}
+          </pre>
+        ) : null}
+      </div>
+    </button>
   );
 }
 
@@ -1351,13 +1522,11 @@ function HostList({
               >
                 {indicator}{" "}
                 {row.googleCloud ? (
-                  <GoogleCloudLabel />
+                  <ProviderTitle provider="gcp" />
                 ) : row.label === "Amazon EC2" ? (
-                  <span className="font-bold text-[#FF9900]">Amazon EC2</span>
+                  <ProviderTitle provider="aws" />
                 ) : row.label === "Microsoft Azure" ? (
-                  <span className="font-bold text-[#0078D4]">Microsoft Azure</span>
-                ) : row.label === "DigitalOcean" ? (
-                  <span className="font-bold text-[#0080FF]">DigitalOcean</span>
+                  <ProviderTitle provider="azure" />
                 ) : (
                   row.label
                 )}{" "}
@@ -1432,8 +1601,7 @@ function groupPrimaryAction(row: Extract<HostListRow, { kind: "group" }>): strin
     case "Google Cloud":
     case "Amazon EC2":
     case "Microsoft Azure":
-    case "DigitalOcean":
-      return "New droplet";
+      return "Sync now";
     default:
       return null;
   }
@@ -1559,7 +1727,7 @@ function KeyDetail({
       ) : null}
       <div className={`space-y-0.5 ${compact ? "mt-1.5" : "mt-2"}`}>
         <p className={`font-bold text-accent ${compact ? "mt-1" : "mt-1.5"}`}>
-          [u] Add to server
+          [a] Add to server
         </p>
         {keyItem.rows.map((row) => (
           <DetailLine key={row.label} {...row} compact={compact} />
@@ -1839,25 +2007,63 @@ function MenuRow({
   );
 }
 
+function ProviderGlyph({
+  provider,
+}: {
+  provider: Exclude<SyncProvider, "">;
+}) {
+  return (
+    <span
+      className={`${nerdSymbols.className} mr-1 inline-block w-[1ch] shrink-0`}
+      aria-hidden
+    >
+      {providerNerdIcon[provider]}
+    </span>
+  );
+}
+
 function ProviderTitle({
   provider,
 }: {
   provider: Exclude<SyncProvider, "">;
 }) {
-  switch (provider) {
-    case "gcp":
-      return <GoogleCloudLabel />;
-    case "aws":
-      return <span className="font-bold text-[#FF9900]">Amazon EC2</span>;
-    case "azure":
-      return <span className="font-bold text-[#0078D4]">Microsoft Azure</span>;
-    case "digitalocean":
-      return <span className="font-bold text-[#0080FF]">DigitalOcean</span>;
-    case "box":
-      return <span className="font-bold text-foreground">Box</span>;
-    case "upstash":
-      return <span className="font-bold text-[#00E9A3]">Upstash</span>;
+  const glyph = <ProviderGlyph provider={provider} />;
+  if (provider === "gcp") {
+    return (
+      <span className="inline-flex items-baseline font-bold">
+        <span className="text-[#4285F4]">{glyph}</span>
+        <GoogleCloudLabel />
+      </span>
+    );
   }
+  const color =
+    provider === "aws"
+      ? "text-[#FF9900]"
+      : provider === "azure"
+        ? "text-[#0078D4]"
+        : provider === "upstash"
+          ? "text-[#00E9A3]"
+          : provider === "hetzner"
+            ? "text-[#D50C2D]"
+            : "text-foreground";
+  const label =
+    provider === "aws"
+      ? "Amazon EC2"
+      : provider === "azure"
+        ? "Microsoft Azure"
+        : provider === "boat"
+          ? "Boat"
+          : provider === "upstash"
+            ? "Upstash"
+            : provider === "vercel"
+              ? "Vercel"
+              : "Hetzner Cloud";
+  return (
+    <span className={`inline-flex items-baseline font-bold ${color}`}>
+      {glyph}
+      {label}
+    </span>
+  );
 }
 
 function IdentityLine({ line }: { line: string }) {

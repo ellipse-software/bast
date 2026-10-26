@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 import { InstallCommand } from "@/components/install-command";
+import { winget } from "@/flags";
 import { pageMaxWidthClass } from "@/lib/layout";
 import { supportsWindowsRelease } from "@/lib/releases";
 
@@ -27,7 +28,8 @@ const installTheme = {
   "--accent": "#8b5cf6",
 } as CSSProperties;
 
-export function PreFooter({ version }: PreFooterProps) {
+export async function PreFooter({ version }: PreFooterProps) {
+  const wingetAvailable = await winget();
   const platforms = supportsWindowsRelease(version)
     ? "macOS, Linux, and Windows 11"
     : "macOS and Linux";
@@ -56,7 +58,7 @@ export function PreFooter({ version }: PreFooterProps) {
         </p>
 
         <div className="w-full max-w-xl" style={installTheme}>
-          <InstallCommand version={version} />
+          <InstallCommand version={version} wingetAvailable={wingetAvailable} />
         </div>
       </div>
     </section>

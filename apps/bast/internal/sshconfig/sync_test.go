@@ -86,6 +86,95 @@ func TestWriteAndDiscoverSyncBlocks(t *testing.T) {
 	}
 }
 
+func TestRewriteManagedHostsKeepsSyncIncludes(t *testing.T) {
+	m := testManager(t)
+	m.SyncGCPConfig = filepath.Join(m.ManagedDir, "sync", "gcp", "config")
+	m.SyncBoatConfig = filepath.Join(m.ManagedDir, "sync", "boat", "config")
+	if err := m.EnsureManaged(); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.EnsureSyncInclude(m.SyncGCPConfig); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.EnsureSyncInclude(m.SyncBoatConfig); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSyncConfig(m.SyncGCPConfig, []SyncHostInput{{
+		Alias: "gcp_proj_web", SyncSource: "gcp", SyncID: "projects/p/zones/z/instances/web",
+		HostName: "web", User: "ubuntu",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSyncConfig(m.SyncBoatConfig, []SyncHostInput{{
+		Alias: "boat_dev", SyncSource: "boat", SyncID: "bx_dev0001",
+		HostName: "203.0.113.10", User: "user",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RewriteManagedHosts(RenderManagedBlock("abc123", HostInput{
+		Alias: "prod", HostName: "prod.example", User: "deploy",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(m.ManagedConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "sync/gcp/config") || !strings.Contains(text, "sync/boat/config") {
+		t.Fatalf("vault rewrite dropped sync includes:\n%s", text)
+	}
+	if !strings.Contains(text, "Host prod") {
+		t.Fatalf("managed host missing:\n%s", text)
+	}
+	hosts, err := m.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byAlias := map[string]Host{}
+	for _, host := range hosts {
+		byAlias[host.Alias] = host
+	}
+	if !byAlias["gcp_proj_web"].Synced || !byAlias["boat_dev"].Synced || byAlias["prod"].Alias == "" {
+		t.Fatalf("discover after rewrite: %+v", byAlias)
+	}
+}
+
+func TestRestoreSyncIncludesAfterWipedManagedConfig(t *testing.T) {
+	m := testManager(t)
+	m.SyncBoatConfig = filepath.Join(m.ManagedDir, "sync", "boat", "config")
+	if err := m.EnsureManaged(); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteSyncConfig(m.SyncBoatConfig, []SyncHostInput{{
+		Alias: "boat_dev", SyncSource: "boat", SyncID: "bx_dev0001",
+		HostName: "203.0.113.10", User: "user",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteManagedConfig(m.ManagedConfig, RenderManagedBlock("abc123", HostInput{
+		Alias: "prod", HostName: "prod.example",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RestoreSyncIncludes(); err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := m.Discover()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, host := range hosts {
+		if host.Alias == "boat_dev" && host.Synced {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("restored include should expose synced boat: %+v", hosts)
+	}
+}
+
 func TestEnsureSyncIncludeIsBeforeHostBlocks(t *testing.T) {
 	m := testManager(t)
 	m.SyncGCPConfig = filepath.Join(m.ManagedDir, "sync", "gcp", "config")
@@ -183,6 +272,28 @@ func TestUpdateSyncHostAuth(t *testing.T) {
 	text = string(raw)
 	if strings.Contains(text, "CertificateFile") || !strings.Contains(text, "IdentityFile ~/.ssh/id_ed25519") {
 		t.Fatalf("stale certificate was not cleared:\n%s", text)
+	}
+}
+
+func TestUpdateSyncHostDetailsPort(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config")
+	if err := WriteSyncConfig(path, []SyncHostInput{{
+		Alias: "hetzner_vpn", SyncSource: "hetzner", SyncID: "hetzner/1",
+		HostName: "168.119.235.95", User: "root",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateSyncHostDetails(path, "hetzner_vpn", "168.119.235.95", "ted", "~/.ssh/bast/keys/ted.ac", "", "2022", true); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "User ted") || !strings.Contains(text, "Port 2022") || !strings.Contains(text, "IdentityFile ~/.ssh/bast/keys/ted.ac") {
+		t.Fatalf("details missing:\n%s", text)
 	}
 }
 

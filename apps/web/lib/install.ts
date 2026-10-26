@@ -78,8 +78,11 @@ export function defaultMethodFor(platform: InstallPlatform): InstallMethod {
 export function resolveMethod(
   platform: InstallPlatform,
   current: InstallMethod,
+  wingetAvailable = false,
 ): InstallMethod {
-  return methodsForPlatform(platform).some(({ id }) => id === current)
+  return methodsForPlatform(platform, wingetAvailable).some(
+    ({ id }) => id === current,
+  )
     ? current
     : defaultMethodFor(platform);
 }

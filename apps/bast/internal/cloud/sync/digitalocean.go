@@ -47,10 +47,12 @@ func (e *Engine) StopDigitalOcean(ctx context.Context, syncID string) (Result, e
 		return Result{}, err
 	}
 	defer e.digitalOceanMu.Unlock()
-	if err := e.DigitalOcean.Stop(ctx, syncID); err != nil {
-		return Result{}, err
+	stopErr := e.DigitalOcean.Stop(ctx, syncID)
+	result, syncErr := e.syncDigitalOceanLocked(ctx)
+	if stopErr != nil {
+		return result, stopErr
 	}
-	return e.syncDigitalOceanLocked(ctx)
+	return result, syncErr
 }
 
 func (e *Engine) ResumeDigitalOcean(ctx context.Context, syncID string) (Result, error) {
@@ -58,10 +60,12 @@ func (e *Engine) ResumeDigitalOcean(ctx context.Context, syncID string) (Result,
 		return Result{}, err
 	}
 	defer e.digitalOceanMu.Unlock()
-	if err := e.DigitalOcean.Start(ctx, syncID); err != nil {
-		return Result{}, err
+	startErr := e.DigitalOcean.Start(ctx, syncID)
+	result, syncErr := e.syncDigitalOceanLocked(ctx)
+	if startErr != nil {
+		return result, startErr
 	}
-	return e.syncDigitalOceanLocked(ctx)
+	return result, syncErr
 }
 
 func (e *Engine) DeleteDigitalOcean(ctx context.Context, syncID string) (Result, error) {
@@ -69,10 +73,12 @@ func (e *Engine) DeleteDigitalOcean(ctx context.Context, syncID string) (Result,
 		return Result{}, err
 	}
 	defer e.digitalOceanMu.Unlock()
-	if err := e.DigitalOcean.Delete(ctx, syncID); err != nil {
-		return Result{}, err
+	deleteErr := e.DigitalOcean.Delete(ctx, syncID)
+	result, syncErr := e.syncDigitalOceanLocked(ctx)
+	if deleteErr != nil {
+		return result, deleteErr
 	}
-	return e.syncDigitalOceanLocked(ctx)
+	return result, syncErr
 }
 
 func (e *Engine) ResolveDigitalOceanSyncID(ctx context.Context, hostOrID string) (string, error) {

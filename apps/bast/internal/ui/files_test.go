@@ -490,8 +490,9 @@ func TestClearFilesOverlaysOnLeave(t *testing.T) {
 	_ = m.enterFilesSection()
 	m.files.info = true
 	m.files.chmod = filesChmod{active: true, mode: 0o644}
+	m.files.preview = filesPreview{active: true, path: "/tmp/x"}
 	m.clearFilesOverlays()
-	if m.files.info || m.files.chmod.active {
+	if m.files.info || m.files.chmod.active || m.files.preview.active {
 		t.Fatal("overlays should clear when leaving Files")
 	}
 }
@@ -696,6 +697,236 @@ func TestFilesConnectErrorNotice(t *testing.T) {
 	got = filesConnectErrorNotice(fmt.Errorf("Permission denied (publickey)"))
 	if !strings.Contains(got, "Auth failed") {
 		t.Fatalf("auth notice = %q", got)
+	}
+}
+
+func applyFilesPreview(t *testing.T, m *App) {
+	t.Helper()
+	_, cmd := m.openFilesPreview()
+	if !m.files.preview.active {
+		t.Fatal("preview should be active")
+	}
+	if cmd == nil {
+		t.Fatal("expected preview load")
+	}
+	m.Update(cmd())
+	if m.files.preview.loading {
+		t.Fatal("preview should finish loading")
+	}
+}
+
+func selectFilesEntry(m *App, name string) {
+	for i, entry := range m.files.panes[m.files.focus].entries {
+		if entry.Name == name {
+			m.files.panes[m.files.focus].cursor = i
+			return
+		}
+	}
+}
+
+func TestFilesPreviewJSONOverlay(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "notes.json")
+	if err := os.WriteFile(path, []byte(`{"z":1,"a":2}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	selectFilesEntry(m, "notes.json")
+
+	applyFilesPreview(t, m)
+	body := m.renderFiles(m.styles())
+	if !strings.Contains(body, "notes.json") {
+		t.Fatalf("title missing:\n%s", body)
+	}
+	if !strings.Contains(body, `"z": 1`) {
+		t.Fatalf("expected pretty JSON:\n%s", body)
+	}
+
+	m.updateFilesKeys("o")
+	if m.files.preview.active {
+		t.Fatal("o should toggle preview closed")
+	}
+
+	applyFilesPreview(t, m)
+	m.updateFilesKeys("esc")
+	if m.files.preview.active {
+		t.Fatal("esc should close preview")
+	}
+
+	applyFilesPreview(t, m)
+	m.updateFilesKeys("q")
+	if m.files.preview.active {
+		t.Fatal("q should close preview")
+	}
+}
+
+func TestFilesPreviewDirectoryNotice(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	selectFilesEntry(m, "nested")
+	m.updateFilesKeys("o")
+	if m.files.preview.active {
+		t.Fatal("o on a directory should not open preview")
+	}
+	if m.status != "Not a file" {
+		t.Fatalf("status = %q", m.status)
+	}
+}
+
+func TestFilesPreviewSpaceStillMarks(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	selectFilesEntry(m, "a.txt")
+	m.updateFilesKeys("space")
+	if len(m.files.panes[0].marked) != 1 {
+		t.Fatalf("space should still mark, marked=%v", m.files.panes[0].marked)
+	}
+	if m.files.preview.active {
+		t.Fatal("space should not open preview")
+	}
+}
+
+func TestFilesEnterFilePreviewsAndDirEnters(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "nested")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+
+	selectFilesEntry(m, "a.txt")
+	_, cmd := m.updateFilesKeys("enter")
+	if !m.files.preview.active {
+		t.Fatal("enter on a file should preview")
+	}
+	if cmd != nil {
+		m.Update(cmd())
+	}
+	m.closeFilesPreview()
+
+	selectFilesEntry(m, "a.txt")
+	m.updateFilesKeys("l")
+	if m.files.preview.active {
+		t.Fatal("l on a file should not preview")
+	}
+
+	selectFilesEntry(m, "nested")
+	m.updateFilesKeys("enter")
+	if m.files.panes[0].cwd != sub {
+		t.Fatalf("enter on dir should cd, cwd=%q", m.files.panes[0].cwd)
+	}
+}
+
+func TestFilesPreviewStaleMsgIgnored(t *testing.T) {
+	m := testApp(t)
+	_ = m.enterFilesSection()
+	m.files.preview = filesPreview{active: true, gen: 2, path: "/tmp/x"}
+	m.Update(filesPreviewMsg{gen: 1, preview: files.Preview{Text: "stale"}})
+	if m.files.preview.result.Text == "stale" {
+		t.Fatal("stale preview msg should be ignored")
+	}
+	m.files.preview.active = false
+	m.Update(filesPreviewMsg{gen: 2, preview: files.Preview{Text: "late"}})
+	if m.files.preview.result.Text == "late" {
+		t.Fatal("inactive preview msg should be ignored")
+	}
+}
+
+func TestFilesPreviewWalkNextFile(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("aaa"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("bbb"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	selectFilesEntry(m, "a.txt")
+	applyFilesPreview(t, m)
+	if m.files.preview.result.Text != "aaa" {
+		t.Fatalf("a.txt text = %q", m.files.preview.result.Text)
+	}
+	_, cmd := m.updateFilesPreview("]")
+	if cmd != nil {
+		m.Update(cmd())
+	}
+	if m.files.panes[0].entries[m.files.panes[0].cursor].Name != "b.txt" {
+		t.Fatalf("] should skip directory and land on b.txt, cursor=%q", m.files.panes[0].entries[m.files.panes[0].cursor].Name)
+	}
+	if m.files.preview.result.Text != "bbb" {
+		t.Fatalf("b.txt text = %q", m.files.preview.result.Text)
+	}
+}
+
+func TestFilesPreviewQDoesNotQuit(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	selectFilesEntry(m, "a.txt")
+	applyFilesPreview(t, m)
+
+	_, cmd := m.Update(press("q"))
+	if m.files.preview.active {
+		t.Fatal("q should close preview")
+	}
+	if m.section != filesSection {
+		t.Fatalf("section = %v", m.section)
+	}
+	if cmd != nil {
+		msg := cmd()
+		if _, ok := msg.(tea.QuitMsg); ok {
+			t.Fatal("q should not quit while closing preview")
+		}
 	}
 }
 

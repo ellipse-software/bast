@@ -66,9 +66,14 @@ type Manager struct {
 	SyncGCPConfig          string
 	SyncAWSConfig          string
 	SyncAzureConfig        string
-	SyncDigitalOceanConfig string
-	SyncBoxConfig          string
+	SyncBoatConfig         string
 	SyncUpstashConfig      string
+	SyncVercelConfig       string
+	SyncHetznerConfig      string
+	SyncBitqateConfig      string
+	SyncRailwayConfig      string
+	SyncFlyConfig          string
+	SyncDigitalOceanConfig string
 }
 
 type SyncHostInput struct {
@@ -157,7 +162,7 @@ func (m Manager) scanFile(path string, depth int, stack map[string]bool, found *
 			} else {
 				rest := strings.TrimPrefix(raw, syncMarkerPrefix)
 				if source, id, ok := strings.Cut(rest, "="); ok {
-					syncSource = strings.TrimSpace(source)
+					syncSource = canonicalSyncSource(source)
 					syncID = strings.TrimSpace(id)
 				}
 			}

@@ -6,6 +6,9 @@ import (
 	"strings"
 
 	"github.com/atotto/clipboard"
+
+	"bast/internal/askpass"
+	"bast/internal/metadata"
 )
 
 func (r *Runner) keys(args []string) error {
@@ -321,7 +324,9 @@ func (r *Runner) keyInstall(args []string) error {
 	if err != nil {
 		return err
 	}
-	if r.JSON && len(cmd.Args) >= 2 {
+	if askpass.Needed(host.raw, r.Paths.PasswordsDir) {
+		r.prepareSSH(cmd, host.raw)
+	} else if r.JSON && len(cmd.Args) >= 2 {
 		cmd.Args = append([]string{cmd.Args[0], "-o", "BatchMode=yes"}, cmd.Args[1:]...)
 	}
 	if err := r.runProcess(cmd, false); err != nil {
@@ -431,6 +436,13 @@ func (r *Runner) keyDelete(args []string) error {
 	}
 	if err := r.keyring.Delete(key.raw, key.Name); err != nil {
 		return err
+	}
+	if key.Managed {
+		if id := metadata.VaultKeyTombstoneID(key.Fingerprint, key.Name); id != "" {
+			if err := r.store.RecordKeyTombstone(id); err != nil {
+				return err
+			}
+		}
 	}
 	return r.success(map[string]string{"name": key.Name}, "Key permanently deleted: "+key.Name)
 }

@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -81,37 +82,13 @@ func TestAzureIntegrationRoundTrip(t *testing.T) {
 	}
 }
 
-func TestDigitalOceanIntegrationRoundTrip(t *testing.T) {
+func TestBoatIntegrationRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	store, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetDigitalOcean(DigitalOceanIntegration{
-		Enabled: true, AutoSync: true, DefaultSSHUser: "root",
-		ContextFilter: []string{"work"}, RegionFilter: []string{"nyc3"}, LastInstanceCount: 6,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ocean := reopened.DigitalOcean()
-	if !ocean.Enabled || !ocean.AutoSync || ocean.DefaultSSHUser != "root" || ocean.LastInstanceCount != 6 ||
-		len(ocean.ContextFilter) != 1 || ocean.ContextFilter[0] != "work" ||
-		len(ocean.RegionFilter) != 1 || ocean.RegionFilter[0] != "nyc3" {
-		t.Fatalf("digitalocean = %+v", ocean)
-	}
-}
-
-func TestBoxIntegrationRoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "state.json")
-	store, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.SetBox(BoxIntegration{
+	if err := store.SetBoat(BoatIntegration{
 		Enabled: true, AutoSync: true, Disabled: false, LastInstanceCount: 2,
 	}); err != nil {
 		t.Fatal(err)
@@ -120,15 +97,15 @@ func TestBoxIntegrationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	box := reopened.Box()
-	if !box.Enabled || !box.AutoSync || box.Disabled || box.LastInstanceCount != 2 {
-		t.Fatalf("box = %+v", box)
+	boat := reopened.Boat()
+	if !boat.Enabled || !boat.AutoSync || boat.Disabled || boat.LastInstanceCount != 2 {
+		t.Fatalf("boat = %+v", boat)
 	}
-	if err := reopened.SetBox(BoxIntegration{Disabled: true}); err != nil {
+	if err := reopened.SetBoat(BoatIntegration{Disabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	if !reopened.Box().Disabled || reopened.Box().Enabled {
-		t.Fatalf("disabled box = %+v", reopened.Box())
+	if !reopened.Boat().Disabled || reopened.Boat().Enabled {
+		t.Fatalf("disabled boat = %+v", reopened.Boat())
 	}
 }
 
@@ -156,5 +133,130 @@ func TestUpstashIntegrationRoundTrip(t *testing.T) {
 	}
 	if !reopened.Upstash().Disabled || reopened.Upstash().Enabled {
 		t.Fatalf("disabled upstash = %+v", reopened.Upstash())
+	}
+}
+
+func TestVercelIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetVercel(VercelIntegration{
+		Enabled: true, AutoSync: true, TeamID: "team_1", ProjectID: "prj_1", LastInstanceCount: 4,
+		Unrestorable: []string{"idle"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reopened.Vercel()
+	if !got.Enabled || !got.AutoSync || got.TeamID != "team_1" || got.ProjectID != "prj_1" || got.LastInstanceCount != 4 {
+		t.Fatalf("vercel = %+v", got)
+	}
+	if err := store.SetVercel(VercelIntegration{Enabled: true, TeamID: "team_1", ProjectID: "prj_a", ProjectIDs: []string{"prj_a", "prj_b"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Vercel().Projects(); strings.Join(got, ",") != "prj_a,prj_b" {
+		t.Fatalf("projects = %v", got)
+	}
+	if len(got.Unrestorable) != 1 || got.Unrestorable[0] != "idle" {
+		t.Fatalf("unrestorable = %v", got.Unrestorable)
+	}
+	if err := reopened.SetVercel(VercelIntegration{Disabled: true, TeamID: "team_1", ProjectID: "prj_1"}); err != nil {
+		t.Fatal(err)
+	}
+	if !reopened.Vercel().Disabled || reopened.Vercel().Enabled {
+		t.Fatalf("disabled vercel = %+v", reopened.Vercel())
+	}
+}
+
+func TestBitqateIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetBitqate(BitqateIntegration{
+		Enabled: true, AutoSync: true, DefaultSSHUser: "root", DefaultSSHPort: "2222",
+		RegionFilter: []string{"Falkenstein"}, LastInstanceCount: 3,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reopened.Bitqate()
+	if !got.Enabled || !got.AutoSync || got.DefaultSSHUser != "root" || got.DefaultSSHPort != "2222" ||
+		got.LastInstanceCount != 3 ||
+		len(got.RegionFilter) != 1 || got.RegionFilter[0] != "Falkenstein" {
+		t.Fatalf("bitqate = %+v", got)
+	}
+}
+
+func TestRailwayFlyDigitalOceanIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetRailway(RailwayIntegration{Enabled: true, AutoSync: true, LastInstanceCount: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetFly(FlyIntegration{
+		Enabled: true, AutoSync: true, OrgFilter: []string{"personal"}, AppFilter: []string{"web"},
+		DefaultSSHUser: "root", LastInstanceCount: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetDigitalOcean(DigitalOceanIntegration{
+		Enabled: true, AutoSync: true, ContextFilter: []string{"default"}, RegionFilter: []string{"nyc3"},
+		DefaultSSHUser: "root", LastInstanceCount: 4,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	railway := reopened.Railway()
+	if !railway.Enabled || !railway.AutoSync || railway.LastInstanceCount != 2 {
+		t.Fatalf("railway = %+v", railway)
+	}
+	fly := reopened.Fly()
+	if !fly.Enabled || fly.DefaultSSHUser != "root" || len(fly.OrgFilter) != 1 || fly.OrgFilter[0] != "personal" || len(fly.AppFilter) != 1 {
+		t.Fatalf("fly = %+v", fly)
+	}
+	droplet := reopened.DigitalOcean()
+	if !droplet.Enabled || droplet.DefaultSSHUser != "root" || len(droplet.ContextFilter) != 1 || droplet.ContextFilter[0] != "default" || droplet.LastInstanceCount != 4 {
+		t.Fatalf("digitalocean = %+v", droplet)
+	}
+}
+
+func TestHetznerIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetHetzner(HetznerIntegration{
+		Enabled: true, AutoSync: true, DefaultSSHUser: "root", DefaultSSHPort: "2022", PreferPrivateIP: true,
+		ContextFilter: []string{"prod"}, LocationFilter: []string{"fsn1"}, LastInstanceCount: 6,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reopened.Hetzner()
+	if !got.Enabled || !got.AutoSync || got.DefaultSSHUser != "root" || got.DefaultSSHPort != "2022" ||
+		!got.PreferPrivateIP || got.LastInstanceCount != 6 ||
+		len(got.ContextFilter) != 1 || got.ContextFilter[0] != "prod" ||
+		len(got.LocationFilter) != 1 || got.LocationFilter[0] != "fsn1" {
+		t.Fatalf("hetzner = %+v", got)
 	}
 }

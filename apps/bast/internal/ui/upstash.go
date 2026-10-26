@@ -37,9 +37,9 @@ func (m *App) resumeSelectedUpstash(host sshconfig.Host, thenConnect bool) tea.C
 	opGen := m.beginProviderOp("upstash")
 	m.syncActivity = "resuming…"
 	if thenConnect {
-		m.boxConnectAfter = host.Alias
+		m.sandboxConnectAfter = host.Alias
 	} else {
-		m.boxConnectAfter = ""
+		m.sandboxConnectAfter = ""
 	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
@@ -82,7 +82,7 @@ func (m *App) openUpstashNewForm() {
 
 func (m *App) openUpstashKeyForm() {
 	m.openForm("Upstash Box API key", "upstash_key", []field{
-		{label: "API key", description: "From the Upstash Console; stored in ~/.config/bast/upstash-box-api-key", secret: true, placeholder: "box_…"},
+		{label: "API key", description: "https://console.upstash.com", secret: true, placeholder: "box_…"},
 	})
 }
 
@@ -117,5 +117,5 @@ func (m *App) openUpstashDeleteForm(host sshconfig.Host) {
 }
 
 func (m *App) connectAfterUpstashResume() tea.Cmd {
-	return m.connectAfterBoxResume()
+	return m.connectAfterSandboxResume()
 }

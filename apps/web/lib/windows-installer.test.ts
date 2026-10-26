@@ -22,6 +22,16 @@ describe("Windows installer", () => {
     expect(installer).toContain("BAST_NO_TELEMETRY=1");
   });
 
+  test("installs PowerShell completions on install and when already current", () => {
+    expect(installer).toContain("Install-BastCompletions");
+    expect(installer).toContain("BAST_NO_COMPLETIONS");
+    expect(installer).toContain("# >>> bast completions >>>");
+    expect(installer).toContain("Enabled shell completions");
+    expect(installer).toContain("Install-BastCompletions $destination");
+    expect(installer).toContain("Get-Content -LiteralPath $Path -Raw -ErrorAction Stop");
+    expect(installer).toContain("} catch {");
+  });
+
   test("pins a stable GitHub release with BAST_VERSION", () => {
     expect(installer).toContain("releases/tags/$version");
     expect(installer).toContain('Write-Success "Requested version: $version"');

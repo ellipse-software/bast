@@ -1,0 +1,136 @@
+---
+title: Boat
+description: Import Boat sandboxes into Bast as read-only hosts via the native boat CLI.
+---
+
+The **Sync** tab (`4`) imports [Boat](https://boat.dev/) sandboxes into Bast. Synced sandboxes show up in the host picker under **Boat**, stay connectable with your system `ssh`, and keep connection details owned by Boat sync.
+
+Bast talks to Boat through the native **`boat` CLI** on your machine. There is no separate Bast cloud agent or Go SDK. Auth, list, stop, resume, and SSH key authorization all use the same CLI you already use with [Boat](https://boat.dev/).
+
+Bast supports **GCP**, **AWS**, **Azure**, and **Boat** through each provider's native CLI, and **Upstash Box** and **Hetzner Cloud** through their APIs.
+
+## Requirements
+
+- Boat CLI (`boat`) on your `PATH` (the installer also places it at `~/.ascii/bin/boat`)
+- An authenticated Boat account (`boat login` / `boat onboard`)
+- Network access to create, stop, resume, and SSH into your sandboxes
+
+## Connect Boat
+
+1. Open Bast and press `4` for Sync.
+2. Select **Boat** and press Enter.
+3. Choose **Connect** or **Sync now**.
+
+If the Boat CLI is already installed and logged in, Bast **auto-connects** on TUI start and when you run `bast sync status`, unless you previously chose **Disconnect** (sticky opt-out via `bast sync disable boat`).
+
+Sign in with the usual CLI:
+
+```bash
+boat login
+boat status
+```
+
+## What gets created
+
+Each sandbox becomes an SSH host Bast writes under:
+
+```
+~/.ssh/bast/sync/boat/config
+```
+
+Your managed Bast config includes that file so OpenSSH (and Bast) can see the hosts. In the picker they are grouped as:
+
+```
+Boat
+  sandbox-name
+```
+
+Running sandboxes show **Boat synced**. Stopped or archiving sandboxes stay in the same group but are hidden from the host list until you press `.` (the same toggle that shows user-hidden hosts). Search still finds them by name. Selecting the **Boat** group shows running vs stopped counts and **New sandbox**. Connection settings, group, and label are owned by sync, so edit (`e`), move, favorite, and hide are blocked. Delete (`d`) removes the upstream sandbox after confirmation.
+
+On the Boat provider page (Sync `4`), sandboxes are listed under **Running** and **Stopped**, the same collapse/expand pattern as the Hosts tab. Stopped starts collapsed. Enter on a host connects (or resumes a stopped sandbox).
+
+## How Bast connects
+
+On connect (TUI Enter or `bast connect` / `bast <label>`), Bast prepares SSH access, then launches your system `ssh`.
+
+| Situation | Behavior |
+| --- | --- |
+| Running sandbox with IP | Direct SSH as `user` with `~/.ssh/ascii_box_ed25519` |
+| Stopped sandbox | Enter resumes the sandbox, refreshes sync, then SSHs in |
+| Missing local key | Ensures `~/.ssh/ascii_box_ed25519` and authorizes it on the sandbox |
+
+SSH user is always `user`. There is no default-user setting for Boat.
+
+## Stopping and archiving
+
+Stopping a sandbox snapshots it and pauses billing (`archiving` → `archived`). That can take a few minutes. Stopped sandboxes cost nothing and can be resumed later. Delete (`d` / `bast boat delete`) force-stops the sandbox and permanently removes the snapshots it exclusively owns. Named snapshots stay until you run `bast boat snapshot rm`. List snapshots with `bast boat snapshots [host]`.
+
+## Boat settings
+
+Inside the Boat submenu:
+
+| Action | Purpose |
+| --- | --- |
+| Sync now | Re-run discovery and refresh SSH config |
+| New sandbox | Create a sandbox (`small` / `default` / `large`) |
+| Connect / Disconnect | Enable sync, or turn it off and remove generated hosts (Disconnect also opts out of auto-connect) |
+| Enable / Disable auto-sync | Sync when the TUI opens |
+| Refresh status | Reload account and last-sync info |
+
+Synced sandboxes appear below those actions, grouped by status. Press Esc to return to the provider list.
+
+## Host keys (Hosts tab)
+
+With the **Boat** group selected:
+
+| Key | Action |
+| --- | --- |
+| `n` | Create a new sandbox |
+| `s` | Sync now |
+| `.` | Show stopped sandboxes |
+| Space | Collapse or expand |
+
+With a Boat host selected:
+
+| Key | Action |
+| --- | --- |
+| Enter | Connect (resume first if stopped) |
+| `r` | Resume only (when stopped) |
+| `o` | Stop (when running; confirms with `stop`) |
+| `n` | Fork from the latest snapshot (confirms with `fork`) |
+| `d` | Delete the sandbox and its snapshots (confirms with `delete`) |
+| `F` | Open Files (SFTP) when the sandbox is reachable |
+
+## CLI
+
+```bash
+bast sync boat                 # discover and write hosts
+bast sync status              # account, last sync, errors
+bast sync disable boat         # turn off, remove sync hosts, sticky opt-out
+bast sync boat --json
+
+bast boat new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]
+bast boat fork <host|id> [--type small|default|large] [--no-env]
+bast boat stop <host|id>
+bast boat resume <host|id> [--type small|default|large] [--no-env]
+bast boat delete <host|id> [--yes]
+bast boat snapshots [host|id]
+bast boat snapshot delete <snapshot-id> [--yes]
+bast boat snapshot rm <name>
+
+bast connect boat_dev        # banner + Boat access prepare, then ssh
+```
+
+## Re-sync and cleanup
+
+Press `r` on the Sync tab (or run `bast sync boat`) after you create, stop, or resume sandboxes outside Bast. Disconnecting Boat removes the generated sync config and the Include line Bast added for it. Your Bast-managed hosts and keys are left alone. `~/.ssh/ascii_box_ed25519` is left in place if Bast created it.
+
+## Migrating from Box
+
+Install the [Boat CLI](https://boat.dev/install). Your existing login carries over. Bast uses `boat` from `PATH`, `~/.ascii/bin/boat`, or the `BOAT_CLI` override.
+
+Bast migrates the previous sync inventory and Includes to `~/.ssh/bast/sync/boat/config`, preserving host aliases, metadata, and sync preferences, including an explicit disconnect. Existing `bast box`, `bast sync box`, and `bast sync disable box` commands remain aliases. JSON output uses `boat` for the provider and `sandboxId` for snapshot ownership.
+
+If the old and new inventory files conflict, Bast preserves both files and their host metadata. Boat sync, sandbox changes, and vault pulls are blocked until you back up and reconcile the inventories, then restart Bast. Other providers remain available. Run `bast doctor` to see the conflicting paths.
+
+Sandbox IDs (`bx_...`) and the SSH key at `~/.ssh/ascii_box_ed25519` are unchanged. See [Boat's migration guide](https://docs.boat.dev/migrating-from-box).

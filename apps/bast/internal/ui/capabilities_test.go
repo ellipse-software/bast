@@ -15,9 +15,15 @@ func TestDetectNerdFont(t *testing.T) {
 	}{
 		{name: "wezterm pane", env: map[string]string{"WEZTERM_PANE": "1"}, want: true},
 		{name: "wezterm program", env: map[string]string{"TERM_PROGRAM": "WezTerm"}, want: true},
+		{
+			name: "wezterm nested program",
+			env:  map[string]string{"TERM_PROGRAM": "herdr", "WEZTERM_EXECUTABLE": "/Applications/WezTerm.app/Contents/MacOS/wezterm-gui"},
+			want: true,
+		},
 		{name: "kitty window", env: map[string]string{"KITTY_WINDOW_ID": "1"}, want: true},
 		{name: "kitty term", env: map[string]string{"TERM": "xterm-kitty"}, want: true},
 		{name: "iterm", env: map[string]string{"TERM_PROGRAM": "iTerm.app"}, want: true},
+		{name: "iterm session nested program", env: map[string]string{"TERM_PROGRAM": "herdr", "ITERM_SESSION_ID": "w0t0p0:abc"}, want: true},
 		{name: "iterm lc", env: map[string]string{"LC_TERMINAL": "iTerm2"}, want: true},
 		{name: "alacritty", env: map[string]string{"TERM_PROGRAM": "Alacritty"}, want: true},
 		{name: "ghostty", env: map[string]string{"TERM_PROGRAM": "ghostty"}, want: true},
@@ -45,8 +51,14 @@ func TestCloudGroupNamesUseNerdFontIconsWhenEnabled(t *testing.T) {
 		{name: "GCP", group: "Google Cloud", icon: "\ue7f1"},
 		{name: "AWS", group: "Amazon EC2", icon: "\ue7ad"},
 		{name: "Azure", group: "Microsoft Azure", icon: "\ue754"},
-		{name: "Box", group: "Box", icon: "\uf1b2"},
+		{name: "Boat", group: "Boat", icon: "\U000f0ec8"},
 		{name: "Upstash", group: "Upstash", icon: "\uf1b2"},
+		{name: "Vercel", group: "Vercel", icon: "\u25b2"},
+		{name: "Hetzner", group: "Hetzner Cloud", icon: "\uf233"},
+		{name: "BitQate", group: "BitQate", icon: "\uf0a0"},
+		{name: "Railway", group: "Railway", icon: "\uf238"},
+		{name: "Fly", group: "Fly.io", icon: "\uf072"},
+		{name: "DigitalOcean", group: "DigitalOcean", icon: "\ue7ae"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -13,10 +13,10 @@ Reach for Bast.sh when the job is SSH host or key management on a machine that a
 - Browse, search, favorite, or organize hosts from \`~/.ssh/config\` without a GUI database
 - Generate, import, export, or install native OpenSSH keys
 - Connect quickly with \`bast <label>\` or \`bast "Production web"\`
-- Import live GCP, AWS, Azure, DigitalOcean, box.ascii.dev, or Upstash Box inventory as read-only hosts
-- Create, stop, resume, fork, or delete DigitalOcean Droplets (\`bast digitalocean\`) and Upstash boxes (\`bast upstash\`); ASCII Box supports create/stop/resume/fork (\`bast box\`)
+- Import live GCP, AWS, Azure, Boat, Upstash Box, Vercel Sandbox, Hetzner Cloud, BitQate, Railway, Fly.io, or DigitalOcean inventory as read-only hosts
 - Sync Bast-managed hosts and keys between machines with end-to-end encrypted Vault
 - Automate those jobs from a script or coding agent with \`bast --json --no-input\`
+- Diagnose a broken SSH config with \`bast doctor --json\`
 
 How to call Bast.sh: install the CLI (\`brew install ellipse-software/tap/bast\`, \`curl -fsSL ${siteUrl}/install | sh\`, or \`curl -fsSL https://packages.bast.sh/setup.sh | sudo sh\`), then run \`bast --json\` commands. For coding agents, also install the skill with \`npx skills add ellipse-software/bast -g -y\` and read this file plus ${siteUrl}/openapi.json for the hosted HTTP API (Vault, health, telemetry).
 

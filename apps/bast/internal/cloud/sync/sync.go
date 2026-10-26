@@ -14,10 +14,15 @@ import (
 	"bast/internal/cloud"
 	awscloud "bast/internal/cloud/aws"
 	azurecloud "bast/internal/cloud/azure"
-	boxcloud "bast/internal/cloud/box"
+	bitqatecloud "bast/internal/cloud/bitqate"
+	boatcloud "bast/internal/cloud/boat"
 	docloud "bast/internal/cloud/digitalocean"
+	flycloud "bast/internal/cloud/fly"
 	"bast/internal/cloud/gcp"
+	hetznercloud "bast/internal/cloud/hetzner"
+	railwaycloud "bast/internal/cloud/railway"
 	upstashcloud "bast/internal/cloud/upstash"
+	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/metadata"
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
@@ -35,18 +40,28 @@ type Engine struct {
 	gcpMu          stdsync.Mutex
 	awsMu          stdsync.Mutex
 	azureMu        stdsync.Mutex
-	digitalOceanMu stdsync.Mutex
-	boxMu          stdsync.Mutex
+	boatMu         stdsync.Mutex
 	upstashMu      stdsync.Mutex
+	vercelMu       stdsync.Mutex
+	hetznerMu      stdsync.Mutex
+	bitqateMu      stdsync.Mutex
+	railwayMu      stdsync.Mutex
+	flyMu          stdsync.Mutex
+	digitalOceanMu stdsync.Mutex
 	Paths          paths.Paths
 	Config         sshconfig.Manager
 	Store          *metadata.Store
 	GCP            *gcp.Client
 	AWS            *awscloud.Client
 	Azure          *azurecloud.Client
-	DigitalOcean   *docloud.Client
-	Box            *boxcloud.Client
+	Boat           *boatcloud.Client
 	Upstash        *upstashcloud.Client
+	Vercel         *vercelcloud.Client
+	Hetzner        *hetznercloud.Client
+	Bitqate        *bitqatecloud.Client
+	Railway        *railwaycloud.Client
+	Fly            *flycloud.Client
+	DigitalOcean   *docloud.Client
 	BastExecutable string
 	Discover       func(ctx context.Context) ([]sshconfig.Host, error)
 
@@ -68,8 +83,10 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
 		SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig,
+		SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig,
+		SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig,
+		SyncRailwayConfig: p.SyncRailwayConfig, SyncFlyConfig: p.SyncFlyConfig,
 		SyncDigitalOceanConfig: p.SyncDigitalOceanConfig,
-		SyncBoxConfig:          p.SyncBoxConfig, SyncUpstashConfig: p.SyncUpstashConfig,
 	}
 	return &Engine{
 		Paths:          p,
@@ -78,14 +95,29 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		GCP:            gcp.New(),
 		AWS:            awscloud.New(),
 		Azure:          azurecloud.New(),
-		DigitalOcean:   docloud.New(),
-		Box:            boxcloud.New(),
+		Boat:           boatcloud.New(),
 		Upstash:        upstashcloud.New(p.UpstashAPIKey),
+		Vercel:         newVercelClient(p, store),
+		Hetzner:        hetznercloud.New(p.HetznerAPIKey, p.HetznerTokenDir, p.Home),
+		Bitqate:        bitqatecloud.New(p.BitqateToken),
+		Railway:        railwaycloud.New(p.RailwayAPIToken),
+		Fly:            flycloud.New(),
+		DigitalOcean:   docloud.New(),
 		BastExecutable: stableExecutablePath(),
 		Discover: func(ctx context.Context) ([]sshconfig.Host, error) {
 			return cfg.Discover()
 		},
 	}
+}
+
+func newVercelClient(p paths.Paths, store *metadata.Store) *vercelcloud.Client {
+	client := vercelcloud.New(p.VercelToken)
+	if store != nil {
+		integration := store.Vercel()
+		client.TeamID = integration.TeamID
+		client.ProjectID = integration.ProjectID
+	}
+	return client
 }
 
 func stableExecutablePath() string {
@@ -100,15 +132,26 @@ func stableExecutablePath() string {
 }
 
 func lockCtx(ctx context.Context, mu *stdsync.Mutex) error {
-	for {
-		if mu.TryLock() {
-			return nil
-		}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if mu.TryLock() {
+		return nil
+	}
+	locked := make(chan struct{})
+	go func() {
+		mu.Lock()
 		select {
+		case locked <- struct{}{}:
 		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(25 * time.Millisecond):
+			mu.Unlock()
 		}
+	}()
+	select {
+	case <-locked:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -554,402 +597,205 @@ func (e *Engine) SyncAzure(ctx context.Context) (Result, error) {
 	return result, nil
 }
 
-func (e *Engine) SyncDigitalOcean(ctx context.Context) (Result, error) {
-	if err := lockCtx(ctx, &e.digitalOceanMu); err != nil {
+func (e *Engine) SyncBoat(ctx context.Context) (Result, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return Result{}, err
 	}
-	defer e.digitalOceanMu.Unlock()
-	return e.syncDigitalOceanLocked(ctx)
+	defer e.boatMu.Unlock()
+	return e.syncBoatLocked(ctx)
 }
 
-func (e *Engine) syncDigitalOceanLocked(ctx context.Context) (Result, error) {
-	integration := e.Store.DigitalOcean()
-	discovery, err := e.DigitalOcean.Discover(ctx, docloud.DiscoverConfig{
-		ContextFilter: integration.ContextFilter, RegionFilter: integration.RegionFilter,
-		DefaultSSHUser: integration.DefaultSSHUser, Home: e.Paths.Home, ManagedKeys: e.Paths.ManagedKeys,
-	})
-	now := time.Now().UTC()
-	if err != nil {
-		latest := e.Store.DigitalOcean()
-		latest.Enabled = true
-		latest.LastSyncAt = &now
-		latest.LastSyncError = err.Error()
-		_ = e.Store.SetDigitalOcean(latest)
-		return Result{Provider: docloud.ProviderName, SyncedAt: now, Error: err.Error()}, err
-	}
-
-	existing, err := e.Discover(ctx)
-	if err != nil {
-		return Result{Provider: docloud.ProviderName}, err
-	}
-	previousBlocks := map[string]sshconfig.SyncHostInput{}
-	if loaded, loadErr := sshconfig.LoadSyncHosts(e.Paths.SyncDigitalOceanConfig); loadErr == nil {
-		for _, block := range loaded {
-			if block.SyncID != "" {
-				previousBlocks[block.SyncID] = block
-			}
-		}
-	}
-	usedAliases := map[string]bool{}
-	previousBySyncID := map[string]sshconfig.Host{}
-	for _, host := range existing {
-		if host.Synced && host.SyncSource == docloud.ProviderName && host.SyncID != "" {
-			previousBySyncID[host.SyncID] = host
-			continue
-		}
-		usedAliases[host.Alias] = true
-	}
-
-	blocks := make([]sshconfig.SyncHostInput, 0, len(discovery.Instances)+len(previousBySyncID))
-	aliases := make([]string, 0, len(discovery.Instances)+len(previousBySyncID))
-	activeSyncIDs := map[string]bool{}
-	metadataUpdates := make([]hostMetadataUpdate, 0, len(discovery.Instances))
-	var metadataDeletes []string
-	for _, inst := range discovery.Instances {
-		activeSyncIDs[inst.SyncID] = true
-		alias := ""
-		if prev, ok := previousBySyncID[inst.SyncID]; ok && !usedAliases[prev.Alias] {
-			alias = prev.Alias
-			usedAliases[alias] = true
-		} else {
-			alias = docloud.UniqueAlias(docloud.AliasFor(inst), usedAliases)
-			usedAliases[alias] = true
-		}
-		blocks = append(blocks, docloud.ToSyncHost(inst, alias))
-		aliases = append(aliases, alias)
-		prevAlias := ""
-		if prev, ok := previousBySyncID[inst.SyncID]; ok {
-			prevAlias = prev.Alias
-		}
-		metadataUpdates = append(metadataUpdates, hostMetadataUpdate{
-			alias: alias, previousAlias: prevAlias, label: inst.Name,
-			group: docloud.GroupPath(inst), tags: append([]string(nil), inst.Tags...),
-		})
-	}
-	for syncID, host := range previousBySyncID {
-		if activeSyncIDs[syncID] {
-			continue
-		}
-		meta := e.Store.Host(host.Alias)
-		contextName, region := digitalOceanContextRegion(meta.Group)
-		if contextName != "" && discovery.ConfirmedContexts[contextName] {
-			metadataDeletes = append(metadataDeletes, host.Alias)
-			continue
-		}
-		if contextName != "" && region != "" && discovery.ConfirmedScopes[docloud.ScopeKey(contextName, region)] {
-			metadataDeletes = append(metadataDeletes, host.Alias)
-			continue
-		}
-		if digitalOceanScopeExcluded(contextName, region, integration.ContextFilter, integration.RegionFilter) {
-			metadataDeletes = append(metadataDeletes, host.Alias)
-			continue
-		}
-		block, ok := previousBlocks[syncID]
-		if !ok {
-			block = sshconfig.SyncHostInput{
-				Alias: host.Alias, SyncSource: host.SyncSource, SyncID: host.SyncID, HostName: host.Alias,
-			}
-		}
-		if usedAliases[block.Alias] && block.Alias != host.Alias {
-			block.Alias = docloud.UniqueAlias(block.Alias, usedAliases)
-		}
-		usedAliases[block.Alias] = true
-		blocks = append(blocks, block)
-		aliases = append(aliases, block.Alias)
-	}
-	if err := e.Config.EnsureSyncInclude(e.Paths.SyncDigitalOceanConfig); err != nil {
-		return Result{Provider: docloud.ProviderName}, err
-	}
-	if err := sshconfig.WriteSyncConfig(e.Paths.SyncDigitalOceanConfig, blocks); err != nil {
-		return Result{Provider: docloud.ProviderName}, err
-	}
-	if err := e.applyMetadataUpdates(metadataUpdates, metadataDeletes); err != nil {
-		return Result{Provider: docloud.ProviderName}, err
-	}
-	latest := e.Store.DigitalOcean()
-	latest.Enabled = true
-	latest.LastSyncAt = &now
-	latest.LastSyncError = strings.Join(discovery.Warnings, "; ")
-	latest.LastInstanceCount = len(blocks)
-	if err := e.Store.SetDigitalOcean(latest); err != nil {
-		return Result{Provider: docloud.ProviderName}, err
-	}
-	result := Result{Provider: docloud.ProviderName, Count: len(blocks), SyncedAt: now, Aliases: aliases}
-	if len(discovery.Warnings) > 0 {
-		result.Error = strings.Join(discovery.Warnings, "; ")
-	}
-	return result, nil
-}
-
-func digitalOceanContextRegion(group string) (contextName, region string) {
-	rest := strings.TrimPrefix(strings.TrimSpace(group), "DigitalOcean")
-	rest = strings.TrimPrefix(rest, "/")
-	if rest == "" {
-		return "", ""
-	}
-	contextName, region, _ = strings.Cut(rest, "/")
-	return contextName, region
-}
-
-func digitalOceanScopeExcluded(contextName, region string, contexts, regions []string) bool {
-	if contextName == "" {
-		return false
-	}
-	if len(contexts) > 0 && !stringInFold(contexts, contextName) {
-		return true
-	}
-	if len(regions) > 0 && region != "" && !stringInFold(regions, region) {
-		return true
-	}
-	return false
-}
-
-func (e *Engine) SyncBox(ctx context.Context) (Result, error) {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+func (e *Engine) syncBoatLocked(ctx context.Context) (Result, error) {
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
 		return Result{}, err
 	}
-	defer e.boxMu.Unlock()
-	return e.syncBoxLocked(ctx)
-}
-
-func (e *Engine) syncBoxLocked(ctx context.Context) (Result, error) {
-	discovery, err := e.Box.Discover(ctx, boxcloud.DiscoverConfig{})
+	discovery, err := e.Boat.Discover(ctx, boatcloud.DiscoverConfig{})
 	now := time.Now().UTC()
 	if err != nil {
-		latest := e.Store.Box()
+		latest := e.Store.Boat()
 		latest.Enabled = true
 		latest.Disabled = false
 		latest.LastSyncAt = &now
 		latest.LastSyncError = err.Error()
-		_ = e.Store.SetBox(latest)
-		return Result{Provider: boxcloud.ProviderName, SyncedAt: now, Error: err.Error()}, err
+		_ = e.Store.SetBoat(latest)
+		return Result{Provider: boatcloud.ProviderName, SyncedAt: now, Error: err.Error()}, err
 	}
 
-	existing, err := e.Discover(ctx)
-	if err != nil {
-		return Result{Provider: boxcloud.ProviderName}, err
-	}
-	previousBlocks := map[string]sshconfig.SyncHostInput{}
-	if loaded, loadErr := sshconfig.LoadSyncHosts(e.Paths.SyncBoxConfig); loadErr == nil {
-		for _, block := range loaded {
-			if block.SyncID != "" {
-				previousBlocks[block.SyncID] = block
-			}
-		}
-	}
-	usedAliases := map[string]bool{}
-	previousBySyncID := map[string]sshconfig.Host{}
-	for _, host := range existing {
-		if host.Synced && host.SyncSource == boxcloud.ProviderName && host.SyncID != "" {
-			previousBySyncID[host.SyncID] = host
-			continue
-		}
-		usedAliases[host.Alias] = true
-	}
-
-	blocks := make([]sshconfig.SyncHostInput, 0, len(discovery.Instances))
-	aliases := make([]string, 0, len(discovery.Instances))
-	activeSyncIDs := map[string]bool{}
-	metadataUpdates := make([]hostMetadataUpdate, 0, len(discovery.Instances))
-	var metadataDeletes []string
+	rows := make([]sandboxRow, 0, len(discovery.Instances))
 	for _, inst := range discovery.Instances {
-		activeSyncIDs[inst.SyncID] = true
-		alias := ""
-		if prev, ok := previousBySyncID[inst.SyncID]; ok && !usedAliases[prev.Alias] {
-			alias = prev.Alias
-			usedAliases[alias] = true
-		} else {
-			alias = boxcloud.UniqueAlias(boxcloud.AliasFor(inst), usedAliases)
-			usedAliases[alias] = true
-		}
-		blocks = append(blocks, boxcloud.ToSyncHost(inst, alias))
-		aliases = append(aliases, alias)
-		prevAlias := ""
-		if prev, ok := previousBySyncID[inst.SyncID]; ok {
-			prevAlias = prev.Alias
-		}
-		metadataUpdates = append(metadataUpdates, hostMetadataUpdate{
-			alias: alias, previousAlias: prevAlias, label: inst.Name,
-			group: boxcloud.GroupPath(inst), tags: append([]string(nil), inst.Tags...),
+		rows = append(rows, sandboxRow{
+			Name:  inst.Name,
+			Group: boatcloud.GroupPath(inst),
+			Tags:  append([]string(nil), inst.Tags...),
+			Block: boatcloud.ToSyncHost(inst, boatcloud.AliasFor(inst)),
 		})
 	}
-	if discovery.Complete {
-		for syncID, host := range previousBySyncID {
-			if activeSyncIDs[syncID] {
-				continue
-			}
-			metadataDeletes = append(metadataDeletes, host.Alias)
-		}
-	} else {
-		for syncID, host := range previousBySyncID {
-			if activeSyncIDs[syncID] {
-				continue
-			}
-			block, ok := previousBlocks[syncID]
-			if !ok {
-				block = sshconfig.SyncHostInput{
-					Alias: host.Alias, SyncSource: host.SyncSource, SyncID: host.SyncID, HostName: host.Alias,
-				}
-			}
-			usedAliases[block.Alias] = true
-			blocks = append(blocks, block)
-			aliases = append(aliases, block.Alias)
-		}
+	result, err := e.reconcileSyncedHosts(ctx, boatcloud.ProviderName, e.Paths.SyncBoatConfig, rows, discovery.Complete, discovery.Warnings)
+	if err != nil {
+		return result, err
 	}
-	if err := e.Config.EnsureSyncInclude(e.Paths.SyncBoxConfig); err != nil {
-		return Result{Provider: boxcloud.ProviderName}, err
-	}
-	if err := sshconfig.WriteSyncConfig(e.Paths.SyncBoxConfig, blocks); err != nil {
-		return Result{Provider: boxcloud.ProviderName}, err
-	}
-	if err := e.applyMetadataUpdates(metadataUpdates, metadataDeletes); err != nil {
-		return Result{Provider: boxcloud.ProviderName}, err
-	}
-	latest := e.Store.Box()
+	latest := e.Store.Boat()
 	latest.Enabled = true
 	latest.Disabled = false
-	latest.LastSyncAt = &now
+	latest.LastSyncAt = &result.SyncedAt
 	latest.LastSyncError = strings.Join(discovery.Warnings, "; ")
-	latest.LastInstanceCount = len(blocks)
-	if err := e.Store.SetBox(latest); err != nil {
-		return Result{Provider: boxcloud.ProviderName}, err
-	}
-	result := Result{Provider: boxcloud.ProviderName, Count: len(blocks), SyncedAt: now, Aliases: aliases}
-	if len(discovery.Warnings) > 0 {
-		result.Error = strings.Join(discovery.Warnings, "; ")
+	latest.LastInstanceCount = result.Count
+	if err := e.Store.SetBoat(latest); err != nil {
+		return Result{Provider: boatcloud.ProviderName}, err
 	}
 	return result, nil
 }
 
-func (e *Engine) MaybeAutoConnectBox(ctx context.Context) (Result, bool, error) {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+func (e *Engine) MaybeAutoConnectBoat(ctx context.Context) (Result, bool, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return Result{}, false, err
 	}
-	defer e.boxMu.Unlock()
-	integration := e.Store.Box()
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, false, err
+	}
+	integration := e.Store.Boat()
 	if integration.Disabled {
 		return Result{}, false, nil
 	}
-	account, err := e.Box.Account(ctx)
+	account, err := e.Boat.Account(ctx)
 	if err != nil || !account.Authenticated {
 		return Result{}, false, nil
 	}
 	if integration.Enabled && integration.AutoSync {
-		result, syncErr := e.syncBoxLocked(ctx)
+		result, syncErr := e.syncBoatLocked(ctx)
 		return result, true, syncErr
 	}
 	integration.Enabled = true
 	integration.AutoSync = true
 	integration.Disabled = false
-	if err := e.Store.SetBox(integration); err != nil {
+	if err := e.Store.SetBoat(integration); err != nil {
 		return Result{}, false, err
 	}
-	result, syncErr := e.syncBoxLocked(ctx)
+	result, syncErr := e.syncBoatLocked(ctx)
 	return result, true, syncErr
 }
 
-func (e *Engine) NewBox(ctx context.Context, opts boxcloud.NewOpts) (Result, string, error) {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+func (e *Engine) NewBoat(ctx context.Context, opts boatcloud.NewOpts) (Result, string, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return Result{}, "", err
 	}
-	defer e.boxMu.Unlock()
-	id, err := e.Box.New(ctx, opts)
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, "", err
+	}
+	id, err := e.Boat.New(ctx, opts)
 	if err != nil && id == "" {
 		return Result{}, "", err
 	}
-	result, syncErr := e.syncBoxLocked(ctx)
-	alias := e.AliasForBoxSyncID(ctx, id)
+	result, syncErr := e.syncBoatLocked(ctx)
+	alias := e.AliasForBoatSyncID(ctx, id)
 	if err != nil {
 		return result, alias, err
 	}
 	return result, alias, syncErr
 }
 
-func (e *Engine) ForkBox(ctx context.Context, syncID string, opts boxcloud.ForkOpts) (Result, string, error) {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+func (e *Engine) ForkBoat(ctx context.Context, syncID string, opts boatcloud.ForkOpts) (Result, string, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return Result{}, "", err
 	}
-	defer e.boxMu.Unlock()
-	id, err := e.Box.Fork(ctx, syncID, opts)
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, "", err
+	}
+	id, err := e.Boat.Fork(ctx, syncID, opts)
 	if err != nil && id == "" {
 		return Result{}, "", err
 	}
-	result, syncErr := e.syncBoxLocked(ctx)
-	alias := e.AliasForBoxSyncID(ctx, id)
+	result, syncErr := e.syncBoatLocked(ctx)
+	alias := e.AliasForBoatSyncID(ctx, id)
 	if err != nil {
 		return result, alias, err
 	}
 	return result, alias, syncErr
 }
 
-func (e *Engine) StopBox(ctx context.Context, syncID string) (Result, error) {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+func (e *Engine) StopBoat(ctx context.Context, syncID string) (Result, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return Result{}, err
 	}
-	defer e.boxMu.Unlock()
-	if err := e.Box.Stop(ctx, syncID); err != nil {
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
 		return Result{}, err
 	}
-	return e.syncBoxLocked(ctx)
+	if err := e.Boat.Stop(ctx, syncID); err != nil {
+		return Result{}, err
+	}
+	return e.syncBoatLocked(ctx)
 }
 
-func (e *Engine) ResumeBox(ctx context.Context, syncID string, opts boxcloud.ResumeOpts) (Result, error) {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+func (e *Engine) ResumeBoat(ctx context.Context, syncID string, opts boatcloud.ResumeOpts) (Result, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return Result{}, err
 	}
-	defer e.boxMu.Unlock()
-	if err := e.Box.Resume(ctx, syncID, opts); err != nil {
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
 		return Result{}, err
 	}
-	return e.syncBoxLocked(ctx)
+	if err := e.Boat.Resume(ctx, syncID, opts); err != nil {
+		return Result{}, err
+	}
+	return e.syncBoatLocked(ctx)
 }
 
-func (e *Engine) ResolveBoxSyncID(ctx context.Context, hostOrID string) (string, error) {
+func (e *Engine) DeleteBoat(ctx context.Context, syncID string) (Result, error) {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
+		return Result{}, err
+	}
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return Result{}, err
+	}
+	if err := e.Boat.Delete(ctx, syncID); err != nil {
+		return Result{}, err
+	}
+	return e.syncBoatLocked(ctx)
+}
+
+func (e *Engine) ListBoatSnapshots(ctx context.Context, boatID string) (boatcloud.SnapshotList, error) {
+	return e.Boat.ListSnapshots(ctx, boatID)
+}
+
+func (e *Engine) DeleteBoatSnapshot(ctx context.Context, snapshotID string) error {
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
+	return e.Boat.DeleteSnapshot(ctx, snapshotID)
+}
+
+func (e *Engine) RemoveBoatNamedSnapshot(ctx context.Context, name string) error {
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
+	return e.Boat.RemoveNamedSnapshot(ctx, name)
+}
+
+func (e *Engine) ResolveBoatSyncID(ctx context.Context, hostOrID string) (string, error) {
 	hostOrID = strings.TrimSpace(hostOrID)
-	if id, err := boxcloud.ParseSyncID(hostOrID); err == nil {
+	if id, err := boatcloud.ParseSyncID(hostOrID); err == nil {
 		return id, nil
 	}
 	hosts, err := e.Discover(ctx)
 	if err != nil {
 		return "", err
 	}
-	for _, host := range hosts {
-		if host.Synced && host.SyncSource == boxcloud.ProviderName &&
-			(host.Alias == hostOrID || strings.EqualFold(host.Alias, hostOrID)) {
-			return host.SyncID, nil
-		}
+	if aliasID, labels := e.matchSyncedID(hosts, boatcloud.ProviderName, hostOrID); aliasID != "" {
+		return aliasID, nil
+	} else if len(labels) == 1 {
+		return labels[0], nil
+	} else {
+		return "", resolveMatchError("boat", hostOrID, "pass an alias or a bx_ id", "sync with bast sync boat or pass a bx_ id", labels)
 	}
-	// Also match metadata labels.
-	var matches []string
-	for _, host := range hosts {
-		if !host.Synced || host.SyncSource != boxcloud.ProviderName {
-			continue
-		}
-		meta := e.Store.Host(host.Alias)
-		if meta.Label != "" && strings.EqualFold(meta.Label, hostOrID) {
-			matches = append(matches, host.SyncID)
-		}
-	}
-	if len(matches) == 1 {
-		return matches[0], nil
-	}
-	if len(matches) > 1 {
-		return "", fmt.Errorf("box label %q matches %d hosts; pass an alias or a bx_ id", hostOrID, len(matches))
-	}
-	return "", fmt.Errorf("box host %q not found; sync with bast sync box or pass a bx_ id", hostOrID)
 }
 
-func (e *Engine) AliasForBoxSyncID(ctx context.Context, syncID string) string {
-	hosts, err := e.Discover(ctx)
-	if err != nil {
-		return ""
-	}
-	for _, host := range hosts {
-		if host.Synced && host.SyncSource == boxcloud.ProviderName && host.SyncID == syncID {
-			return host.Alias
-		}
-	}
-	return ""
+func (e *Engine) AliasForBoatSyncID(ctx context.Context, syncID string) string {
+	return e.aliasFromHosts(ctx, boatcloud.ProviderName, syncID)
 }
 
 func (e *Engine) EnsureGCPAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
@@ -1024,43 +870,25 @@ func (e *Engine) EnsureAzureAccess(ctx context.Context, host sshconfig.Host, sta
 	return sshconfig.UpdateSyncHostAuth(e.Paths.SyncAzureConfig, host.Alias, result.User, result.IdentityFile, result.CertificateFile, result.IdentitiesOnly)
 }
 
-func (e *Engine) EnsureDigitalOceanAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
-	if err := lockCtx(ctx, &e.digitalOceanMu); err != nil {
+func (e *Engine) EnsureBoatAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return err
 	}
-	defer e.digitalOceanMu.Unlock()
-	if !host.Synced || host.SyncSource != docloud.ProviderName || host.SyncID == "" {
+	defer e.boatMu.Unlock()
+	if !host.Synced || host.SyncSource != boatcloud.ProviderName || host.SyncID == "" {
 		return nil
 	}
-	integration := e.Store.DigitalOcean()
-	result, err := e.DigitalOcean.EnsureAccess(ctx, host.SyncID, docloud.EnsureConfig{
-		Home: e.Paths.Home, ManagedKeys: e.Paths.ManagedKeys, ContextFilter: integration.ContextFilter,
-		DefaultSSHUser: integration.DefaultSSHUser, Status: status,
-	})
-	if err != nil {
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
 		return err
 	}
-	return sshconfig.UpdateSyncHostAuthAndHost(
-		e.Paths.SyncDigitalOceanConfig, host.Alias, result.HostName, result.User, result.IdentityFile, "", result.IdentitiesOnly,
-	)
-}
-
-func (e *Engine) EnsureBoxAccess(ctx context.Context, host sshconfig.Host, status func(string)) error {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
-		return err
-	}
-	defer e.boxMu.Unlock()
-	if !host.Synced || host.SyncSource != boxcloud.ProviderName || host.SyncID == "" {
-		return nil
-	}
-	result, err := e.Box.EnsureAccess(ctx, host.SyncID, boxcloud.EnsureConfig{
+	result, err := e.Boat.EnsureAccess(ctx, host.SyncID, boatcloud.EnsureConfig{
 		Home: e.Paths.Home, Status: status,
 	})
 	if err != nil {
 		return err
 	}
 	return sshconfig.UpdateSyncHostAuthAndHost(
-		e.Paths.SyncBoxConfig, host.Alias, result.HostName, result.User, result.IdentityFile, "", result.IdentitiesOnly,
+		e.Paths.SyncBoatConfig, host.Alias, result.HostName, result.User, result.IdentityFile, "", result.IdentitiesOnly,
 	)
 }
 
@@ -1074,10 +902,8 @@ func (e *Engine) DisableGCP(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, host := range existing {
-		if host.Synced && host.SyncSource == gcp.ProviderName {
-			_ = e.Store.DeleteHost(host.Alias)
-		}
+	if err := e.deleteSyncedHostMetadata(existing, gcp.ProviderName); err != nil {
+		return err
 	}
 	if err := e.Config.RemoveSyncInclude(e.Paths.SyncGCPConfig); err != nil {
 		return err
@@ -1098,10 +924,8 @@ func (e *Engine) DisableAWS(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, host := range existing {
-		if host.Synced && host.SyncSource == awscloud.ProviderName {
-			_ = e.Store.DeleteHost(host.Alias)
-		}
+	if err := e.deleteSyncedHostMetadata(existing, awscloud.ProviderName); err != nil {
+		return err
 	}
 	if err := e.Config.RemoveSyncInclude(e.Paths.SyncAWSConfig); err != nil {
 		return err
@@ -1122,10 +946,8 @@ func (e *Engine) DisableAzure(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for _, host := range existing {
-		if host.Synced && host.SyncSource == azurecloud.ProviderName {
-			_ = e.Store.DeleteHost(host.Alias)
-		}
+	if err := e.deleteSyncedHostMetadata(existing, azurecloud.ProviderName); err != nil {
+		return err
 	}
 	if err := e.Config.RemoveSyncInclude(e.Paths.SyncAzureConfig); err != nil {
 		return err
@@ -1137,63 +959,45 @@ func (e *Engine) DisableAzure(ctx context.Context) error {
 	return e.Store.SetAzure(integration)
 }
 
-func (e *Engine) DisableDigitalOcean(ctx context.Context) error {
-	if err := lockCtx(ctx, &e.digitalOceanMu); err != nil {
+func (e *Engine) DisableBoat(ctx context.Context) error {
+	if err := lockCtx(ctx, &e.boatMu); err != nil {
 		return err
 	}
-	defer e.digitalOceanMu.Unlock()
+	defer e.boatMu.Unlock()
+	if err := e.Config.CheckBoatSyncMigration(); err != nil {
+		return err
+	}
 	existing, err := e.Discover(ctx)
 	if err != nil {
 		return err
 	}
-	for _, host := range existing {
-		if host.Synced && host.SyncSource == docloud.ProviderName {
-			_ = e.Store.DeleteHost(host.Alias)
-		}
-	}
-	if err := e.Config.RemoveSyncInclude(e.Paths.SyncDigitalOceanConfig); err != nil {
+	if err := e.deleteSyncedHostMetadata(existing, boatcloud.ProviderName); err != nil {
 		return err
 	}
-	integration := e.Store.DigitalOcean()
-	integration.Enabled = false
-	integration.LastSyncError = ""
-	integration.LastInstanceCount = 0
-	return e.Store.SetDigitalOcean(integration)
-}
-
-func (e *Engine) DisableBox(ctx context.Context) error {
-	if err := lockCtx(ctx, &e.boxMu); err != nil {
+	if err := e.Config.RemoveSyncInclude(e.Paths.SyncBoatConfig); err != nil {
 		return err
 	}
-	defer e.boxMu.Unlock()
-	existing, err := e.Discover(ctx)
-	if err != nil {
-		return err
-	}
-	for _, host := range existing {
-		if host.Synced && host.SyncSource == boxcloud.ProviderName {
-			_ = e.Store.DeleteHost(host.Alias)
-		}
-	}
-	if err := e.Config.RemoveSyncInclude(e.Paths.SyncBoxConfig); err != nil {
-		return err
-	}
-	integration := e.Store.Box()
+	integration := e.Store.Boat()
 	integration.Enabled = false
 	integration.AutoSync = false
 	integration.Disabled = true
 	integration.LastSyncError = ""
 	integration.LastInstanceCount = 0
-	return e.Store.SetBox(integration)
+	return e.Store.SetBoat(integration)
 }
 
 func (e *Engine) Status(ctx context.Context) (Status, error) {
 	integration := e.Store.GCP()
 	awsIntegration := e.Store.AWS()
 	azureIntegration := e.Store.Azure()
-	doIntegration := e.Store.DigitalOcean()
-	boxIntegration := e.Store.Box()
+	boatIntegration := e.Store.Boat()
 	upstashIntegration := e.Store.Upstash()
+	vercelIntegration := e.Store.Vercel()
+	hetznerIntegration := e.Store.Hetzner()
+	bitqateIntegration := e.Store.Bitqate()
+	railwayIntegration := e.Store.Railway()
+	flyIntegration := e.Store.Fly()
+	digitalOceanIntegration := e.Store.DigitalOcean()
 	status := Status{
 		GCP: GCPStatus{
 			Enabled:           integration.Enabled,
@@ -1219,27 +1023,67 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			DefaultSSHUser:      azureIntegration.DefaultSSHUser, LastSyncAt: azureIntegration.LastSyncAt,
 			LastSyncError: azureIntegration.LastSyncError, LastInstanceCount: azureIntegration.LastInstanceCount,
 		},
-		DigitalOcean: DigitalOceanStatus{
-			Enabled: doIntegration.Enabled, AutoSync: doIntegration.AutoSync,
-			ContextFilter:  append([]string(nil), doIntegration.ContextFilter...),
-			RegionFilter:   append([]string(nil), doIntegration.RegionFilter...),
-			DefaultSSHUser: doIntegration.DefaultSSHUser, LastSyncAt: doIntegration.LastSyncAt,
-			LastSyncError: doIntegration.LastSyncError, LastInstanceCount: doIntegration.LastInstanceCount,
-		},
-		Box: BoxStatus{
-			Enabled: boxIntegration.Enabled, AutoSync: boxIntegration.AutoSync, Disabled: boxIntegration.Disabled,
-			LastSyncAt: boxIntegration.LastSyncAt, LastSyncError: boxIntegration.LastSyncError,
-			LastInstanceCount: boxIntegration.LastInstanceCount,
+		Boat: BoatStatus{
+			Enabled: boatIntegration.Enabled, AutoSync: boatIntegration.AutoSync, Disabled: boatIntegration.Disabled,
+			LastSyncAt: boatIntegration.LastSyncAt, LastSyncError: boatIntegration.LastSyncError,
+			LastInstanceCount: boatIntegration.LastInstanceCount,
 		},
 		Upstash: UpstashStatus{
 			Enabled: upstashIntegration.Enabled, AutoSync: upstashIntegration.AutoSync, Disabled: upstashIntegration.Disabled,
 			LastSyncAt: upstashIntegration.LastSyncAt, LastSyncError: upstashIntegration.LastSyncError,
 			LastInstanceCount: upstashIntegration.LastInstanceCount, HasKey: e.Upstash.HasKey(),
 		},
+		Vercel: VercelStatus{
+			Enabled: vercelIntegration.Enabled, AutoSync: vercelIntegration.AutoSync, Disabled: vercelIntegration.Disabled,
+			TeamID: vercelIntegration.TeamID, ProjectID: vercelIntegration.ProjectID,
+			ProjectIDs: append([]string(nil), vercelIntegration.Projects()...),
+			LastSyncAt: vercelIntegration.LastSyncAt, LastSyncError: vercelIntegration.LastSyncError,
+			LastInstanceCount: vercelIntegration.LastInstanceCount,
+			Unrestorable:      append([]string(nil), vercelIntegration.Unrestorable...),
+			HasToken:          e.Vercel.HasToken(),
+		},
+		Hetzner: HetznerStatus{
+			Enabled: hetznerIntegration.Enabled, AutoSync: hetznerIntegration.AutoSync,
+			ContextFilter:  append([]string(nil), hetznerIntegration.ContextFilter...),
+			LocationFilter: append([]string(nil), hetznerIntegration.LocationFilter...),
+			DefaultSSHUser: hetznerIntegration.DefaultSSHUser, DefaultSSHPort: hetznerIntegration.DefaultSSHPort,
+			PreferPrivateIP: hetznerIntegration.PreferPrivateIP, LastSyncAt: hetznerIntegration.LastSyncAt,
+			LastSyncError: hetznerIntegration.LastSyncError, LastInstanceCount: hetznerIntegration.LastInstanceCount,
+			HasToken: e.Hetzner.HasToken(),
+		},
+		Bitqate: BitqateStatus{
+			Enabled: bitqateIntegration.Enabled, AutoSync: bitqateIntegration.AutoSync,
+			RegionFilter:   append([]string(nil), bitqateIntegration.RegionFilter...),
+			DefaultSSHUser: bitqateIntegration.DefaultSSHUser, DefaultSSHPort: bitqateIntegration.DefaultSSHPort,
+			LastSyncAt:    bitqateIntegration.LastSyncAt,
+			LastSyncError: bitqateIntegration.LastSyncError, LastInstanceCount: bitqateIntegration.LastInstanceCount,
+			HasToken: e.Bitqate.HasToken(),
+		},
+		Railway: RailwayStatus{
+			Enabled: railwayIntegration.Enabled, AutoSync: railwayIntegration.AutoSync, Disabled: railwayIntegration.Disabled,
+			LastSyncAt: railwayIntegration.LastSyncAt, LastSyncError: railwayIntegration.LastSyncError,
+			LastInstanceCount: railwayIntegration.LastInstanceCount, HasToken: e.Railway.HasToken(),
+		},
+		Fly: FlyStatus{
+			Enabled: flyIntegration.Enabled, AutoSync: flyIntegration.AutoSync, Disabled: flyIntegration.Disabled,
+			OrgFilter:      append([]string(nil), flyIntegration.OrgFilter...),
+			AppFilter:      append([]string(nil), flyIntegration.AppFilter...),
+			DefaultSSHUser: flyIntegration.DefaultSSHUser,
+			LastSyncAt:     flyIntegration.LastSyncAt, LastSyncError: flyIntegration.LastSyncError,
+			LastInstanceCount: flyIntegration.LastInstanceCount,
+		},
+		DigitalOcean: DigitalOceanStatus{
+			Enabled: digitalOceanIntegration.Enabled, AutoSync: digitalOceanIntegration.AutoSync,
+			ContextFilter:  append([]string(nil), digitalOceanIntegration.ContextFilter...),
+			RegionFilter:   append([]string(nil), digitalOceanIntegration.RegionFilter...),
+			DefaultSSHUser: digitalOceanIntegration.DefaultSSHUser,
+			LastSyncAt:     digitalOceanIntegration.LastSyncAt, LastSyncError: digitalOceanIntegration.LastSyncError,
+			LastInstanceCount: digitalOceanIntegration.LastInstanceCount,
+		},
 	}
 
 	var probes stdsync.WaitGroup
-	probes.Add(6)
+	probes.Add(11)
 	go func() {
 		defer probes.Done()
 		if err := e.GCP.CheckAvailable(ctx); err != nil {
@@ -1291,33 +1135,24 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	}()
 	go func() {
 		defer probes.Done()
-		if err := e.DigitalOcean.CheckAvailable(ctx); err != nil {
-			status.DigitalOcean.DOCTLError = err.Error()
-		} else {
-			contexts, listErr := e.DigitalOcean.ListContexts(ctx)
-			if listErr != nil {
-				status.DigitalOcean.DOCTLError = listErr.Error()
-			} else {
-				status.DigitalOcean.Contexts = contexts
-			}
+		if err := e.Config.CheckBoatSyncMigration(); err != nil {
+			status.Boat.LastSyncError = err.Error()
+			return
 		}
-	}()
-	go func() {
-		defer probes.Done()
-		account, err := e.Box.Account(ctx)
+		account, err := e.Boat.Account(ctx)
 		if err != nil {
-			status.Box.BoxCLIError = err.Error()
+			status.Boat.BoatCLIError = err.Error()
 			return
 		}
 		if account.Error != "" && !account.Authenticated {
-			status.Box.BoxCLIError = account.Error
+			status.Boat.BoatCLIError = account.Error
 		}
-		status.Box.Authenticated = account.Authenticated
-		status.Box.Login = account.Login
-		if status.Box.Login == "" {
-			status.Box.Login = account.Email
+		status.Boat.Authenticated = account.Authenticated
+		status.Boat.Login = account.Login
+		if status.Boat.Login == "" {
+			status.Boat.Login = account.Email
 		}
-		status.Box.Plan = account.Plan
+		status.Boat.Plan = account.Plan
 	}()
 	go func() {
 		defer probes.Done()
@@ -1332,6 +1167,87 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			status.Upstash.Error = account.Error
 		}
 	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Vercel.Account(ctx)
+		if err != nil {
+			status.Vercel.Error = err.Error()
+			return
+		}
+		status.Vercel.Authenticated = account.Authenticated
+		status.Vercel.HasToken = e.Vercel.HasToken()
+		if account.Error != "" && !account.Authenticated {
+			status.Vercel.Error = account.Error
+		}
+	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Hetzner.Account(ctx)
+		if err != nil {
+			status.Hetzner.Error = err.Error()
+			return
+		}
+		status.Hetzner.Authenticated = account.Authenticated
+		status.Hetzner.HasToken = account.HasToken || e.Hetzner.HasToken()
+		status.Hetzner.Contexts = append([]string(nil), account.Contexts...)
+		if account.Error != "" && !account.Authenticated {
+			status.Hetzner.Error = account.Error
+		}
+	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Bitqate.Account(ctx)
+		if err != nil {
+			status.Bitqate.Error = err.Error()
+			return
+		}
+		status.Bitqate.Authenticated = account.Authenticated
+		status.Bitqate.HasToken = account.HasToken || e.Bitqate.HasToken()
+		if account.Error != "" && !account.Authenticated {
+			status.Bitqate.Error = account.Error
+		}
+	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Railway.Account(ctx)
+		if err != nil {
+			status.Railway.Error = err.Error()
+			return
+		}
+		status.Railway.Authenticated = account.Authenticated
+		status.Railway.HasToken = e.Railway.HasToken()
+		status.Railway.Name = account.Name
+		status.Railway.Email = account.Email
+		if account.Error != "" && !account.Authenticated {
+			status.Railway.Error = account.Error
+		}
+	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Fly.Account(ctx)
+		if err != nil {
+			status.Fly.FlyCLIError = err.Error()
+			return
+		}
+		if account.Error != "" && !account.Authenticated {
+			status.Fly.FlyCLIError = account.Error
+		}
+		status.Fly.Authenticated = account.Authenticated
+		status.Fly.Login = account.Login
+	}()
+	go func() {
+		defer probes.Done()
+		if err := e.DigitalOcean.CheckAvailable(ctx); err != nil {
+			status.DigitalOcean.DOCTLError = err.Error()
+		} else {
+			contexts, listErr := e.DigitalOcean.ListContexts(ctx)
+			if listErr != nil {
+				status.DigitalOcean.DOCTLError = listErr.Error()
+			} else {
+				status.DigitalOcean.Contexts = contexts
+			}
+		}
+	}()
 	probes.Wait()
 	return status, nil
 }
@@ -1340,9 +1256,14 @@ type Status struct {
 	GCP          GCPStatus          `json:"gcp"`
 	AWS          AWSStatus          `json:"aws"`
 	Azure        AzureStatus        `json:"azure"`
-	DigitalOcean DigitalOceanStatus `json:"digitalocean"`
-	Box          BoxStatus          `json:"box"`
+	Boat         BoatStatus         `json:"boat"`
 	Upstash      UpstashStatus      `json:"upstash"`
+	Vercel       VercelStatus       `json:"vercel"`
+	Hetzner      HetznerStatus      `json:"hetzner"`
+	Bitqate      BitqateStatus      `json:"bitqate"`
+	Railway      RailwayStatus      `json:"railway"`
+	Fly          FlyStatus          `json:"fly"`
+	DigitalOcean DigitalOceanStatus `json:"digitalocean"`
 }
 
 type GCPStatus struct {
@@ -1386,6 +1307,93 @@ type AzureStatus struct {
 	BastionExtensionError string     `json:"bastionExtensionError,omitempty"`
 }
 
+type BoatStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	Login             string     `json:"login,omitempty"`
+	Plan              string     `json:"plan,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	BoatCLIError      string     `json:"boatCliError,omitempty"`
+}
+
+type UpstashStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	HasKey            bool       `json:"hasKey,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Error             string     `json:"error,omitempty"`
+}
+
+type VercelStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	HasToken          bool       `json:"hasToken,omitempty"`
+	TeamID            string     `json:"teamId,omitempty"`
+	ProjectID         string     `json:"projectId,omitempty"`
+	ProjectIDs        []string   `json:"projectIds,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Unrestorable      []string   `json:"unrestorable,omitempty"`
+	Error             string     `json:"error,omitempty"`
+}
+
+type HetznerStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	HasToken          bool       `json:"hasToken,omitempty"`
+	Contexts          []string   `json:"contexts,omitempty"`
+	ContextFilter     []string   `json:"contextFilter,omitempty"`
+	LocationFilter    []string   `json:"locationFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	DefaultSSHPort    string     `json:"defaultSshPort,omitempty"`
+	PreferPrivateIP   bool       `json:"preferPrivateIp,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Error             string     `json:"error,omitempty"`
+}
+
+type RailwayStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	HasToken          bool       `json:"hasToken,omitempty"`
+	Name              string     `json:"name,omitempty"`
+	Email             string     `json:"email,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Error             string     `json:"error,omitempty"`
+}
+
+type FlyStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	Login             string     `json:"login,omitempty"`
+	OrgFilter         []string   `json:"orgFilter,omitempty"`
+	AppFilter         []string   `json:"appFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	FlyCLIError       string     `json:"flyCliError,omitempty"`
+}
+
 type DigitalOceanStatus struct {
 	Enabled           bool       `json:"enabled"`
 	AutoSync          bool       `json:"autoSync"`
@@ -1399,25 +1407,14 @@ type DigitalOceanStatus struct {
 	DOCTLError        string     `json:"doctlError,omitempty"`
 }
 
-type BoxStatus struct {
+type BitqateStatus struct {
 	Enabled           bool       `json:"enabled"`
 	AutoSync          bool       `json:"autoSync"`
-	Disabled          bool       `json:"disabled,omitempty"`
 	Authenticated     bool       `json:"authenticated,omitempty"`
-	Login             string     `json:"login,omitempty"`
-	Plan              string     `json:"plan,omitempty"`
-	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
-	LastSyncError     string     `json:"lastSyncError,omitempty"`
-	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
-	BoxCLIError       string     `json:"boxCliError,omitempty"`
-}
-
-type UpstashStatus struct {
-	Enabled           bool       `json:"enabled"`
-	AutoSync          bool       `json:"autoSync"`
-	Disabled          bool       `json:"disabled,omitempty"`
-	Authenticated     bool       `json:"authenticated,omitempty"`
-	HasKey            bool       `json:"hasKey,omitempty"`
+	HasToken          bool       `json:"hasToken,omitempty"`
+	RegionFilter      []string   `json:"regionFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	DefaultSSHPort    string     `json:"defaultSshPort,omitempty"`
 	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
 	LastSyncError     string     `json:"lastSyncError,omitempty"`
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`

@@ -387,7 +387,7 @@ func TestLifecycleCreateStopStartForkDelete(t *testing.T) {
 				t.Fatalf("create args = %s", joined)
 			}
 			return sampleDroplet(10, "web", "active", "nyc3", "Ubuntu", "ubuntu-24-04-x64", "203.0.113.10", "", nil), nil
-		case strings.Contains(joined, "droplet-action power-off"):
+		case strings.Contains(joined, "droplet-action shutdown"):
 			poweredOff = true
 			status = "off"
 			return map[string]any{"status": "completed"}, nil
@@ -403,6 +403,8 @@ func TestLifecycleCreateStopStartForkDelete(t *testing.T) {
 			return map[string]any{"status": "completed"}, nil
 		case strings.Contains(joined, "droplet snapshots"):
 			return []map[string]any{{"id": 77, "name": forkSnap}}, nil
+		case strings.Contains(joined, "snapshot delete"):
+			return "", nil
 		case strings.Contains(joined, "droplet delete"):
 			deleted = true
 			return "", nil

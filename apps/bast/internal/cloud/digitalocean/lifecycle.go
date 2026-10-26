@@ -88,8 +88,8 @@ func (c *Client) New(ctx context.Context, opts NewOpts) (string, error) {
 		return "", err
 	}
 	opts = applyNewDefaults(opts)
-	if opts.Name == "" {
-		return "", fmt.Errorf("droplet name is required")
+	if err := validatePositional("name", opts.Name); err != nil {
+		return "", err
 	}
 	if strings.Contains(strings.ToLower(opts.Image), "windows") {
 		return "", fmt.Errorf("Windows Droplets are not supported")
@@ -127,18 +127,22 @@ func (c *Client) New(ctx context.Context, opts NewOpts) (string, error) {
 			args = append(args, "--ssh-keys", strconv.Itoa(key.ID))
 		}
 	}
-	out, err := c.run(ctx, args...)
-	if err != nil {
-		return "", fmt.Errorf("create droplet: %w", err)
+	out, runErr := c.run(ctx, args...)
+	created, parseErr := parseDroplets(out)
+	if len(created) > 0 && created[0].ID != 0 {
+		id := fmt.Sprintf("do:%s:%d", uuid, created[0].ID)
+		if runErr != nil {
+			return id, fmt.Errorf("create droplet: %w", runErr)
+		}
+		return id, nil
 	}
-	created, err := parseDroplets(out)
-	if err != nil {
-		return "", fmt.Errorf("parse created droplet: %w", err)
+	if runErr != nil {
+		return "", fmt.Errorf("create droplet: %w", runErr)
 	}
-	if len(created) == 0 || created[0].ID == 0 {
-		return "", fmt.Errorf("create droplet: no droplet id in CLI output")
+	if parseErr != nil {
+		return "", fmt.Errorf("parse created droplet: %w", parseErr)
 	}
-	return fmt.Sprintf("do:%s:%d", uuid, created[0].ID), nil
+	return "", fmt.Errorf("create droplet: no droplet id in CLI output")
 }
 
 func applyNewDefaults(opts NewOpts) NewOpts {
@@ -186,9 +190,9 @@ func (c *Client) Stop(ctx context.Context, syncID string) error {
 	if HostLooksStopped(nil, item.Status) {
 		return nil
 	}
-	if _, err := c.run(ctx, "compute", "droplet-action", "power-off", strconv.Itoa(item.ID),
+	if _, err := c.run(ctx, "compute", "droplet-action", "shutdown", strconv.Itoa(item.ID),
 		"--wait", "--context", contextName, "--output", "json"); err != nil {
-		return fmt.Errorf("power off droplet %s: %w", item.Name, err)
+		return fmt.Errorf("shut down droplet %s: %w", item.Name, err)
 	}
 	return c.waitStatus(ctx, contextName, strconv.Itoa(item.ID), "off", 2*time.Minute)
 }
@@ -238,6 +242,10 @@ func (c *Client) Fork(ctx context.Context, syncID string) (string, error) {
 	if region == "" || size == "" {
 		return "", fmt.Errorf("droplet %s is missing region or size; re-sync and try again", item.Name)
 	}
+	keys, err := c.listSSHKeys(ctx, contextName)
+	if err != nil {
+		return "", err
+	}
 	snapName := fmt.Sprintf("bast-fork-%d-%d", item.ID, time.Now().Unix())
 	if _, err := c.run(ctx, "compute", "droplet-action", "snapshot", strconv.Itoa(item.ID),
 		"--snapshot-name", snapName, "--wait", "--context", contextName, "--output", "json"); err != nil {
@@ -252,20 +260,50 @@ func (c *Client) Fork(ctx context.Context, syncID string) (string, error) {
 		name = "droplet"
 	}
 	name = name + "-fork"
-	out, err := c.run(ctx, "compute", "droplet", "create", name,
+	if err := validatePositional("name", name); err != nil {
+		_ = c.deleteSnapshot(ctx, contextName, snapID)
+		return "", err
+	}
+	args := []string{
+		"compute", "droplet", "create", name,
 		"--region", region, "--size", size, "--image", snapID,
-		"--wait", "--context", contextName, "--output", "json")
-	if err != nil {
-		return "", fmt.Errorf("create fork of %s: %w", item.Name, err)
+		"--wait", "--context", contextName, "--output", "json",
 	}
-	created, err := parseDroplets(out)
-	if err != nil {
-		return "", fmt.Errorf("parse forked droplet: %w", err)
+	for _, key := range keys {
+		if key.ID > 0 {
+			args = append(args, "--ssh-keys", strconv.Itoa(key.ID))
+		}
 	}
+	out, createErr := c.run(ctx, args...)
+	created, parseErr := parseDroplets(out)
 	if len(created) == 0 || created[0].ID == 0 {
+		_ = c.deleteSnapshot(ctx, contextName, snapID)
+		if createErr != nil {
+			return "", fmt.Errorf("create fork of %s: %w", item.Name, createErr)
+		}
+		if parseErr != nil {
+			return "", fmt.Errorf("parse forked droplet: %w", parseErr)
+		}
 		return "", fmt.Errorf("fork droplet: no droplet id in CLI output")
 	}
-	return fmt.Sprintf("do:%s:%d", uuid, created[0].ID), nil
+	id := fmt.Sprintf("do:%s:%d", uuid, created[0].ID)
+	if delErr := c.deleteSnapshot(ctx, contextName, snapID); delErr != nil {
+		if createErr != nil {
+			return id, fmt.Errorf("create fork of %s: %w; snapshot %s is still billed: %v", item.Name, createErr, snapName, delErr)
+		}
+		return id, fmt.Errorf("forked droplet %s but snapshot %s is still billed: %w", id, snapName, delErr)
+	}
+	if createErr != nil {
+		return id, fmt.Errorf("create fork of %s: %w", item.Name, createErr)
+	}
+	return id, nil
+}
+
+func (c *Client) deleteSnapshot(ctx context.Context, contextName, snapID string) error {
+	if _, err := c.run(ctx, "compute", "snapshot", "delete", snapID, "--force", "--context", contextName); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *Client) snapshotIDByName(ctx context.Context, contextName, dropletID, name string) (string, error) {

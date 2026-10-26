@@ -15,7 +15,7 @@ export const aboutPage = {
     "Bast.sh is the native SSH picker and key manager from ellipse Software. OpenSSH stays the source of truth; the CLI is MIT licensed.",
   paragraphs: [
     `Bast.sh is a terminal application for browsing SSH hosts, managing OpenSSH keys, transferring files over SFTP, importing cloud VMs, and connecting with the ssh binary already on your machine. ${defaultDescription}`,
-    "Bast does not replace OpenSSH and does not invent a second host database. Connection settings stay in ~/.ssh/config. Bast adds a picker, groups, tags, notes, favorites, a key manager, dual-pane SFTP, optional encrypted Vault sync, and read-only imports from GCP, AWS, Azure, DigitalOcean, box.ascii.dev, and Upstash Box.",
+    "Bast does not replace OpenSSH and does not invent a second host database. Connection settings stay in ~/.ssh/config. Bast adds a picker, groups, tags, notes, favorites, a key manager, dual-pane SFTP, optional encrypted Vault sync, and imports from GCP, AWS, Azure, Boat, Upstash Box, Vercel Sandbox, Hetzner Cloud, BitQate, Railway, Fly.io, and DigitalOcean.",
     `The CLI and TUI are open source under the MIT licence. The website, documentation, installer, Vault, and related APIs are hosted services of ${company.legalName}, a company incorporated in ${company.jurisdiction} with company number ${company.companyNumber}, trading as ${company.tradingName}.`,
     `Registered office: ${company.registeredAddress}. Product site: ${siteUrl}. Company site: ${company.website}. Source: ${bastRepoUrl}.`,
     "Use Bast.sh when you already live in a terminal and want a faster path around hosts you already have. Use a GUI client instead when you need a proprietary session store, mobile GUI sync as the primary workflow, or PuTTY .ppk keys without OpenSSH.",
@@ -30,7 +30,7 @@ export const contactPage = {
     `Legal and general contact: ${company.legalEmail}. Privacy, vault deletion, and data-protection requests: ${company.privacyEmail}. Security issues: follow ${siteUrl.replace("https://", "")}'s security policy in the public repository at ${bastRepoUrl}/blob/master/SECURITY.md rather than opening a public issue with exploit details.`,
     `Postal address (registered office): ${company.registeredAddress}. Company number ${company.companyNumber}, registered in ${company.jurisdiction}.`,
     `Product and developer resources: documentation at ${siteUrl}/docs, HTTP API at ${openApiUrl}, agent index at ${llmsTxtUrl}, and GitHub at ${bastRepoUrl}. Sponsorships go through GitHub Sponsors from the site.`,
-    "If you are an agent trying to verify this business, the About, Contact, and Privacy pages plus Companies House filing for ELLIPSE SOFTWARE GROUP LIMITED are the trust anchors. Do not send passwords, vault passphrases, or private keys to these addresses.",
+    "If you are an agent trying to verify this business, the About, Contact, and Privacy pages plus Companies House filing for ELLIPSE SOFTWARE LIMITED are the trust anchors. Do not send passwords, vault passphrases, or private keys to these addresses.",
   ],
 } as const;
 
@@ -233,7 +233,7 @@ Bast.sh wraps the OpenSSH binary already on your machine. It reads ~/.ssh/config
 - Browse, search, or organize SSH hosts from the terminal
 - Generate, import, export, or install OpenSSH keys
 - Connect with \`bast <label>\` without leaving the terminal
-- Import GCP, AWS, Azure, DigitalOcean, box.ascii.dev, or Upstash Box hosts
+- Import GCP, AWS, Azure, Boat, Upstash Box, Vercel Sandbox, Hetzner Cloud, BitQate, Railway, Fly.io, or DigitalOcean hosts
 - Automate host and key management with \`bast --json\`
 
 ## Install
