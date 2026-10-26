@@ -16,8 +16,11 @@ import (
 	azurecloud "bast/internal/cloud/azure"
 	bitqatecloud "bast/internal/cloud/bitqate"
 	boatcloud "bast/internal/cloud/boat"
+	docloud "bast/internal/cloud/digitalocean"
+	flycloud "bast/internal/cloud/fly"
 	"bast/internal/cloud/gcp"
 	hetznercloud "bast/internal/cloud/hetzner"
+	railwaycloud "bast/internal/cloud/railway"
 	upstashcloud "bast/internal/cloud/upstash"
 	vercelcloud "bast/internal/cloud/vercel"
 	"bast/internal/metadata"
@@ -42,6 +45,9 @@ type Engine struct {
 	vercelMu       stdsync.Mutex
 	hetznerMu      stdsync.Mutex
 	bitqateMu      stdsync.Mutex
+	railwayMu      stdsync.Mutex
+	flyMu          stdsync.Mutex
+	digitalOceanMu stdsync.Mutex
 	Paths          paths.Paths
 	Config         sshconfig.Manager
 	Store          *metadata.Store
@@ -53,6 +59,9 @@ type Engine struct {
 	Vercel         *vercelcloud.Client
 	Hetzner        *hetznercloud.Client
 	Bitqate        *bitqatecloud.Client
+	Railway        *railwaycloud.Client
+	Fly            *flycloud.Client
+	DigitalOcean   *docloud.Client
 	BastExecutable string
 	Discover       func(ctx context.Context) ([]sshconfig.Host, error)
 
@@ -76,6 +85,8 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig,
 		SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig,
 		SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig,
+		SyncRailwayConfig: p.SyncRailwayConfig, SyncFlyConfig: p.SyncFlyConfig,
+		SyncDigitalOceanConfig: p.SyncDigitalOceanConfig,
 	}
 	return &Engine{
 		Paths:          p,
@@ -89,6 +100,9 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		Vercel:         newVercelClient(p, store),
 		Hetzner:        hetznercloud.New(p.HetznerAPIKey, p.HetznerTokenDir, p.Home),
 		Bitqate:        bitqatecloud.New(p.BitqateToken),
+		Railway:        railwaycloud.New(p.RailwayAPIToken),
+		Fly:            flycloud.New(),
+		DigitalOcean:   docloud.New(),
 		BastExecutable: stableExecutablePath(),
 		Discover: func(ctx context.Context) ([]sshconfig.Host, error) {
 			return cfg.Discover()
@@ -981,6 +995,9 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	vercelIntegration := e.Store.Vercel()
 	hetznerIntegration := e.Store.Hetzner()
 	bitqateIntegration := e.Store.Bitqate()
+	railwayIntegration := e.Store.Railway()
+	flyIntegration := e.Store.Fly()
+	digitalOceanIntegration := e.Store.DigitalOcean()
 	status := Status{
 		GCP: GCPStatus{
 			Enabled:           integration.Enabled,
@@ -1042,10 +1059,31 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			LastSyncError: bitqateIntegration.LastSyncError, LastInstanceCount: bitqateIntegration.LastInstanceCount,
 			HasToken: e.Bitqate.HasToken(),
 		},
+		Railway: RailwayStatus{
+			Enabled: railwayIntegration.Enabled, AutoSync: railwayIntegration.AutoSync, Disabled: railwayIntegration.Disabled,
+			LastSyncAt: railwayIntegration.LastSyncAt, LastSyncError: railwayIntegration.LastSyncError,
+			LastInstanceCount: railwayIntegration.LastInstanceCount, HasToken: e.Railway.HasToken(),
+		},
+		Fly: FlyStatus{
+			Enabled: flyIntegration.Enabled, AutoSync: flyIntegration.AutoSync, Disabled: flyIntegration.Disabled,
+			OrgFilter:      append([]string(nil), flyIntegration.OrgFilter...),
+			AppFilter:      append([]string(nil), flyIntegration.AppFilter...),
+			DefaultSSHUser: flyIntegration.DefaultSSHUser,
+			LastSyncAt:     flyIntegration.LastSyncAt, LastSyncError: flyIntegration.LastSyncError,
+			LastInstanceCount: flyIntegration.LastInstanceCount,
+		},
+		DigitalOcean: DigitalOceanStatus{
+			Enabled: digitalOceanIntegration.Enabled, AutoSync: digitalOceanIntegration.AutoSync,
+			ContextFilter:  append([]string(nil), digitalOceanIntegration.ContextFilter...),
+			RegionFilter:   append([]string(nil), digitalOceanIntegration.RegionFilter...),
+			DefaultSSHUser: digitalOceanIntegration.DefaultSSHUser,
+			LastSyncAt:     digitalOceanIntegration.LastSyncAt, LastSyncError: digitalOceanIntegration.LastSyncError,
+			LastInstanceCount: digitalOceanIntegration.LastInstanceCount,
+		},
 	}
 
 	var probes stdsync.WaitGroup
-	probes.Add(8)
+	probes.Add(11)
 	go func() {
 		defer probes.Done()
 		if err := e.GCP.CheckAvailable(ctx); err != nil {
@@ -1169,19 +1207,63 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			status.Bitqate.Error = account.Error
 		}
 	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Railway.Account(ctx)
+		if err != nil {
+			status.Railway.Error = err.Error()
+			return
+		}
+		status.Railway.Authenticated = account.Authenticated
+		status.Railway.HasToken = e.Railway.HasToken()
+		status.Railway.Name = account.Name
+		status.Railway.Email = account.Email
+		if account.Error != "" && !account.Authenticated {
+			status.Railway.Error = account.Error
+		}
+	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Fly.Account(ctx)
+		if err != nil {
+			status.Fly.FlyCLIError = err.Error()
+			return
+		}
+		if account.Error != "" && !account.Authenticated {
+			status.Fly.FlyCLIError = account.Error
+		}
+		status.Fly.Authenticated = account.Authenticated
+		status.Fly.Login = account.Login
+	}()
+	go func() {
+		defer probes.Done()
+		if err := e.DigitalOcean.CheckAvailable(ctx); err != nil {
+			status.DigitalOcean.DOCTLError = err.Error()
+		} else {
+			contexts, listErr := e.DigitalOcean.ListContexts(ctx)
+			if listErr != nil {
+				status.DigitalOcean.DOCTLError = listErr.Error()
+			} else {
+				status.DigitalOcean.Contexts = contexts
+			}
+		}
+	}()
 	probes.Wait()
 	return status, nil
 }
 
 type Status struct {
-	GCP     GCPStatus     `json:"gcp"`
-	AWS     AWSStatus     `json:"aws"`
-	Azure   AzureStatus   `json:"azure"`
-	Boat    BoatStatus    `json:"boat"`
-	Upstash UpstashStatus `json:"upstash"`
-	Vercel  VercelStatus  `json:"vercel"`
-	Hetzner HetznerStatus `json:"hetzner"`
-	Bitqate BitqateStatus `json:"bitqate"`
+	GCP          GCPStatus          `json:"gcp"`
+	AWS          AWSStatus          `json:"aws"`
+	Azure        AzureStatus        `json:"azure"`
+	Boat         BoatStatus         `json:"boat"`
+	Upstash      UpstashStatus      `json:"upstash"`
+	Vercel       VercelStatus       `json:"vercel"`
+	Hetzner      HetznerStatus      `json:"hetzner"`
+	Bitqate      BitqateStatus      `json:"bitqate"`
+	Railway      RailwayStatus      `json:"railway"`
+	Fly          FlyStatus          `json:"fly"`
+	DigitalOcean DigitalOceanStatus `json:"digitalocean"`
 }
 
 type GCPStatus struct {
@@ -1281,6 +1363,48 @@ type HetznerStatus struct {
 	LastSyncError     string     `json:"lastSyncError,omitempty"`
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 	Error             string     `json:"error,omitempty"`
+}
+
+type RailwayStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	HasToken          bool       `json:"hasToken,omitempty"`
+	Name              string     `json:"name,omitempty"`
+	Email             string     `json:"email,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	Error             string     `json:"error,omitempty"`
+}
+
+type FlyStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	Login             string     `json:"login,omitempty"`
+	OrgFilter         []string   `json:"orgFilter,omitempty"`
+	AppFilter         []string   `json:"appFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	FlyCLIError       string     `json:"flyCliError,omitempty"`
+}
+
+type DigitalOceanStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Contexts          []string   `json:"contexts,omitempty"`
+	ContextFilter     []string   `json:"contextFilter,omitempty"`
+	RegionFilter      []string   `json:"regionFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	DOCTLError        string     `json:"doctlError,omitempty"`
 }
 
 type BitqateStatus struct {

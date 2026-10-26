@@ -400,6 +400,19 @@ func TestMergeIntegrationsKeepsBitqate(t *testing.T) {
 	}
 }
 
+func TestMergeIntegrationsKeepsNewSyncProviders(t *testing.T) {
+	local := VaultIntegrations{
+		Railway:      &VaultRailwayIntegration{Enabled: true, AutoSync: true},
+		Fly:          &VaultFlyIntegration{Enabled: true, OrgFilter: []string{"personal"}},
+		DigitalOcean: &VaultDigitalOceanIntegration{Enabled: true, ContextFilter: []string{"default"}},
+	}
+	remote := VaultIntegrations{GCP: &VaultGCPIntegration{Enabled: true}}
+	got := mergeIntegrations(remote, local)
+	if got.Railway == nil || !got.Railway.Enabled || got.Fly == nil || len(got.Fly.OrgFilter) != 1 || got.DigitalOcean == nil || got.GCP == nil {
+		t.Fatalf("merge dropped sync providers: %+v", got)
+	}
+}
+
 func TestMergeIntegrationsKeepsHetzner(t *testing.T) {
 	local := VaultIntegrations{Hetzner: &VaultHetznerIntegration{Enabled: true, AutoSync: true, DefaultSSHUser: "root"}}
 	remote := VaultIntegrations{GCP: &VaultGCPIntegration{Enabled: true}}

@@ -2332,7 +2332,7 @@ func TestSyncGridScrollsWhenProvidersOverflow(t *testing.T) {
 
 	m.updateSyncKeys("G")
 	body = m.renderSync(m.styles())
-	if !strings.Contains(body, "BitQate") {
+	if !strings.Contains(body, "DigitalOcean") {
 		t.Fatalf("jumping to the last provider should reveal it:\n%s", body)
 	}
 	if strings.Contains(body, "Amazon EC2") {
@@ -2344,7 +2344,7 @@ func TestSyncGridScrollsWhenProvidersOverflow(t *testing.T) {
 	if m.syncCursor != len(m.syncMenuItems())-2 {
 		t.Fatalf("wheel up should move one provider, cursor=%d", m.syncCursor)
 	}
-	if !strings.Contains(body, "Vercel") {
+	if !strings.Contains(body, "Fly.io") {
 		t.Fatalf("wheel should keep the focused provider in view:\n%s", body)
 	}
 
@@ -2365,7 +2365,7 @@ func TestSyncGridScrollsWhenProvidersOverflow(t *testing.T) {
 		t.Fatalf("short desktop view should clip later provider rows:\n%s", body)
 	}
 	m.updateSyncKeys("G")
-	if view := m.render(); !strings.Contains(view, "Hetzner") {
+	if view := m.render(); !strings.Contains(view, "DigitalOcean") {
 		t.Fatalf("full view should show the focused provider after scroll:\n%s", view)
 	}
 }

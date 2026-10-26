@@ -156,6 +156,12 @@ func (r *Runner) completeKind(kind valueKind, enum []string, toComplete string, 
 		return finishComplete(r.hostCandidates("hetzner", true, toComplete), directiveNoFiles)
 	case valueBitqateHost:
 		return finishComplete(r.hostCandidates("bitqate", true, toComplete), directiveNoFiles)
+	case valueRailwayHost:
+		return finishComplete(r.hostCandidates("railway", true, toComplete), directiveNoFiles)
+	case valueFlyHost:
+		return finishComplete(r.hostCandidates("fly", true, toComplete), directiveNoFiles)
+	case valueDigitalOceanHost:
+		return finishComplete(r.hostCandidates("digitalocean", true, toComplete), directiveNoFiles)
 	case valueKey:
 		return finishComplete(r.keyCandidates(toComplete), directiveNoFiles)
 	default:

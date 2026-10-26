@@ -77,15 +77,23 @@ bast sync boat
 bast sync upstash
 bast sync vercel
 bast sync hetzner
+bast sync bitqate
+bast sync railway
+bast sync fly
+bast sync digitalocean
 bast sync status
 bast sync disable gcp
 bast sync disable boat
 bast sync disable upstash
 bast sync disable vercel
 bast sync disable hetzner
+bast sync disable bitqate
+bast sync disable railway
+bast sync disable fly
+bast sync disable digitalocean
 ```
 
-Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [Boat](/docs/features/boat), [Upstash Box](/docs/features/upstash), [Vercel Sandbox](/docs/features/vercel), or [Hetzner Cloud](/docs/features/hetzner) for provider setup.
+Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [Boat](/docs/features/boat), [Upstash Box](/docs/features/upstash), [Vercel Sandbox](/docs/features/vercel), [Hetzner Cloud](/docs/features/hetzner), [BitQate](/docs/features/bitqate), [Railway](/docs/features/railway), [Fly.io](/docs/features/fly), or [DigitalOcean](/docs/features/digitalocean) for provider setup.
 
 ```bash
 bast upstash new [--name name] [--runtime node] [--size small] [--keep-alive]
@@ -113,6 +121,32 @@ bast hetzner start <host|id>
 bast hetzner stop <host|id> [--force]
 bast hetzner restart <host|id> [--force]
 ```
+
+```bash
+bast railway key [--key-file path]
+bast railway new --name name (--project id|name | --new-project name) [--image image] [--start-command command] [--environment id]
+bast railway stop <host|id>
+bast railway resume <host|id>
+bast railway delete <host|id> [--yes]
+```
+
+```bash
+bast fly new --app APP --image IMAGE [--org slug] [--region code] [--size size] [--name name]
+bast fly fork <host|id> [--region code]
+bast fly stop <host|id>
+bast fly resume <host|id>
+bast fly delete <host|id> [--yes]
+```
+
+```bash
+bast digitalocean new --name name [--region slug] [--size slug] [--image slug] [--context name]
+bast digitalocean fork <host|id>
+bast digitalocean stop <host|id>
+bast digitalocean resume <host|id>
+bast digitalocean delete <host|id> [--yes]
+```
+
+`bast do` is an alias of `bast digitalocean`.
 
 ## JSON mode
 

@@ -390,6 +390,15 @@ func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	if host.Synced && host.SyncSource == "bitqate" && m.hostLooksStopped(host) {
 		return m, m.startSelectedBitqate(host, true)
 	}
+	if host.Synced && host.SyncSource == "railway" && m.hostLooksStopped(host) {
+		return m, m.resumeSelectedRailway(host, true)
+	}
+	if host.Synced && host.SyncSource == "fly" && m.hostLooksStopped(host) {
+		return m, m.resumeSelectedFly(host, true)
+	}
+	if host.Synced && host.SyncSource == "digitalocean" && m.hostLooksStopped(host) {
+		return m, m.resumeSelectedDigitalOcean(host, true)
+	}
 	if host.Synced && host.SyncID != "" && m.syncer != nil {
 		var ensure func(context.Context, sshconfig.Host, func(string)) error
 		switch host.SyncSource {
@@ -407,6 +416,12 @@ func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 			ensure = m.syncer.EnsureHetznerAccess
 		case "bitqate":
 			ensure = m.syncer.EnsureBitqateAccess
+		case "railway":
+			ensure = m.syncer.EnsureRailwayAccess
+		case "fly":
+			ensure = m.syncer.EnsureFlyAccess
+		case "digitalocean":
+			ensure = m.syncer.EnsureDigitalOceanAccess
 		}
 		if ensure != nil {
 			timeout := prepareTimeoutForHost(host)

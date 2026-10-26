@@ -137,10 +137,17 @@ const cloudPrepareTimeout = 90 * time.Second
 const boatPrepareTimeout = 5 * time.Minute
 
 func prepareTimeoutForHost(host sshconfig.Host) time.Duration {
-	if host.Synced && (host.SyncSource == "boat" || host.SyncSource == "upstash" || host.SyncSource == "vercel" || host.SyncSource == "hetzner" || host.SyncSource == "bitqate") {
-		return boatPrepareTimeout
+	if !host.Synced {
+		return cloudPrepareTimeout
 	}
-	return cloudPrepareTimeout
+	switch host.SyncSource {
+	case "boat", "upstash", "vercel", "hetzner", "bitqate":
+		return boatPrepareTimeout
+	case "railway", "fly", "digitalocean":
+		return 6 * time.Minute
+	default:
+		return cloudPrepareTimeout
+	}
 }
 
 func (m *App) connectFilesHost(index int, host sshconfig.Host) tea.Cmd {
@@ -264,6 +271,42 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 				}
 			}
 			return m.syncer.EnsureHetznerAccess(ctx, host, status)
+		}
+	case "railway":
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Resuming Railway service…")
+				}
+				if _, err := m.syncer.ResumeRailway(ctx, host.SyncID); err != nil {
+					return err
+				}
+			}
+			return m.syncer.EnsureRailwayAccess(ctx, host, status)
+		}
+	case "fly":
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Starting Fly Machine…")
+				}
+				if _, err := m.syncer.ResumeFly(ctx, host.SyncID); err != nil {
+					return err
+				}
+			}
+			return m.syncer.EnsureFlyAccess(ctx, host, status)
+		}
+	case "digitalocean":
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Powering on Droplet…")
+				}
+				if _, err := m.syncer.ResumeDigitalOcean(ctx, host.SyncID); err != nil {
+					return err
+				}
+			}
+			return m.syncer.EnsureDigitalOceanAccess(ctx, host, status)
 		}
 	}
 	if ensure == nil {

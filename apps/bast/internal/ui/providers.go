@@ -35,6 +35,12 @@ func (m *App) providerEnabled(kind cloud.Kind) bool {
 		return m.metadata.Hetzner().Enabled
 	case cloud.Bitqate:
 		return m.metadata.Bitqate().Enabled
+	case cloud.Railway:
+		return m.metadata.Railway().Enabled
+	case cloud.Fly:
+		return m.metadata.Fly().Enabled
+	case cloud.DigitalOcean:
+		return m.metadata.DigitalOcean().Enabled
 	default:
 		return false
 	}
@@ -87,6 +93,12 @@ func (m *App) providerGroupPrimaryAction(kind cloud.Kind) string {
 		if kind == cloud.Boat || kind == cloud.Vercel {
 			return " New sandbox "
 		}
+		if kind == cloud.Railway {
+			return " New service "
+		}
+		if kind == cloud.Fly {
+			return " New machine "
+		}
 		return " New "
 	}
 	return " Sync now "
@@ -132,6 +144,12 @@ func (m *App) stopSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 		m.openHetznerStopForm(host)
 	case "bitqate":
 		m.openBitqateStopForm(host)
+	case "railway":
+		m.openRailwayStopForm(host)
+	case "fly":
+		m.openFlyStopForm(host)
+	case "digitalocean":
+		m.openDigitalOceanStopForm(host)
 	default:
 		return m, nil
 	}
@@ -171,6 +189,10 @@ func (m *App) forkSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 		m.openBoatForkForm(host)
 	case "vercel":
 		m.openVercelForkForm(host)
+	case "fly":
+		m.openFlyForkForm(host)
+	case "digitalocean":
+		m.openDigitalOceanForkForm(host)
 	default:
 		return m, nil
 	}
@@ -188,6 +210,12 @@ func (m *App) deleteSyncedHost(host sshconfig.Host) bool {
 		m.openVercelDeleteForm(host)
 	case "boat":
 		m.openBoatDeleteForm(host)
+	case "railway":
+		m.openRailwayDeleteForm(host)
+	case "fly":
+		m.openFlyDeleteForm(host)
+	case "digitalocean":
+		m.openDigitalOceanDeleteForm(host)
 	default:
 		return false
 	}
@@ -209,6 +237,12 @@ func (m *App) resumeSyncedHost(host sshconfig.Host, thenConnect bool) tea.Cmd {
 		return m.startSelectedHetzner(host, thenConnect)
 	case "bitqate":
 		return m.startSelectedBitqate(host, thenConnect)
+	case "railway":
+		return m.resumeSelectedRailway(host, thenConnect)
+	case "fly":
+		return m.resumeSelectedFly(host, thenConnect)
+	case "digitalocean":
+		return m.resumeSelectedDigitalOcean(host, thenConnect)
 	default:
 		return nil
 	}
@@ -248,6 +282,31 @@ func (m *App) runProviderGroupCreate(kind cloud.Kind) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.openVercelNewForm()
+		return m, nil
+	case cloud.Railway:
+		if m.syncingProviders["railway"] {
+			return m, m.setNotice("Railway operation already in progress")
+		}
+		if !m.railwayHasToken() {
+			m.openRailwayKeyForm()
+			return m, nil
+		}
+		m.openRailwayNewForm()
+		return m, nil
+	case cloud.Fly:
+		if m.syncingProviders["fly"] {
+			return m, m.setNotice("Fly operation already in progress")
+		}
+		if !m.syncStatus.Fly.Authenticated && !m.metadata.Fly().Enabled {
+			return m, m.setNotice("Connect Fly on the Sync tab first")
+		}
+		m.openFlyNewForm()
+		return m, nil
+	case cloud.DigitalOcean:
+		if m.syncingProviders["digitalocean"] {
+			return m, m.setNotice("DigitalOcean operation already in progress")
+		}
+		m.openDigitalOceanNewForm()
 		return m, nil
 	default:
 		return m, m.setNotice("Create is not available for this provider yet")

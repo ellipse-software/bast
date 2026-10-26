@@ -8,14 +8,17 @@ import (
 type Kind string
 
 const (
-	GCP     Kind = "gcp"
-	AWS     Kind = "aws"
-	Azure   Kind = "azure"
-	Boat    Kind = "boat"
-	Upstash Kind = "upstash"
-	Vercel  Kind = "vercel"
-	Hetzner Kind = "hetzner"
-	Bitqate Kind = "bitqate"
+	GCP          Kind = "gcp"
+	AWS          Kind = "aws"
+	Azure        Kind = "azure"
+	Boat         Kind = "boat"
+	Upstash      Kind = "upstash"
+	Vercel       Kind = "vercel"
+	Hetzner      Kind = "hetzner"
+	Bitqate      Kind = "bitqate"
+	Railway      Kind = "railway"
+	Fly          Kind = "fly"
+	DigitalOcean Kind = "digitalocean"
 )
 
 // Descriptor is the stable identity for a cloud provider. UI, grouping, and
@@ -122,17 +125,35 @@ var descriptors = []Descriptor{
 		Description: "Import BitQate VPS instances into Bast",
 		BrandColor:  "#FFFFFF", NerdIcon: "\uf0a0",
 	},
+	{
+		Kind: Railway, Title: "Railway", FullTitle: "Railway", GroupRoot: "Railway",
+		Description: "Import Railway services into Bast",
+		BrandColor:  "#853BCC", NerdIcon: "\uf238",
+	},
+	{
+		Kind: Fly, Title: "Fly", FullTitle: "Fly.io", GroupRoot: "Fly.io",
+		Description: "Import Fly Machines into Bast",
+		BrandColor:  "#8B5CF6", NerdIcon: "\uf072",
+	},
+	{
+		Kind: DigitalOcean, Title: "DigitalOcean", FullTitle: "DigitalOcean", GroupRoot: "DigitalOcean",
+		Description: "Create and import Droplets in Bast",
+		BrandColor:  "#0080FF", NerdIcon: "\ue7ae",
+	},
 }
 
 var capabilities = map[Kind]Capabilities{
-	GCP:     {},
-	AWS:     {},
-	Azure:   {},
-	Boat:    {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
-	Upstash: {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
-	Vercel:  {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
-	Hetzner: {Stop: true, Start: true, Restart: true},
-	Bitqate: {Stop: true, Start: true, Restart: true},
+	GCP:          {},
+	AWS:          {},
+	Azure:        {},
+	Boat:         {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
+	Upstash:      {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
+	Vercel:       {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
+	Hetzner:      {Stop: true, Start: true, Restart: true},
+	Bitqate:      {Stop: true, Start: true, Restart: true},
+	Railway:      {Create: true, Stop: true, Start: true, Delete: true},
+	Fly:          {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
+	DigitalOcean: {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
 }
 
 func Descriptors() []Descriptor {

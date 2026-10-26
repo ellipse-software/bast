@@ -27,6 +27,12 @@ func TestKindForGroup(t *testing.T) {
 		{"Hetzner Cloud/prod/fsn1", Hetzner, true},
 		{"BitQate", Bitqate, true},
 		{"BitQate/Falkenstein", Bitqate, true},
+		{"Railway", Railway, true},
+		{"Railway/api/production", Railway, true},
+		{"Fly.io", Fly, true},
+		{"Fly.io/personal/app", Fly, true},
+		{"DigitalOcean", DigitalOcean, true},
+		{"DigitalOcean/default/nyc3", DigitalOcean, true},
 		{"Work", "", false},
 		{"Boxing", "", false},
 		{"", "", false},
@@ -63,7 +69,19 @@ func TestKindForSource(t *testing.T) {
 	if !ok || kind != Bitqate {
 		t.Fatalf("KindForSource(bitqate) = %q, %t", kind, ok)
 	}
-	if _, ok := KindForSource("digitalocean"); ok {
+	kind, ok = KindForSource("railway")
+	if !ok || kind != Railway {
+		t.Fatalf("KindForSource(railway) = %q, %t", kind, ok)
+	}
+	kind, ok = KindForSource("fly")
+	if !ok || kind != Fly {
+		t.Fatalf("KindForSource(fly) = %q, %t", kind, ok)
+	}
+	kind, ok = KindForSource("digitalocean")
+	if !ok || kind != DigitalOcean {
+		t.Fatalf("KindForSource(digitalocean) = %q, %t", kind, ok)
+	}
+	if _, ok := KindForSource("unknown-cloud"); ok {
 		t.Fatal("unknown source should not match")
 	}
 }
@@ -89,6 +107,18 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 	if bitqate.Create || !bitqate.Stop || !bitqate.Start || !bitqate.Restart || bitqate.Fork || bitqate.Delete {
 		t.Fatalf("bitqate caps = %+v", bitqate)
 	}
+	railway := CapabilitiesFor(Railway)
+	if !railway.Create || !railway.Stop || !railway.Start || railway.Restart || railway.Fork || !railway.Delete {
+		t.Fatalf("railway caps = %+v", railway)
+	}
+	fly := CapabilitiesFor(Fly)
+	if !fly.Create || !fly.Stop || !fly.Start || fly.Restart || !fly.Fork || !fly.Delete {
+		t.Fatalf("fly caps = %+v", fly)
+	}
+	digitalocean := CapabilitiesFor(DigitalOcean)
+	if !digitalocean.Create || !digitalocean.Stop || !digitalocean.Start || digitalocean.Restart || !digitalocean.Fork || !digitalocean.Delete {
+		t.Fatalf("digitalocean caps = %+v", digitalocean)
+	}
 	for _, kind := range []Kind{GCP, AWS, Azure} {
 		if caps := CapabilitiesFor(kind); caps != (Capabilities{}) {
 			t.Fatalf("%s caps = %+v; want empty", kind, caps)
@@ -97,7 +127,7 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 }
 
 func TestIsProviderRoot(t *testing.T) {
-	if !IsProviderRoot("Boat") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") || !IsProviderRoot("Hetzner Cloud") || !IsProviderRoot("BitQate") {
+	if !IsProviderRoot("Boat") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") || !IsProviderRoot("Hetzner Cloud") || !IsProviderRoot("BitQate") || !IsProviderRoot("Railway") || !IsProviderRoot("Fly.io") || !IsProviderRoot("DigitalOcean") {
 		t.Fatal("expected roots to match")
 	}
 	if IsProviderRoot("Google Cloud/demo") || IsProviderRoot("Boat/Running") || IsProviderRoot("Work") {
@@ -116,7 +146,7 @@ func TestDescriptorsCoverEveryKind(t *testing.T) {
 		}
 		seen[d.Kind] = true
 	}
-	for _, kind := range []Kind{GCP, AWS, Azure, Boat, Upstash, Vercel, Hetzner, Bitqate} {
+	for _, kind := range []Kind{GCP, AWS, Azure, Boat, Upstash, Vercel, Hetzner, Bitqate, Railway, Fly, DigitalOcean} {
 		if !seen[kind] {
 			t.Fatalf("missing descriptor for %s", kind)
 		}

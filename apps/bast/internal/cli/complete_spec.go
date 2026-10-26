@@ -11,6 +11,9 @@ const (
 	valueVercelHost
 	valueHetznerHost
 	valueBitqateHost
+	valueRailwayHost
+	valueFlyHost
+	valueDigitalOceanHost
 	valueFile
 	valueDir
 	valueEnum
@@ -61,7 +64,7 @@ func (n specNode) names() []string {
 
 var completionShells = []string{"bash", "zsh", "fish", "powershell", "elvish", "nushell"}
 
-var syncProviders = []string{"gcp", "aws", "azure", "boat", "upstash", "vercel", "hetzner", "bitqate"}
+var syncProviders = []string{"gcp", "aws", "azure", "boat", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean"}
 
 var globalFlagSpecs = []flagSpec{
 	{name: "json", desc: "structured JSON", boolean: true},
@@ -89,6 +92,9 @@ func completionRoot() specNode {
 			vercelSpec(),
 			hetznerSpec(),
 			bitqateSpec(),
+			railwaySpec(),
+			flySpec(),
+			digitalOceanSpec(),
 			vaultSpec(),
 			{
 				name: "completion",
@@ -217,6 +223,9 @@ func syncSpec() specNode {
 			{name: "vercel", desc: "import Vercel Sandboxes"},
 			{name: "hetzner", desc: "import Hetzner Cloud servers"},
 			{name: "bitqate", desc: "import BitQate VPS instances"},
+			{name: "railway", desc: "import Railway services"},
+			{name: "fly", desc: "import Fly Machines"},
+			{name: "digitalocean", aliases: []string{"do"}, desc: "import DigitalOcean Droplets"},
 			{name: "status", desc: "show sync status"},
 			{
 				name: "disable",
@@ -351,6 +360,84 @@ func bitqateSpec() specNode {
 				fileFlag("token-file", "read the API token from a file"),
 				boolFlag("clear", "remove the stored token"),
 			}},
+		},
+	}
+}
+
+func railwaySpec() specNode {
+	railwayArg := argSpec{kind: valueRailwayHost, desc: "host or id", includeHidden: true}
+	return specNode{
+		name: "railway",
+		desc: "create and manage Railway services",
+		children: []specNode{
+			{
+				name: "new",
+				desc: "create a service",
+				flags: []flagSpec{
+					{name: "name", desc: "service name"},
+					{name: "image", desc: "docker image"},
+					{name: "start-command", desc: "container start command"},
+					{name: "project", desc: "existing project id or name"},
+					{name: "new-project", desc: "create a project with this name"},
+					{name: "environment", desc: "environment id"},
+				},
+			},
+			{name: "stop", desc: "stop a service", args: []argSpec{railwayArg}},
+			{name: "resume", desc: "resume a service", args: []argSpec{railwayArg}},
+			{name: "delete", desc: "delete a service from this environment", flags: []flagSpec{boolFlag("yes", "skip confirmation")}, args: []argSpec{railwayArg}},
+			{name: "key", desc: "store a Railway API token", flags: []flagSpec{fileFlag("key-file", "read the API token from a file")}},
+		},
+	}
+}
+
+func flySpec() specNode {
+	flyArg := argSpec{kind: valueFlyHost, desc: "host or id", includeHidden: true}
+	return specNode{
+		name: "fly",
+		desc: "create and manage Fly Machines",
+		children: []specNode{
+			{
+				name: "new",
+				desc: "create a machine",
+				flags: []flagSpec{
+					{name: "app", desc: "existing Fly app"},
+					{name: "image", desc: "docker image"},
+					{name: "org", desc: "organization slug"},
+					{name: "region", desc: "region code"},
+					{name: "size", desc: "VM size"},
+					{name: "name", desc: "machine name"},
+				},
+			},
+			{name: "fork", desc: "clone a machine", flags: []flagSpec{{name: "region", desc: "region code"}}, args: []argSpec{flyArg}},
+			{name: "stop", desc: "stop a machine", args: []argSpec{flyArg}},
+			{name: "resume", desc: "start a machine", args: []argSpec{flyArg}},
+			{name: "delete", desc: "destroy a machine", flags: []flagSpec{boolFlag("yes", "skip confirmation")}, args: []argSpec{flyArg}},
+		},
+	}
+}
+
+func digitalOceanSpec() specNode {
+	doArg := argSpec{kind: valueDigitalOceanHost, desc: "host or id", includeHidden: true}
+	return specNode{
+		name:    "digitalocean",
+		aliases: []string{"do"},
+		desc:    "create and manage DigitalOcean Droplets",
+		children: []specNode{
+			{
+				name: "new",
+				desc: "create a Droplet",
+				flags: []flagSpec{
+					{name: "name", desc: "Droplet name"},
+					{name: "region", desc: "region slug"},
+					{name: "size", desc: "size slug"},
+					{name: "image", desc: "image slug"},
+					{name: "context", desc: "doctl auth context"},
+				},
+			},
+			{name: "fork", desc: "snapshot and create a Droplet", args: []argSpec{doArg}},
+			{name: "stop", desc: "shut down a Droplet", args: []argSpec{doArg}},
+			{name: "resume", desc: "power on a Droplet", args: []argSpec{doArg}},
+			{name: "delete", desc: "destroy a Droplet", flags: []flagSpec{boolFlag("yes", "skip confirmation")}, args: []argSpec{doArg}},
 		},
 	}
 }

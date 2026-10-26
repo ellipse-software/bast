@@ -177,15 +177,50 @@ type BitqateIntegration struct {
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 }
 
+type RailwayIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
+type FlyIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	OrgFilter         []string   `json:"orgFilter,omitempty"`
+	AppFilter         []string   `json:"appFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
+type DigitalOceanIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	ContextFilter     []string   `json:"contextFilter,omitempty"`
+	RegionFilter      []string   `json:"regionFilter,omitempty"`
+	DefaultSSHUser    string     `json:"defaultSshUser,omitempty"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
 type Integrations struct {
-	GCP     *GCPIntegration     `json:"gcp,omitempty"`
-	AWS     *AWSIntegration     `json:"aws,omitempty"`
-	Azure   *AzureIntegration   `json:"azure,omitempty"`
-	Boat    *BoatIntegration    `json:"boat,omitempty"`
-	Upstash *UpstashIntegration `json:"upstash,omitempty"`
-	Vercel  *VercelIntegration  `json:"vercel,omitempty"`
-	Hetzner *HetznerIntegration `json:"hetzner,omitempty"`
-	Bitqate *BitqateIntegration `json:"bitqate,omitempty"`
+	GCP          *GCPIntegration          `json:"gcp,omitempty"`
+	AWS          *AWSIntegration          `json:"aws,omitempty"`
+	Azure        *AzureIntegration        `json:"azure,omitempty"`
+	Boat         *BoatIntegration         `json:"boat,omitempty"`
+	Upstash      *UpstashIntegration      `json:"upstash,omitempty"`
+	Vercel       *VercelIntegration       `json:"vercel,omitempty"`
+	Hetzner      *HetznerIntegration      `json:"hetzner,omitempty"`
+	Bitqate      *BitqateIntegration      `json:"bitqate,omitempty"`
+	Railway      *RailwayIntegration      `json:"railway,omitempty"`
+	Fly          *FlyIntegration          `json:"fly,omitempty"`
+	DigitalOcean *DigitalOceanIntegration `json:"digitalocean,omitempty"`
 }
 
 // Read the former provider name without writing it back into new state files.
@@ -1059,6 +1094,117 @@ func cloneHetzner(hetzner HetznerIntegration) HetznerIntegration {
 	return hetzner
 }
 
+func (s *Store) Railway() RailwayIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Railway == nil {
+		return RailwayIntegration{}
+	}
+	return cloneRailway(*s.state.Integrations.Railway)
+}
+
+func (s *Store) SetRailway(railway RailwayIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Railway
+	if !railway.Enabled && !railway.AutoSync && !railway.Disabled && railway.LastSyncAt == nil &&
+		railway.LastSyncError == "" && railway.LastInstanceCount == 0 {
+		s.state.Integrations.Railway = nil
+	} else {
+		copy := cloneRailway(railway)
+		s.state.Integrations.Railway = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Railway = previous
+		return err
+	}
+	return nil
+}
+
+func cloneRailway(railway RailwayIntegration) RailwayIntegration {
+	if railway.LastSyncAt != nil {
+		lastSyncAt := *railway.LastSyncAt
+		railway.LastSyncAt = &lastSyncAt
+	}
+	return railway
+}
+
+func (s *Store) Fly() FlyIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Fly == nil {
+		return FlyIntegration{}
+	}
+	return cloneFly(*s.state.Integrations.Fly)
+}
+
+func (s *Store) SetFly(fly FlyIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Fly
+	if !fly.Enabled && !fly.AutoSync && !fly.Disabled && fly.DefaultSSHUser == "" &&
+		len(fly.OrgFilter) == 0 && len(fly.AppFilter) == 0 &&
+		fly.LastSyncAt == nil && fly.LastSyncError == "" && fly.LastInstanceCount == 0 {
+		s.state.Integrations.Fly = nil
+	} else {
+		copy := cloneFly(fly)
+		s.state.Integrations.Fly = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Fly = previous
+		return err
+	}
+	return nil
+}
+
+func cloneFly(fly FlyIntegration) FlyIntegration {
+	fly.OrgFilter = append([]string(nil), fly.OrgFilter...)
+	fly.AppFilter = append([]string(nil), fly.AppFilter...)
+	if fly.LastSyncAt != nil {
+		lastSyncAt := *fly.LastSyncAt
+		fly.LastSyncAt = &lastSyncAt
+	}
+	return fly
+}
+
+func (s *Store) DigitalOcean() DigitalOceanIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.DigitalOcean == nil {
+		return DigitalOceanIntegration{}
+	}
+	return cloneDigitalOcean(*s.state.Integrations.DigitalOcean)
+}
+
+func (s *Store) SetDigitalOcean(digitalOcean DigitalOceanIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.DigitalOcean
+	if !digitalOcean.Enabled && !digitalOcean.AutoSync && digitalOcean.DefaultSSHUser == "" &&
+		len(digitalOcean.ContextFilter) == 0 && len(digitalOcean.RegionFilter) == 0 &&
+		digitalOcean.LastSyncAt == nil && digitalOcean.LastSyncError == "" && digitalOcean.LastInstanceCount == 0 {
+		s.state.Integrations.DigitalOcean = nil
+	} else {
+		copy := cloneDigitalOcean(digitalOcean)
+		s.state.Integrations.DigitalOcean = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.DigitalOcean = previous
+		return err
+	}
+	return nil
+}
+
+func cloneDigitalOcean(digitalOcean DigitalOceanIntegration) DigitalOceanIntegration {
+	digitalOcean.ContextFilter = append([]string(nil), digitalOcean.ContextFilter...)
+	digitalOcean.RegionFilter = append([]string(nil), digitalOcean.RegionFilter...)
+	if digitalOcean.LastSyncAt != nil {
+		lastSyncAt := *digitalOcean.LastSyncAt
+		digitalOcean.LastSyncAt = &lastSyncAt
+	}
+	return digitalOcean
+}
+
 func cloneIntegrations(integrations Integrations) Integrations {
 	out := Integrations{}
 	if integrations.GCP != nil {
@@ -1092,6 +1238,18 @@ func cloneIntegrations(integrations Integrations) Integrations {
 	if integrations.Bitqate != nil {
 		bitqate := cloneBitqate(*integrations.Bitqate)
 		out.Bitqate = &bitqate
+	}
+	if integrations.Railway != nil {
+		railway := cloneRailway(*integrations.Railway)
+		out.Railway = &railway
+	}
+	if integrations.Fly != nil {
+		fly := cloneFly(*integrations.Fly)
+		out.Fly = &fly
+	}
+	if integrations.DigitalOcean != nil {
+		digitalOcean := cloneDigitalOcean(*integrations.DigitalOcean)
+		out.DigitalOcean = &digitalOcean
 	}
 	return out
 }

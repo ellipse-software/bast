@@ -62,7 +62,7 @@ func TestShippedBinaryHelpTwice(t *testing.T) {
 	if first != second {
 		t.Fatalf("help output differed\nfirst:\n%s\nsecond:\n%s", first, second)
 	}
-	for _, name := range []string{"vercel", "upstash", "hetzner", "bitqate", "doctor"} {
+	for _, name := range []string{"vercel", "upstash", "hetzner", "bitqate", "railway", "fly", "digitalocean", "doctor"} {
 		if !strings.Contains(first, name) {
 			t.Fatalf("help missing %q:\n%s", name, first)
 		}

@@ -248,6 +248,15 @@ func mergeIntegrations(base, overlay VaultIntegrations) VaultIntegrations {
 	if overlay.Bitqate != nil {
 		out.Bitqate = overlay.Bitqate
 	}
+	if overlay.Railway != nil {
+		out.Railway = overlay.Railway
+	}
+	if overlay.Fly != nil {
+		out.Fly = overlay.Fly
+	}
+	if overlay.DigitalOcean != nil {
+		out.DigitalOcean = overlay.DigitalOcean
+	}
 	return out
 }
 

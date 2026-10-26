@@ -56,6 +56,9 @@ func TestCloudGroupNamesUseNerdFontIconsWhenEnabled(t *testing.T) {
 		{name: "Vercel", group: "Vercel", icon: "\u25b2"},
 		{name: "Hetzner", group: "Hetzner Cloud", icon: "\uf233"},
 		{name: "BitQate", group: "BitQate", icon: "\uf0a0"},
+		{name: "Railway", group: "Railway", icon: "\uf238"},
+		{name: "Fly", group: "Fly.io", icon: "\uf072"},
+		{name: "DigitalOcean", group: "DigitalOcean", icon: "\ue7ae"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
