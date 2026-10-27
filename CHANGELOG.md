@@ -4,18 +4,17 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ## Unreleased
 
+### :)
+
+## v0.11.0 - 2026-10-27
+
 ### Added
 
+- Open Remote Desktop for an existing host with Ctrl+O. Turn on Open RDP in that host's metadata to show an RDP chip beside Connect. Bast starts the system client and does not take over the terminal.
+- BitQate sync over the public API: import VPS instances as SSH hosts, then start, stop, and restart them from the TUI and CLI. The token is read from `BITQATE_TOKEN` or `~/.config/bast/bitqate-token` and is not written to SSH config or Vault. List and sync need `vms:read`. Power actions also need `vms:power`. SSH uses port 22 unless a default port is set. Suspended instances stay distinct from stopped ones and cannot be started from Bast. Instances with no public IPv4 are skipped, and instances removed from the account are removed from the synced SSH config.
 - Railway sync over the GraphQL API: import services as SSH hosts, then create, stop, resume, and delete them from the TUI and CLI. SSH is OpenSSH to `ssh.railway.com` as the service instance ID, with a key at `~/.ssh/bast/keys/railway`. Account and workspace tokens work (`RAILWAY_API_TOKEN` or `~/.config/bast/railway-api-token`). Project tokens are rejected. The token is not written to SSH config or Vault. Delete removes the service from that environment only.
 - Fly.io sync through `flyctl`: import Machines, then create, stop, start, clone, and destroy them. SSH stays OpenSSH through a local `fly proxy` tunnel (`bast __fly-proxy`). Bast does not store a Fly API token. `flyctl` must be installed and logged in. Cloning a Machine does not copy mounted volumes.
 - DigitalOcean sync through `doctl`: import Linux Droplets that have a public address, then create, shut down, power on, fork, and delete them. `bast do` is an alias of `bast digitalocean`. Fork snapshots are deleted after the new Droplet exists. Shutdown keeps the disk billing until delete. Bast does not store a DigitalOcean token. `doctl` auth contexts select the account.
-
-## v0.11.0 - 2026-10-26
-
-### Added
-
-- BitQate sync over the public API: import VPS instances as SSH hosts, then start, stop, and restart them from the TUI and CLI. The token is read from `BITQATE_TOKEN` or `~/.config/bast/bitqate-token` and is not written to SSH config or Vault. List and sync need `vms:read`. Power actions also need `vms:power`. SSH uses port 22 unless a default port is set. Suspended instances stay distinct from stopped ones and cannot be started from Bast. Instances with no public IPv4 are skipped, and instances removed from the account are removed from the synced SSH config.
-- Open Remote Desktop for an existing host with Ctrl+O. Turn on Open RDP in that host's metadata to show an RDP chip beside Connect. Bast starts the system client and does not take over the terminal.
 
 ### Changes
 
