@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	boatcloud "bast/internal/cloud/boat"
 	"bast/internal/metadata"
 	"bast/internal/openssh"
 	"bast/internal/paths"
@@ -227,6 +228,13 @@ func TestBoatCLIMissingWhenEnabled(t *testing.T) {
 	t.Setenv("HOME", p.Home)
 	t.Setenv("BOAT_CLI", "")
 	t.Setenv("PATH", "/nonexistent")
+	// Boat runners install the CLI at a fixed path. resolveBoatBin finds that
+	// binary after HOME and PATH are cleared, so the missing-CLI case cannot run there.
+	if bin := boatcloud.New().Boat; bin != "" && bin != "boat" {
+		if info, err := os.Stat(bin); err == nil && !info.IsDir() && !strings.HasPrefix(bin, p.Home+string(os.PathSeparator)) {
+			t.Skipf("Boat CLI is installed at %s; this machine cannot simulate a missing CLI", bin)
+		}
+	}
 	r := e.Run(context.Background(), Options{Categories: []string{"sync"}})
 	if !hasID(r, "sync.cli_missing") {
 		t.Fatalf("expected boat CLI missing, got %v", findingIDs(r))
