@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [boat, macos-latest]
+        os: [boat, ubuntu-latest, blacksmith-4vcpu-ubuntu-2404, macos-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -80,8 +80,12 @@ jobs:
           CGO_ENABLED: 0
 
   web:
-    name: Web
-    runs-on: boat
+    name: Web (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [boat, ubuntu-latest, blacksmith-4vcpu-ubuntu-2404]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
