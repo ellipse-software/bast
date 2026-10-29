@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [blacksmith-4vcpu-ubuntu-2404, macos-latest]
+        os: [boat, macos-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -81,7 +81,7 @@ jobs:
 
   web:
     name: Web
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: boat
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
