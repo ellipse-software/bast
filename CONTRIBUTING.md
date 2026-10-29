@@ -65,6 +65,10 @@ User-facing product changes (CLI, installers, updater, and behavior) add a bulle
 
 The tag workflow publishes the GitHub release body from that changelog section. Publishing fails if the section is missing or empty. Nightly notes are unchanged.
 
+Stable tags also post that changelog section to Discord as an embed. Prerelease tags and nightlies are not posted. A rerun does not post again when the GitHub release is already published. If the Discord post fails, rerun the failed announce job after the release job has published.
+
+Set the repository Actions secret `DISCORD_RELEASES_WEBHOOK_URL` to an incoming webhook for the releases channel. The announce job fails if the secret is missing or Discord rejects the post. That failure leaves the GitHub release in place.
+
 ### WinGet submissions
 
 After publishing a stable GitHub release, `release.yml` calls `winget.yml` to submit its attached `EllipseSoftware.Bast` manifests to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs). Both Windows architectures use the signed release archives. Nightly and prerelease tags are excluded. Submission opens a pull request; availability in WinGet depends on Microsoft's validation and review.

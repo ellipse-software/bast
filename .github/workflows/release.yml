@@ -186,6 +186,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+    outputs:
+      published: ${{ steps.publish.outputs.published }}
     steps:
       - uses: actions/checkout@v7
       - name: Download archives
@@ -216,6 +218,7 @@ jobs:
             echo "Skipping WinGet manifests for prerelease tag $GITHUB_REF_NAME"
           fi
       - name: Publish release
+        id: publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -250,12 +253,15 @@ jobs:
           if [[ "$state" == "true" ]]; then
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
             gh release edit "$GITHUB_REF_NAME" "${publish_flags[@]}"
+            echo "published=true" >> "$GITHUB_OUTPUT"
           elif [[ "$state" == "false" ]]; then
             echo "Release ${GITHUB_REF_NAME} is already published."
+            echo "published=false" >> "$GITHUB_OUTPUT"
           else
             gh release create "$GITHUB_REF_NAME" "${create_flags[@]}"
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}"
             gh release edit "$GITHUB_REF_NAME" "${publish_flags[@]}"
+            echo "published=true" >> "$GITHUB_OUTPUT"
           fi
 
   publish-linux-repo:
@@ -321,3 +327,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
         run: bash .github/scripts/bump-homebrew-tap.sh "$GITHUB_REF_NAME"
+
+  announce:
+    name: Announce on Discord
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') && needs.release.outputs.published == 'true'
+    needs: release
+    runs-on: boat
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Post release embed
+        env:
+          DISCORD_RELEASES_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASES_WEBHOOK_URL }}
+          BAST_REPO: ${{ github.repository }}
+        run: bash .github/scripts/discord-release.sh post "$GITHUB_REF_NAME"
