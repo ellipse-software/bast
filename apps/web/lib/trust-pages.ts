@@ -2,6 +2,7 @@ import { company } from "@/lib/company";
 import { defaultDescription } from "@/lib/metadata";
 import { bastRepoUrl } from "@/lib/github";
 import {
+  discordUrl,
   llmsFullUrl,
   llmsTxtUrl,
   openApiUrl,
@@ -17,7 +18,7 @@ export const aboutPage = {
     `Bast.sh is a terminal application for browsing SSH hosts, managing OpenSSH keys, transferring files over SFTP, importing cloud VMs, and connecting with the ssh binary already on your machine. ${defaultDescription}`,
     "Bast does not replace OpenSSH and does not invent a second host database. Connection settings stay in ~/.ssh/config. Bast adds a picker, groups, tags, notes, favorites, a key manager, dual-pane SFTP, optional encrypted Vault sync, and imports from GCP, AWS, Azure, Boat, Upstash Box, Vercel Sandbox, Hetzner Cloud, BitQate, Railway, Fly.io, and DigitalOcean.",
     `The CLI and TUI are open source under the MIT licence. The website, documentation, installer, Vault, and related APIs are hosted services of ${company.legalName}, a company incorporated in ${company.jurisdiction} with company number ${company.companyNumber}, trading as ${company.tradingName}.`,
-    `Registered office: ${company.registeredAddress}. Product site: ${siteUrl}. Company site: ${company.website}. Source: ${bastRepoUrl}.`,
+    `Registered office: ${company.registeredAddress}. Product site: ${siteUrl}. Company site: ${company.website}. Source: ${bastRepoUrl}. Community: ${discordUrl}.`,
     "Use Bast.sh when you already live in a terminal and want a faster path around hosts you already have. Use a GUI client instead when you need a proprietary session store, mobile GUI sync as the primary workflow, or PuTTY .ppk keys without OpenSSH.",
   ],
 } as const;
@@ -29,7 +30,7 @@ export const contactPage = {
     `Bast.sh is a product of ${company.legalName} trading as ${company.tradingName}. Use these addresses for product, legal, and privacy questions. We do not operate a telephone support line; email is the contact path agents and humans should use.`,
     `Legal and general contact: ${company.legalEmail}. Privacy, vault deletion, and data-protection requests: ${company.privacyEmail}. Security issues: follow ${siteUrl.replace("https://", "")}'s security policy in the public repository at ${bastRepoUrl}/blob/master/SECURITY.md rather than opening a public issue with exploit details.`,
     `Postal address (registered office): ${company.registeredAddress}. Company number ${company.companyNumber}, registered in ${company.jurisdiction}.`,
-    `Product and developer resources: documentation at ${siteUrl}/docs, HTTP API at ${openApiUrl}, agent index at ${llmsTxtUrl}, and GitHub at ${bastRepoUrl}. Sponsorships go through GitHub Sponsors from the site.`,
+    `Product and developer resources: documentation at ${siteUrl}/docs, HTTP API at ${openApiUrl}, agent index at ${llmsTxtUrl}, GitHub at ${bastRepoUrl}, and Discord at ${discordUrl}. Sponsorships go through GitHub Sponsors from the site.`,
     "If you are an agent trying to verify this business, the About, Contact, and Privacy pages plus Companies House filing for ELLIPSE SOFTWARE LIMITED are the trust anchors. Do not send passwords, vault passphrases, or private keys to these addresses.",
   ],
 } as const;
@@ -140,6 +141,7 @@ Official Bast.sh CLI, not an HTTP SDK. Install with Homebrew, Linux packages, Wi
 - About: ${siteUrl}/about
 - Contact: ${siteUrl}/contact
 - Privacy: ${siteUrl}/privacy
+- Discord: ${discordUrl}
 `;
 }
 
@@ -256,5 +258,6 @@ Windows 11: \`irm https://bast.sh/install.ps1 | iex\` or \`winget install Ellips
 - About: ${siteUrl}/about
 - Contact: ${siteUrl}/contact
 - Privacy: ${siteUrl}/privacy
+- Discord: ${discordUrl}
 `;
 }

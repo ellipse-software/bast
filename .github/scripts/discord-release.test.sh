@@ -122,7 +122,7 @@ assert_eq "9133302" "$(printf '%s' "$got" | jq -r '.embeds[0].color')" "accent c
 assert_eq "Bast" "$(printf '%s' "$got" | jq -r '.username')" "username"
 assert_eq "[]" "$(printf '%s' "$got" | jq -c '.allowed_mentions.parse')" "mentions disabled"
 assert_eq "null" "$(printf '%s' "$got" | jq -r '.content')" "no content by default"
-assert_eq '[{"type":2,"style":5,"label":"GitHub","url":"https://github.com/ellipse-software/bast/releases/tag/v0.11.0"},{"type":2,"style":5,"label":"Changelog","url":"https://bast.sh/changelog"},{"type":2,"style":5,"label":"Website","url":"https://bast.sh"}]' \
+assert_eq '[{"type":2,"style":5,"label":"GitHub","url":"https://github.com/ellipse-software/bast/releases/tag/v0.11.0"},{"type":2,"style":5,"label":"Changelog","url":"https://bast.sh/changelog"},{"type":2,"style":5,"label":"Website","url":"https://bast.sh"},{"type":2,"style":5,"label":"Discord","url":"https://discord.gg/bast"}]' \
   "$(printf '%s' "$got" | jq -c '.components[0].components')" "link buttons"
 if ! printf '%s' "$got" | jq -e '.embeds[0].description | contains("## not a heading")' >/dev/null; then
   fail "code fence heading was split into its own section"

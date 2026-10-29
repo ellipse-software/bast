@@ -4,6 +4,8 @@ The native terminal application for [Bast](https://bast.sh), an SSH host picker 
 
 Bast reads existing SSH configuration, stores its managed hosts in included OpenSSH files, and launches the system `ssh` binary for connections. Vercel Sandboxes are the exception: connect uses a WebSocket PTY, not OpenSSH. It also manages SSH keys, imports hosts from shell history, and can sync hosts from GCP, AWS, Azure, [Boat](https://bast.sh/docs/features/boat), [Upstash Box](https://bast.sh/docs/features/upstash), [Vercel Sandbox](https://bast.sh/docs/features/vercel), [Hetzner Cloud](https://bast.sh/docs/features/hetzner), [BitQate](https://bast.sh/docs/features/bitqate), [Railway](https://bast.sh/docs/features/railway), [Fly.io](https://bast.sh/docs/features/fly), and [DigitalOcean](https://bast.sh/docs/features/digitalocean). See the [Bast documentation](https://bast.sh/docs) for installation, usage, and feature guides.
 
+Community: [discord.gg/bast](https://discord.gg/bast).
+
 ## Development
 
 From the repository root:

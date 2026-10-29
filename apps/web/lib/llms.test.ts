@@ -13,5 +13,6 @@ describe("getLlmsPreamble", () => {
     expect(text).toContain("https://bast.sh/openapi.json");
     expect(text).toContain("https://bast.sh/developers");
     expect(text).toContain("https://bast.sh/cli");
+    expect(text).toContain("https://discord.gg/bast");
   });
 });

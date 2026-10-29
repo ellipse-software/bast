@@ -26,6 +26,10 @@ describe("staticMarkdownForPath", () => {
   test("covers trust, CLI, and developer URLs", () => {
     expect(staticMarkdownForPath("/about")).toContain("Bast.sh");
     expect(staticMarkdownForPath("/contact")).toContain("ellipse.software");
+    expect(staticMarkdownForPath("/contact")).toContain("https://discord.gg/bast");
+    expect(staticMarkdownForPath("/about")).toContain("https://discord.gg/bast");
+    expect(staticMarkdownForPath("/developers")).toContain("https://discord.gg/bast");
+    expect(staticMarkdownForPath("/")).toContain("https://discord.gg/bast");
     expect(staticMarkdownForPath("/privacy")).toContain("Privacy");
     expect(staticMarkdownForPath("/cli")).toContain("brew install");
     expect(staticMarkdownForPath("/developers")).toContain("openapi.json");

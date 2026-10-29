@@ -4,7 +4,13 @@ import { MarketingBreadcrumb, MarketingShell } from "@/components/marketing-shel
 import { developersPath } from "@/lib/company";
 import { getLatestBastVersion } from "@/lib/github";
 import { createPageMetadata } from "@/lib/metadata";
-import { llmsFullUrl, llmsTxtUrl, openApiUrl, skillUrl } from "@/lib/site";
+import {
+  discordUrl,
+  llmsFullUrl,
+  llmsTxtUrl,
+  openApiUrl,
+  skillUrl,
+} from "@/lib/site";
 import { legalLinkClass } from "@/components/legal-page";
 
 export const metadata = createPageMetadata({
@@ -59,6 +65,12 @@ const resources = [
     title: "Bast Vault",
     blurb: "End-to-end encrypted host and key sync.",
   },
+  {
+    href: discordUrl,
+    title: "Discord",
+    blurb: "Community at discord.gg/bast.",
+    external: true,
+  },
 ] as const;
 
 export default async function DevelopersPage() {
@@ -88,12 +100,14 @@ export default async function DevelopersPage() {
               </>
             );
             if ("external" in item && item.external) {
+              const offSite = !item.href.startsWith("https://bast.sh");
               return (
                 <a
                   key={item.href}
                   href={item.href}
                   className={className}
-                  rel={item.href.startsWith("https://bast.sh") ? undefined : "noopener noreferrer"}
+                  target={offSite ? "_blank" : undefined}
+                  rel={offSite ? "noopener noreferrer" : undefined}
                 >
                   {body}
                 </a>

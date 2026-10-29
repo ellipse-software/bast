@@ -23,7 +23,13 @@ import {
   comparisonNavItems,
   guideNavItems,
 } from "@/lib/marketing";
-import { llmsFullUrl, llmsTxtUrl, openApiUrl, skillUrl } from "@/lib/site";
+import {
+  discordUrl,
+  llmsFullUrl,
+  llmsTxtUrl,
+  openApiUrl,
+  skillUrl,
+} from "@/lib/site";
 
 const linkClass =
   "text-sm text-muted transition-colors hover:text-foreground";
@@ -159,6 +165,9 @@ export async function SiteFooter() {
           <FooterColumn title="Resources">
             <FooterLink href={bastRepoUrl} external>
               GitHub
+            </FooterLink>
+            <FooterLink href={discordUrl} external>
+              Discord
             </FooterLink>
             <FooterLink href={bastReleasesUrl} external>
               Releases

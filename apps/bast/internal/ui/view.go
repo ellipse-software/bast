@@ -1187,6 +1187,7 @@ func (m *App) renderCredits(s styleSet) string {
 		"\n\n" + s.muted.Width(infoWidth).Align(lipgloss.Center).Render("The fast way into the servers you use every day.") +
 		"\n\n" + row("Created by", "@tedbrine") +
 		"\n" + row("Website", "https://bast.sh") +
+		"\n" + row("Discord", "discord.gg/bast") +
 		"\n" + row("Repository", "github.com/ellipse-software/bast") +
 		"\n" + row("License", "MIT License") +
 		"\n" + row("Version", version)

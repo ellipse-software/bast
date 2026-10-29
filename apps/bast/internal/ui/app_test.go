@@ -2774,6 +2774,7 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 		"██████╗  █████╗",
 		"Created by", "@tedbrine",
 		"https://bast.sh",
+		"discord.gg/bast",
 		"github.com/ellipse-software/bast",
 		"MIT License",
 		"v1.2.3",
@@ -2786,7 +2787,7 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 			t.Fatalf("credits screen does not contain %q:\n%s", text, rendered)
 		}
 	}
-	for _, label := range []string{"Created by", "Website", "Repository", "License", "Version"} {
+	for _, label := range []string{"Created by", "Website", "Discord", "Repository", "License", "Version"} {
 		for _, line := range strings.Split(rendered, "\n") {
 			if strings.Contains(line, label) && lipgloss.Width(strings.TrimSpace(line)) != 52 {
 				t.Fatalf("%s row is not fixed width:\n%s", label, line)

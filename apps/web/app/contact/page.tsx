@@ -2,6 +2,7 @@ import { MarketingBreadcrumb, MarketingShell } from "@/components/marketing-shel
 import { contactPage } from "@/lib/trust-pages";
 import { createPageMetadata } from "@/lib/metadata";
 import { company, contactPath } from "@/lib/company";
+import { discordUrl } from "@/lib/site";
 import { getLatestBastVersion } from "@/lib/github";
 import { legalLinkClass } from "@/components/legal-page";
 
@@ -43,6 +44,21 @@ export default async function ContactPage() {
             <dd>
               <a className={legalLinkClass} href={`mailto:${company.privacyEmail}`}>
                 {company.privacyEmail}
+              </a>
+            </dd>
+          </div>
+          <div className="flex flex-col gap-1 py-4 sm:flex-row sm:gap-8">
+            <dt className="w-28 shrink-0 font-medium tracking-tight text-foreground">
+              Discord
+            </dt>
+            <dd>
+              <a
+                className={legalLinkClass}
+                href={discordUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                discord.gg/bast
               </a>
             </dd>
           </div>

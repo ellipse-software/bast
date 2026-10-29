@@ -166,6 +166,7 @@ def link_buttons(repo: str, tag: str) -> list[dict]:
         ("GitHub", release_url(repo, tag)),
         ("Changelog", "https://bast.sh/changelog"),
         ("Website", "https://bast.sh"),
+        ("Discord", "https://discord.gg/bast"),
     )
     return [
         {

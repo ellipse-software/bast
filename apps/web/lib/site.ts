@@ -1,4 +1,5 @@
 export const siteUrl = "https://bast.sh";
+export const discordUrl = "https://discord.gg/bast";
 
 export const llmsTxtUrl = `${siteUrl}/llms.txt`;
 export const llmsFullUrl = `${siteUrl}/llms-full.txt`;

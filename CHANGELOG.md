@@ -4,7 +4,9 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ## Unreleased
 
-### :)
+### Added
+
+- About lists the community Discord at discord.gg/bast.
 
 ## v0.11.0 - 2026-10-27
 

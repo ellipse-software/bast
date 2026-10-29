@@ -13,7 +13,7 @@
 
 Browse SSH hosts, transfer files over SFTP, sync cloud VMs, manage keys, and connect from the terminal.
 
-[Home](https://bast.sh) · [Docs](https://bast.sh/docs) · [Releases](https://github.com/ellipse-software/bast/releases) · [Contributing](./CONTRIBUTING.md) · [Security](./SECURITY.md)
+[Home](https://bast.sh) · [Docs](https://bast.sh/docs) · [Discord](https://discord.gg/bast) · [Releases](https://github.com/ellipse-software/bast/releases) · [Contributing](./CONTRIBUTING.md) · [Security](./SECURITY.md)
 
 [![License: MIT](https://img.shields.io/github/license/ellipse-software/bast)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white)](apps/bast/go.mod)

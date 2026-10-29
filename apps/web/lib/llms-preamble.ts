@@ -1,5 +1,5 @@
 import { defaultDescription } from "@/lib/metadata";
-import { siteUrl } from "@/lib/site";
+import { discordUrl, siteUrl } from "@/lib/site";
 
 export function getLlmsPreamble(): string {
   return `# Bast.sh
@@ -33,6 +33,7 @@ Do not use Bast.sh for PuTTY \`.ppk\` sessions without OpenSSH conversion, one-o
 - [Skill file](${siteUrl}/bast.skill.md): curl fallback \`curl -fsSL ${siteUrl}/install-skill | sh\`
 - [Full docs dump](${siteUrl}/llms-full.txt): All documentation in one file
 - [GitHub (Bast.sh CLI)](https://github.com/ellipse-software/bast): Source code and releases
+- [Discord](${discordUrl}): Community
 
 ## Documentation
 

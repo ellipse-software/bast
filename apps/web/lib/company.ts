@@ -1,3 +1,5 @@
+import { discordUrl } from "@/lib/site";
+
 export const company = {
   tradingName: "ellipse Software",
   legalName: "ELLIPSE SOFTWARE LIMITED",
@@ -20,6 +22,7 @@ export const company = {
     "https://ellipse.software",
     "https://github.com/ellipse-software",
     "https://github.com/ellipse-software/bast",
+    discordUrl,
   ],
 } as const;
 

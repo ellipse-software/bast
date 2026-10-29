@@ -2,6 +2,8 @@
 
 Thanks for helping improve Bast. Keep changes focused, preserve native OpenSSH behavior, and avoid introducing a second configuration format for hosts or keys.
 
+Questions and discussion: [discord.gg/bast](https://discord.gg/bast).
+
 ## Development
 
 You need Go 1.26, Bun 1.3+, and the native `ssh`, `ssh-keygen`, and `ssh-add` commands.

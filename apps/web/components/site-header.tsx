@@ -10,6 +10,7 @@ import { FeaturesNav } from "@/components/features-nav";
 import { SponsorNavButton } from "@/components/sponsor-dialog-context";
 import { WordmarkLogo } from "@/components/wordmark-logo";
 import { bastRepoUrl } from "@/lib/github";
+import { discordUrl } from "@/lib/site";
 import { pageMaxWidthClass } from "@/lib/layout";
 import { comparisonNavItems, guideNavItems } from "@/lib/marketing";
 
@@ -98,6 +99,14 @@ export function SiteHeader() {
             className={linkClass}
           >
             GitHub
+          </a>
+          <a
+            href={discordUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={linkClass}
+          >
+            Discord
           </a>
           <SponsorNavButton className={linkClass} />
         </nav>
@@ -194,6 +203,15 @@ export function SiteHeader() {
               onClick={() => setOpen(false)}
             >
               GitHub
+            </a>
+            <a
+              href={discordUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={mobileLinkClass}
+              onClick={() => setOpen(false)}
+            >
+              Discord
             </a>
             <SponsorNavButton
               className={`${mobileLinkClass} w-full text-left`}
