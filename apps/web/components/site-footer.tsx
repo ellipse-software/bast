@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 
 import { AgentResources } from "@/components/ask-ai-menu";
 import { FooterWordmark } from "@/components/footer-wordmark";
@@ -113,9 +113,28 @@ function footerStatusLabel(status: AggregateStatus): string {
   }
 }
 
-export async function SiteFooter() {
-  const status = await getStatusPageData();
+function FooterStatusLink({ status }: { status: AggregateStatus }) {
+  return (
+    <Link
+      href="/status"
+      className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
+      title={aggregateLabel(status)}
+    >
+      <span
+        className={`size-1.5 shrink-0 rounded-full ${statusDotClass(status)}`}
+        aria-hidden
+      />
+      {footerStatusLabel(status)}
+    </Link>
+  );
+}
 
+async function FooterStatus() {
+  const status = await getStatusPageData();
+  return <FooterStatusLink status={status.aggregate} />;
+}
+
+export function SiteFooter() {
   return (
     <footer className="relative z-10 border-t border-border bg-background">
       <div
@@ -201,17 +220,9 @@ export async function SiteFooter() {
               product.
             </p>
             <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <Link
-                href="/status"
-                className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
-                title={aggregateLabel(status.aggregate)}
-              >
-                <span
-                  className={`size-1.5 shrink-0 rounded-full ${statusDotClass(status.aggregate)}`}
-                  aria-hidden
-                />
-                {footerStatusLabel(status.aggregate)}
-              </Link>
+              <Suspense fallback={<FooterStatusLink status="unknown" />}>
+                <FooterStatus />
+              </Suspense>
               <span aria-hidden className="text-border">
                 ·
               </span>

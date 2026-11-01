@@ -1,6 +1,8 @@
 const UPTIME_API = "https://uptime.betterstack.com";
 const HISTORY_DAYS = 90;
 const REVALIDATE_SECONDS = 60;
+const FETCH_MS = 4_000;
+const STATUS_DEADLINE_MS = 3_500;
 
 export type ServiceKey = "marketing" | "docs" | "vault";
 
@@ -181,17 +183,44 @@ function deriveAggregate(services: StatusService[]): AggregateStatus {
   return "degraded";
 }
 
+function isTimeoutError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+
+  function visit(value: unknown): boolean {
+    if (!value || typeof value !== "object" || seen.has(value)) return false;
+    seen.add(value);
+
+    const record = value as { name?: unknown; code?: unknown; cause?: unknown };
+    if (record.name === "TimeoutError" || record.name === "AbortError") {
+      return true;
+    }
+    if (
+      record.code === "UND_ERR_CONNECT_TIMEOUT" ||
+      record.code === "ABORT_ERR" ||
+      record.code === 23
+    ) {
+      return true;
+    }
+    return visit(record.cause);
+  }
+
+  return visit(error);
+}
+
 async function betterstackFetch<T>(
   path: string,
   token: string,
+  signal?: AbortSignal,
 ): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
   try {
+    const timeout = AbortSignal.timeout(FETCH_MS);
     const response = await fetch(`${UPTIME_API}${path}`, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: "application/json",
         "User-Agent": "bast.sh-status",
       },
+      signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
       next: { revalidate: REVALIDATE_SECONDS },
     });
 
@@ -203,7 +232,11 @@ async function betterstackFetch<T>(
     }
 
     return { ok: true, data: (await response.json()) as T };
-  } catch {
+  } catch (error) {
+    console.warn("betterstack fetch failed", {
+      path,
+      reason: isTimeoutError(error) ? "timeout" : "error",
+    });
     return { ok: false, error: "Failed to reach Better Stack" };
   }
 }
@@ -266,6 +299,7 @@ async function fetchMonitorIncidents(
   monitorId: string,
   from: string,
   to: string,
+  signal?: AbortSignal,
 ): Promise<IncidentResource[]> {
   const path = `/api/v3/incidents?monitor_id=${encodeURIComponent(monitorId)}&from=${from}&to=${to}&per_page=50`;
   const result:
@@ -273,6 +307,7 @@ async function fetchMonitorIncidents(
     | { ok: false; error: string } = await betterstackFetch<IncidentsResponse>(
     path,
     token,
+    signal,
   );
   if (!result.ok) return [];
   return result.data.data ?? [];
@@ -305,14 +340,20 @@ async function loadService(
   monitorId: string,
   from: string,
   to: string,
+  signal?: AbortSignal,
 ): Promise<{ service: StatusService; incidents: StatusIncident[] }> {
   const [monitorResult, slaResult, incidentResources] = await Promise.all([
-    betterstackFetch<MonitorResponse>(`/api/v2/monitors/${monitorId}`, token),
+    betterstackFetch<MonitorResponse>(
+      `/api/v2/monitors/${monitorId}`,
+      token,
+      signal,
+    ),
     betterstackFetch<SlaResponse>(
       `/api/v2/monitors/${monitorId}/sla?from=${from}&to=${to}`,
       token,
+      signal,
     ),
-    fetchMonitorIncidents(token, monitorId, from, to),
+    fetchMonitorIncidents(token, monitorId, from, to, signal),
   ]);
 
   if (!monitorResult.ok) {
@@ -369,31 +410,52 @@ async function loadService(
   };
 }
 
-export async function getStatusPageData(): Promise<StatusPageData> {
-  const fetchedAt = new Date().toISOString();
-  const token = getToken();
-  const defs = SERVICE_DEFS.map((def) => ({
-    ...def,
-    monitorId: getMonitorId(def.envKey),
-  }));
+type ServiceDef = (typeof SERVICE_DEFS)[number] & { monitorId: string | null };
 
-  if (!token || defs.every((def) => !def.monitorId)) {
-    return {
-      configured: false,
-      aggregate: "unknown",
-      services: defs.map((def) =>
-        unknownService(
-          def.key,
-          def.name,
-          def.monitorId,
-          token ? "Monitor id not set" : "BETTERSTACK_API_TOKEN is not set",
-        ),
+function unconfiguredStatus(
+  defs: ServiceDef[],
+  token: string | null,
+  fetchedAt: string,
+): StatusPageData {
+  return {
+    configured: false,
+    aggregate: "unknown",
+    services: defs.map((def) =>
+      unknownService(
+        def.key,
+        def.name,
+        def.monitorId,
+        token ? "Monitor id not set" : "BETTERSTACK_API_TOKEN is not set",
       ),
-      incidents: [],
-      fetchedAt,
-    };
-  }
+    ),
+    incidents: [],
+    fetchedAt,
+  };
+}
 
+function deadlineStatus(defs: ServiceDef[], fetchedAt: string): StatusPageData {
+  return {
+    configured: defs.some((def) => Boolean(def.monitorId)),
+    aggregate: "unknown",
+    services: defs.map((def) =>
+      unknownService(
+        def.key,
+        def.name,
+        def.monitorId,
+        "Failed to reach Better Stack",
+      ),
+    ),
+    incidents: [],
+    fetchedAt,
+  };
+}
+
+async function loadStatusPageData(
+  token: string,
+  defs: ServiceDef[],
+  fetchedAt: string,
+  signal: AbortSignal,
+): Promise<StatusPageData> {
   const to = isoDate(new Date());
   const from = isoDate(addDays(startOfUtcDay(to), -(HISTORY_DAYS - 1)));
 
@@ -401,16 +463,19 @@ export async function getStatusPageData(): Promise<StatusPageData> {
     defs.map(async (def) => {
       if (!def.monitorId) {
         return {
-          service: unknownService(
-            def.key,
-            def.name,
-            null,
-            "Monitor id not set",
-          ),
+          service: unknownService(def.key, def.name, null, "Monitor id not set"),
           incidents: [] as StatusIncident[],
         };
       }
-      return loadService(token, def.key, def.name, def.monitorId, from, to);
+      return loadService(
+        token,
+        def.key,
+        def.name,
+        def.monitorId,
+        from,
+        to,
+        signal,
+      );
     }),
   );
 
@@ -429,6 +494,37 @@ export async function getStatusPageData(): Promise<StatusPageData> {
     incidents,
     fetchedAt,
   };
+}
+
+export async function getStatusPageData(): Promise<StatusPageData> {
+  const fetchedAt = new Date().toISOString();
+  const token = getToken();
+  const defs = SERVICE_DEFS.map((def) => ({
+    ...def,
+    monitorId: getMonitorId(def.envKey),
+  }));
+
+  if (!token || defs.every((def) => !def.monitorId)) {
+    return unconfiguredStatus(defs, token, fetchedAt);
+  }
+
+  const deadline = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<StatusPageData>((resolve) => {
+    timer = setTimeout(() => {
+      deadline.abort(new DOMException("The operation timed out.", "TimeoutError"));
+      resolve(deadlineStatus(defs, fetchedAt));
+    }, STATUS_DEADLINE_MS);
+  });
+
+  try {
+    return await Promise.race([
+      loadStatusPageData(token, defs, fetchedAt, deadline.signal),
+      expired,
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 export function aggregateLabel(status: AggregateStatus): string {
