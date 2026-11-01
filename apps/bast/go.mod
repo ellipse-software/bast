@@ -1,6 +1,6 @@
 module bast
 
-go 1.26
+go 1.26.0
 
 require (
 	charm.land/bubbles/v2 v2.2.1
@@ -14,7 +14,7 @@ require (
 	github.com/pkg/sftp v1.13.11
 	golang.org/x/crypto v0.55.0
 	golang.org/x/sync v0.22.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.45.0
 )
 
