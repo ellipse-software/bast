@@ -15,7 +15,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [boat, macos-latest]
-    runs-on: ${{ matrix.os }}
+    # Boat's job hook rejects unlisted bot actors on this public repo
+    # ("@cursor[bot] is not on its allowed users"). GitHub-hosted runners
+    # already accept that actor; keep human runs on Boat.
+    runs-on: ${{ matrix.os == 'boat' && github.actor == 'cursor[bot]' && 'ubuntu-latest' || matrix.os }}
     defaults:
       run:
         working-directory: apps/bast
@@ -81,7 +84,8 @@ jobs:
 
   web:
     name: Web
-    runs-on: boat
+    # Same Boat public-repo actor allowlist as the Go (boat) job above.
+    runs-on: ${{ github.actor == 'cursor[bot]' && 'ubuntu-latest' || 'boat' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
