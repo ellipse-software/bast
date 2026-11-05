@@ -19,6 +19,7 @@ const (
 	Railway      Kind = "railway"
 	Fly          Kind = "fly"
 	DigitalOcean Kind = "digitalocean"
+	Boxd         Kind = "boxd"
 )
 
 // Descriptor is the stable identity for a cloud provider. UI, grouping, and
@@ -140,6 +141,11 @@ var descriptors = []Descriptor{
 		Description: "Create and import Droplets in Bast",
 		BrandColor:  "#0080FF", NerdIcon: "\ue7ae",
 	},
+	{
+		Kind: Boxd, Title: "boxd", FullTitle: "boxd.sh", GroupRoot: "boxd",
+		Description: "Import boxd computers into Bast",
+		BrandColor:  "#F4F4F5", NerdIcon: "\U000f01a7",
+	},
 }
 
 var capabilities = map[Kind]Capabilities{
@@ -154,6 +160,7 @@ var capabilities = map[Kind]Capabilities{
 	Railway:      {Create: true, Stop: true, Start: true, Delete: true},
 	Fly:          {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
 	DigitalOcean: {Create: true, Stop: true, Start: true, Fork: true, Delete: true},
+	Boxd:         {Create: true, Stop: true, Start: true, Restart: true, Fork: true, Delete: true},
 }
 
 func Descriptors() []Descriptor {

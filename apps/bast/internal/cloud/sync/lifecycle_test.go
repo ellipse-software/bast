@@ -11,6 +11,7 @@ import (
 	"bast/internal/cloud"
 	bitqatecloud "bast/internal/cloud/bitqate"
 	boatcloud "bast/internal/cloud/boat"
+	boxdcloud "bast/internal/cloud/boxd"
 	hetznercloud "bast/internal/cloud/hetzner"
 	"bast/internal/cloud/sandboxfake"
 	upstashcloud "bast/internal/cloud/upstash"
@@ -584,6 +585,200 @@ func TestBoatEngineLifecycle(t *testing.T) {
 	}
 }
 
+func boxdTestEngine(t *testing.T) (*Engine, paths.Paths, *metadata.Store, *sandboxfake.Boxd) {
+	t.Helper()
+	engine, p, store := testEngine(t)
+	fake := sandboxfake.NewBoxd()
+	engine.Boxd.Run = fake.Runner()
+	resolve := fake.ResolveSSH()
+	engine.Boxd.ResolveSSH = func(ctx context.Context, host string) (boxdcloud.SSHDetails, error) {
+		port, user, identity, ok := resolve(ctx, host)
+		return boxdcloud.SSHDetails{Port: port, User: user, IdentityFile: identity, IdentitiesOnly: ok}, nil
+	}
+	engine.Boxd.Home = "/home/test"
+	engine.Boxd.PollInterval = time.Millisecond
+	return engine, p, store, fake
+}
+
+func TestBoxdEngineLifecycle(t *testing.T) {
+	engine, p, store, fake := boxdTestEngine(t)
+	fake.Put(sandboxfake.BoxdComputer{Region: "fra", Name: "web", Status: "running", Port: "10022"})
+	ctx := context.Background()
+	caps := cloud.CapabilitiesFor(cloud.Boxd)
+	exercised := cloud.Capabilities{}
+
+	result, err := engine.SyncBoxd(ctx)
+	if err != nil || result.Count != 1 {
+		t.Fatalf("sync = %+v, %v", result, err)
+	}
+	webID := boxdcloud.FormatSyncID(sandboxfake.BoxdOrgID, "fra", "web")
+	web := hostBySyncID(loadProviderConfig(t, p.SyncBoxdConfig), webID)
+	if web.Alias != "boxd_fra_web" || web.HostName != "web.boxd.sh" || web.Port != "10022" || web.User != "boxd" ||
+		web.IdentityFile != "~/.config/boxd/id_ed25519_test" || !web.IdentitiesOnly {
+		t.Fatalf("web block = %+v", web)
+	}
+	if got := store.Host(web.Alias).Group; got != "boxd/acme/fra" {
+		t.Fatalf("group = %q", got)
+	}
+
+	result, alias, err := engine.NewBoxd(ctx, boxdcloud.CreateOpts{Region: "nyc", Name: "api"})
+	if err != nil || alias != "boxd_nyc_api" || result.Count != 2 {
+		t.Fatalf("create = %+v alias=%q err=%v", result, alias, err)
+	}
+	exercised.Create = true
+	apiID := boxdcloud.FormatSyncID(sandboxfake.BoxdOrgID, "nyc", "api")
+	if api := hostBySyncID(loadProviderConfig(t, p.SyncBoxdConfig), apiID); api.HostName != "api.nyc.boxd.sh" || api.Port == "" {
+		t.Fatalf("api block = %+v", api)
+	}
+
+	if _, err := engine.StopBoxd(ctx, apiID); err != nil {
+		t.Fatal(err)
+	}
+	exercised.Stop = true
+	if !boxdcloud.HostLooksStopped(store.Host("boxd_nyc_api").Tags) {
+		t.Fatalf("stopped computer tags = %v", store.Host("boxd_nyc_api").Tags)
+	}
+	if _, err := engine.StartBoxd(ctx, apiID); err != nil {
+		t.Fatal(err)
+	}
+	exercised.Start = true
+	if fake.Get("nyc", "api").Status != "running" || boxdcloud.HostLooksStopped(store.Host("boxd_nyc_api").Tags) {
+		t.Fatal("computer not running after start")
+	}
+	if _, err := engine.RestartBoxd(ctx, apiID); err != nil {
+		t.Fatal(err)
+	}
+	exercised.Restart = true
+
+	_, forkAlias, err := engine.ForkBoxd(ctx, apiID, boxdcloud.ForkOpts{Name: "api-copy"})
+	if err != nil || forkAlias != "boxd_nyc_api-copy" {
+		t.Fatalf("fork alias=%q err=%v", forkAlias, err)
+	}
+	exercised.Fork = true
+
+	host := sshconfig.Host{Alias: "boxd_nyc_api-copy", Synced: true, SyncSource: "boxd", SyncID: boxdcloud.FormatSyncID(sandboxfake.BoxdOrgID, "nyc", "api-copy")}
+	if err := engine.EnsureBoxdAccess(ctx, host, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := engine.DeleteBoxd(ctx, host.SyncID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.DeleteBoxd(ctx, apiID); err != nil {
+		t.Fatal(err)
+	}
+	exercised.Delete = true
+	blocks := loadProviderConfig(t, p.SyncBoxdConfig)
+	if len(blocks) != 1 || blocks[0].SyncID != webID {
+		t.Fatalf("after delete: %+v", blocks)
+	}
+	if store.Host("boxd_nyc_api").Group != "" {
+		t.Fatal("deleted computer kept its metadata")
+	}
+	if exercised != caps {
+		t.Fatalf("exercised %+v, advertised %+v", exercised, caps)
+	}
+	for _, call := range fake.Calls {
+		if call[0] == "machine" && call[1] != "list" && boxdFlagValue(call, "--region") == "" {
+			t.Fatalf("a call about one computer must name its region: %v", call)
+		}
+	}
+}
+
+func TestBoxdSyncKeepsTheLastPortWhileTheCLIRewritesItsEntries(t *testing.T) {
+	engine, p, _, fake := boxdTestEngine(t)
+	fake.Put(sandboxfake.BoxdComputer{Region: "nyc", Name: "web", Status: "running", Port: "10022"})
+	ctx := context.Background()
+	if _, err := engine.SyncBoxd(ctx); err != nil {
+		t.Fatal(err)
+	}
+	engine.Boxd.ResolveSSH = func(context.Context, string) (boxdcloud.SSHDetails, error) {
+		return boxdcloud.SSHDetails{Port: "22"}, nil
+	}
+	if _, err := engine.SyncBoxd(ctx); err != nil {
+		t.Fatal(err)
+	}
+	block := hostBySyncID(loadProviderConfig(t, p.SyncBoxdConfig), boxdcloud.FormatSyncID(sandboxfake.BoxdOrgID, "nyc", "web"))
+	if block.Port != "10022" || block.IdentityFile == "" {
+		t.Fatalf("block lost its SSH entry: %+v", block)
+	}
+}
+
+func TestDisableBoxdRemovesSSHAndMetadata(t *testing.T) {
+	engine, p, store, fake := boxdTestEngine(t)
+	fake.Put(sandboxfake.BoxdComputer{Region: "fra", Name: "web", Status: "running"})
+	ctx := context.Background()
+	if _, err := engine.SyncBoxd(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.DisableBoxd(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if store.Boxd().Enabled || !store.Boxd().Disabled || store.Host("boxd_fra_web").Group != "" {
+		t.Fatalf("integration = %+v", store.Boxd())
+	}
+	main, err := os.ReadFile(p.MainConfig)
+	if err == nil && strings.Contains(string(main), p.SyncBoxdConfig) {
+		t.Fatal("include line still present")
+	}
+}
+
+func TestBoxdSyncKeepsTheHostsOfAnUnavailableRegion(t *testing.T) {
+	engine, p, store, fake := boxdTestEngine(t)
+	fake.Put(sandboxfake.BoxdComputer{Region: "fra", Name: "web", Status: "running"})
+	fake.Put(sandboxfake.BoxdComputer{Region: "nyc", Name: "api", Status: "running"})
+	ctx := context.Background()
+	if _, err := engine.SyncBoxd(ctx); err != nil {
+		t.Fatal(err)
+	}
+	meta := store.Host("boxd_nyc_api")
+	meta.Favorite = true
+	meta.Notes = "staging API"
+	if err := store.SetHost("boxd_nyc_api", meta); err != nil {
+		t.Fatal(err)
+	}
+
+	// The CLI leaves an unreadable region out of a --region all list, names it
+	// on stderr, and exits 0.
+	fake.SetUnavailable("nyc")
+	result, err := engine.SyncBoxd(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Error, "nyc is unavailable") || !strings.Contains(store.Boxd().LastSyncError, "nyc is unavailable") {
+		t.Fatalf("no warning for the unavailable region: result=%q last=%q", result.Error, store.Boxd().LastSyncError)
+	}
+	apiID := boxdcloud.FormatSyncID(sandboxfake.BoxdOrgID, "nyc", "api")
+	if block := hostBySyncID(loadProviderConfig(t, p.SyncBoxdConfig), apiID); block.Alias != "boxd_nyc_api" || block.Port == "" {
+		t.Fatalf("host of the unavailable region was dropped: %+v", block)
+	}
+	if got := store.Host("boxd_nyc_api"); !got.Favorite || got.Notes != "staging API" || got.Group != "boxd/acme/nyc" {
+		t.Fatalf("metadata of the unavailable region was lost: %+v", got)
+	}
+
+	// Once nyc answers again, a computer that is gone is pruned.
+	fake.SetUnavailable()
+	fake.Remove("nyc", "api")
+	if _, err := engine.SyncBoxd(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if block := hostBySyncID(loadProviderConfig(t, p.SyncBoxdConfig), apiID); block.SyncID != "" {
+		t.Fatalf("deleted computer kept its host: %+v", block)
+	}
+	if store.Host("boxd_nyc_api").Group != "" {
+		t.Fatal("deleted computer kept its metadata")
+	}
+}
+
+func boxdFlagValue(args []string, name string) string {
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == name {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
 func TestAdvertisedLifecycleOpsMatchEngineCoverage(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
@@ -621,6 +816,9 @@ func TestAdvertisedLifecycleOpsMatchEngineCoverage(t *testing.T) {
 	if !strings.Contains(body, "engine.Bitqate.BaseURL = api.URL()") {
 		t.Fatal("BitQate engine tests must point the shipped client at the fake BaseURL")
 	}
+	if !strings.Contains(body, "engine.Boxd.Run = fake.Runner()") {
+		t.Fatal("boxd engine tests must drive the shipped client through the fake runner")
+	}
 	if !strings.Contains(body, "engine.Boat.Run = fake.Runner()") {
 		t.Fatal("Boat engine tests must drive the shipped client through the fake runner")
 	}
@@ -631,8 +829,9 @@ func TestAdvertisedLifecycleOpsMatchEngineCoverage(t *testing.T) {
 		cloud.Hetzner: {"Start": "StartHetzner", "Stop": "StopHetzner", "Restart": "RestartHetzner"},
 		cloud.Bitqate: {"Start": "StartBitqate", "Stop": "StopBitqate", "Restart": "RestartBitqate"},
 		cloud.Boat:    {"Create": "NewBoat", "Stop": "StopBoat", "Start": "ResumeBoat", "Fork": "ForkBoat", "Delete": "DeleteBoat"},
+		cloud.Boxd:    {"Create": "NewBoxd", "Stop": "StopBoxd", "Start": "StartBoxd", "Restart": "RestartBoxd", "Fork": "ForkBoxd", "Delete": "DeleteBoxd"},
 	}
-	for _, kind := range []cloud.Kind{cloud.Boat, cloud.Upstash, cloud.Vercel, cloud.Hetzner, cloud.Bitqate} {
+	for _, kind := range []cloud.Kind{cloud.Boat, cloud.Upstash, cloud.Vercel, cloud.Hetzner, cloud.Bitqate, cloud.Boxd} {
 		caps := cloud.CapabilitiesFor(kind)
 		want, ok := methods[kind]
 		if !ok {

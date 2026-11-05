@@ -26,6 +26,7 @@ type Paths struct {
 	SyncRailwayConfig      string
 	SyncFlyConfig          string
 	SyncDigitalOceanConfig string
+	SyncBoxdConfig         string
 	AzureDir               string
 	StateFile              string
 	UpstashAPIKey          string
@@ -61,6 +62,7 @@ func ForHome(home string) Paths {
 		SyncRailwayConfig:      filepath.Join(syncDir, "railway", "config"),
 		SyncFlyConfig:          filepath.Join(syncDir, "fly", "config"),
 		SyncDigitalOceanConfig: filepath.Join(syncDir, "digitalocean", "config"),
+		SyncBoxdConfig:         filepath.Join(syncDir, "boxd", "config"),
 		AzureDir:               filepath.Join(managedDir, "azure"),
 		StateFile:              filepath.Join(configDir, "state.json"),
 		UpstashAPIKey:          filepath.Join(configDir, "upstash-box-api-key"),

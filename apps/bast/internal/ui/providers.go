@@ -41,6 +41,8 @@ func (m *App) providerEnabled(kind cloud.Kind) bool {
 		return m.metadata.Fly().Enabled
 	case cloud.DigitalOcean:
 		return m.metadata.DigitalOcean().Enabled
+	case cloud.Boxd:
+		return m.metadata.Boxd().Enabled
 	default:
 		return false
 	}
@@ -99,6 +101,9 @@ func (m *App) providerGroupPrimaryAction(kind cloud.Kind) string {
 		if kind == cloud.Fly {
 			return " New machine "
 		}
+		if kind == cloud.Boxd {
+			return " New computer "
+		}
 		return " New "
 	}
 	return " Sync now "
@@ -150,6 +155,8 @@ func (m *App) stopSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 		m.openFlyStopForm(host)
 	case "digitalocean":
 		m.openDigitalOceanStopForm(host)
+	case "boxd":
+		m.openBoxdStopForm(host)
 	default:
 		return m, nil
 	}
@@ -171,6 +178,8 @@ func (m *App) restartSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	} else if host.SyncSource == "bitqate" {
 		m.openBitqateRestartForm(host)
 		return m, nil
+	} else if host.SyncSource == "boxd" {
+		m.openBoxdRestartForm(host)
 	}
 	return m, nil
 }
@@ -193,6 +202,8 @@ func (m *App) forkSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 		m.openFlyForkForm(host)
 	case "digitalocean":
 		m.openDigitalOceanForkForm(host)
+	case "boxd":
+		m.openBoxdForkForm(host)
 	default:
 		return m, nil
 	}
@@ -216,6 +227,8 @@ func (m *App) deleteSyncedHost(host sshconfig.Host) bool {
 		m.openFlyDeleteForm(host)
 	case "digitalocean":
 		m.openDigitalOceanDeleteForm(host)
+	case "boxd":
+		m.openBoxdDeleteForm(host)
 	default:
 		return false
 	}
@@ -243,6 +256,8 @@ func (m *App) resumeSyncedHost(host sshconfig.Host, thenConnect bool) tea.Cmd {
 		return m.resumeSelectedFly(host, thenConnect)
 	case "digitalocean":
 		return m.resumeSelectedDigitalOcean(host, thenConnect)
+	case "boxd":
+		return m.startSelectedBoxd(host, thenConnect)
 	default:
 		return nil
 	}
@@ -307,6 +322,15 @@ func (m *App) runProviderGroupCreate(kind cloud.Kind) (tea.Model, tea.Cmd) {
 			return m, m.setNotice("DigitalOcean operation already in progress")
 		}
 		m.openDigitalOceanNewForm()
+		return m, nil
+	case cloud.Boxd:
+		if m.syncingProviders["boxd"] {
+			return m, m.setNotice("boxd operation already in progress")
+		}
+		if !m.syncStatus.Boxd.Authenticated && !m.metadata.Boxd().Enabled {
+			return m, m.setNotice("Connect boxd on the Sync tab first")
+		}
+		m.openBoxdNewForm()
 		return m, nil
 	default:
 		return m, m.setNotice("Create is not available for this provider yet")

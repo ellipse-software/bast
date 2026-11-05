@@ -16,6 +16,7 @@ import (
 	azurecloud "bast/internal/cloud/azure"
 	bitqatecloud "bast/internal/cloud/bitqate"
 	boatcloud "bast/internal/cloud/boat"
+	boxdcloud "bast/internal/cloud/boxd"
 	docloud "bast/internal/cloud/digitalocean"
 	flycloud "bast/internal/cloud/fly"
 	"bast/internal/cloud/gcp"
@@ -48,6 +49,7 @@ type Engine struct {
 	railwayMu      stdsync.Mutex
 	flyMu          stdsync.Mutex
 	digitalOceanMu stdsync.Mutex
+	boxdMu         stdsync.Mutex
 	Paths          paths.Paths
 	Config         sshconfig.Manager
 	Store          *metadata.Store
@@ -62,6 +64,7 @@ type Engine struct {
 	Railway        *railwaycloud.Client
 	Fly            *flycloud.Client
 	DigitalOcean   *docloud.Client
+	Boxd           *boxdcloud.Client
 	BastExecutable string
 	Discover       func(ctx context.Context) ([]sshconfig.Host, error)
 
@@ -86,7 +89,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig,
 		SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig,
 		SyncRailwayConfig: p.SyncRailwayConfig, SyncFlyConfig: p.SyncFlyConfig,
-		SyncDigitalOceanConfig: p.SyncDigitalOceanConfig,
+		SyncDigitalOceanConfig: p.SyncDigitalOceanConfig, SyncBoxdConfig: p.SyncBoxdConfig,
 	}
 	return &Engine{
 		Paths:          p,
@@ -103,6 +106,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		Railway:        railwaycloud.New(p.RailwayAPIToken),
 		Fly:            flycloud.New(),
 		DigitalOcean:   docloud.New(),
+		Boxd:           boxdcloud.New(),
 		BastExecutable: stableExecutablePath(),
 		Discover: func(ctx context.Context) ([]sshconfig.Host, error) {
 			return cfg.Discover()
@@ -998,6 +1002,7 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 	railwayIntegration := e.Store.Railway()
 	flyIntegration := e.Store.Fly()
 	digitalOceanIntegration := e.Store.DigitalOcean()
+	boxdIntegration := e.Store.Boxd()
 	status := Status{
 		GCP: GCPStatus{
 			Enabled:           integration.Enabled,
@@ -1080,10 +1085,16 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			LastSyncAt:     digitalOceanIntegration.LastSyncAt, LastSyncError: digitalOceanIntegration.LastSyncError,
 			LastInstanceCount: digitalOceanIntegration.LastInstanceCount,
 		},
+		Boxd: BoxdStatus{
+			Enabled: boxdIntegration.Enabled, AutoSync: boxdIntegration.AutoSync, Disabled: boxdIntegration.Disabled,
+			OrgFilter:  append([]string(nil), boxdIntegration.OrgFilter...),
+			LastSyncAt: boxdIntegration.LastSyncAt, LastSyncError: boxdIntegration.LastSyncError,
+			LastInstanceCount: boxdIntegration.LastInstanceCount,
+		},
 	}
 
 	var probes stdsync.WaitGroup
-	probes.Add(11)
+	probes.Add(12)
 	go func() {
 		defer probes.Done()
 		if err := e.GCP.CheckAvailable(ctx); err != nil {
@@ -1248,6 +1259,23 @@ func (e *Engine) Status(ctx context.Context) (Status, error) {
 			}
 		}
 	}()
+	go func() {
+		defer probes.Done()
+		account, err := e.Boxd.Account(ctx)
+		if err != nil {
+			status.Boxd.BoxdCLIError = err.Error()
+			return
+		}
+		if account.Error != "" && !account.Authenticated {
+			status.Boxd.BoxdCLIError = account.Error
+		}
+		status.Boxd.Authenticated = account.Authenticated
+		status.Boxd.Login = account.Login
+		status.Boxd.ActiveOrg = account.ActiveOrg
+		for _, org := range account.Orgs {
+			status.Boxd.Orgs = append(status.Boxd.Orgs, org.Name)
+		}
+	}()
 	probes.Wait()
 	return status, nil
 }
@@ -1264,6 +1292,7 @@ type Status struct {
 	Railway      RailwayStatus      `json:"railway"`
 	Fly          FlyStatus          `json:"fly"`
 	DigitalOcean DigitalOceanStatus `json:"digitalocean"`
+	Boxd         BoxdStatus         `json:"boxd"`
 }
 
 type GCPStatus struct {
@@ -1392,6 +1421,21 @@ type FlyStatus struct {
 	LastSyncError     string     `json:"lastSyncError,omitempty"`
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 	FlyCLIError       string     `json:"flyCliError,omitempty"`
+}
+
+type BoxdStatus struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	Authenticated     bool       `json:"authenticated,omitempty"`
+	Login             string     `json:"login,omitempty"`
+	ActiveOrg         string     `json:"activeOrg,omitempty"`
+	Orgs              []string   `json:"orgs,omitempty"`
+	OrgFilter         []string   `json:"orgFilter,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+	BoxdCLIError      string     `json:"boxdCliError,omitempty"`
 }
 
 type DigitalOceanStatus struct {

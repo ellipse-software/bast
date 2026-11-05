@@ -143,7 +143,7 @@ func prepareTimeoutForHost(host sshconfig.Host) time.Duration {
 	switch host.SyncSource {
 	case "boat", "upstash", "vercel", "hetzner", "bitqate":
 		return boatPrepareTimeout
-	case "railway", "fly", "digitalocean":
+	case "railway", "fly", "digitalocean", "boxd":
 		return 6 * time.Minute
 	default:
 		return cloudPrepareTimeout
@@ -307,6 +307,18 @@ func (m *App) filesPrepareFn(host sshconfig.Host) func(func(string)) error {
 				}
 			}
 			return m.syncer.EnsureDigitalOceanAccess(ctx, host, status)
+		}
+	case "boxd":
+		ensure = func(ctx context.Context, host sshconfig.Host, status func(string)) error {
+			if m.hostLooksStopped(host) {
+				if status != nil {
+					status("Starting boxd computer…")
+				}
+				if _, err := m.syncer.StartBoxd(ctx, host.SyncID); err != nil {
+					return err
+				}
+			}
+			return m.syncer.EnsureBoxdAccess(ctx, host, status)
 		}
 	}
 	if ensure == nil {

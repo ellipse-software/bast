@@ -33,6 +33,9 @@ func TestKindForGroup(t *testing.T) {
 		{"Fly.io/personal/app", Fly, true},
 		{"DigitalOcean", DigitalOcean, true},
 		{"DigitalOcean/default/nyc3", DigitalOcean, true},
+		{"boxd", Boxd, true},
+		{"boxd/acme/nyc", Boxd, true},
+		{"boxdev", "", false},
 		{"Work", "", false},
 		{"Boxing", "", false},
 		{"", "", false},
@@ -77,6 +80,10 @@ func TestKindForSource(t *testing.T) {
 	if !ok || kind != Fly {
 		t.Fatalf("KindForSource(fly) = %q, %t", kind, ok)
 	}
+	kind, ok = KindForSource("boxd")
+	if !ok || kind != Boxd {
+		t.Fatalf("KindForSource(boxd) = %q, %t", kind, ok)
+	}
 	kind, ok = KindForSource("digitalocean")
 	if !ok || kind != DigitalOcean {
 		t.Fatalf("KindForSource(digitalocean) = %q, %t", kind, ok)
@@ -115,6 +122,10 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 	if !fly.Create || !fly.Stop || !fly.Start || fly.Restart || !fly.Fork || !fly.Delete {
 		t.Fatalf("fly caps = %+v", fly)
 	}
+	boxd := CapabilitiesFor(Boxd)
+	if !boxd.Create || !boxd.Stop || !boxd.Start || !boxd.Restart || !boxd.Fork || !boxd.Delete {
+		t.Fatalf("boxd caps = %+v", boxd)
+	}
 	digitalocean := CapabilitiesFor(DigitalOcean)
 	if !digitalocean.Create || !digitalocean.Stop || !digitalocean.Start || digitalocean.Restart || !digitalocean.Fork || !digitalocean.Delete {
 		t.Fatalf("digitalocean caps = %+v", digitalocean)
@@ -127,7 +138,7 @@ func TestCapabilitiesForLifecycleProviders(t *testing.T) {
 }
 
 func TestIsProviderRoot(t *testing.T) {
-	if !IsProviderRoot("Boat") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") || !IsProviderRoot("Hetzner Cloud") || !IsProviderRoot("BitQate") || !IsProviderRoot("Railway") || !IsProviderRoot("Fly.io") || !IsProviderRoot("DigitalOcean") {
+	if !IsProviderRoot("Boat") || !IsProviderRoot("Google Cloud") || !IsProviderRoot("GCP") || !IsProviderRoot("Hetzner Cloud") || !IsProviderRoot("BitQate") || !IsProviderRoot("Railway") || !IsProviderRoot("Fly.io") || !IsProviderRoot("DigitalOcean") || !IsProviderRoot("boxd") {
 		t.Fatal("expected roots to match")
 	}
 	if IsProviderRoot("Google Cloud/demo") || IsProviderRoot("Boat/Running") || IsProviderRoot("Work") {
@@ -146,7 +157,7 @@ func TestDescriptorsCoverEveryKind(t *testing.T) {
 		}
 		seen[d.Kind] = true
 	}
-	for _, kind := range []Kind{GCP, AWS, Azure, Boat, Upstash, Vercel, Hetzner, Bitqate, Railway, Fly, DigitalOcean} {
+	for _, kind := range []Kind{GCP, AWS, Azure, Boat, Upstash, Vercel, Hetzner, Bitqate, Railway, Fly, DigitalOcean, Boxd} {
 		if !seen[kind] {
 			t.Fatalf("missing descriptor for %s", kind)
 		}

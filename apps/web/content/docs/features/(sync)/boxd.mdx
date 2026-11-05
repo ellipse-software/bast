@@ -1,0 +1,121 @@
+---
+title: boxd
+description: Import boxd computers into Bast and create, stop, start, restart, fork, and delete them through the boxd CLI.
+---
+
+The **Sync** tab (`4`) imports [boxd](https://boxd.sh) computers into Bast. boxd computers are KVM microVMs with a persistent disk, and each one answers SSH on its own port of the boxd proxy. Synced computers show up in the host picker under **boxd**. Bast talks to boxd through the native **`boxd` CLI** on your machine. It does not store a boxd token.
+
+## Requirements
+
+- The boxd CLI on your `PATH` (`curl -fsSL https://boxd.sh/downloads/install.sh | sh` installs it to `~/.local/bin`)
+- A signed-in boxd CLI (`boxd auth login` in a terminal; Bast never starts the browser sign-in)
+
+## Connect boxd
+
+1. Open Bast and press `4` for Sync.
+2. Select **boxd** and press Enter.
+3. Choose **Connect** or **Sync now**.
+
+If the boxd CLI is installed and signed in, Bast **auto-connects** on `bast sync status`, unless you previously chose **Disconnect**.
+
+```bash
+boxd auth login
+boxd auth
+```
+
+## What gets created
+
+Each computer becomes an SSH host under:
+
+```
+~/.ssh/bast/sync/boxd/config
+```
+
+In the picker they are grouped by org and region:
+
+```
+boxd/<org>/<region>
+  computer-name
+```
+
+Bast syncs every region of the CLI's active org (`boxd auth switch`). Set the org filter to sync exactly the orgs you list instead. If a region can't be reached, Bast keeps its computers as they were and shows a warning. Stopped computers stay in the same group and are hidden from the host list until you press `.`. Computers on standby or hibernated count as running, because an SSH connection wakes them. Connection settings, group, and label are owned by sync.
+
+## How Bast connects
+
+The boxd CLI keeps a block of `Host` entries in `~/.ssh/config` with each computer's port and the CLI's own SSH key, and it pre-trusts the boxd proxy's host key. Bast reads those entries with `ssh -G` and writes the same `HostName`, `Port`, `User`, and `IdentityFile` into its sync file, so a Bast host connects exactly like `ssh <name>.boxd`.
+
+| Situation | Behavior |
+| --- | --- |
+| Running computer | OpenSSH to `<name>.<region>.boxd.sh` on the computer's port, as `boxd` |
+| Standby or hibernated computer | The SSH connection wakes it; Bast makes no lifecycle call |
+| Stopped computer | Enter starts it, refreshes sync, then SSHs in |
+| No SSH entry yet | Bast runs `boxd machine list`, which makes the CLI rewrite its entries, and waits for the entry |
+| SSH turned off | Connect explains how to turn it on with `boxd machine config set <name> ssh on` |
+
+An API key in `BOXD_TOKEN` works for listing and lifecycle, but the CLI writes SSH entries only for a signed-in session, so connect needs `boxd auth login`. SFTP in Files uses the same path.
+
+## Lifecycle
+
+| Action | What boxd does |
+| --- | --- |
+| New | `boxd machine new` in the org being synced (optional name, org, region, vCPUs, snapshot) |
+| Stop (`o` / `bast boxd stop`) | Stops the computer. The disk is kept; running processes stop |
+| Start (`r` / Enter on a stopped computer) | `boxd machine start`, then SSH |
+| Restart (`R`) | `boxd machine reboot` |
+| Fork (`n`) | `boxd machine fork`: a copy with the disk, memory, and running processes, in the same region |
+| Delete (`d`) | `boxd machine remove`: deletes the computer and its disk |
+
+Sizes are 1 vCPU with 4 GB, 2 with 8 GB, 4 with 16 GB, and 8 with 32 GB. A blank size takes the org's default, and a computer made from a snapshot keeps the snapshot's size. A fork waits for the source to finish booting first.
+
+## boxd settings
+
+Inside the boxd submenu:
+
+| Action | Purpose |
+| --- | --- |
+| Sync now | Re-run discovery and refresh SSH config |
+| New computer | Create a computer |
+| Connect / Disconnect | Enable sync, or turn it off and remove generated hosts |
+| Enable / Disable auto-sync | Sync when the TUI opens |
+| Org filter | Comma-separated org names or ids; blank = the CLI's active org |
+
+## Host keys (Hosts tab)
+
+With the **boxd** group selected:
+
+| Key | Action |
+| --- | --- |
+| `n` | Create a new computer |
+| `s` | Sync now |
+| `.` | Show stopped computers |
+
+With a boxd host selected:
+
+| Key | Action |
+| --- | --- |
+| Enter | Connect (start first if stopped) |
+| `r` | Start only (when stopped) |
+| `o` | Stop (when running; confirms with `stop`) |
+| `R` | Restart (confirms with `restart`) |
+| `n` | Fork (confirms with `fork`) |
+| `d` | Delete the computer (confirms with `delete`) |
+| `F` | Open Files (SFTP) |
+
+## CLI
+
+```bash
+bast sync boxd
+bast sync status
+bast sync disable boxd
+
+bast boxd new [--name web] [--org org] [--region fra] [--vcpu 2] [--snapshot name]
+bast boxd fork <host|name> [--name name]
+bast boxd stop <host|name>
+bast boxd start <host|name>
+bast boxd restart <host|name>
+bast boxd delete <host|name> [--yes]
+
+bast connect boxd_fra_web
+```
+
+You can also set `BOXD_CLI` to a boxd binary path.

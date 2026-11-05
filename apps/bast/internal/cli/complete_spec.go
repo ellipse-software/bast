@@ -14,6 +14,7 @@ const (
 	valueRailwayHost
 	valueFlyHost
 	valueDigitalOceanHost
+	valueBoxdHost
 	valueFile
 	valueDir
 	valueEnum
@@ -64,7 +65,7 @@ func (n specNode) names() []string {
 
 var completionShells = []string{"bash", "zsh", "fish", "powershell", "elvish", "nushell"}
 
-var syncProviders = []string{"gcp", "aws", "azure", "boat", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean"}
+var syncProviders = []string{"gcp", "aws", "azure", "boat", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "boxd"}
 
 var globalFlagSpecs = []flagSpec{
 	{name: "json", desc: "structured JSON", boolean: true},
@@ -95,6 +96,7 @@ func completionRoot() specNode {
 			railwaySpec(),
 			flySpec(),
 			digitalOceanSpec(),
+			boxdSpec(),
 			vaultSpec(),
 			{
 				name: "completion",
@@ -226,6 +228,7 @@ func syncSpec() specNode {
 			{name: "railway", desc: "import Railway services"},
 			{name: "fly", desc: "import Fly Machines"},
 			{name: "digitalocean", aliases: []string{"do"}, desc: "import DigitalOcean Droplets"},
+			{name: "boxd", desc: "import boxd computers"},
 			{name: "status", desc: "show sync status"},
 			{
 				name: "disable",
@@ -412,6 +415,32 @@ func flySpec() specNode {
 			{name: "stop", desc: "stop a machine", args: []argSpec{flyArg}},
 			{name: "resume", desc: "start a machine", args: []argSpec{flyArg}},
 			{name: "delete", desc: "destroy a machine", flags: []flagSpec{boolFlag("yes", "skip confirmation")}, args: []argSpec{flyArg}},
+		},
+	}
+}
+
+func boxdSpec() specNode {
+	boxdArg := argSpec{kind: valueBoxdHost, desc: "host or name", includeHidden: true}
+	return specNode{
+		name: "boxd",
+		desc: "create and manage boxd computers",
+		children: []specNode{
+			{
+				name: "new",
+				desc: "create a computer",
+				flags: []flagSpec{
+					{name: "name", desc: "computer name"},
+					{name: "org", desc: "boxd org name or id"},
+					{name: "region", desc: "region, for example fra or nyc"},
+					{name: "vcpu", desc: "vCPUs: 1, 2, 4, or 8"},
+					{name: "snapshot", desc: "snapshot to create from"},
+				},
+			},
+			{name: "fork", desc: "copy a computer with its memory and processes", flags: []flagSpec{{name: "name", desc: "name for the copy"}}, args: []argSpec{boxdArg}},
+			{name: "stop", desc: "stop a computer", args: []argSpec{boxdArg}},
+			{name: "start", aliases: []string{"resume"}, desc: "start a computer", args: []argSpec{boxdArg}},
+			{name: "restart", desc: "reboot a computer", args: []argSpec{boxdArg}},
+			{name: "delete", desc: "delete a computer", flags: []flagSpec{boolFlag("yes", "skip confirmation")}, args: []argSpec{boxdArg}},
 		},
 	}
 }

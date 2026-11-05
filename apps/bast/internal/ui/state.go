@@ -11,6 +11,7 @@ import (
 	"bast/internal/cloud"
 	bitqatecloud "bast/internal/cloud/bitqate"
 	boatcloud "bast/internal/cloud/boat"
+	boxdcloud "bast/internal/cloud/boxd"
 	docloud "bast/internal/cloud/digitalocean"
 	flycloud "bast/internal/cloud/fly"
 	hetznercloud "bast/internal/cloud/hetzner"
@@ -1015,6 +1016,9 @@ func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
 	if kind == cloud.DigitalOcean {
 		return docloud.HostLooksStopped(meta.Tags, "")
 	}
+	if kind == cloud.Boxd {
+		return boxdcloud.HostLooksStopped(meta.Tags)
+	}
 	return false
 }
 func hostIdentity(h sshconfig.Host, passwordStored bool) string {
@@ -1087,6 +1091,12 @@ func hostStatusLine(h sshconfig.Host, meta metadata.Host) string {
 			parts = append(parts, "DigitalOcean stopped")
 		} else {
 			parts = append(parts, "DigitalOcean synced")
+		}
+	case h.Synced && h.SyncSource == "boxd":
+		if hostLooksStopped(h, meta) {
+			parts = append(parts, "boxd stopped")
+		} else {
+			parts = append(parts, "boxd synced")
 		}
 	case h.Synced:
 		parts = append(parts, h.SyncSource+" synced")

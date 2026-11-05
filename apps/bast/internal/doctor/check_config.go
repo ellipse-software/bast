@@ -149,6 +149,7 @@ func (e Engine) checkSyncIncludes(r *Report, ins sshconfig.Inspection, st runSta
 		{e.Paths.SyncRailwayConfig, "railway"},
 		{e.Paths.SyncFlyConfig, "fly"},
 		{e.Paths.SyncDigitalOceanConfig, "digitalocean"},
+		{e.Paths.SyncBoxdConfig, "boxd"},
 	}
 	enabled := map[string]bool{}
 	if st.store != nil {
@@ -163,6 +164,7 @@ func (e Engine) checkSyncIncludes(r *Report, ins sshconfig.Inspection, st runSta
 		enabled["railway"] = st.store.Railway().Enabled
 		enabled["fly"] = st.store.Fly().Enabled
 		enabled["digitalocean"] = st.store.DigitalOcean().Enabled
+		enabled["boxd"] = st.store.Boxd().Enabled
 	}
 	for _, t := range targets {
 		var found []sshconfig.InspectInclude

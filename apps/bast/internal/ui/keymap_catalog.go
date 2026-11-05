@@ -89,7 +89,7 @@ func buildCatalog() []Binding {
 		bind(ActionToggleHidden, []string{"."}, ScopeHosts, "Toggle hidden and stopped hosts", "show hidden"),
 		bind(ActionNewOrFork, []string{"n"}, ScopeHosts, "Fork sandbox, or new VM on a provider group", "new"),
 		bind(ActionStopSandbox, []string{"o"}, ScopeHosts, "Stop or pause sandbox, or stop a Hetzner server or BitQate VM", "stop"),
-		bind(ActionRestartHost, []string{"R"}, ScopeHosts, "Restart a Hetzner Cloud server or BitQate VM", "restart"),
+		bind(ActionRestartHost, []string{"R"}, ScopeHosts, "Restart a Hetzner Cloud server, BitQate VM, or boxd computer", "restart"),
 		bind(ActionKnownHosts, []string{"K"}, ScopeHosts, "Remove known-host entry", ""),
 		bind(ActionOpenRDP, []string{"ctrl+o"}, ScopeHosts, "Open Remote Desktop", ""),
 
