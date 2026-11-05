@@ -182,6 +182,7 @@ func (a Applier) RestoreEnabledSyncIncludes() error {
 		{a.Store.Railway().Enabled, a.Paths.SyncRailwayConfig},
 		{a.Store.Fly().Enabled, a.Paths.SyncFlyConfig},
 		{a.Store.DigitalOcean().Enabled, a.Paths.SyncDigitalOceanConfig},
+		{a.Store.Boxd().Enabled, a.Paths.SyncBoxdConfig},
 	} {
 		if !it.on {
 			continue
@@ -293,6 +294,15 @@ func applyIntegrations(store *metadata.Store, in VaultIntegrations) error {
 		cur.RegionFilter = append([]string(nil), in.DigitalOcean.RegionFilter...)
 		cur.DefaultSSHUser = in.DigitalOcean.DefaultSSHUser
 		if err := store.SetDigitalOcean(cur); err != nil {
+			return err
+		}
+	}
+	if in.Boxd != nil {
+		cur := store.Boxd()
+		cur.Enabled = in.Boxd.Enabled
+		cur.AutoSync = in.Boxd.AutoSync
+		cur.OrgFilter = append([]string(nil), in.Boxd.OrgFilter...)
+		if err := store.SetBoxd(cur); err != nil {
 			return err
 		}
 	}

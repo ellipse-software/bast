@@ -12,7 +12,7 @@ import (
 
 func (r *Runner) sync(args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean|status|disable>")
+		fmt.Fprintln(r.Out, "Usage: bast sync <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean|boxd|status|disable>")
 		return nil
 	}
 	engine := sync.New(r.Paths, r.store)
@@ -39,6 +39,8 @@ func (r *Runner) sync(args []string) error {
 		return r.syncFly(engine, args[1:])
 	case "digitalocean", "do":
 		return r.syncDigitalOcean(engine, args[1:])
+	case "boxd":
+		return r.syncBoxd(engine, args[1:])
 	case "status":
 		return r.syncStatus(engine, args[1:])
 	case "disable":
@@ -258,6 +260,10 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if flyAutoErr == nil && flyRan {
 		telemetry.Track("sync_fly_auto", r.Version)
 	}
+	_, boxdRan, boxdAutoErr := engine.MaybeAutoConnectBoxd(ctx)
+	if boxdAutoErr == nil && boxdRan {
+		telemetry.Track("sync_boxd_auto", r.Version)
+	}
 	status, err := engine.Status(ctx)
 	if err != nil {
 		return fail("sync_status", err.Error())
@@ -276,6 +282,9 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	}
 	if flyAutoErr != nil {
 		status.Fly.LastSyncError = flyAutoErr.Error()
+	}
+	if boxdAutoErr != nil {
+		status.Boxd.LastSyncError = boxdAutoErr.Error()
 	}
 	if r.JSON {
 		return r.success(status, "")
@@ -612,7 +621,54 @@ func (r *Runner) syncStatus(engine *sync.Engine, args []string) error {
 	if droplet.LastSyncError != "" {
 		fmt.Fprintf(r.Out, "  Last error: %s\n", droplet.LastSyncError)
 	}
+	boxd := status.Boxd
+	fmt.Fprintln(r.Out, "boxd")
+	fmt.Fprintf(r.Out, "  Enabled: %t\n", boxd.Enabled)
+	fmt.Fprintf(r.Out, "  Auto-sync: %t\n", boxd.AutoSync)
+	if boxd.BoxdCLIError != "" {
+		fmt.Fprintf(r.Out, "  boxd: %s\n", boxd.BoxdCLIError)
+	} else if boxd.Authenticated {
+		login := boxd.Login
+		if boxd.ActiveOrg != "" {
+			login += " (org " + boxd.ActiveOrg + ")"
+		}
+		fmt.Fprintf(r.Out, "  Account: %s\n", login)
+	}
+	if len(boxd.OrgFilter) > 0 {
+		fmt.Fprintf(r.Out, "  Org filter: %s\n", strings.Join(boxd.OrgFilter, ", "))
+	}
+	if boxd.LastSyncAt != nil {
+		fmt.Fprintf(r.Out, "  Last sync: %s (%d computers)\n", boxd.LastSyncAt.Local().Format(time.RFC3339), boxd.LastInstanceCount)
+	} else {
+		fmt.Fprintln(r.Out, "  Last sync: never")
+	}
+	if boxd.LastSyncError != "" {
+		fmt.Fprintf(r.Out, "  Last error: %s\n", boxd.LastSyncError)
+	}
 	return nil
+}
+
+func (r *Runner) syncBoxd(engine *sync.Engine, args []string) error {
+	fs := newFlagSet("sync boxd")
+	if err := fs.Parse(args); err != nil {
+		return usagef("%v", err)
+	}
+	if fs.NArg() != 0 {
+		return usagef("usage: bast sync boxd")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	result, err := engine.SyncBoxd(ctx)
+	if err != nil {
+		telemetry.Track("sync_boxd_fail", r.Version)
+		return fail("sync_failed", err.Error())
+	}
+	telemetry.Track("sync_boxd", r.Version)
+	msg := fmt.Sprintf("Synced %d boxd computers", result.Count)
+	if result.Error != "" {
+		msg += "\nWarning: " + result.Error
+	}
+	return r.success(result, msg)
 }
 
 func (r *Runner) syncRailway(engine *sync.Engine, args []string) error {
@@ -690,13 +746,13 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 1 {
-		return usagef("usage: bast sync disable <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean>")
+		return usagef("usage: bast sync disable <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean|boxd>")
 	}
 	provider := fs.Arg(0)
 	if provider == "do" {
 		provider = "digitalocean"
 	}
-	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "boat" && provider != "upstash" && provider != "vercel" && provider != "hetzner" && provider != "bitqate" && provider != "railway" && provider != "fly" && provider != "digitalocean" {
+	if provider != "gcp" && provider != "aws" && provider != "azure" && provider != "boat" && provider != "upstash" && provider != "vercel" && provider != "hetzner" && provider != "bitqate" && provider != "railway" && provider != "fly" && provider != "digitalocean" && provider != "boxd" {
 		return usagef("unknown sync provider %q", provider)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -725,6 +781,8 @@ func (r *Runner) syncDisable(engine *sync.Engine, args []string) error {
 		err = engine.DisableFly(ctx)
 	case "digitalocean":
 		err = engine.DisableDigitalOcean(ctx)
+	case "boxd":
+		err = engine.DisableBoxd(ctx)
 	}
 	if err != nil {
 		return fail("sync_disable", err.Error())

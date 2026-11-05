@@ -236,6 +236,35 @@ func TestRailwayFlyDigitalOceanIntegrationRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBoxdIntegrationRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetBoxd(BoxdIntegration{Enabled: true, AutoSync: true, OrgFilter: []string{"acme"}, LastInstanceCount: 3}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reopened.Boxd()
+	if !got.Enabled || !got.AutoSync || len(got.OrgFilter) != 1 || got.OrgFilter[0] != "acme" || got.LastInstanceCount != 3 {
+		t.Fatalf("boxd = %+v", got)
+	}
+	got.OrgFilter[0] = "changed"
+	if reopened.Boxd().OrgFilter[0] != "acme" {
+		t.Fatal("Boxd() must return a copy")
+	}
+	if err := reopened.SetBoxd(BoxdIntegration{}); err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Boxd().Enabled {
+		t.Fatal("an empty integration clears the entry")
+	}
+}
+
 func TestHetznerIntegrationRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	store, err := Open(path)

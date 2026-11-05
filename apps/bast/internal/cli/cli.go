@@ -48,6 +48,7 @@ Usage:
   bast railway <command>       Create and manage Railway services
   bast fly <command>           Create and manage Fly Machines
   bast digitalocean <command>  Create and manage DigitalOcean Droplets
+  bast boxd <command>          Create and manage boxd computers
   bast vault <command>         Sync Bast-managed config via encrypted vault
   bast completion <shell>      Print a shell completion script
 
@@ -61,7 +62,7 @@ Key commands:
 
 Sync commands:
   gcp, aws, azure, boat, upstash, vercel, hetzner, bitqate, railway, fly,
-  digitalocean, status, disable
+  digitalocean, boxd, status, disable
 
 Boat commands:
   new, fork, stop, resume, delete, snapshots, snapshot
@@ -87,6 +88,9 @@ Fly commands:
 DigitalOcean commands:
   new, fork, stop, resume, delete
 
+boxd commands:
+  new, fork, stop, start, restart, delete
+
 Vault commands:
   login, status, push, pull, logout, passphrase
 
@@ -98,7 +102,7 @@ Run "bast doctor --help", "bast hosts <command> --help", "bast keys <command> --
 "bast sync <command> --help", "bast boat <command> --help", "bast upstash <command> --help",
 "bast vercel <command> --help", "bast hetzner <command> --help", "bast bitqate <command> --help",
 "bast railway <command> --help", "bast fly <command> --help", "bast digitalocean <command> --help",
-"bast vault <command> --help", or "bast completion --help" for details.
+"bast boxd <command> --help", "bast vault <command> --help", or "bast completion --help" for details.
 `
 
 func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
@@ -148,7 +152,7 @@ func fail(code, message string) error { return &commandError{code: code, message
 func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writer) (*Runner, error) {
 	runner := &Runner{
 		Paths: p, OpenSSH: client, Version: "dev", In: in, Out: out, Err: errOut,
-		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig, SyncRailwayConfig: p.SyncRailwayConfig, SyncFlyConfig: p.SyncFlyConfig, SyncDigitalOceanConfig: p.SyncDigitalOceanConfig},
+		config:  sshconfig.Manager{Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir, ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys, SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig, SyncRailwayConfig: p.SyncRailwayConfig, SyncFlyConfig: p.SyncFlyConfig, SyncDigitalOceanConfig: p.SyncDigitalOceanConfig, SyncBoxdConfig: p.SyncBoxdConfig},
 		keyring: keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
 		reader:  bufio.NewReader(in),
 	}
@@ -164,7 +168,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "doctor", "connect", "hosts", "keys", "sync", "boat", "box", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "do", "vault", "completion", "__complete":
+	case "tui", "update", "doctor", "connect", "hosts", "keys", "sync", "boat", "box", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "do", "boxd", "vault", "completion", "__complete":
 		return true
 	}
 	return false
@@ -172,7 +176,7 @@ func IsCommand(arg string) bool {
 
 func commandUsesOpenSSH(cmd string) bool {
 	switch cmd {
-	case "boat", "box", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "do":
+	case "boat", "box", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "do", "boxd":
 		return false
 	default:
 		return true
@@ -251,6 +255,8 @@ func (r *Runner) Run(args []string) error {
 				err = r.flyCmd(args[1:])
 			case "digitalocean", "do":
 				err = r.digitalOceanCmd(args[1:])
+			case "boxd":
+				err = r.boxdCmd(args[1:])
 			case "vault":
 				err = r.vault(args[1:])
 			default:
@@ -349,11 +355,12 @@ Commands: list, show, generate, import, promote, comment, export, install,
 		"sync bitqate":        "Usage: bast sync bitqate",
 		"sync railway":        "Usage: bast sync railway",
 		"sync fly":            "Usage: bast sync fly",
+		"sync boxd":           "Usage: bast sync boxd",
 		"sync digitalocean":   "Usage: bast sync digitalocean",
 		"sync do":             "Usage: bast sync digitalocean",
 		"sync status":         "Usage: bast sync status",
-		"sync disable":        "Usage: bast sync disable <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean>",
-		"sync --help":         "Usage: bast sync <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean|status|disable>",
+		"sync disable":        "Usage: bast sync disable <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean|boxd>",
+		"sync --help":         "Usage: bast sync <gcp|aws|azure|boat|upstash|vercel|hetzner|bitqate|railway|fly|digitalocean|boxd|status|disable>",
 		"boat --help":         "Usage: bast boat <new|fork|stop|resume|delete|snapshots|snapshot>",
 		"boat new":            "Usage: bast boat new [--type small|default|large] [--ttl seconds | --no-auto-stop] [--no-env]",
 		"boat fork":           "Usage: bast boat fork <host|id> [--type small|default|large] [--no-env]",
@@ -406,6 +413,13 @@ Commands: list, show, generate, import, promote, comment, export, install,
 		"digitalocean resume": "Usage: bast digitalocean resume <host|id>",
 		"digitalocean delete": "Usage: bast digitalocean delete <host|id> [--yes]",
 		"do --help":           "Usage: bast digitalocean <new|fork|stop|resume|delete>",
+		"boxd --help":         "Usage: bast boxd <new|fork|stop|start|restart|delete>",
+		"boxd new":            "Usage: bast boxd new [--name name] [--org org] [--region region] [--vcpu n] [--snapshot name]",
+		"boxd fork":           "Usage: bast boxd fork <host|name> [--name name]",
+		"boxd stop":           "Usage: bast boxd stop <host|name>",
+		"boxd start":          "Usage: bast boxd start <host|name>",
+		"boxd restart":        "Usage: bast boxd restart <host|name>",
+		"boxd delete":         "Usage: bast boxd delete <host|name> [--yes]",
 		"hetzner key":         "Usage: bast hetzner key [--name project] [--key-file path]\n       bast hetzner key --remove project",
 		"vault --help":        "Usage: bast vault <login|status|push|pull|logout|passphrase>",
 		"vault login":         "Usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]",

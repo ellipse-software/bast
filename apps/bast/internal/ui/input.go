@@ -399,6 +399,9 @@ func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	if host.Synced && host.SyncSource == "digitalocean" && m.hostLooksStopped(host) {
 		return m, m.resumeSelectedDigitalOcean(host, true)
 	}
+	if host.Synced && host.SyncSource == "boxd" && m.hostLooksStopped(host) {
+		return m, m.startSelectedBoxd(host, true)
+	}
 	if host.Synced && host.SyncID != "" && m.syncer != nil {
 		var ensure func(context.Context, sshconfig.Host, func(string)) error
 		switch host.SyncSource {
@@ -422,6 +425,8 @@ func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 			ensure = m.syncer.EnsureFlyAccess
 		case "digitalocean":
 			ensure = m.syncer.EnsureDigitalOceanAccess
+		case "boxd":
+			ensure = m.syncer.EnsureBoxdAccess
 		}
 		if ensure != nil {
 			timeout := prepareTimeoutForHost(host)

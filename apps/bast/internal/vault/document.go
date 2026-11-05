@@ -59,6 +59,7 @@ type VaultIntegrations struct {
 	Railway      *VaultRailwayIntegration      `json:"railway,omitempty"`
 	Fly          *VaultFlyIntegration          `json:"fly,omitempty"`
 	DigitalOcean *VaultDigitalOceanIntegration `json:"digitalocean,omitempty"`
+	Boxd         *VaultBoxdIntegration         `json:"boxd,omitempty"`
 }
 
 type VaultGCPIntegration struct {
@@ -113,6 +114,12 @@ type VaultFlyIntegration struct {
 	OrgFilter      []string `json:"orgFilter,omitempty"`
 	AppFilter      []string `json:"appFilter,omitempty"`
 	DefaultSSHUser string   `json:"defaultSshUser,omitempty"`
+}
+
+type VaultBoxdIntegration struct {
+	Enabled   bool     `json:"enabled"`
+	AutoSync  bool     `json:"autoSync,omitempty"`
+	OrgFilter []string `json:"orgFilter,omitempty"`
 }
 
 type VaultDigitalOceanIntegration struct {

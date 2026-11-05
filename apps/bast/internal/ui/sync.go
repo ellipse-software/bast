@@ -13,6 +13,7 @@ import (
 
 	"bast/internal/cloud"
 	boatcloud "bast/internal/cloud/boat"
+	boxdcloud "bast/internal/cloud/boxd"
 	docloud "bast/internal/cloud/digitalocean"
 	flycloud "bast/internal/cloud/fly"
 	railwaycloud "bast/internal/cloud/railway"
@@ -68,7 +69,7 @@ func (m *App) syncProviders() []syncMenuItem {
 	for _, d := range cloud.Descriptors() {
 		detail := m.providerDetail(string(d.Kind))
 		text := "disabled"
-		if d.Kind == cloud.Boat || d.Kind == cloud.Upstash || d.Kind == cloud.Vercel || d.Kind == cloud.Railway || d.Kind == cloud.Fly || d.Kind == cloud.DigitalOcean {
+		if d.Kind == cloud.Boat || d.Kind == cloud.Upstash || d.Kind == cloud.Vercel || d.Kind == cloud.Railway || d.Kind == cloud.Fly || d.Kind == cloud.DigitalOcean || d.Kind == cloud.Boxd {
 			running, stopped := m.providerGroupStats(d.GroupRoot)
 			if !detail.enabled && running+stopped == 0 {
 				text = "disabled"
@@ -352,6 +353,29 @@ func (m *App) providerDetail(provider string) providerDetail {
 			regions = strings.Join(integration.RegionFilter, ", ")
 		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, integration.DefaultSSHUser, []providerRow{{contextLabel, contextValue}}, []providerRow{{"Context filter", contexts}, {"Regions", regions}}}
+	case "boxd":
+		integration := m.metadata.Boxd()
+		status := m.syncStatus.Boxd
+		accountLabel, accountValue := "Account", "not logged in"
+		if status.BoxdCLIError != "" {
+			accountLabel, accountValue = "boxd", status.BoxdCLIError
+		} else if status.Authenticated {
+			accountValue = status.Login
+			if status.ActiveOrg != "" {
+				accountValue += " (" + status.ActiveOrg + ")"
+			}
+		} else if integration.Disabled {
+			accountValue = "disabled"
+		}
+		statusRows := []providerRow{{accountLabel, accountValue}}
+		if integration.Disabled {
+			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
+		}
+		orgs := "active org"
+		if len(integration.OrgFilter) > 0 {
+			orgs = strings.Join(integration.OrgFilter, ", ")
+		}
+		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, boxdcloud.SSHUser, statusRows, []providerRow{{"Org filter", orgs}, {"Regions", "all"}}}
 	default:
 		return providerDetail{}
 	}
@@ -410,6 +434,9 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 	}
 	if caps.Create && provider == "digitalocean" {
 		life = append(life, syncMenuItem{label: "New droplet", action: "digitalocean_new"})
+	}
+	if caps.Create && provider == "boxd" && (m.syncStatus.Boxd.Authenticated || detail.enabled) {
+		life = append(life, syncMenuItem{label: "New computer", action: "boxd_new"})
 	}
 	if detail.enabled {
 		config = append(config, syncMenuItem{label: "Disconnect", action: "disable"})
@@ -471,6 +498,8 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 			syncMenuItem{label: "Context filter", action: "contexts"},
 			syncMenuItem{label: "Region filter", action: "do_regions"},
 		)
+	case "boxd":
+		config = append(config, syncMenuItem{label: "Org filter", action: "boxd_orgs"})
 	}
 	config = append(config, syncMenuItem{label: "Refresh status", action: "refresh"})
 	return life, config
@@ -585,6 +614,16 @@ func (m *App) syncFlyCmd() tea.Cmd {
 		defer cancel()
 		result, err := m.syncer.SyncFly(ctx)
 		return syncDoneMsg{provider: "fly", result: result, err: err, opGen: opGen}
+	}
+}
+
+func (m *App) syncBoxdCmd() tea.Cmd {
+	opGen := m.providerOpGen("boxd")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		result, err := m.syncer.SyncBoxd(ctx)
+		return syncDoneMsg{provider: "boxd", result: result, err: err, opGen: opGen}
 	}
 }
 
@@ -782,6 +821,18 @@ func (m *App) disableFlyCmd() tea.Cmd {
 			return syncDoneMsg{provider: "fly", err: err, opGen: opGen}
 		}
 		return syncDoneMsg{provider: "fly", result: sync.Result{Provider: "fly", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
+	}
+}
+
+func (m *App) disableBoxdCmd() tea.Cmd {
+	opGen := m.providerOpGen("boxd")
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.syncer.DisableBoxd(ctx); err != nil {
+			return syncDoneMsg{provider: "boxd", err: err, opGen: opGen}
+		}
+		return syncDoneMsg{provider: "boxd", result: sync.Result{Provider: "boxd", SyncedAt: time.Now().UTC(), Error: "disabled"}, opGen: opGen}
 	}
 }
 
@@ -1856,6 +1907,19 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Batch(m.syncDigitalOceanCmd(), m.setNotice("Syncing DigitalOcean…"))
+		case "boxd":
+			boxd := m.metadata.Boxd()
+			boxd.Disabled = false
+			boxd.Enabled = true
+			if action == "enable" {
+				boxd.AutoSync = true
+			}
+			if err := m.metadata.SetBoxd(boxd); err != nil {
+				delete(m.syncingProviders, "boxd")
+				m.setError(err)
+				return m, nil
+			}
+			return m, tea.Batch(m.syncBoxdCmd(), m.setNotice("Syncing boxd…"))
 		}
 		return m, tea.Batch(m.syncGCPCmd(), m.setNotice("Syncing GCP…"))
 	case "disable":
@@ -1889,6 +1953,9 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		}
 		if m.syncProvider == "digitalocean" {
 			return m, m.disableDigitalOceanCmd()
+		}
+		if m.syncProvider == "boxd" {
+			return m, m.disableBoxdCmd()
 		}
 		return m, m.disableGCPCmd()
 	case "boat_new":
@@ -1934,6 +2001,12 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "digitalocean_new":
 		m.openDigitalOceanNewForm()
+		return m, nil
+	case "boxd_new":
+		m.openBoxdNewForm()
+		return m, nil
+	case "boxd_orgs":
+		m.openBoxdOrgsForm()
 		return m, nil
 	case "auto_on":
 		if m.syncProvider == "aws" {
@@ -2026,6 +2099,16 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			ocean := m.metadata.DigitalOcean()
 			ocean.AutoSync = true
 			if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync enabled")
+		}
+		if m.syncProvider == "boxd" {
+			boxd := m.metadata.Boxd()
+			boxd.AutoSync = true
+			boxd.Disabled = false
+			if err := m.metadata.SetBoxd(boxd); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -2124,6 +2207,15 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 			ocean := m.metadata.DigitalOcean()
 			ocean.AutoSync = false
 			if err := m.metadata.SetDigitalOcean(ocean); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+			return m, m.setNotice("Auto-sync disabled")
+		}
+		if m.syncProvider == "boxd" {
+			boxd := m.metadata.Boxd()
+			boxd.AutoSync = false
+			if err := m.metadata.SetBoxd(boxd); err != nil {
 				m.setError(err)
 				return m, nil
 			}
@@ -2289,6 +2381,9 @@ func (m *App) runSyncAction(action string) (tea.Model, tea.Cmd) {
 }
 
 func (m *App) submitSyncForm(action string, values map[string]string) tea.Cmd {
+	if strings.HasPrefix(action, "boxd_") || action == "sync_boxd_orgs" {
+		return m.submitBoxdForm(action, values)
+	}
 	gcp := m.metadata.GCP()
 	switch action {
 	case "boat_new":

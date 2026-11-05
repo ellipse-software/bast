@@ -10,6 +10,7 @@ import (
 	"time"
 
 	bitqatecloud "bast/internal/cloud/bitqate"
+	boxdcloud "bast/internal/cloud/boxd"
 	docloud "bast/internal/cloud/digitalocean"
 	flycloud "bast/internal/cloud/fly"
 	hetznercloud "bast/internal/cloud/hetzner"
@@ -916,6 +917,23 @@ func (r *Runner) connect(args []string) error {
 		}
 		if err := engine.EnsureDigitalOceanAccess(ctx, host.raw, connectbanner.Status(r.Out)); err != nil {
 			return fail("digitalocean_access", err.Error())
+		}
+		fmt.Fprint(r.Out, "\r\n")
+	} else if host.Synced && host.SyncSource == "boxd" && host.SyncID != "" {
+		timeout := 90 * time.Second
+		if boxdcloud.HostLooksStopped(host.Tags) {
+			timeout = 5 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		engine := sync.New(r.Paths, r.store)
+		if boxdcloud.HostLooksStopped(host.Tags) {
+			if _, err := engine.StartBoxd(ctx, host.SyncID); err != nil {
+				return fail("boxd_start", err.Error())
+			}
+		}
+		if err := engine.EnsureBoxdAccess(ctx, host.raw, connectbanner.Status(r.Out)); err != nil {
+			return fail("boxd_access", err.Error())
 		}
 		fmt.Fprint(r.Out, "\r\n")
 	}

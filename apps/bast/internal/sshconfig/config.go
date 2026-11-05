@@ -74,6 +74,7 @@ type Manager struct {
 	SyncRailwayConfig      string
 	SyncFlyConfig          string
 	SyncDigitalOceanConfig string
+	SyncBoxdConfig         string
 }
 
 type SyncHostInput struct {

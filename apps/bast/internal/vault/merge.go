@@ -257,6 +257,9 @@ func mergeIntegrations(base, overlay VaultIntegrations) VaultIntegrations {
 	if overlay.DigitalOcean != nil {
 		out.DigitalOcean = overlay.DigitalOcean
 	}
+	if overlay.Boxd != nil {
+		out.Boxd = overlay.Boxd
+	}
 	return out
 }
 

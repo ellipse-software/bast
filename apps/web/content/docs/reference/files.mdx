@@ -101,6 +101,14 @@ Fly Machines are written here. Bast does not store a Fly API token. `flyctl` mus
 
 DigitalOcean Droplets are written here. Bast does not store a DigitalOcean token. `doctl` auth contexts select the account. See [DigitalOcean](/docs/features/digitalocean).
 
+## boxd sync config
+
+```
+~/.ssh/bast/sync/boxd/config
+```
+
+boxd computers are written here. Bast does not store a boxd token, because the `boxd` CLI holds the session (`boxd auth login`). SSH uses the port and key from the entries the boxd CLI keeps in `~/.ssh/config`. See [boxd](/docs/features/boxd).
+
 ## Managed keys
 
 ```

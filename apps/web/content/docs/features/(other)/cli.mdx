@@ -81,6 +81,7 @@ bast sync bitqate
 bast sync railway
 bast sync fly
 bast sync digitalocean
+bast sync boxd
 bast sync status
 bast sync disable gcp
 bast sync disable boat
@@ -91,9 +92,10 @@ bast sync disable bitqate
 bast sync disable railway
 bast sync disable fly
 bast sync disable digitalocean
+bast sync disable boxd
 ```
 
-Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [Boat](/docs/features/boat), [Upstash Box](/docs/features/upstash), [Vercel Sandbox](/docs/features/vercel), [Hetzner Cloud](/docs/features/hetzner), [BitQate](/docs/features/bitqate), [Railway](/docs/features/railway), [Fly.io](/docs/features/fly), or [DigitalOcean](/docs/features/digitalocean) for provider setup.
+Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [Boat](/docs/features/boat), [Upstash Box](/docs/features/upstash), [Vercel Sandbox](/docs/features/vercel), [Hetzner Cloud](/docs/features/hetzner), [BitQate](/docs/features/bitqate), [Railway](/docs/features/railway), [Fly.io](/docs/features/fly), [DigitalOcean](/docs/features/digitalocean), or [boxd](/docs/features/boxd) for provider setup.
 
 ```bash
 bast upstash new [--name name] [--runtime node] [--size small] [--keep-alive]
@@ -147,6 +149,15 @@ bast digitalocean delete <host|id> [--yes]
 ```
 
 `bast do` is an alias of `bast digitalocean`.
+
+```bash
+bast boxd new [--name name] [--org org] [--region region] [--vcpu n] [--snapshot name]
+bast boxd fork <host|name> [--name name]
+bast boxd stop <host|name>
+bast boxd start <host|name>
+bast boxd restart <host|name>
+bast boxd delete <host|name> [--yes]
+```
 
 ## JSON mode
 

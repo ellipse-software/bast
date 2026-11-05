@@ -209,6 +209,16 @@ type DigitalOceanIntegration struct {
 	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
 }
 
+type BoxdIntegration struct {
+	Enabled           bool       `json:"enabled"`
+	AutoSync          bool       `json:"autoSync,omitempty"`
+	Disabled          bool       `json:"disabled,omitempty"`
+	OrgFilter         []string   `json:"orgFilter,omitempty"`
+	LastSyncAt        *time.Time `json:"lastSyncAt,omitempty"`
+	LastSyncError     string     `json:"lastSyncError,omitempty"`
+	LastInstanceCount int        `json:"lastInstanceCount,omitempty"`
+}
+
 type Integrations struct {
 	GCP          *GCPIntegration          `json:"gcp,omitempty"`
 	AWS          *AWSIntegration          `json:"aws,omitempty"`
@@ -221,6 +231,7 @@ type Integrations struct {
 	Railway      *RailwayIntegration      `json:"railway,omitempty"`
 	Fly          *FlyIntegration          `json:"fly,omitempty"`
 	DigitalOcean *DigitalOceanIntegration `json:"digitalocean,omitempty"`
+	Boxd         *BoxdIntegration         `json:"boxd,omitempty"`
 }
 
 // Read the former provider name without writing it back into new state files.
@@ -1167,6 +1178,42 @@ func cloneFly(fly FlyIntegration) FlyIntegration {
 	return fly
 }
 
+func (s *Store) Boxd() BoxdIntegration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.state.Integrations.Boxd == nil {
+		return BoxdIntegration{}
+	}
+	return cloneBoxd(*s.state.Integrations.Boxd)
+}
+
+func (s *Store) SetBoxd(boxd BoxdIntegration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.state.Integrations.Boxd
+	if !boxd.Enabled && !boxd.AutoSync && !boxd.Disabled && len(boxd.OrgFilter) == 0 &&
+		boxd.LastSyncAt == nil && boxd.LastSyncError == "" && boxd.LastInstanceCount == 0 {
+		s.state.Integrations.Boxd = nil
+	} else {
+		copy := cloneBoxd(boxd)
+		s.state.Integrations.Boxd = &copy
+	}
+	if err := s.save(); err != nil {
+		s.state.Integrations.Boxd = previous
+		return err
+	}
+	return nil
+}
+
+func cloneBoxd(boxd BoxdIntegration) BoxdIntegration {
+	boxd.OrgFilter = append([]string(nil), boxd.OrgFilter...)
+	if boxd.LastSyncAt != nil {
+		lastSyncAt := *boxd.LastSyncAt
+		boxd.LastSyncAt = &lastSyncAt
+	}
+	return boxd
+}
+
 func (s *Store) DigitalOcean() DigitalOceanIntegration {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1250,6 +1297,10 @@ func cloneIntegrations(integrations Integrations) Integrations {
 	if integrations.DigitalOcean != nil {
 		digitalOcean := cloneDigitalOcean(*integrations.DigitalOcean)
 		out.DigitalOcean = &digitalOcean
+	}
+	if integrations.Boxd != nil {
+		boxd := cloneBoxd(*integrations.Boxd)
+		out.Boxd = &boxd
 	}
 	return out
 }

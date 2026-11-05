@@ -256,5 +256,12 @@ func packIntegrations(in metadata.Integrations) VaultIntegrations {
 			DefaultSSHUser: in.DigitalOcean.DefaultSSHUser,
 		}
 	}
+	if in.Boxd != nil {
+		out.Boxd = &VaultBoxdIntegration{
+			Enabled:   in.Boxd.Enabled,
+			AutoSync:  in.Boxd.AutoSync,
+			OrgFilter: append([]string(nil), in.Boxd.OrgFilter...),
+		}
+	}
 	return out
 }

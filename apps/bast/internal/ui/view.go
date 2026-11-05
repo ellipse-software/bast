@@ -681,6 +681,8 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool
 		return suffix("Fly.io", brandText("#8B5CF6", icon("Fly.io")+"Fly.io", restStyle))
 	case name == "DigitalOcean" || strings.HasPrefix(name, "DigitalOcean/"):
 		return suffix("DigitalOcean", brandText("#0080FF", icon("DigitalOcean")+"DigitalOcean", restStyle))
+	case name == "boxd" || strings.HasPrefix(name, "boxd/"):
+		return suffix("boxd", brandText("#F4F4F5", icon("boxd")+"boxd", restStyle))
 	default:
 		return name
 	}

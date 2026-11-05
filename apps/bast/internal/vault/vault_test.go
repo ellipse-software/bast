@@ -405,10 +405,11 @@ func TestMergeIntegrationsKeepsNewSyncProviders(t *testing.T) {
 		Railway:      &VaultRailwayIntegration{Enabled: true, AutoSync: true},
 		Fly:          &VaultFlyIntegration{Enabled: true, OrgFilter: []string{"personal"}},
 		DigitalOcean: &VaultDigitalOceanIntegration{Enabled: true, ContextFilter: []string{"default"}},
+		Boxd:         &VaultBoxdIntegration{Enabled: true, OrgFilter: []string{"acme"}},
 	}
 	remote := VaultIntegrations{GCP: &VaultGCPIntegration{Enabled: true}}
 	got := mergeIntegrations(remote, local)
-	if got.Railway == nil || !got.Railway.Enabled || got.Fly == nil || len(got.Fly.OrgFilter) != 1 || got.DigitalOcean == nil || got.GCP == nil {
+	if got.Railway == nil || !got.Railway.Enabled || got.Fly == nil || len(got.Fly.OrgFilter) != 1 || got.DigitalOcean == nil || got.Boxd == nil || len(got.Boxd.OrgFilter) != 1 || got.GCP == nil {
 		t.Fatalf("merge dropped sync providers: %+v", got)
 	}
 }

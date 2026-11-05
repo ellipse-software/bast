@@ -257,7 +257,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		config: sshconfig.Manager{
 			Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
 			ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
-			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig, SyncRailwayConfig: p.SyncRailwayConfig, SyncFlyConfig: p.SyncFlyConfig, SyncDigitalOceanConfig: p.SyncDigitalOceanConfig,
+			SyncGCPConfig: p.SyncGCPConfig, SyncAWSConfig: p.SyncAWSConfig, SyncAzureConfig: p.SyncAzureConfig, SyncBoatConfig: p.SyncBoatConfig, SyncUpstashConfig: p.SyncUpstashConfig, SyncVercelConfig: p.SyncVercelConfig, SyncHetznerConfig: p.SyncHetznerConfig, SyncBitqateConfig: p.SyncBitqateConfig, SyncRailwayConfig: p.SyncRailwayConfig, SyncFlyConfig: p.SyncFlyConfig, SyncDigitalOceanConfig: p.SyncDigitalOceanConfig, SyncBoxdConfig: p.SyncBoxdConfig,
 		},
 		openSSH:          client,
 		keyring:          keys.Manager{Paths: p, SSHKeygen: client.SSHKeygen, SSHAdd: client.SSHAdd},
@@ -331,6 +331,8 @@ func (m *App) clearProviderProbeError(provider string) {
 		m.syncStatus.Fly.FlyCLIError = ""
 	case "digitalocean":
 		m.syncStatus.DigitalOcean.DOCTLError = ""
+	case "boxd":
+		m.syncStatus.Boxd.BoxdCLIError = ""
 	}
 }
 
@@ -374,6 +376,7 @@ func (m *App) syncCompletionNotice(provider string, count int) string {
 		{id: "railway", name: "Railway", enabled: m.metadata.Railway().Enabled, count: m.metadata.Railway().LastInstanceCount},
 		{id: "fly", name: "Fly", enabled: m.metadata.Fly().Enabled, count: m.metadata.Fly().LastInstanceCount},
 		{id: "digitalocean", name: "DigitalOcean", enabled: m.metadata.DigitalOcean().Enabled, count: m.metadata.DigitalOcean().LastInstanceCount},
+		{id: "boxd", name: "boxd", enabled: m.metadata.Boxd().Enabled, count: m.metadata.Boxd().LastInstanceCount},
 	}
 	parts := make([]string, 0, len(providers))
 	for _, item := range providers {
@@ -472,6 +475,10 @@ func (m *App) autoSyncCmds() tea.Cmd {
 	if ocean := m.metadata.DigitalOcean(); ocean.Enabled && ocean.AutoSync && !m.syncingProviders["digitalocean"] {
 		m.beginProviderOp("digitalocean")
 		autoSyncCmds = append(autoSyncCmds, m.syncDigitalOceanCmd())
+	}
+	if boxd := m.metadata.Boxd(); !boxd.Disabled && boxd.Enabled && boxd.AutoSync && !m.syncingProviders["boxd"] {
+		m.beginProviderOp("boxd")
+		autoSyncCmds = append(autoSyncCmds, m.syncBoxdCmd())
 	}
 	if pull := m.vaultPullCmd(false); pull != nil {
 		autoSyncCmds = append(autoSyncCmds, pull)
