@@ -685,6 +685,66 @@ func TestBoxdEngineLifecycle(t *testing.T) {
 	}
 }
 
+func TestNewBoxdReportsAComputerThatFailsToBoot(t *testing.T) {
+	engine, p, _, fake := boxdTestEngine(t)
+	fake.BootStatus = "failed"
+	ctx := context.Background()
+	result, alias, err := engine.NewBoxd(ctx, boxdcloud.CreateOpts{Region: "nyc", Name: "api"})
+	if err == nil || !strings.Contains(err.Error(), "failed") {
+		t.Fatalf("err = %v", err)
+	}
+	if alias != "" {
+		t.Fatalf("alias = %q; a failed boot must not look like success", alias)
+	}
+	apiID := boxdcloud.FormatSyncID(sandboxfake.BoxdOrgID, "nyc", "api")
+	if block := hostBySyncID(loadProviderConfig(t, p.SyncBoxdConfig), apiID); block.Alias == "" {
+		t.Fatal("failed computer was not synced")
+	}
+	if result.Count != 1 {
+		t.Fatalf("sync count = %d", result.Count)
+	}
+}
+
+func TestForkBoxdReportsACopyThatFailsToBoot(t *testing.T) {
+	engine, _, _, fake := boxdTestEngine(t)
+	fake.Put(sandboxfake.BoxdComputer{Region: "nyc", Name: "api", Status: "running"})
+	ctx := context.Background()
+	if _, err := engine.SyncBoxd(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fake.BootStatus = "failed"
+	apiID := boxdcloud.FormatSyncID(sandboxfake.BoxdOrgID, "nyc", "api")
+	_, alias, err := engine.ForkBoxd(ctx, apiID, boxdcloud.ForkOpts{Name: "api-copy"})
+	if err == nil || !strings.Contains(err.Error(), "failed") {
+		t.Fatalf("err = %v", err)
+	}
+	if alias != "" {
+		t.Fatalf("alias = %q; a failed fork must not look like success", alias)
+	}
+}
+
+func TestNewBoxdRefusesAnOrgOutsideTheFilter(t *testing.T) {
+	engine, _, store, fake := boxdTestEngine(t)
+	fake.ExtraOrgs = []sandboxfake.BoxdAccountOrg{{ID: "org-other", Name: "other"}}
+	integration := store.Boxd()
+	integration.OrgFilter = []string{sandboxfake.BoxdOrgName}
+	if err := store.SetBoxd(integration); err != nil {
+		t.Fatal(err)
+	}
+	_, alias, err := engine.NewBoxd(context.Background(), boxdcloud.CreateOpts{OrgID: "other", Name: "api"})
+	if err == nil || !strings.Contains(err.Error(), "outside the sync filter") {
+		t.Fatalf("err = %v", err)
+	}
+	if alias != "" {
+		t.Fatalf("alias = %q", alias)
+	}
+	for _, call := range fake.Calls {
+		if len(call) >= 2 && call[0] == "machine" && call[1] == "new" {
+			t.Fatalf("created a computer outside the filter: %v", call)
+		}
+	}
+}
+
 func TestBoxdSyncKeepsTheLastPortWhileTheCLIRewritesItsEntries(t *testing.T) {
 	engine, p, _, fake := boxdTestEngine(t)
 	fake.Put(sandboxfake.BoxdComputer{Region: "nyc", Name: "web", Status: "running", Port: "10022"})

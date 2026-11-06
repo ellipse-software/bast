@@ -23,7 +23,8 @@ type SyncProvider =
   | "bitqate"
   | "railway"
   | "fly"
-  | "digitalocean";
+  | "digitalocean"
+  | "boxd";
 
 const providerNerdIcon: Record<Exclude<SyncProvider, "">, string> = {
   gcp: "\ue7f1",
@@ -37,6 +38,7 @@ const providerNerdIcon: Record<Exclude<SyncProvider, "">, string> = {
   railway: "\uf238",
   fly: "\uf072",
   digitalocean: "\ue7ae",
+  boxd: "\u{f01a7}",
 };
 
 const providerLabel: Record<Exclude<SyncProvider, "">, string> = {
@@ -51,6 +53,7 @@ const providerLabel: Record<Exclude<SyncProvider, "">, string> = {
   railway: "Railway",
   fly: "Fly.io",
   digitalocean: "DigitalOcean",
+  boxd: "boxd",
 };
 
 const providerColor: Record<Exclude<SyncProvider, "">, string> = {
@@ -65,6 +68,7 @@ const providerColor: Record<Exclude<SyncProvider, "">, string> = {
   railway: "text-[#853BCC]",
   fly: "text-[#8B5CF6]",
   digitalocean: "text-[#0080FF]",
+  boxd: "text-[#F4F4F5]",
 };
 
 type DetailRow = { label: string; value: string };
@@ -372,6 +376,12 @@ const syncTiles: SyncTile[] = [
     detail: "3 running",
     description: "Create and import Droplets in Bast",
   },
+  {
+    id: "boxd",
+    title: "boxd",
+    detail: "2 running",
+    description: "Import boxd computers into Bast",
+  },
 ];
 
 const vaultMenu: SyncMenuItem[] = [
@@ -522,6 +532,16 @@ const providerPages: Record<Exclude<SyncProvider, "">, ProviderPage> = {
       { label: "Default SSH user" },
       { label: "Context filter" },
       { label: "Region filter" },
+      { label: "Refresh status" },
+    ],
+  },
+  boxd: {
+    identity: ["enabled · 2 running", "boxd · auto-sync on"],
+    chips: ["Sync", "New computer"],
+    config: [
+      { label: "Disconnect" },
+      { label: "Disable auto-sync" },
+      { label: "Org filter" },
       { label: "Refresh status" },
     ],
   },

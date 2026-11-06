@@ -43,7 +43,7 @@ export const puttyComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud hosts",
-      bast: "CLIs for GCP, AWS, Azure, Boat, Fly.io, and DigitalOcean; APIs for Hetzner, Upstash, Vercel, BitQate, and Railway",
+      bast: "CLIs for GCP, AWS, Azure, Boat, Fly.io, DigitalOcean, and boxd; APIs for Hetzner, Upstash, Vercel, BitQate, and Railway",
       competitor: "Not built in",
     },
     {
@@ -123,9 +123,9 @@ export const puttyComparison: ComparisonCaseStudy = {
         </>,
         <>
           Cloud sync pulls live hosts from GCP, AWS, Azure, and Boat
-          through their CLIs, from Fly.io and DigitalOcean through flyctl and
-          doctl, and from Hetzner Cloud, Upstash Box, Vercel Sandbox, BitQate,
-          and Railway over their APIs. That is a different job from saving a
+          through their CLIs, from Fly.io, DigitalOcean, and boxd through flyctl,
+          doctl, and the boxd CLI, and from Hetzner Cloud, Upstash Box, Vercel
+          Sandbox, BitQate, and Railway over their APIs. That is a different job from saving a
           static PuTTY session for a box you typed in by hand.
         </>,
       ],

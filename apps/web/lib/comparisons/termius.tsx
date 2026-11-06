@@ -43,7 +43,7 @@ export const termiusComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud hosts",
-      bast: "CLIs for GCP, AWS, Azure, Boat, Fly.io, and DigitalOcean; APIs for Hetzner, Upstash, Vercel, BitQate, and Railway",
+      bast: "CLIs for GCP, AWS, Azure, Boat, Fly.io, DigitalOcean, and boxd; APIs for Hetzner, Upstash, Vercel, BitQate, and Railway",
       competitor: "Mostly manual host setup",
     },
     {
@@ -130,9 +130,9 @@ export const termiusComparison: ComparisonCaseStudy = {
       paragraphs: [
         <>
           Bast imports live inventory from GCP, AWS, Azure, and Boat
-          through their CLIs, from Fly.io and DigitalOcean through flyctl and
-          doctl, and from Hetzner Cloud, Upstash Box, Vercel Sandbox, BitQate,
-          and Railway over their APIs. Synced hosts stay read-only and owned by
+          through their CLIs, from Fly.io, DigitalOcean, and boxd through flyctl,
+          doctl, and the boxd CLI, and from Hetzner Cloud, Upstash Box, Vercel
+          Sandbox, BitQate, and Railway over their APIs. Synced hosts stay read-only and owned by
           the cloud. When an instance disappears upstream, sync removes it
           locally instead of leaving stale GUI bookmarks behind.
         </>,

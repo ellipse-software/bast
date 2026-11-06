@@ -188,12 +188,7 @@ func (e *Engine) NewBoxd(ctx context.Context, opts boxdcloud.CreateOpts) (Result
 	if err != nil && created.Name == "" {
 		return Result{}, "", err
 	}
-	result, syncErr := e.syncBoxdLocked(ctx)
-	alias := e.AliasForBoxdHost(ctx, created.HostName)
-	if err != nil {
-		return result, alias, err
-	}
-	return result, alias, syncErr
+	return e.finishBoxdMutation(ctx, created, err)
 }
 
 // boxdOrgID resolves an org name (or nothing, for the synced org) to its id.
@@ -205,18 +200,34 @@ func (e *Engine) boxdOrgID(ctx context.Context, org string) (string, error) {
 	if !account.Authenticated {
 		return "", fmt.Errorf("%s", account.Error)
 	}
-	filter := e.Store.Boxd().OrgFilter
-	if strings.TrimSpace(org) != "" {
-		filter = []string{org}
-	}
-	orgs, err := boxdcloud.SelectOrgs(account, filter)
+	synced, err := boxdcloud.SelectOrgs(account, e.Store.Boxd().OrgFilter)
 	if err != nil {
 		return "", err
 	}
-	if len(orgs) != 1 {
-		return "", fmt.Errorf("pick one boxd org with --org; syncing %d", len(orgs))
+	want := strings.TrimSpace(org)
+	if want == "" {
+		if len(synced) != 1 {
+			return "", fmt.Errorf("pick one boxd org with --org; syncing %d", len(synced))
+		}
+		return synced[0].ID, nil
 	}
-	return orgs[0].ID, nil
+	chosen, err := boxdcloud.SelectOrgs(account, []string{want})
+	if err != nil {
+		return "", err
+	}
+	if len(chosen) != 1 {
+		return "", fmt.Errorf("pick one boxd org with --org")
+	}
+	for _, item := range synced {
+		if item.ID == chosen[0].ID {
+			return item.ID, nil
+		}
+	}
+	name := chosen[0].Name
+	if name == "" {
+		name = chosen[0].ID
+	}
+	return "", fmt.Errorf("boxd org %s is outside the sync filter; add it before creating a computer there", name)
 }
 
 func (e *Engine) ForkBoxd(ctx context.Context, syncID string, opts boxdcloud.ForkOpts) (Result, string, error) {
@@ -228,12 +239,22 @@ func (e *Engine) ForkBoxd(ctx context.Context, syncID string, opts boxdcloud.For
 	if err != nil && created.Name == "" {
 		return Result{}, "", err
 	}
+	return e.finishBoxdMutation(ctx, created, err)
+}
+
+// finishBoxdMutation syncs after a create or fork. A readiness failure still
+// syncs, so the computer shows up, but it returns no alias: callers treat an
+// alias as success. A sync failure after a successful mutation keeps the alias
+// and returns the sync error.
+func (e *Engine) finishBoxdMutation(ctx context.Context, created boxdcloud.Created, opErr error) (Result, string, error) {
 	result, syncErr := e.syncBoxdLocked(ctx)
-	alias := e.AliasForBoxdHost(ctx, created.HostName)
-	if err != nil {
-		return result, alias, err
+	if opErr != nil {
+		if syncErr != nil {
+			opErr = fmt.Errorf("%w; sync: %v", opErr, syncErr)
+		}
+		return result, "", opErr
 	}
-	return result, alias, syncErr
+	return result, e.AliasForBoxdHost(ctx, created.HostName), syncErr
 }
 
 func (e *Engine) StopBoxd(ctx context.Context, syncID string) (Result, error) {
