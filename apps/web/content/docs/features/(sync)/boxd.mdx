@@ -46,11 +46,11 @@ The boxd CLI keeps a block of `Host` entries in `~/.ssh/config` with each comput
 
 | Situation | Behavior |
 | --- | --- |
-| Running computer | OpenSSH to `<name>.<region>.boxd.sh` on the computer's port, as `boxd` |
+| Running computer | OpenSSH as `boxd`, on the computer's port. The home region is `<name>.boxd.sh`; every other region is `<name>.<region>.boxd.sh` |
 | Standby or hibernated computer | The SSH connection wakes it; Bast makes no lifecycle call |
 | Stopped computer | Enter starts it, refreshes sync, then SSHs in |
 | No SSH entry yet | Bast runs `boxd machine list`, which makes the CLI rewrite its entries, and waits for the entry |
-| SSH turned off | Connect explains how to turn it on with `boxd machine config set <name> ssh on` |
+| SSH turned off | Connect explains how to turn it on with `boxd machine config set <name> ssh on --org <org-id> --region <region>` |
 
 An API key in `BOXD_TOKEN` works for listing and lifecycle, but the CLI writes SSH entries only for a signed-in session, so connect needs `boxd auth login`. SFTP in Files uses the same path.
 
@@ -58,7 +58,7 @@ An API key in `BOXD_TOKEN` works for listing and lifecycle, but the CLI writes S
 
 | Action | What boxd does |
 | --- | --- |
-| New | `boxd machine new` in the org being synced (optional name, org, region, vCPUs, snapshot) |
+| New | `boxd machine new` in an org Bast is already syncing (optional name, region, vCPUs, snapshot). `--org` has to be one of those orgs |
 | Stop (`o` / `bast boxd stop`) | Stops the computer. The disk is kept; running processes stop |
 | Start (`r` / Enter on a stopped computer) | `boxd machine start`, then SSH |
 | Restart (`R`) | `boxd machine reboot` |

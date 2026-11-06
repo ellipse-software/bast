@@ -114,6 +114,12 @@ func (m *App) submitBoxdForm(action string, values map[string]string) tea.Cmd {
 		m.form = nil
 		return m.setNotice("boxd org filter updated")
 	}
+	if action == "boxd_new" && strings.TrimSpace(values["Snapshot"]) != "" && strings.TrimSpace(values["Size"]) != "" {
+		if m.form != nil {
+			m.form.validationError = "a boxd computer from a snapshot keeps the snapshot's size; leave the size blank"
+		}
+		return nil
+	}
 	syncID := strings.TrimSpace(values["SyncID"])
 	m.form = nil
 	if m.syncingProviders["boxd"] {

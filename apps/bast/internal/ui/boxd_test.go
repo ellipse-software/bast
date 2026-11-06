@@ -1,6 +1,9 @@
 package ui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestBoxdNewFormDefaultsToTheOrgSize(t *testing.T) {
 	m := testApp(t)
@@ -15,4 +18,15 @@ func TestBoxdNewFormDefaultsToTheOrgSize(t *testing.T) {
 		return
 	}
 	t.Fatal("no Size field")
+}
+
+func TestBoxdNewFormKeepsASnapshotSizeMismatchOpen(t *testing.T) {
+	m := testApp(t)
+	m.openBoxdNewForm()
+	if cmd := m.submitBoxdForm("boxd_new", map[string]string{"Size": "2", "Snapshot": "golden"}); cmd != nil {
+		t.Fatal("expected the form to stay open")
+	}
+	if m.form == nil || !strings.Contains(m.form.validationError, "snapshot") {
+		t.Fatalf("form = %#v", m.form)
+	}
 }

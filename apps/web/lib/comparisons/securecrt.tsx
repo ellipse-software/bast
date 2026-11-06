@@ -43,7 +43,7 @@ export const securecrtComparison: ComparisonCaseStudy = {
     },
     {
       topic: "Cloud hosts",
-      bast: "CLIs for GCP, AWS, Azure, Boat, Fly.io, and DigitalOcean; APIs for Hetzner, Upstash, Vercel, BitQate, and Railway",
+      bast: "CLIs for GCP, AWS, Azure, Boat, Fly.io, DigitalOcean, and boxd; APIs for Hetzner, Upstash, Vercel, BitQate, and Railway",
       competitor: "Manual or scripted session maintenance",
     },
     {

@@ -23,6 +23,13 @@ type BoxdComputer struct {
 
 // Boxd is an in-process stand-in for the boxd CLI and the SSH entries it
 // writes, for tests that drive the shipped client through its Runner.
+// BoxdAccountOrg is an extra org on the fake signed-in account.
+type BoxdAccountOrg struct {
+	ID     string
+	Name   string
+	Active bool
+}
+
 type Boxd struct {
 	mu        sync.Mutex
 	seq       int
@@ -31,6 +38,11 @@ type Boxd struct {
 	// unavailable regions are left out of a `--region all` list, which names
 	// them on stderr and still succeeds, like the CLI.
 	unavailable map[string]bool
+	// ExtraOrgs are added to the signed-in account beside the default org.
+	ExtraOrgs []BoxdAccountOrg
+	// BootStatus is the status a created or forked computer comes up in.
+	// Empty means running.
+	BootStatus string
 }
 
 func NewBoxd() *Boxd {
@@ -55,6 +67,13 @@ func (b *Boxd) Remove(region, name string) {
 }
 
 func boxdKey(region, name string) string { return region + "/" + name }
+
+func (b *Boxd) bootStatus() string {
+	if b.BootStatus == "" {
+		return "running"
+	}
+	return b.BootStatus
+}
 
 func (b *Boxd) Put(c BoxdComputer) {
 	b.mu.Lock()
@@ -133,7 +152,15 @@ func (b *Boxd) respond(args []string) ([]byte, error) {
 	case "version":
 		return []byte("boxd 0.3.3\n"), nil
 	case "auth":
-		return []byte(`{"active_org":"` + BoxdOrgName + `","display_name":"tester","orgs":[{"active":true,"id":"` + BoxdOrgID + `","is_admin":true,"name":"` + BoxdOrgName + `"}],"user_id":"gh-tester"}`), nil
+		orgs := []map[string]any{{
+			"active": true, "id": BoxdOrgID, "is_admin": true, "name": BoxdOrgName,
+		}}
+		for _, extra := range b.ExtraOrgs {
+			orgs = append(orgs, map[string]any{"active": extra.Active, "id": extra.ID, "name": extra.Name})
+		}
+		return json.Marshal(map[string]any{
+			"active_org": BoxdOrgName, "display_name": "tester", "orgs": orgs, "user_id": "gh-tester",
+		})
 	}
 	if args[0] != "machine" || len(args) < 2 {
 		return nil, fmt.Errorf("boxd: unexpected command %v", args)
@@ -164,7 +191,7 @@ func (b *Boxd) respond(args []string) ([]byte, error) {
 			name = fmt.Sprintf("auto-%d", b.seq)
 		}
 		b.seq++
-		c := &BoxdComputer{Region: region, Name: name, Status: "running", Port: fmt.Sprintf("%d", 20000+b.seq)}
+		c := &BoxdComputer{Region: region, Name: name, Status: b.bootStatus(), Port: fmt.Sprintf("%d", 20000+b.seq)}
 		b.Computers[boxdKey(region, name)] = c
 		return json.Marshal(map[string]string{"id": "id-" + name, "name": name, "url": boxdURL(c), "boot": "6ms"})
 	}
@@ -181,7 +208,7 @@ func (b *Boxd) respond(args []string) ([]byte, error) {
 			name = args[3]
 		}
 		b.seq++
-		fork := &BoxdComputer{Region: c.Region, Name: name, Status: "running", Port: fmt.Sprintf("%d", 20000+b.seq)}
+		fork := &BoxdComputer{Region: c.Region, Name: name, Status: b.bootStatus(), Port: fmt.Sprintf("%d", 20000+b.seq)}
 		b.Computers[boxdKey(c.Region, name)] = fork
 		return json.Marshal(map[string]string{"id": "id-" + name, "name": name, "url": boxdURL(fork), "boot": "starting"})
 	case "stop":
