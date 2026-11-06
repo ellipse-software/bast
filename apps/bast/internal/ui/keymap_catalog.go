@@ -177,10 +177,12 @@ func buildCatalog() []Binding {
 		bind(ActionNewOrFork, []string{"n"}, ScopeSync, "New sandbox, or fork selected sandbox", "fork"),
 		bind(ActionStopSandbox, []string{"o"}, ScopeSync, "Stop or pause selected sandbox", "stop"),
 		bind(ActionDelete, []string{"d"}, ScopeSync, "Delete selected sandbox", "delete"),
+		bind(ActionSyncTab, []string{"tab"}, ScopeSync, "Switch pane", "").chord("Tab"),
 		bind(ActionSyncBack, []string{"esc", "backspace", "ctrl+h"}, ScopeSync, "Back", "back").when(func(m *App) bool { return m.syncProvider != "" }),
 		bind(ActionReload, []string{"r"}, ScopeSync, "Resume selected sandbox, or refresh status", "resume"),
-		bind(ActionNone, nil, ScopeSync, "Grid move, or cycle actions", "").chord("h j k l").helpOnly(),
-		bind(ActionMoveLeft, []string{"h", "j", "k", "l"}, ScopeSync, "Move", "move").chord("hjkl").withFooter(10).when(func(m *App) bool { return m.syncProvider == "" }).noHelp().skip(),
+		bind(ActionNone, nil, ScopeSync, "Move", "").chord("j k").helpOnly(),
+		bind(ActionMoveLeft, []string{"j", "k"}, ScopeSync, "Move", "move").chord("jk").withFooter(10).when(func(m *App) bool { return m.syncProvider == "" }).noHelp().skip(),
+		bind(ActionSyncTab, []string{"tab"}, ScopeSync, "Tab", "").withFooter(15).noHelp(),
 		bind(ActionSyncEnter, []string{"enter"}, ScopeSync, "Open", "open").withFooter(20).when(func(m *App) bool { return m.syncProvider == "" }).noHelp(),
 		bind(ActionSyncNow, []string{"s"}, ScopeSync, "Sync", "sync").withFooter(30).when(func(m *App) bool { return m.syncProvider == "" }).noHelp(),
 		bind(ActionMoveLeft, []string{"h", "l"}, ScopeSync, "Cycle", "cycle").chord("h/l").withFooter(10).when(syncFooterCycle).noHelp().skip(),
@@ -388,11 +390,7 @@ func keysFooterSelected(m *App) bool {
 }
 
 func syncFooterLifecycle(m *App) bool {
-	if m.syncProvider == "" {
-		return false
-	}
-	life, _ := m.providerActionLayout()
-	return m.syncCursor < len(life)
+	return false
 }
 
 func syncFooterCycle(m *App) bool {
@@ -429,8 +427,7 @@ func syncInvIndex(m *App) (row hostRow, ok bool) {
 }
 
 func syncFooterInvHeader(m *App) bool {
-	row, ok := syncInvIndex(m)
-	return ok && row.header
+	return false
 }
 
 func syncFooterInvHint(m *App) string {
@@ -445,47 +442,27 @@ func syncFooterInvHint(m *App) string {
 }
 
 func syncFooterInvHost(m *App) bool {
-	row, ok := syncInvIndex(m)
-	if !ok || row.header {
-		return false
-	}
-	return !m.hostHasCapability(row.host, func(c cloud.Capabilities) bool {
-		return c.Stop || c.Start || c.Fork || c.Delete
-	})
+	return false
 }
 
 func syncFooterInvSandbox(m *App) bool {
-	row, ok := syncInvIndex(m)
-	if !ok || row.header {
-		return false
-	}
-	return m.hostHasCapability(row.host, func(c cloud.Capabilities) bool {
-		return c.Stop || c.Start || c.Fork || c.Delete
-	})
+	return false
 }
 
 func syncFooterInvSandboxRunning(m *App) bool {
-	row, ok := syncInvIndex(m)
-	return ok && syncFooterInvSandbox(m) && !m.hostLooksStopped(row.host)
+	return false
 }
 
 func syncFooterInvSandboxStopped(m *App) bool {
-	row, ok := syncInvIndex(m)
-	return ok && syncFooterInvSandbox(m) && m.hostLooksStopped(row.host)
+	return false
 }
 
 func syncFooterInvSandboxDelete(m *App) bool {
-	row, ok := syncInvIndex(m)
-	return ok && syncFooterInvSandbox(m) && (row.host.SyncSource == "upstash" || row.host.SyncSource == "vercel" || row.host.SyncSource == "boat")
+	return false
 }
 
 func syncFooterConfig(m *App) bool {
-	if m.syncProvider == "" {
-		return false
-	}
-	life, _ := m.providerActionLayout()
-	inv := m.providerInventoryRows()
-	return m.syncCursor >= len(life)+len(inv)
+	return false
 }
 
 func filesFooterBrowse(m *App) bool {

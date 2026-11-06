@@ -10,14 +10,14 @@ Every Machine already runs Fly’s built-in SSH server (`hallpass`). You do not 
 ## Requirements
 
 - Fly CLI (`fly` or `flyctl`) on your `PATH`
-- An authenticated Fly account (`fly auth login` in a terminal; Bast runs flyctl without prompts)
+- An authenticated Fly account. On the Sync tab, select Fly.io and choose Login (`fly auth login`). Bast runs flyctl without prompts.
 - A shell in the Machine image for interactive SSH
 
 ## Connect Fly.io
 
 1. Open Bast and press `4` for Sync.
 2. Select **Fly.io** and press Enter.
-3. Choose **Connect** or **Sync now**.
+3. Choose **Login** or **Sync now**.
 
 If flyctl is already installed and logged in, Bast **auto-connects** on TUI start and `bast sync status`, unless you previously chose **Disconnect**.
 

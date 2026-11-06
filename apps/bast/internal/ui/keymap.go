@@ -75,6 +75,7 @@ const (
 	ActionSyncEnter
 	ActionSyncBack
 	ActionSyncNow
+	ActionSyncTab
 	ActionFilesTab
 	ActionFilesSwap
 	ActionFilesLocal

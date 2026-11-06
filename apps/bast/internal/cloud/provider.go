@@ -104,7 +104,7 @@ var descriptors = []Descriptor{
 	{
 		Kind: Boat, Title: "Boat", FullTitle: "boat.dev", GroupRoot: "Boat",
 		LegacyRoots: []string{"Box"}, Description: "Import Boat sandboxes into Bast",
-		BrandColor: "#FFFFFF", NerdIcon: "\U000f0ec8",
+		BrandColor: "#263FA9", NerdIcon: "\U000f0ec8",
 	},
 	{
 		Kind: Upstash, Title: "Upstash", FullTitle: "Upstash Box", GroupRoot: "Upstash",

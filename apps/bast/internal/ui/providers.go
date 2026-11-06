@@ -89,20 +89,10 @@ func (m *App) providerGroupStats(group string) (running, stopped int) {
 
 func (m *App) providerGroupPrimaryAction(kind cloud.Kind) string {
 	if cloud.CapabilitiesFor(kind).Create {
-		if kind == cloud.Upstash {
-			return " New box "
-		}
-		if kind == cloud.Boat || kind == cloud.Vercel {
-			return " New sandbox "
-		}
-		if kind == cloud.Railway {
-			return " New service "
-		}
-		if kind == cloud.Fly {
-			return " New machine "
-		}
-		if kind == cloud.Boxd {
-			return " New computer "
+		if svc, ok := m.providerService(kind); ok {
+			if label := svc.CreateLabel(); label != "" {
+				return " " + label + " "
+			}
 		}
 		return " New "
 	}
@@ -341,9 +331,5 @@ func (m *App) syncProviderFromHosts(kind cloud.Kind) (tea.Model, tea.Cmd) {
 	if m.anySyncing() {
 		return m, m.setNotice("Sync already in progress")
 	}
-	previous := m.syncProvider
-	m.syncProvider = string(kind)
-	model, cmd := m.runSyncAction("sync")
-	m.syncProvider = previous
-	return model, cmd
+	return m.startProviderSync(kind)
 }

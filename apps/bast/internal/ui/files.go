@@ -277,8 +277,10 @@ func (m *App) renderFiles(s styleSet) string {
 		rule := s.rule.Render(strings.Repeat("─", layout.listWidth))
 		return left + "\n" + rule + "\n" + right
 	}
+	divider := s.rule.Render(strings.TrimSuffix(strings.Repeat("│\n", layout.bodyHeight), "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top,
 		lipgloss.NewStyle().Width(layout.listWidth).Height(layout.listHeight).Render(left),
+		divider,
 		lipgloss.NewStyle().Width(layout.detailWidth).Height(layout.detailHeight).Render(right),
 	)
 }

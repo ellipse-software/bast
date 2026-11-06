@@ -60,7 +60,7 @@ const providerColor: Record<Exclude<SyncProvider, "">, string> = {
   gcp: "text-[#4285F4]",
   aws: "text-[#FF9900]",
   azure: "text-[#0078D4]",
-  boat: "text-foreground",
+  boat: "text-[#263FA9]",
   upstash: "text-[#00E9A3]",
   vercel: "text-foreground",
   hetzner: "text-[#D50C2D]",

@@ -316,15 +316,10 @@ func (m *App) moveMenuWheel(delta int) (tea.Model, tea.Cmd) {
 		m.syncCursor = next
 		return m, nil
 	}
-	if m.syncProvider != "" {
-		if delta < 0 {
-			return m.updateProviderKeys("k")
-		}
-		return m.updateProviderKeys("j")
+	if delta < 0 {
+		return m.updateSyncKeys("k")
 	}
-	items := m.syncMenuItems()
-	m.moveSyncGrid(0, delta, items)
-	return m, nil
+	return m.updateSyncKeys("j")
 }
 
 func (m *App) updateKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

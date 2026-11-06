@@ -40,7 +40,7 @@ func testApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &App{paths: p, openSSH: openssh.Default(), metadata: store, hosts: []sshconfig.Host{{Alias: "alpha"}, {Alias: "beta"}}, width: 100, height: 30, dark: true}
+	return &App{paths: p, openSSH: openssh.Default(), metadata: store, syncer: cloudsync.New(p, store), hosts: []sshconfig.Host{{Alias: "alpha"}, {Alias: "beta"}}, width: 100, height: 30, dark: true}
 }
 
 func processFixtureCommand(t *testing.T, behavior string) *exec.Cmd {
@@ -176,6 +176,49 @@ func selectProviderHost(t *testing.T, m *App, alias string) {
 		}
 	}
 	t.Fatalf("provider host %q not found", alias)
+}
+
+func activateSyncRow(t *testing.T, m *App, kind cloud.Kind, id string) {
+	t.Helper()
+	m.section = syncSection
+	m.syncProvider = string(kind)
+	rows := m.syncSettingRows(kind)
+	for i, row := range rows {
+		if row.id == id {
+			m.syncCursor = i
+			m.updateSyncKeys("enter")
+			return
+		}
+	}
+	t.Fatalf("no sync row %s for %s: %+v", id, kind, rows)
+}
+
+func syncDetailClick(t *testing.T, m *App, kind cloud.Kind, id string) (x, y int) {
+	t.Helper()
+	layout := m.panelLayout()
+	lines, rowLine := m.syncDetailLines(kind, layout.detailWidth)
+	rows := m.syncSettingRows(kind)
+	idx := -1
+	for i, row := range rows {
+		if row.id == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 || idx >= len(rowLine) {
+		t.Fatalf("no sync row %s for %s: %+v", id, kind, rows)
+	}
+	focus := 0
+	if m.syncProvider != "" && m.syncCursor >= 0 && m.syncCursor < len(rowLine) {
+		focus = rowLine[m.syncCursor]
+	}
+	start := scrollStart(focus, len(lines), layout.detailHeight)
+	y = layout.detailTop + (rowLine[idx] - start)
+	x = 4
+	if !layout.mobile {
+		x = layout.listWidth + 4
+	}
+	return x, y
 }
 
 func TestNumberedNavigationAndSearch(t *testing.T) {
@@ -481,8 +524,13 @@ func TestCloudSyncRootShowsCurrentCLIError(t *testing.T) {
 	m.syncStatus.AWS.AWSCLIError = "aws executable not found"
 	m.sortHosts()
 
+	if rendered := m.renderHosts(m.styles()); strings.Contains(rendered, "⚠") {
+		t.Fatalf("a missing CLI should not mark the group as failed:\n%s", rendered)
+	}
+
+	m.syncStatus.AWS.AWSCLIError = "access denied"
 	if rendered := m.renderHosts(m.styles()); strings.Count(rendered, "⚠") != 1 {
-		t.Fatalf("expected one error icon for the current CLI error:\n%s", rendered)
+		t.Fatalf("expected one error icon for a real CLI failure:\n%s", rendered)
 	}
 }
 
@@ -2222,37 +2270,18 @@ func TestDotToggleKeepsHostCursor(t *testing.T) {
 	}
 }
 
-func TestSyncGridIndentsEveryTileLine(t *testing.T) {
+func TestSyncListHasNoTiles(t *testing.T) {
 	m := testApp(t)
 	m.width = 80
 	m.section = syncSection
-	body := m.renderSync(m.styles())
-	var boxLines []string
-	for _, line := range strings.Split(body, "\n") {
-		if strings.Contains(line, "┌") || strings.Contains(line, "│") || strings.Contains(line, "└") {
-			boxLines = append(boxLines, line)
-		}
+	raw := m.renderSync(m.styles())
+	body := stripANSI(raw)
+	if strings.Contains(body, "┌") || strings.Contains(body, "└") {
+		t.Fatalf("sync list should not draw tiles:\n%s", body)
 	}
-	if len(boxLines) < 4 {
-		t.Fatalf("expected boxed grid:\n%s", body)
-	}
-	leading := func(s string) int {
-		n := 0
-		for _, r := range s {
-			if r != ' ' {
-				break
-			}
-			n++
-		}
-		return n
-	}
-	want := leading(boxLines[0])
-	if want < 2 {
-		t.Fatalf("expected indented tiles, got %d\n%s", want, body)
-	}
-	for _, line := range boxLines {
-		if got := leading(line); got != want {
-			t.Fatalf("indent %d != %d\n%q\n%s", got, want, line, body)
+	for _, name := range []string{"Google Cloud", "Amazon EC2", "Boat", "boxd"} {
+		if !strings.Contains(body, name) {
+			t.Fatalf("missing %s\n%s", name, raw)
 		}
 	}
 }
@@ -2270,7 +2299,7 @@ func TestHelpUsesTerminalWidthWithoutWrapping(t *testing.T) {
 	}
 }
 
-func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
+func TestSyncListStacksOnMobile(t *testing.T) {
 	m := testApp(t)
 	m.width = 50
 	m.height = 40
@@ -2278,15 +2307,16 @@ func TestSyncGridStaysBoxedOnMobile(t *testing.T) {
 	if !m.isMobileLayout() {
 		t.Fatal("expected mobile layout")
 	}
-	if m.syncGridCols() != 1 {
-		t.Fatalf("mobile grid cols = %d", m.syncGridCols())
+	raw := m.renderSync(m.styles())
+	body := stripANSI(raw)
+	if strings.Contains(raw, "┌") || strings.Contains(body, "│") {
+		t.Fatalf("mobile sync should stack, not tile:\n%s", raw)
 	}
-	body := m.renderSync(m.styles())
-	if strings.Count(body, "┌") != 8 {
-		t.Fatalf("mobile should keep one boxed tile per provider:\n%s", body)
+	if !strings.Contains(body, "─") {
+		t.Fatalf("mobile sync should separate list and settings:\n%s", body)
 	}
-	if !strings.Contains(body, " Cloud") || !strings.Contains(body, "Boat") || !strings.Contains(body, "Upstash") || !strings.Contains(body, "Vercel") || !strings.Contains(body, "Hetzner") || !strings.Contains(body, "BitQate") {
-		t.Fatalf("mobile grid body:\n%s", body)
+	if !strings.Contains(body, "Google Cloud") || !strings.Contains(body, "Boat") || !strings.Contains(body, "Upstash") || !strings.Contains(body, "Vercel") || !strings.Contains(body, "Hetzner") || !strings.Contains(body, "BitQate") {
+		t.Fatalf("mobile sync body:\n%s", body)
 	}
 }
 
@@ -2348,14 +2378,15 @@ func TestSyncGridScrollsWhenProvidersOverflow(t *testing.T) {
 		t.Fatalf("wheel should keep the focused provider in view:\n%s", body)
 	}
 
-	startRow, _, _ := m.syncGridWindow(m.syncMenuItems())
-	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: 3, Button: tea.MouseLeft}))
-	if m.syncCursor != startRow {
-		t.Fatalf("click on first visible tile should select row %d, got %d", startRow, m.syncCursor)
+	layout := m.panelLayout()
+	start := scrollStart(m.syncCursor, len(cloud.Descriptors()), layout.listHeight)
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: layout.listTop, Button: tea.MouseLeft}))
+	if m.syncCursor != start {
+		t.Fatalf("click on first visible row should select %d, got %d", start, m.syncCursor)
 	}
 
 	m.width = 100
-	m.height = 12
+	m.height = 7
 	m.syncCursor = 0
 	if m.isMobileLayout() {
 		t.Fatal("expected desktop layout")
@@ -2370,39 +2401,23 @@ func TestSyncGridScrollsWhenProvidersOverflow(t *testing.T) {
 	}
 }
 
-func TestProviderPageScrollsWhenInventoryOverflows(t *testing.T) {
+func TestSyncSettingsScroll(t *testing.T) {
 	m := testApp(t)
-	m.width = 80
-	m.height = 14
+	m.width = 100
+	m.height = 10
 	m.section = syncSection
-	m.syncProvider = "gcp"
-	m.hosts = make([]sshconfig.Host, 0, 24)
-	for i := 0; i < 24; i++ {
-		alias := fmt.Sprintf("gcp_host_%02d", i)
-		m.hosts = append(m.hosts, sshconfig.Host{
-			Alias: alias, Synced: true, SyncSource: "gcp",
-			SyncID: "projects/p/zones/z/instances/" + alias,
-		})
-		if err := m.metadata.SetHost(alias, metadata.Host{Label: alias, Group: "Google Cloud"}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	m.syncCursor = 0
+	m.updateSyncKeys("l")
 	body := m.renderSync(m.styles())
-	if strings.Contains(body, "Refresh status") {
-		t.Fatalf("short provider page should clip later config:\n%s", body)
+	if !strings.Contains(body, "Login") {
+		t.Fatalf("top of settings should stay visible:\n%s", body)
 	}
-	if !strings.Contains(body, "Connect") && !strings.Contains(body, "Sync") {
-		t.Fatalf("top of provider page should stay visible:\n%s", body)
+	if strings.Contains(body, "Add service account") {
+		t.Fatalf("short settings pane should clip later rows:\n%s", body)
 	}
-
 	m.updateSyncKeys("G")
 	body = m.renderSync(m.styles())
-	if !strings.Contains(body, "Refresh status") {
-		t.Fatalf("last config row should scroll into view:\n%s", body)
-	}
-	if strings.Contains(body, "gcp_host_00") {
-		t.Fatalf("early inventory should scroll away:\n%s", body)
+	if !strings.Contains(body, "Add service account") {
+		t.Fatalf("last setting should scroll into view:\n%s", body)
 	}
 }
 
@@ -2744,6 +2759,59 @@ func TestMainLayoutKeepsDetailsRightAndFooterAtBottom(t *testing.T) {
 	if !strings.Contains(lines[len(lines)-1], "?") {
 		t.Fatalf("footer was not on the bottom row: %q", lines[len(lines)-1])
 	}
+}
+
+func TestSyncAndFilesRulesMeetTheColumnSplit(t *testing.T) {
+	for _, sec := range []section{syncSection, filesSection} {
+		m := testApp(t)
+		m.width, m.height = 80, 24
+		m.section = sec
+		rendered := stripANSI(m.render())
+		lines := strings.Split(rendered, "\n")
+		listWidth, _, bodyHeight := m.columnDimensions()
+		if strings.Count(rendered, "┬") != 1 {
+			t.Fatalf("%v header rule junctions = %d\n%s", sec, strings.Count(rendered, "┬"), rendered)
+		}
+		if len(lines) < 2+bodyHeight {
+			t.Fatalf("%v render has %d lines", sec, len(lines))
+		}
+		if got := runeColumn(lines[1], '┬'); got != listWidth {
+			t.Fatalf("%v junction column = %d, want %d: %q", sec, got, listWidth, lines[1])
+		}
+		for i := 2; i < 2+bodyHeight; i++ {
+			if strings.Count(lines[i], "│") != 1 || runeColumn(lines[i], '│') != listWidth {
+				t.Fatalf("%v line %d divider = %q", sec, i, lines[i])
+			}
+		}
+	}
+
+	m := testApp(t)
+	m.width, m.height = 80, 24
+	m.section = vaultSection
+	if strings.Contains(m.render(), "┬") {
+		t.Fatal("vault should keep a plain header rule")
+	}
+	m.section = filesSection
+	m.files.preview.active = true
+	if strings.Contains(stripANSI(m.render()), "┬") {
+		t.Fatal("file preview should keep a plain header rule")
+	}
+	m.files.preview.active = false
+	m.width = 40
+	if strings.Contains(stripANSI(m.render()), "┬") || strings.Contains(stripANSI(m.renderFiles(m.styles())), "│") {
+		t.Fatal("mobile files should stack without a column junction")
+	}
+}
+
+func runeColumn(s string, r rune) int {
+	column := 0
+	for _, c := range s {
+		if c == r {
+			return column
+		}
+		column++
+	}
+	return -1
 }
 
 func TestInjectedVersionAppearsAtTopRight(t *testing.T) {
@@ -3272,9 +3340,9 @@ func TestMicrosoftAzureGroupNameUsesOneBrandColor(t *testing.T) {
 	}
 }
 
-func TestBoatGroupNameIsWhite(t *testing.T) {
+func TestBoatGroupNameUsesBrandColor(t *testing.T) {
 	rendered := renderManagedGroupName("Boat", lipgloss.NewStyle(), false)
-	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Boat")
+	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#263FA9")).Render("Boat")
 	if rendered != provider {
 		t.Fatalf("Boat brand colour was not applied: %q", rendered)
 	}
@@ -3730,39 +3798,32 @@ func TestSyncTabRenders(t *testing.T) {
 		!strings.Contains(body, "Microsoft Azure") || !strings.Contains(body, "Boat") {
 		t.Fatalf("sync grid body:\n%s", body)
 	}
-	if strings.Contains(body, "Sync now") {
-		t.Fatalf("sync grid should not show submenu actions:\n%s", body)
+	if !strings.Contains(body, "Sync now") {
+		t.Fatalf("settings should offer Sync now:\n%s", body)
 	}
-	if !strings.Contains(body, "Import Compute Engine") {
-		t.Fatalf("selected GCP tile should show description:\n%s", body)
+	if !strings.Contains(body, "Enabled") || !strings.Contains(body, "38;2;66;133;244") {
+		t.Fatalf("selected GCP row should keep the brand color:\n%s", body)
 	}
 
-	m.updateSyncKeys("l")
-	if m.syncCursor != 1 {
-		t.Fatalf("l should move to AWS tile, cursor=%d", m.syncCursor)
+	m.updateSyncKeys("j")
+	if m.syncCursor != 1 || m.syncProvider != "" {
+		t.Fatalf("j should move to AWS, cursor=%d provider=%q", m.syncCursor, m.syncProvider)
 	}
 	m.updateSyncKeys("j")
-	if m.syncCursor != 3 {
-		t.Fatalf("j should move to Boat tile, cursor=%d", m.syncCursor)
-	}
-	m.updateSyncKeys("h")
-	if m.syncCursor != 2 {
-		t.Fatalf("h should move to Azure tile, cursor=%d", m.syncCursor)
-	}
-	m.updateSyncKeys("enter")
+	m.updateSyncKeys("l")
 	if m.syncProvider != "azure" {
 		t.Fatalf("expected Azure provider, got %q", m.syncProvider)
 	}
 	body = m.renderSync(m.styles())
-	if !strings.Contains(body, "Subscription filter") || !strings.Contains(body, "Resource group filter") {
-		t.Fatalf("azure provider body:\n%s", body)
+	if !strings.Contains(body, "Subscriptions") || !strings.Contains(body, "Resource groups") {
+		t.Fatalf("azure settings:\n%s", body)
 	}
-	if !strings.Contains(body, "Connect") {
-		t.Fatalf("disabled provider should offer Connect:\n%s", body)
+	if !strings.Contains(body, "Login") || !strings.Contains(body, "Enabled") {
+		t.Fatalf("azure settings should offer Login and Enabled:\n%s", body)
 	}
 	m.updateSyncKeys("esc")
 	if m.syncProvider != "" {
-		t.Fatalf("expected esc to return to sync grid, got %q", m.syncProvider)
+		t.Fatalf("expected esc to return to the list, got %q", m.syncProvider)
 	}
 	m.syncCursor = 0
 	m.updateSyncKeys("enter")
@@ -3770,11 +3831,8 @@ func TestSyncTabRenders(t *testing.T) {
 		t.Fatalf("expected GCP provider, got %q", m.syncProvider)
 	}
 	body = m.renderSync(m.styles())
-	if !strings.Contains(body, "Connect") || !strings.Contains(body, "Project filter") {
-		t.Fatalf("gcp provider body:\n%s", body)
-	}
-	if strings.Contains(body, "Sync now") {
-		t.Fatalf("primary should be Connect, not a Sync now list item:\n%s", body)
+	if !strings.Contains(body, "Login") || !strings.Contains(body, "Projects") || !strings.Contains(body, "Sync now") {
+		t.Fatalf("gcp settings:\n%s", body)
 	}
 	tabs := m.renderTabs(m.styles())
 	if !strings.Contains(tabs, "[3] Vault") || !strings.Contains(tabs, "[4] Sync") || !strings.Contains(tabs, "[5] Files") {
@@ -3786,30 +3844,17 @@ func TestBoatProviderLifecycleRow(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
 	m.syncProvider = "boat"
-	m.syncCursor = 0
 	m.syncStatus.Boat.Authenticated = true
 	body := m.renderSync(m.styles())
-	if !strings.Contains(body, "New sandbox") {
-		t.Fatalf("boat page should offer New sandbox:\n%s", body)
+	if !strings.Contains(body, "New sandbox") || !strings.Contains(body, "Sync now") || !strings.Contains(body, "off") {
+		t.Fatalf("boat settings:\n%s", body)
 	}
-	if !strings.Contains(body, "disabled") && !strings.Contains(body, "enabled") {
-		t.Fatalf("boat page should show status:\n%s", body)
-	}
-	sameRow := false
 	for _, line := range strings.Split(body, "\n") {
-		if strings.Contains(line, "New sandbox") && (strings.Contains(line, "Sync") || strings.Contains(line, "Connect")) {
-			sameRow = true
-			break
+		if strings.Contains(line, "New sandbox") && strings.Contains(line, "Sync now") {
+			t.Fatalf("New sandbox should be its own row:\n%s", body)
 		}
 	}
-	if !sameRow {
-		t.Fatalf("Sync/Connect and New sandbox should share a row:\n%s", body)
-	}
-	m.updateSyncKeys("l")
-	if m.syncCursor != 1 {
-		t.Fatalf("l should move to New sandbox, cursor=%d", m.syncCursor)
-	}
-	m.updateSyncKeys("enter")
+	activateSyncRow(t, m, cloud.Boat, "create")
 	if m.form == nil || m.form.action != "boat_new" {
 		t.Fatalf("enter on New sandbox should open form, got %#v", m.form)
 	}
@@ -3819,20 +3864,12 @@ func TestUpstashProviderLifecycleRow(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
 	m.syncProvider = "upstash"
-	m.syncCursor = 0
 	m.syncStatus.Upstash.HasKey = true
 	body := m.renderSync(m.styles())
-	if !strings.Contains(body, "New box") {
-		t.Fatalf("upstash page should offer New box:\n%s", body)
+	if !strings.Contains(body, "New box") || !strings.Contains(body, "New token") {
+		t.Fatalf("upstash settings:\n%s", body)
 	}
-	if !strings.Contains(body, "API key") {
-		t.Fatalf("upstash page should offer API key:\n%s", body)
-	}
-	m.updateSyncKeys("l")
-	if m.syncCursor != 1 {
-		t.Fatalf("l should move to New box, cursor=%d", m.syncCursor)
-	}
-	m.updateSyncKeys("enter")
+	activateSyncRow(t, m, cloud.Upstash, "create")
 	if m.form == nil || m.form.action != "upstash_new" {
 		t.Fatalf("enter on New box should open form, got %#v", m.form)
 	}
@@ -3882,17 +3919,10 @@ func TestVercelProviderLifecycleRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := m.renderSync(m.styles())
-	if !strings.Contains(body, "New sandbox") {
-		t.Fatalf("vercel page should offer New sandbox:\n%s", body)
+	if !strings.Contains(body, "New sandbox") || !strings.Contains(body, "New token") {
+		t.Fatalf("vercel settings:\n%s", body)
 	}
-	if !strings.Contains(body, "Token") {
-		t.Fatalf("vercel page should offer Token:\n%s", body)
-	}
-	m.updateSyncKeys("l")
-	if m.syncCursor != 1 {
-		t.Fatalf("l should move to New sandbox, cursor=%d", m.syncCursor)
-	}
-	m.updateSyncKeys("enter")
+	activateSyncRow(t, m, cloud.Vercel, "create")
 	if m.form == nil || m.form.action != "vercel_new" {
 		t.Fatalf("enter on New sandbox should open form, got %#v", m.form)
 	}
@@ -3916,19 +3946,7 @@ func TestVercelCleanupAction(t *testing.T) {
 	if !strings.Contains(body, "2 unrestorable") {
 		t.Fatalf("vercel page should show unrestorable count:\n%s", body)
 	}
-	life, _ := m.providerActionLayout()
-	cleanupAt := -1
-	for i, item := range life {
-		if item.action == "vercel_cleanup" {
-			cleanupAt = i
-			break
-		}
-	}
-	if cleanupAt < 0 {
-		t.Fatalf("expected cleanup action, life=%+v", life)
-	}
-	m.syncCursor = cleanupAt
-	m.updateSyncKeys("enter")
+	activateSyncRow(t, m, cloud.Vercel, "setting:"+cloud.KeyCleanup)
 	if m.form == nil || m.form.action != "vercel_cleanup" {
 		t.Fatalf("enter on Cleanup should open form, got %#v", m.form)
 	}
@@ -4036,19 +4054,23 @@ func TestProviderPageJMovesToConfig(t *testing.T) {
 	m.syncProvider = "gcp"
 	m.syncCursor = 0
 	body := m.renderSync(m.styles())
-	if !strings.Contains(body, "disabled") {
-		t.Fatalf("expected status identity:\n%s", body)
+	if !strings.Contains(body, "off") {
+		t.Fatalf("expected disabled status:\n%s", body)
 	}
-	if !strings.Contains(body, "Connect") {
-		t.Fatalf("expected Connect chip:\n%s", body)
+	if !strings.Contains(body, "Login") || !strings.Contains(body, "Enabled") {
+		t.Fatalf("expected Login and Enabled:\n%s", body)
 	}
 	m.updateSyncKeys("j")
 	if m.syncCursor != 1 {
-		t.Fatalf("j from chips should move to config, cursor=%d", m.syncCursor)
+		t.Fatalf("j should move to the next setting, cursor=%d", m.syncCursor)
+	}
+	rows := m.syncSettingRows(cloud.GCP)
+	if len(rows) < 2 || rows[1].label != "Enabled" {
+		t.Fatalf("second row = %+v", rows)
 	}
 	m.updateSyncKeys("k")
 	if m.syncCursor != 0 {
-		t.Fatalf("k should return to chips, cursor=%d", m.syncCursor)
+		t.Fatalf("k should return to Login, cursor=%d", m.syncCursor)
 	}
 }
 
@@ -4091,7 +4113,6 @@ func TestProviderInventoryGroupsByStatus(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
 	m.syncProvider = "boat"
-	m.syncCursor = -1
 	m.hosts = []sshconfig.Host{
 		{Alias: "boat_run", Synced: true, SyncSource: "boat", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"}},
 		{Alias: "boat_stop", Synced: true, SyncSource: "boat", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"}},
@@ -4103,52 +4124,53 @@ func TestProviderInventoryGroupsByStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := m.renderSync(m.styles())
-	if !strings.Contains(body, "Running") || !strings.Contains(body, "Stopped") {
-		t.Fatalf("expected status groups:\n%s", body)
+	if strings.Contains(body, "alpha-boat") || strings.Contains(body, "idle-boat") {
+		t.Fatalf("sync settings should not list hosts:\n%s", body)
 	}
-	if !strings.Contains(body, "alpha-boat") {
-		t.Fatalf("running host should be visible:\n%s", body)
-	}
-	if strings.Contains(body, "idle-boat") {
-		t.Fatalf("stopped group should start collapsed:\n%s", body)
+	if !strings.Contains(body, "Login") || !strings.Contains(body, "Enabled") {
+		t.Fatalf("boat settings:\n%s", body)
 	}
 
-	m.updateSyncKeys("j")
-	if m.syncCursor != 1 {
-		t.Fatalf("j should focus Running header, cursor=%d", m.syncCursor)
+	m.section = hostsSection
+	m.collapsedGroups = map[string]bool{}
+	var sawRun, sawStop bool
+	for _, row := range m.hostRows() {
+		if row.header {
+			continue
+		}
+		switch row.host.Alias {
+		case "boat_run":
+			sawRun = true
+		case "boat_stop":
+			sawStop = true
+		}
 	}
-	m.updateSyncKeys("j")
-	if m.syncCursor != 2 {
-		t.Fatalf("j should focus running host, cursor=%d", m.syncCursor)
+	if !sawRun || sawStop {
+		t.Fatalf("hosts should show the running sandbox and hide the stopped one, running=%v stopped=%v", sawRun, sawStop)
 	}
-	if got := m.browseFooterHint(80); !strings.Contains(got, "enter connect") || !strings.Contains(got, "o stop") || !strings.Contains(got, "n fork") {
-		t.Fatalf("host footer = %q", got)
+	m.showHidden = true
+	sawRun, sawStop = false, false
+	for _, row := range m.hostRows() {
+		if row.header {
+			continue
+		}
+		switch row.host.Alias {
+		case "boat_run":
+			sawRun = true
+		case "boat_stop":
+			sawStop = true
+		}
 	}
-	m.updateSyncKeys("j")
-	if m.syncCursor != 3 {
-		t.Fatalf("j should focus Stopped header, cursor=%d", m.syncCursor)
-	}
-	m.updateSyncKeys("space")
-	body = m.renderSync(m.styles())
-	if !strings.Contains(body, "idle-boat") {
-		t.Fatalf("space should expand stopped:\n%s", body)
-	}
-
-	m.updateSyncKeys("j")
-	_, cmd := m.updateSyncKeys("enter")
-	if m.sandboxConnectAfter != "boat_stop" {
-		t.Fatalf("enter on stopped boat should resume+connect, after=%q", m.sandboxConnectAfter)
-	}
-	if cmd == nil {
-		t.Fatal("expected resume command")
+	if !sawRun || !sawStop {
+		t.Fatalf("showing hidden hosts should reveal both sandboxes, running=%v stopped=%v", sawRun, sawStop)
 	}
 }
 
 func TestProviderInventorySandboxLifecycle(t *testing.T) {
 	m := testApp(t)
-	m.section = syncSection
-	m.syncProvider = "boat"
-	m.syncStatus.Boat.Authenticated = true
+	m.section = hostsSection
+	m.showHidden = true
+	m.collapsedGroups = map[string]bool{}
 	m.hosts = []sshconfig.Host{
 		{Alias: "boat_run", Synced: true, SyncSource: "boat", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10", User: "user"}},
 		{Alias: "boat_stop", Synced: true, SyncSource: "boat", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"}},
@@ -4159,40 +4181,32 @@ func TestProviderInventorySandboxLifecycle(t *testing.T) {
 	if err := m.metadata.SetHost("boat_stop", metadata.Host{Label: "idle-boat", Group: "Boat", Tags: []string{"state:stopped", "snapshot"}}); err != nil {
 		t.Fatal(err)
 	}
-	m.toggleProviderInv(invGroupStopped)
 
-	selectProviderHost(t, m, "boat_run")
+	selectHostAlias(t, m, "boat_run")
 	_, _ = m.updateKeys(press("o"))
 	if m.form == nil || m.form.action != "boat_stop" {
-		t.Fatalf("o on running inventory host should stop, got %#v", m.form)
+		t.Fatalf("o on running boat should stop, got %#v", m.form)
 	}
 	m.form = nil
 	_, _ = m.updateKeys(press("n"))
 	if m.form == nil || m.form.action != "boat_fork" {
-		t.Fatalf("n on running inventory host should fork, got %#v", m.form)
+		t.Fatalf("n on running boat should fork, got %#v", m.form)
 	}
 	m.form = nil
 	_, _ = m.updateKeys(press("d"))
 	if m.form == nil || m.form.action != "boat_delete" {
-		t.Fatalf("d on running inventory host should delete, got %#v", m.form)
+		t.Fatalf("d on running boat should delete, got %#v", m.form)
 	}
 
 	m.form = nil
-	m.syncCursor = 0
-	_, _ = m.updateKeys(press("n"))
-	if m.form == nil || m.form.action != "boat_new" {
-		t.Fatalf("n on chips should still create a sandbox, got %#v", m.form)
-	}
-
-	m.form = nil
-	selectProviderHost(t, m, "boat_stop")
+	selectHostAlias(t, m, "boat_stop")
 	footer := m.browseFooterHint(80)
 	if !strings.Contains(footer, "r resume") || strings.Contains(footer, "o stop") {
-		t.Fatalf("stopped inventory footer = %q", footer)
+		t.Fatalf("stopped boat footer = %q", footer)
 	}
 	_, cmd := m.updateKeys(press("r"))
 	if cmd == nil {
-		t.Fatal("r on stopped inventory host should resume")
+		t.Fatal("r on stopped boat should resume")
 	}
 	if m.sandboxConnectAfter != "" {
 		t.Fatalf("r should resume without connecting, after=%q", m.sandboxConnectAfter)
@@ -4201,10 +4215,27 @@ func TestProviderInventorySandboxLifecycle(t *testing.T) {
 		t.Fatalf("resume activity = %q", m.syncActivity)
 	}
 
+	m.form = nil
 	m.syncingProviders = map[string]bool{}
 	m.syncActivity = ""
-	m.syncProvider = "upstash"
-	m.syncStatus.Upstash.HasKey = true
+	m.section = syncSection
+	m.syncStatus.Boat.Authenticated = true
+	m.syncProvider = ""
+	for i, d := range cloud.Descriptors() {
+		if d.Kind == cloud.Boat {
+			m.syncCursor = i
+			break
+		}
+	}
+	_, _ = m.updateKeys(press("n"))
+	if m.form == nil || m.form.action != "boat_new" {
+		t.Fatalf("n on Boat in the sync list should create a sandbox, got %#v", m.form)
+	}
+
+	m.form = nil
+	m.section = hostsSection
+	m.syncingProviders = map[string]bool{}
+	m.syncActivity = ""
 	m.hosts = []sshconfig.Host{{
 		Alias: "upstash_dev", Synced: true, SyncSource: "upstash", SyncID: "current-wasp-05510",
 		Resolved: sshconfig.Resolved{HostName: "us-east-1.box.upstash.com", User: "root"},
@@ -4212,34 +4243,41 @@ func TestProviderInventorySandboxLifecycle(t *testing.T) {
 	if err := m.metadata.SetHost("upstash_dev", metadata.Host{Label: "dev", Group: "Upstash", Tags: []string{"state:running"}}); err != nil {
 		t.Fatal(err)
 	}
-	selectProviderHost(t, m, "upstash_dev")
+	selectHostAlias(t, m, "upstash_dev")
 	_, _ = m.updateKeys(press("o"))
 	if m.form == nil || m.form.action != "upstash_stop" {
-		t.Fatalf("o on upstash inventory host should pause, got %#v", m.form)
+		t.Fatalf("o on upstash host should pause, got %#v", m.form)
 	}
 	m.form = nil
 	_, _ = m.updateKeys(press("n"))
 	if m.form == nil || m.form.action != "upstash_fork" {
-		t.Fatalf("n on upstash inventory host should fork, got %#v", m.form)
+		t.Fatalf("n on upstash host should fork, got %#v", m.form)
 	}
 	m.form = nil
 	_, _ = m.updateKeys(press("d"))
 	if m.form == nil || m.form.action != "upstash_delete" {
-		t.Fatalf("d on upstash inventory host should delete, got %#v", m.form)
+		t.Fatalf("d on upstash host should delete, got %#v", m.form)
 	}
 
 	m.form = nil
-	m.syncCursor = 0
+	m.section = syncSection
+	m.syncProvider = ""
+	m.syncStatus.Upstash.HasKey = true
+	for i, d := range cloud.Descriptors() {
+		if d.Kind == cloud.Upstash {
+			m.syncCursor = i
+			break
+		}
+	}
 	_, _ = m.updateKeys(press("n"))
 	if m.form == nil || m.form.action != "upstash_new" {
-		t.Fatalf("n on upstash chips should create a sandbox, got %#v", m.form)
+		t.Fatalf("n on Upstash in the sync list should create a box, got %#v", m.form)
 	}
 
 	m.form = nil
+	m.section = hostsSection
 	m.syncingProviders = map[string]bool{}
 	m.syncActivity = ""
-	m.syncProvider = "vercel"
-	m.syncStatus.Vercel.HasToken = true
 	if err := m.metadata.SetVercel(metadata.VercelIntegration{TeamID: "team_1", ProjectID: "prj_1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -4250,20 +4288,20 @@ func TestProviderInventorySandboxLifecycle(t *testing.T) {
 	if err := m.metadata.SetHost("vercel_dev", metadata.Host{Label: "dev", Group: "Vercel", Tags: []string{"state:running"}}); err != nil {
 		t.Fatal(err)
 	}
-	selectProviderHost(t, m, "vercel_dev")
+	selectHostAlias(t, m, "vercel_dev")
 	_, _ = m.updateKeys(press("o"))
 	if m.form == nil || m.form.action != "vercel_stop" {
-		t.Fatalf("o on vercel inventory host should stop, got %#v", m.form)
+		t.Fatalf("o on vercel host should stop, got %#v", m.form)
 	}
 	m.form = nil
 	_, _ = m.updateKeys(press("n"))
 	if m.form == nil || m.form.action != "vercel_fork" {
-		t.Fatalf("n on vercel inventory host should fork, got %#v", m.form)
+		t.Fatalf("n on vercel host should fork, got %#v", m.form)
 	}
 	m.form = nil
 	_, _ = m.updateKeys(press("d"))
 	if m.form == nil || m.form.action != "vercel_delete" {
-		t.Fatalf("d on vercel inventory host should delete, got %#v", m.form)
+		t.Fatalf("d on vercel host should delete, got %#v", m.form)
 	}
 }
 
@@ -4271,7 +4309,6 @@ func TestProviderInstancesGroup(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
 	m.syncProvider = "gcp"
-	m.syncCursor = -1
 	m.hosts = []sshconfig.Host{
 		{Alias: "gcp_web", Synced: true, SyncSource: "gcp", SyncID: "projects/p/zones/z/instances/web"},
 		{Alias: "gcp_api", Synced: true, SyncSource: "gcp", SyncID: "projects/p/zones/z/instances/api"},
@@ -4283,11 +4320,22 @@ func TestProviderInstancesGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := m.renderSync(m.styles())
-	if !strings.Contains(body, "Instances") || !strings.Contains(body, "web") || !strings.Contains(body, "api") {
-		t.Fatalf("gcp inventory:\n%s", body)
+	if strings.Contains(body, "\nweb") || strings.Contains(body, " web") || strings.Contains(body, "\napi") || strings.Contains(body, " api") {
+		t.Fatalf("sync settings should not list instances:\n%s", body)
 	}
-	if strings.Contains(body, "Running") || strings.Contains(body, "Stopped") {
-		t.Fatalf("gcp should not split running/stopped:\n%s", body)
+	m.section = hostsSection
+	m.collapsedGroups = map[string]bool{}
+	var sawWeb, sawAPI bool
+	for _, row := range m.hostRows() {
+		switch row.host.Alias {
+		case "gcp_web":
+			sawWeb = true
+		case "gcp_api":
+			sawAPI = true
+		}
+	}
+	if !sawWeb || !sawAPI {
+		t.Fatalf("hosts should list both instances, web=%v api=%v", sawWeb, sawAPI)
 	}
 }
 
@@ -4295,85 +4343,77 @@ func TestProviderNavChipThenInventory(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
 	m.syncProvider = "boat"
-	m.syncCursor = -1
+	m.syncCursor = 0
 	m.syncStatus.Boat.Authenticated = true
-	m.hosts = []sshconfig.Host{
-		{Alias: "boat_run", Synced: true, SyncSource: "boat", SyncID: "bx_run001", Resolved: sshconfig.Resolved{HostName: "203.0.113.10"}},
-	}
-	if err := m.metadata.SetHost("boat_run", metadata.Host{Label: "alpha-boat", Group: "Boat", Tags: []string{"state:running"}}); err != nil {
-		t.Fatal(err)
-	}
-	m.updateSyncKeys("l")
-	if m.syncCursor != 1 {
-		t.Fatalf("l from Sync/Connect should hit New sandbox, cursor=%d", m.syncCursor)
-	}
+	m.syncStatus.Boat.Login = "hi@ted.ac"
 	m.updateSyncKeys("j")
-	if m.syncCursor != 2 {
-		t.Fatalf("j from chips should hit inventory, cursor=%d", m.syncCursor)
+	rows := m.syncSettingRows(cloud.Boat)
+	if rowHas(rows, "Login") || m.syncCursor != 1 || len(rows) < 2 || rows[0].id != "enabled" || rows[1].id != "autosync" {
+		t.Fatalf("j should move to Auto-sync, cursor=%d rows=%+v", m.syncCursor, rows)
+	}
+	var create int
+	for i, row := range rows {
+		if row.id == "create" {
+			create = i
+		}
+	}
+	if create == 0 {
+		t.Fatalf("expected New sandbox row: %+v", rows)
+	}
+	m.syncCursor = create
+	m.updateSyncKeys("l")
+	if m.form == nil || m.form.action != "boat_new" {
+		t.Fatalf("l on New sandbox should open the form, got %#v", m.form)
 	}
 }
 
 func TestProviderPageMouse(t *testing.T) {
 	m := testApp(t)
+	m.width = 120
+	m.height = 40
 	m.section = syncSection
 	m.syncProvider = "gcp"
 	m.syncCursor = -1
-	var configHit providerPageHit
-	found := false
-	for _, h := range m.providerPageHits() {
-		if h.kind == "config" && h.index == 0 {
-			configHit = h
-			found = true
-			break
+	x, y := syncDetailClick(t, m, cloud.GCP, "setting:"+cloud.KeySSHUser)
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x, Y: y, Button: tea.MouseLeft}))
+	rows := m.syncSettingRows(cloud.GCP)
+	want := -1
+	for i, row := range rows {
+		if row.id == "setting:"+cloud.KeySSHUser {
+			want = i
 		}
 	}
-	if !found {
-		t.Fatal("expected config hit")
+	if m.syncCursor != want {
+		t.Fatalf("first click should select SSH user, cursor=%d want=%d", m.syncCursor, want)
 	}
-	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: configHit.y0, Button: tea.MouseLeft}))
-	if m.syncCursor < 0 {
-		t.Fatalf("first click should select config, cursor=%d", m.syncCursor)
-	}
-	_, cmd := m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: configHit.y0, Button: tea.MouseLeft}))
-	if m.form == nil && cmd == nil {
-		t.Fatal("second click should run config action")
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x, Y: y, Button: tea.MouseLeft}))
+	if m.form == nil || m.form.action != "provider_setting:gcp:ssh_user" {
+		t.Fatalf("second click should open SSH user, form=%#v", m.form)
 	}
 }
 
 func TestBoatLifecycleChipMouse(t *testing.T) {
 	m := testApp(t)
+	m.width = 120
+	m.height = 40
 	m.section = syncSection
 	m.syncProvider = "boat"
 	m.syncCursor = -1
 	m.syncStatus.Boat.Authenticated = true
-	life, _ := m.providerActionLayout()
-	newIdx := -1
-	for i, item := range life {
-		if item.action == "boat_new" {
-			newIdx = i
-			break
+	x, y := syncDetailClick(t, m, cloud.Boat, "create")
+	rows := m.syncSettingRows(cloud.Boat)
+	want := -1
+	for i, row := range rows {
+		if row.id == "create" {
+			want = i
 		}
 	}
-	if newIdx < 0 {
-		t.Fatal("expected New sandbox action")
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x, Y: y, Button: tea.MouseLeft}))
+	if m.syncCursor != want {
+		t.Fatalf("first click should select New sandbox, cursor=%d want=%d", m.syncCursor, want)
 	}
-	var chip providerPageHit
-	found := false
-	for _, h := range m.providerPageHits() {
-		if h.kind == "chip" && h.index == newIdx {
-			chip = h
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("expected New sandbox chip")
-	}
-	m.Update(tea.MouseClickMsg(tea.Mouse{X: chip.x0 + 1, Y: chip.y0, Button: tea.MouseLeft}))
-	if m.syncCursor != newIdx {
-		t.Fatalf("first click should select New sandbox, cursor=%d", m.syncCursor)
-	}
-	m.Update(tea.MouseClickMsg(tea.Mouse{X: chip.x0 + 1, Y: chip.y0, Button: tea.MouseLeft}))
+	x, y = syncDetailClick(t, m, cloud.Boat, "create")
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: x, Y: y, Button: tea.MouseLeft}))
 	if m.form == nil || m.form.action != "boat_new" {
 		t.Fatalf("second click should open New sandbox, form=%#v", m.form)
 	}
@@ -4381,9 +4421,10 @@ func TestBoatLifecycleChipMouse(t *testing.T) {
 
 func TestProviderInventoryMouseToggle(t *testing.T) {
 	m := testApp(t)
+	m.width = 120
+	m.height = 40
 	m.section = syncSection
-	m.syncProvider = "boat"
-	m.syncCursor = -1
+	m.syncCursor = 0
 	m.hosts = []sshconfig.Host{
 		{Alias: "boat_stop", Synced: true, SyncSource: "boat", SyncID: "bx_stop01", Resolved: sshconfig.Resolved{HostName: "boat.stopped.invalid", User: "user"}},
 	}
@@ -4391,23 +4432,16 @@ func TestProviderInventoryMouseToggle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(m.renderSync(m.styles()), "idle-boat") {
-		t.Fatal("stopped host should start hidden")
+		t.Fatal("sync settings should not list hosts")
 	}
-	var header providerPageHit
-	found := false
-	for _, h := range m.providerPageHits() {
-		if h.kind == "inv" && h.index == 0 {
-			header = h
-			found = true
-			break
-		}
+	layout := m.panelLayout()
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: layout.listTop + 1, Button: tea.MouseLeft}))
+	if m.syncCursor != 1 || m.syncProvider != "" {
+		t.Fatalf("first click should select the second provider, cursor=%d provider=%q", m.syncCursor, m.syncProvider)
 	}
-	if !found {
-		t.Fatal("expected stopped header hit")
-	}
-	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: header.y0, Button: tea.MouseLeft}))
-	if !strings.Contains(m.renderSync(m.styles()), "idle-boat") {
-		t.Fatal("clicking Stopped should expand the group")
+	m.Update(tea.MouseClickMsg(tea.Mouse{X: 4, Y: layout.listTop + 1, Button: tea.MouseLeft}))
+	if m.syncProvider != string(cloud.Descriptors()[1].Kind) {
+		t.Fatalf("second click should open settings, provider=%q", m.syncProvider)
 	}
 }
 
@@ -4610,8 +4644,13 @@ func TestSyncActionIgnoredWhileSyncing(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
 	m.syncProvider = "gcp"
-	m.syncCursor = 0
 	m.syncingProviders = map[string]bool{"gcp": true}
+	for i, row := range m.syncSettingRows(cloud.GCP) {
+		if row.id == "sync" {
+			m.syncCursor = i
+			break
+		}
+	}
 
 	_, cmd := m.updateSyncKeys("enter")
 	if cmd != nil {
@@ -4623,8 +4662,13 @@ func TestSyncActionIgnoredWhileOtherProviderSyncing(t *testing.T) {
 	m := testApp(t)
 	m.section = syncSection
 	m.syncProvider = "aws"
-	m.syncCursor = 0
 	m.syncingProviders = map[string]bool{"gcp": true}
+	for i, row := range m.syncSettingRows(cloud.AWS) {
+		if row.id == "sync" {
+			m.syncCursor = i
+			break
+		}
+	}
 
 	_, cmd := m.updateSyncKeys("enter")
 	if cmd != nil {

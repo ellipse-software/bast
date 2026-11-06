@@ -316,14 +316,14 @@ func (m *App) renderHosts(s styleSet) string {
 	activeRow := s.active.Width(rowWidth)
 	plainRow := s.plain.Width(rowWidth)
 	hostMeta := m.hostMetadata()
-	gcpErr := m.providerShowsSyncError("gcp", m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != "")
-	awsErr := m.providerShowsSyncError("aws", m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != "")
-	azureErr := m.providerShowsSyncError("azure", m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != "")
-	boatErr := m.providerShowsSyncError("boat", m.metadata.Boat().LastSyncError != "" || m.syncStatus.Boat.BoatCLIError != "")
-	upstashErr := m.providerShowsSyncError("upstash", m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != "")
-	vercelErr := m.providerShowsSyncError("vercel", m.metadata.Vercel().LastSyncError != "" || m.syncStatus.Vercel.Error != "")
-	hetznerErr := m.providerShowsSyncError("hetzner", m.metadata.Hetzner().LastSyncError != "" || m.syncStatus.Hetzner.Error != "")
-	bitqateErr := m.providerShowsSyncError("bitqate", m.metadata.Bitqate().LastSyncError != "" || m.syncStatus.Bitqate.Error != "")
+	gcpErr := m.providerShowsSyncError("gcp", notableSyncError(m.metadata.GCP().LastSyncError, m.syncStatus.GCP.GCloudError))
+	awsErr := m.providerShowsSyncError("aws", notableSyncError(m.metadata.AWS().LastSyncError, m.syncStatus.AWS.AWSCLIError))
+	azureErr := m.providerShowsSyncError("azure", notableSyncError(m.metadata.Azure().LastSyncError, m.syncStatus.Azure.AzureCLIError))
+	boatErr := m.providerShowsSyncError("boat", notableSyncError(m.metadata.Boat().LastSyncError, m.syncStatus.Boat.BoatCLIError))
+	upstashErr := m.providerShowsSyncError("upstash", notableSyncError(m.metadata.Upstash().LastSyncError, m.syncStatus.Upstash.Error))
+	vercelErr := m.providerShowsSyncError("vercel", notableSyncError(m.metadata.Vercel().LastSyncError, m.syncStatus.Vercel.Error))
+	hetznerErr := m.providerShowsSyncError("hetzner", notableSyncError(m.metadata.Hetzner().LastSyncError, m.syncStatus.Hetzner.Error))
+	bitqateErr := m.providerShowsSyncError("bitqate", notableSyncError(m.metadata.Bitqate().LastSyncError, m.syncStatus.Bitqate.Error))
 	start := scrollStart(m.cursor, len(rowsData), listHeight)
 	var list strings.Builder
 	list.Grow(listHeight * (rowWidth + 8))
@@ -512,6 +512,15 @@ func (m *App) renderHistorySuggestionDetail(s styleSet, suggestion metadata.Hist
 	return b.String()
 }
 
+func notableSyncError(parts ...string) bool {
+	for _, part := range parts {
+		if strings.TrimSpace(part) != "" && !cloud.Unset(part) {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *App) providerShowsSyncError(provider string, hasError bool) bool {
 	return hasError && !m.providerSyncing(provider)
 }
@@ -519,14 +528,14 @@ func (m *App) providerShowsSyncError(provider string, hasError bool) bool {
 func (m *App) cloudSyncGroupHasError(group string) bool {
 	return cloudSyncGroupHasErrorCached(
 		group,
-		m.providerShowsSyncError("gcp", m.metadata.GCP().LastSyncError != "" || m.syncStatus.GCP.GCloudError != ""),
-		m.providerShowsSyncError("aws", m.metadata.AWS().LastSyncError != "" || m.syncStatus.AWS.AWSCLIError != ""),
-		m.providerShowsSyncError("azure", m.metadata.Azure().LastSyncError != "" || m.syncStatus.Azure.AzureCLIError != ""),
-		m.providerShowsSyncError("boat", m.metadata.Boat().LastSyncError != "" || m.syncStatus.Boat.BoatCLIError != ""),
-		m.providerShowsSyncError("upstash", m.metadata.Upstash().LastSyncError != "" || m.syncStatus.Upstash.Error != ""),
-		m.providerShowsSyncError("vercel", m.metadata.Vercel().LastSyncError != "" || m.syncStatus.Vercel.Error != ""),
-		m.providerShowsSyncError("hetzner", m.metadata.Hetzner().LastSyncError != "" || m.syncStatus.Hetzner.Error != ""),
-		m.providerShowsSyncError("bitqate", m.metadata.Bitqate().LastSyncError != "" || m.syncStatus.Bitqate.Error != ""),
+		m.providerShowsSyncError("gcp", notableSyncError(m.metadata.GCP().LastSyncError, m.syncStatus.GCP.GCloudError)),
+		m.providerShowsSyncError("aws", notableSyncError(m.metadata.AWS().LastSyncError, m.syncStatus.AWS.AWSCLIError)),
+		m.providerShowsSyncError("azure", notableSyncError(m.metadata.Azure().LastSyncError, m.syncStatus.Azure.AzureCLIError)),
+		m.providerShowsSyncError("boat", notableSyncError(m.metadata.Boat().LastSyncError, m.syncStatus.Boat.BoatCLIError)),
+		m.providerShowsSyncError("upstash", notableSyncError(m.metadata.Upstash().LastSyncError, m.syncStatus.Upstash.Error)),
+		m.providerShowsSyncError("vercel", notableSyncError(m.metadata.Vercel().LastSyncError, m.syncStatus.Vercel.Error)),
+		m.providerShowsSyncError("hetzner", notableSyncError(m.metadata.Hetzner().LastSyncError, m.syncStatus.Hetzner.Error)),
+		m.providerShowsSyncError("bitqate", notableSyncError(m.metadata.Bitqate().LastSyncError, m.syncStatus.Bitqate.Error)),
 	)
 }
 
@@ -604,23 +613,25 @@ func (m *App) renderProviderGroupDetail(s styleSet, row hostRow, kind cloud.Kind
 	}
 	b.WriteString("  " + s.muted.Render(truncate(summary, max(4, width-3))) + "\n")
 
-	detail := m.providerDetail(string(kind))
+	snap := m.providerSnapshot(kind)
 	b.WriteString("\n")
 	lastSync := "never"
-	if detail.lastSyncAt != nil {
-		lastSync = detail.lastSyncAt.Local().Format("2006-01-02 15:04")
+	if snap.LastSyncAt != nil {
+		lastSync = snap.LastSyncAt.Local().Format("2006-01-02 15:04")
 	}
 	b.WriteString(compactRow(s, "Last sync", lastSync, width))
-	for _, statusRow := range detail.status {
-		b.WriteString(compactRow(s, statusRow.label, statusRow.value, width))
+	if snap.Account != "" {
+		b.WriteString(compactRow(s, "Account", snap.Account, width))
 	}
 	autoSync := "off"
-	if detail.autoSync {
+	if snap.AutoSync {
 		autoSync = "on"
 	}
 	b.WriteString(compactRow(s, "Auto-sync", autoSync, width))
-	if detail.lastSyncError != "" {
-		b.WriteString(compactRow(s, "Error", detail.lastSyncError, width))
+	if errText := syncErrorText(snap, m.providerSyncing(string(kind))); errText != "" {
+		for _, line := range wrapWords(errText, max(4, width-2)) {
+			b.WriteString("  " + s.error.Render(line) + "\n")
+		}
 	}
 	return b.String()
 }
@@ -666,7 +677,7 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool
 	case name == "Microsoft Azure" || strings.HasPrefix(name, "Microsoft Azure/"):
 		return suffix("Microsoft Azure", brandText("#0078D4", icon("Microsoft Azure")+"Microsoft Azure", restStyle))
 	case name == "Boat" || strings.HasPrefix(name, "Boat/"):
-		return suffix("Boat", brandText("#FFFFFF", icon("Boat")+"Boat", restStyle))
+		return suffix("Boat", brandText("#263FA9", icon("Boat")+"Boat", restStyle))
 	case name == "Upstash" || strings.HasPrefix(name, "Upstash/"):
 		return suffix("Upstash", brandText("#00E9A3", icon("Upstash")+"Upstash", restStyle))
 	case name == "Vercel" || strings.HasPrefix(name, "Vercel/"):
@@ -1290,7 +1301,7 @@ func (m *App) renderFooter(s styleSet) string {
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.onboarding || m.credits || m.doctor || m.help || m.form != nil || m.loading || m.vaultBusyBlocksBody() || m.section == vaultSection || m.section == syncSection || m.section == filesSection || !m.hasListItems() {
+	if m.statusError || m.onboarding || m.credits || m.doctor || m.help || m.form != nil || m.loading || m.vaultBusyBlocksBody() || m.section == vaultSection || !m.hasListItems() {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	if m.isMobileLayout() {
@@ -1307,7 +1318,7 @@ func (m *App) hasListItems() bool {
 	case keysSection:
 		return len(m.filteredKeys()) > 0
 	case filesSection:
-		return false
+		return !m.files.preview.active
 	default:
 		return len(m.syncMenuItems()) > 0
 	}

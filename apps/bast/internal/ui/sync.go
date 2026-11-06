@@ -180,9 +180,6 @@ func (m *App) providerDetail(provider string) providerDetail {
 		if status.Plan != "" {
 			statusRows = append(statusRows, providerRow{"Plan", status.Plan})
 		}
-		if integration.Disabled {
-			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
-		}
 		lastError := integration.LastSyncError
 		if m.boatMigrationConflict != nil {
 			lastError = m.boatMigrationConflict.Error()
@@ -208,9 +205,6 @@ func (m *App) providerDetail(provider string) providerDetail {
 		if projects := integration.Projects(); len(projects) > 0 {
 			statusRows = append(statusRows, providerRow{"Project", strings.Join(projects, ", ")})
 		}
-		if integration.Disabled {
-			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
-		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
 	case "upstash":
 		integration := m.metadata.Upstash()
@@ -226,9 +220,6 @@ func (m *App) providerDetail(provider string) providerDetail {
 			accountValue = "disabled"
 		}
 		statusRows := []providerRow{{accountLabel, accountValue}}
-		if integration.Disabled {
-			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
-		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
 	case "bitqate":
 		integration := m.metadata.Bitqate()
@@ -303,9 +294,6 @@ func (m *App) providerDetail(provider string) providerDetail {
 			accountValue = "disabled"
 		}
 		statusRows := []providerRow{{accountLabel, accountValue}}
-		if integration.Disabled {
-			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
-		}
 		return providerDetail{integration.Enabled, integration.AutoSync, integration.LastSyncAt, integration.LastInstanceCount, integration.LastSyncError, "", statusRows, nil}
 	case "fly":
 		integration := m.metadata.Fly()
@@ -322,9 +310,6 @@ func (m *App) providerDetail(provider string) providerDetail {
 			accountValue = "disabled"
 		}
 		statusRows := []providerRow{{accountLabel, accountValue}}
-		if integration.Disabled {
-			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
-		}
 		orgs := "all"
 		if len(integration.OrgFilter) > 0 {
 			orgs = strings.Join(integration.OrgFilter, ", ")
@@ -368,9 +353,6 @@ func (m *App) providerDetail(provider string) providerDetail {
 			accountValue = "disabled"
 		}
 		statusRows := []providerRow{{accountLabel, accountValue}}
-		if integration.Disabled {
-			statusRows = append(statusRows, providerRow{"Opt-out", "sticky disable (no auto-connect)"})
-		}
 		orgs := "active org"
 		if len(integration.OrgFilter) > 0 {
 			orgs = strings.Join(integration.OrgFilter, ", ")
@@ -506,11 +488,7 @@ func (m *App) providerActionLayout() (life, config []syncMenuItem) {
 }
 
 func (m *App) syncMenuItems() []syncMenuItem {
-	if m.syncProvider == "" {
-		return m.syncProviders()
-	}
-	life, config := m.providerActionLayout()
-	return append(append([]syncMenuItem{}, life...), config...)
+	return m.syncProviders()
 }
 
 func (m *App) syncGCPCmd() tea.Cmd {
@@ -703,7 +681,7 @@ func (m *App) syncStatusCmd() tea.Cmd {
 // so tab switches stay instant instead of shelling out on every visit.
 func (m *App) enterSyncSection() tea.Cmd {
 	m.clearFilesOverlays()
-	m.section, m.syncProvider, m.syncCursor, m.search = syncSection, "", 0, ""
+	m.section, m.syncProvider, m.syncCursor, m.syncListIndex, m.search = syncSection, "", 0, 0, ""
 	if m.syncStatusProbing {
 		return nil
 	}
@@ -874,14 +852,6 @@ func (m *App) syncTileWidth() int {
 	}
 	const gap = 2
 	return max(18, (m.terminalWidth()-4-gap)/cols)
-}
-
-func (m *App) renderSync(s styleSet) string {
-	if m.syncProvider != "" {
-		content := m.renderProviderPage(s)
-		return windowLines(content, m.providerFocusLine(), m.syncBodyHeight())
-	}
-	return m.renderSyncGrid(s, m.syncMenuItems())
 }
 
 func (m *App) syncBodyHeight() int {
@@ -1420,185 +1390,6 @@ func (m *App) providerPageHits() []providerPageHit {
 	return hits
 }
 
-func (m *App) openSyncProvider(provider string) tea.Cmd {
-	m.syncProvider = provider
-	m.syncCursor = 0
-	return m.syncStatusCmd()
-}
-
-func (m *App) updateSyncKeys(key string) (tea.Model, tea.Cmd) {
-	if m.syncBusy != "" {
-		return m, nil
-	}
-	if m.syncProvider != "" {
-		return m.updateProviderKeys(key)
-	}
-	items := m.syncMenuItems()
-	m.clampSyncCursor(items)
-	switch key {
-	case "up", "k":
-		m.moveSyncGrid(0, -1, items)
-	case "down", "j":
-		m.moveSyncGrid(0, 1, items)
-	case "left", "h":
-		m.moveSyncGrid(-1, 0, items)
-	case "right", "l":
-		m.moveSyncGrid(1, 0, items)
-	case "home", "g":
-		m.syncCursor = firstEnabledSyncItem(items)
-	case "end", "G":
-		m.syncCursor = lastEnabledSyncItem(items)
-	case "r":
-		return m, m.syncStatusCmd()
-	case "s":
-		if len(items) == 0 || m.syncCursor < 0 || m.syncCursor >= len(items) {
-			return m, nil
-		}
-		item := items[m.syncCursor]
-		if item.disabled || item.provider == "" {
-			return m, nil
-		}
-		previous := m.syncProvider
-		m.syncProvider = item.provider
-		model, cmd := m.runSyncAction("sync")
-		m.syncProvider = previous
-		return model, cmd
-	case "enter":
-		if len(items) == 0 || m.syncCursor < 0 || m.syncCursor >= len(items) {
-			return m, nil
-		}
-		item := items[m.syncCursor]
-		if item.disabled {
-			return m, nil
-		}
-		return m, m.openSyncProvider(item.provider)
-	}
-	return m, nil
-}
-
-func (m *App) updateProviderKeys(key string) (tea.Model, tea.Cmd) {
-	life, config := m.providerActionLayout()
-	inv := m.providerInventoryRows()
-	m.clampProviderCursor()
-	L, I, C := len(life), len(inv), len(config)
-	inv0, config0, end := L, L+I, L+I+C
-	switch key {
-	case "up", "k":
-		switch {
-		case m.syncCursor < L:
-		case m.syncCursor == inv0:
-			if L > 0 {
-				m.syncCursor = 0
-			}
-		case m.syncCursor == config0:
-			switch {
-			case I > 0:
-				m.syncCursor = config0 - 1
-			case L > 0:
-				m.syncCursor = 0
-			}
-		default:
-			m.syncCursor--
-		}
-	case "down", "j":
-		switch {
-		case m.syncCursor < L:
-			switch {
-			case I > 0:
-				m.syncCursor = inv0
-			case C > 0:
-				m.syncCursor = config0
-			}
-		case m.syncCursor < end-1:
-			m.syncCursor++
-		}
-	case "left", "h":
-		if m.syncCursor < L && m.syncCursor > 0 {
-			m.syncCursor--
-		}
-	case "right", "l":
-		if m.syncCursor < L-1 {
-			m.syncCursor++
-		}
-	case "home", "g":
-		m.syncCursor = 0
-	case "end", "G":
-		if end > 0 {
-			m.syncCursor = end - 1
-		}
-	case "esc", "backspace", "ctrl+h":
-		kind := m.syncProvider
-		m.syncProvider = ""
-		m.syncCursor = 0
-		for i, item := range m.syncProviders() {
-			if item.provider == kind {
-				m.syncCursor = i
-				break
-			}
-		}
-	case "r":
-		if host, ok := m.providerSelectedHost(); ok {
-			if cmd := m.resumeSyncedHost(host, false); cmd != nil {
-				return m, cmd
-			}
-		}
-		return m, m.syncStatusCmd()
-	case "s":
-		if m.anySyncing() || len(life) == 0 {
-			return m, nil
-		}
-		return m.runSyncAction(life[0].action)
-	case "o":
-		if host, ok := m.providerSelectedHost(); ok {
-			return m.stopSyncedHost(host)
-		}
-	case "d":
-		if host, ok := m.providerSelectedHost(); ok && m.deleteSyncedHost(host) {
-			return m, nil
-		}
-	case "n":
-		if m.anySyncing() {
-			return m, nil
-		}
-		if host, ok := m.providerSelectedHost(); ok {
-			return m.forkSyncedHost(host)
-		}
-		for _, item := range life {
-			if item.action == "boat_new" || item.action == "upstash_new" || item.action == "vercel_new" {
-				return m.runSyncAction(item.action)
-			}
-		}
-	case "space":
-		if m.syncCursor >= inv0 && m.syncCursor < config0 {
-			row := inv[m.syncCursor-inv0]
-			if row.header {
-				m.toggleProviderInv(row.group)
-			}
-		}
-	case "enter":
-		if m.syncCursor < L {
-			item := life[m.syncCursor]
-			if item.disabled || m.anySyncing() {
-				return m, nil
-			}
-			return m.runSyncAction(item.action)
-		}
-		if m.syncCursor < config0 {
-			return m.activateProviderInventory(inv[m.syncCursor-inv0])
-		}
-		cfgIdx := m.syncCursor - config0
-		if cfgIdx < 0 || cfgIdx >= len(config) {
-			return m, nil
-		}
-		item := config[cfgIdx]
-		if item.disabled || (m.anySyncing() && item.action != "refresh") {
-			return m, nil
-		}
-		return m.runSyncAction(item.action)
-	}
-	return m, nil
-}
-
 func (m *App) activateProviderInventory(row hostRow) (tea.Model, tea.Cmd) {
 	if row.header {
 		m.toggleProviderInv(row.group)
@@ -1608,46 +1399,6 @@ func (m *App) activateProviderInventory(row hostRow) (tea.Model, tea.Cmd) {
 		return m, m.setNotice("Operation already in progress")
 	}
 	return m.connectHost(row.host)
-}
-
-func (m *App) updateSyncMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	mouse := msg.Mouse()
-	if mouse.Button != tea.MouseLeft {
-		return m, nil
-	}
-	if m.syncProvider != "" {
-		return m.updateProviderMouse(mouse)
-	}
-	items := m.syncMenuItems()
-	cols := m.syncGridCols()
-	gap := 2
-	tileWidth := m.syncTileWidth()
-	startRow, visibleRows, _ := m.syncGridWindow(items)
-	idx := -1
-	x := mouse.X - 2
-	y := mouse.Y - 2 - syncGridTopPad
-	if y >= 0 && y < visibleRows*syncTileHeight && x >= 0 {
-		col := 0
-		if cols > 1 && x >= tileWidth+gap {
-			col = 1
-			x -= tileWidth + gap
-		}
-		if x < tileWidth {
-			idx = ((startRow + y/syncTileHeight) * cols) + col
-		}
-	}
-	if idx < 0 || idx >= len(items) {
-		return m, nil
-	}
-	if idx == m.syncCursor {
-		item := items[idx]
-		if item.disabled {
-			return m, nil
-		}
-		return m, m.openSyncProvider(item.provider)
-	}
-	m.syncCursor = idx
-	return m, nil
 }
 
 func (m *App) updateProviderMouse(mouse tea.Mouse) (tea.Model, tea.Cmd) {
@@ -1741,8 +1492,22 @@ func (m *App) moveSyncGrid(dx, dy int, items []syncMenuItem) {
 }
 
 func (m *App) clampSyncCursor(items []syncMenuItem) {
+	if m.syncProvider != "" {
+		n := len(m.syncSettingRows(cloud.Kind(m.syncProvider)))
+		if n == 0 || m.syncCursor < 0 {
+			m.syncCursor = 0
+			return
+		}
+		if m.syncCursor >= n {
+			m.syncCursor = n - 1
+		}
+		return
+	}
 	if m.syncCursor >= len(items) {
 		m.syncCursor = max(0, len(items)-1)
+	}
+	if m.syncCursor < 0 {
+		m.syncCursor = 0
 	}
 }
 

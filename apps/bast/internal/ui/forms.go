@@ -335,6 +335,12 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 	for _, item := range f.fields {
 		values[item.label] = item.value
 	}
+	if strings.HasPrefix(f.action, "provider_token:") {
+		return m, m.submitProviderToken(f)
+	}
+	if strings.HasPrefix(f.action, "provider_setting:") {
+		return m, m.submitProviderSetting(f)
+	}
 	switch f.action {
 	case "host_add", "host_edit", "history_host_add":
 		group, label, pathErr := metadata.SplitLabelPath(values["Label"])

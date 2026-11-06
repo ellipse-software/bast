@@ -1,5 +1,7 @@
 package cli
 
+import "bast/internal/cloud"
+
 type valueKind int
 
 const (
@@ -65,7 +67,13 @@ func (n specNode) names() []string {
 
 var completionShells = []string{"bash", "zsh", "fish", "powershell", "elvish", "nushell"}
 
-var syncProviders = []string{"gcp", "aws", "azure", "boat", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "boxd"}
+var syncProviders []string
+
+func init() {
+	for _, d := range cloud.Descriptors() {
+		syncProviders = append(syncProviders, string(d.Kind))
+	}
+}
 
 var globalFlagSpecs = []flagSpec{
 	{name: "json", desc: "structured JSON", boolean: true},

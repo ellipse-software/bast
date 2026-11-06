@@ -194,6 +194,8 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 		return m.updateVaultKeys(canonicalVaultKey(id))
 	case ActionSyncEnter, ActionSyncBack, ActionSyncNow:
 		return m.updateSyncKeys(canonicalSyncKey(id))
+	case ActionSyncTab:
+		return m.updateSyncKeys("tab")
 	case ActionFilesTab:
 		m.initFilesState()
 		m.files.focus = 1 - m.files.focus

@@ -221,6 +221,7 @@ type App struct {
 	syncStatusProbing   bool
 	syncProvider        string
 	syncCursor          int
+	syncListIndex       int
 	vaultPassphrase     string
 	vaultSession        *vault.Session
 	vaultSessionChecked bool   // true after a session cache read or explicit set
@@ -723,6 +724,8 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.syncStatusAt = time.Now()
 		}
 		return m, nil
+	case providerLoginDoneMsg:
+		return m, m.syncStatusCmd()
 	case vaultOTPStartedMsg:
 		m.clearVaultBusy()
 		if msg.err != nil {

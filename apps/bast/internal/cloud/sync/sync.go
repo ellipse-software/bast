@@ -71,6 +71,8 @@ type Engine struct {
 	// EnsureAccessWait overrides the guest-agent propagation pause after publishing a key.
 	// Zero keeps the GCP client default; negative skips the wait (tests).
 	EnsureAccessWait time.Duration
+
+	services map[cloud.Kind]Service
 }
 
 type hostMetadataUpdate struct {
@@ -91,7 +93,7 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 		SyncRailwayConfig: p.SyncRailwayConfig, SyncFlyConfig: p.SyncFlyConfig,
 		SyncDigitalOceanConfig: p.SyncDigitalOceanConfig, SyncBoxdConfig: p.SyncBoxdConfig,
 	}
-	return &Engine{
+	e := &Engine{
 		Paths:          p,
 		Config:         cfg,
 		Store:          store,
@@ -112,6 +114,8 @@ func New(p paths.Paths, store *metadata.Store) *Engine {
 			return cfg.Discover()
 		},
 	}
+	e.services = newServices(e)
+	return e
 }
 
 func newVercelClient(p paths.Paths, store *metadata.Store) *vercelcloud.Client {
