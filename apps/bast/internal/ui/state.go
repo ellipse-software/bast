@@ -113,7 +113,21 @@ func (m *App) hostMetadata() map[string]metadata.Host {
 
 func (m *App) refreshHostMetadata() map[string]metadata.Host {
 	m.hostMeta, m.hostMetaRevision = m.metadata.HostsSnapshot()
+	m.groupAppearance = m.metadata.Groups()
 	return m.hostMeta
+}
+
+func (m *App) appearanceForGroup(path string) metadata.GroupAppearance {
+	if path == "" || cloudsync.IsSyncedGroup(path) {
+		return metadata.GroupAppearance{}
+	}
+	if _, ok := cloud.KindForGroup(path); ok {
+		return metadata.GroupAppearance{}
+	}
+	if m.groupAppearance == nil {
+		return metadata.GroupAppearance{}
+	}
+	return m.groupAppearance[path]
 }
 
 func (m *App) filteredHostsWithMetadata(hostMetadata map[string]metadata.Host) []sshconfig.Host {
@@ -456,10 +470,18 @@ func replaceGroupPrefix(group, oldPrefix, newPrefix string) string {
 	return group
 }
 
-func (m *App) renameGroup(oldPath, newSegment string) (string, error) {
+func (m *App) saveGroupEdit(oldPath, newSegment, icon, color string) (string, error) {
 	newSegment = strings.TrimSpace(newSegment)
 	if newSegment == "" {
 		return "", fmt.Errorf("group name cannot be empty")
+	}
+	icon, err := metadata.NormalizeIcon(icon)
+	if err != nil {
+		return "", err
+	}
+	color, err = metadata.NormalizeColor(color)
+	if err != nil {
+		return "", err
 	}
 	parts := groupPathParts(oldPath)
 	parent := ""
@@ -474,44 +496,62 @@ func (m *App) renameGroup(oldPath, newSegment string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if normalized == oldPath {
-		return normalized, nil
-	}
-	if m.groupExists(normalized) {
+	if normalized != oldPath && m.groupExists(normalized) {
 		return "", fmt.Errorf("group %q already exists; choose a different name to avoid merging hosts", normalized)
 	}
 	aliases := make(map[string]bool, len(m.hosts))
 	for _, host := range m.hosts {
 		aliases[host.Alias] = true
 	}
-	if err := m.metadata.UpdateHosts(func(hosts map[string]metadata.Host) {
-		for alias, meta := range hosts {
-			if !aliases[alias] {
-				continue
-			}
-			existing, err := normalizeGroupPath(meta.Group)
-			if err != nil || existing == "" || (existing != oldPath && !strings.HasPrefix(existing, oldPath+"/")) {
-				continue
-			}
-			meta.Group = replaceGroupPrefix(existing, oldPath, normalized)
-			hosts[alias] = meta
+	var collapsed []string
+	updateCollapsed := false
+	var nextCollapsed map[string]bool
+	if normalized != oldPath && m.collapsedGroups != nil {
+		updateCollapsed = true
+		remapped := map[string]bool{}
+		for path, isCollapsed := range m.collapsedGroups {
+			remapped[replaceGroupPrefix(path, oldPath, normalized)] = isCollapsed
 		}
-	}); err != nil {
+		live := liveGroupPathsAfterRename(m.hosts, m.hostMetadata(), aliases, oldPath, normalized)
+		nextCollapsed = map[string]bool{}
+		for path, isCollapsed := range remapped {
+			if isCollapsed && live[path] {
+				nextCollapsed[path] = true
+				collapsed = append(collapsed, path)
+			}
+		}
+	}
+	if err := m.metadata.SaveGroupEdit(oldPath, normalized, aliases, collapsed, updateCollapsed, metadata.GroupAppearance{Icon: icon, Color: color}); err != nil {
 		return "", err
 	}
-	if m.collapsedGroups != nil {
-		updated := map[string]bool{}
-		for path, collapsed := range m.collapsedGroups {
-			updated[replaceGroupPrefix(path, oldPath, normalized)] = collapsed
-		}
-		m.collapsedGroups = updated
+	if updateCollapsed {
+		m.collapsedGroups = nextCollapsed
 		m.collapseRevision++
-		if err := m.persistCollapsedGroups(); err != nil {
-			m.setError(err)
-		}
 	}
 	m.refreshHostMetadata()
 	return normalized, nil
+}
+
+func liveGroupPathsAfterRename(hosts []sshconfig.Host, metadataByHost map[string]metadata.Host, aliases map[string]bool, oldPath, newPath string) map[string]bool {
+	live := map[string]bool{}
+	for _, host := range hosts {
+		group := strings.TrimSpace(metadataByHost[host.Alias].Group)
+		if group == "" {
+			continue
+		}
+		existing, err := normalizeGroupPath(group)
+		if err != nil || existing == "" {
+			continue
+		}
+		if aliases[host.Alias] && (existing == oldPath || strings.HasPrefix(existing, oldPath+"/")) {
+			existing = replaceGroupPrefix(existing, oldPath, newPath)
+		}
+		parts := groupPathParts(existing)
+		for i := 1; i <= len(parts); i++ {
+			live[strings.Join(parts[:i], "/")] = true
+		}
+	}
+	return live
 }
 func (m *App) selectedKey() (keys.Key, bool) {
 	items := m.filteredKeys()

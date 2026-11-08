@@ -120,6 +120,11 @@ func (a Applier) Apply(doc Document) error {
 	if err := a.Store.SetCollapsedGroups(doc.Preferences.CollapsedGroups); err != nil {
 		return err
 	}
+	if doc.Groups != nil {
+		if err := a.Store.SetGroups(*doc.Groups); err != nil {
+			return err
+		}
+	}
 	if err := applyIntegrations(a.Store, doc.Integrations); err != nil {
 		return err
 	}

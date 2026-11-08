@@ -41,6 +41,7 @@ func Merge(local, remote Document, mode MergeMode) MergeResult {
 	conflicts := append(hostConflicts, keyConflicts...)
 
 	meta := mergeMetadata(local.Metadata, remote.Metadata, hosts)
+	groups := mergeGroupAppearances(local.Groups, remote.Groups)
 	prefs := local.Preferences
 	if remote.Preferences.Sort != "" && (local.Preferences.Sort == "" || remote.UpdatedAt >= local.UpdatedAt) {
 		prefs = remote.Preferences
@@ -59,6 +60,7 @@ func Merge(local, remote Document, mode MergeMode) MergeResult {
 		Hosts:        hosts,
 		Keys:         keys,
 		Metadata:     meta,
+		Groups:       groups,
 		Preferences:  prefs,
 		Integrations: integrations,
 		Tombstones: Tombstones{
@@ -198,6 +200,39 @@ func mergeKeys(local, remote []KeyEntry, tombs map[string]int64) ([]KeyEntry, []
 		out = append(out, k)
 	}
 	return out, conflicts
+}
+
+func mergeGroupAppearances(local, remote *map[string]metadata.GroupAppearance) *map[string]metadata.GroupAppearance {
+	if local == nil && remote == nil {
+		return nil
+	}
+	if local == nil {
+		return cloneGroupAppearances(remote)
+	}
+	if remote == nil {
+		return cloneGroupAppearances(local)
+	}
+	out := make(map[string]metadata.GroupAppearance, len(*local)+len(*remote))
+	for path, appearance := range *local {
+		out[path] = appearance
+	}
+	for path, appearance := range *remote {
+		if _, ok := out[path]; !ok {
+			out[path] = appearance
+		}
+	}
+	return &out
+}
+
+func cloneGroupAppearances(groups *map[string]metadata.GroupAppearance) *map[string]metadata.GroupAppearance {
+	if groups == nil {
+		return nil
+	}
+	out := make(map[string]metadata.GroupAppearance, len(*groups))
+	for path, appearance := range *groups {
+		out[path] = appearance
+	}
+	return &out
 }
 
 func mergeMetadata(local, remote map[string]metadata.Host, hosts []HostEntry) map[string]metadata.Host {

@@ -599,6 +599,124 @@ func TestRenameGroupCascadesToHosts(t *testing.T) {
 	}
 }
 
+func TestGroupAndHostAppearance(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{
+		{Alias: "alpha", Managed: true},
+		{
+			Alias: "gcp_demo_web", Synced: true, SyncSource: "gcp",
+			Resolved: sshconfig.Resolved{HostName: "web", User: "ubuntu"},
+		},
+	}
+	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Work", Icon: "🇩🇪", Color: "red"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("gcp_demo_web", metadata.Host{Label: "web", Group: "Google Cloud/Demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetGroups(map[string]metadata.GroupAppearance{
+		"Work":         {Icon: "🇩🇪", Color: "red"},
+		"Google Cloud": {Icon: "🇩🇪", Color: "red"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshHostMetadata()
+	m.sortHosts()
+	m.cursor = len(m.hostListRows()) - 1
+
+	body := m.renderHosts(m.styles())
+	groupName := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1")).Render("Work")
+	if !strings.Contains(body, groupName) {
+		t.Fatalf("group name missing ANSI red:\n%s", body)
+	}
+	if strings.Contains(groupName, "38;2;") || strings.Contains(groupName, "38;5;") {
+		t.Fatalf("theme colour rendered as truecolor or indexed: %q", groupName)
+	}
+	if !strings.Contains(groupName, "31") {
+		t.Fatalf("theme colour missing SGR 31: %q", groupName)
+	}
+	hostName := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("alpha")
+	if !strings.Contains(body, hostName) || !strings.Contains(body, "🇩🇪") {
+		t.Fatalf("host row missing icon or ANSI colour:\n%s", body)
+	}
+	blue := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
+	if !strings.Contains(body, blue.Render("▾ ")) {
+		t.Fatalf("provider row should keep its brand colour:\n%s", body)
+	}
+	if strings.Contains(body, "🇩🇪 ▾") || strings.Count(body, "🇩🇪") < 2 {
+		t.Fatalf("provider row should not gain a user icon, and both user rows should:\n%s", body)
+	}
+	for i, row := range m.hostRows() {
+		if row.header && row.group == "Work" {
+			m.cursor = i
+			break
+		}
+	}
+	selected := m.renderHosts(m.styles())
+	selectedName := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1")).Background(lipgloss.Color("#1F2937")).Render("Work")
+	selectedIcon := lipgloss.NewStyle().Background(lipgloss.Color("#1F2937")).Render("🇩🇪 ")
+	if !strings.Contains(selected, selectedName) || !strings.Contains(selected, selectedIcon) || !strings.Contains(selected, m.styles().selected.Render("▾ ")) {
+		t.Fatalf("selected group should keep the ANSI name, an uncoloured icon, and a theme chevron:\n%s", selected)
+	}
+
+	if err := m.metadata.SetGroups(map[string]metadata.GroupAppearance{
+		"Work": {Color: "#abc"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshHostMetadata()
+	body = m.renderHosts(m.styles())
+	hexName := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#AABBCC")).Render("Work")
+	if !strings.Contains(body, hexName) || !strings.Contains(hexName, "38;2;") {
+		t.Fatalf("hex group name missing truecolor:\n%s\nname=%q", body, hexName)
+	}
+
+	for i, row := range m.hostRows() {
+		if row.header && row.group == "Work" {
+			m.cursor = i
+			break
+		}
+	}
+	detail := m.renderGroupDetail(m.styles(), m.hostListRows()[m.cursor], 60)
+	if !strings.Contains(detail, hexName) || !strings.Contains(detail, "e edit") {
+		t.Fatalf("group detail = %q", detail)
+	}
+	hostDetail := m.renderHostDetail(m.styles(), m.hosts[0], 60)
+	hostTitle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1")).Render("alpha")
+	if !strings.Contains(hostDetail, "🇩🇪") || !strings.Contains(hostDetail, hostTitle) || strings.Contains(hostTitle, "48;") {
+		t.Fatalf("host detail should prefix the icon and colour the name:\n%s", hostDetail)
+	}
+
+	m.openEditGroupForm()
+	if m.form == nil || m.form.title != "Edit group: Work" || m.form.revealed != len(m.form.fields)-1 {
+		t.Fatalf("group form = %+v", m.form)
+	}
+	color := formFieldByLabel(m, "Color")
+	labels := make([]string, 0, len(color.options))
+	for _, option := range color.options {
+		labels = append(labels, option.label)
+	}
+	if strings.Join(labels, ",") != "Default,Red,Green,Yellow,Blue,Magenta,Cyan,White,Gray,Custom hex" {
+		t.Fatalf("palette = %v", labels)
+	}
+	if !color.options[color.selected].custom || color.value != "#AABBCC" {
+		t.Fatalf("hex should open on custom: %+v", color)
+	}
+
+	for i, row := range m.hostRows() {
+		if row.header && row.group == "Google Cloud" {
+			m.cursor = i
+			break
+		}
+	}
+	m.form = nil
+	m.status, m.statusError = "", false
+	m.openEditGroupForm()
+	if m.form != nil || !strings.Contains(m.status, "cannot be edited") {
+		t.Fatalf("synced group status = %q form=%v", m.status, m.form != nil)
+	}
+}
+
 func TestHostGroupsSupportFiveNestedLevels(t *testing.T) {
 	m := testApp(t)
 	m.hosts = append(m.hosts, sshconfig.Host{Alias: "gamma"}, sshconfig.Host{Alias: "delta"})
@@ -1730,29 +1848,6 @@ func TestHostLabelsKeepSpacesWhileSSHNamesUseUnderscores(t *testing.T) {
 	m.openDeleteHostForm()
 	if m.form.input.Placeholder != "Production web" {
 		t.Fatalf("delete placeholder = %q", m.form.input.Placeholder)
-	}
-}
-
-func TestContrastingTextColor(t *testing.T) {
-	tests := []struct {
-		background string
-		want       string
-		valid      bool
-	}{
-		{background: "#000000", want: "#FFFFFF", valid: true},
-		{background: "#fff", want: "#111827", valid: true},
-		{background: "#7C3AED", want: "#FFFFFF", valid: true},
-		{background: "#FFFF00", want: "#111827", valid: true},
-		{background: "ffffff", valid: false},
-		{background: "purple", valid: false},
-	}
-	for _, test := range tests {
-		t.Run(test.background, func(t *testing.T) {
-			got, ok := contrastingTextColor(test.background)
-			if ok != test.valid || got != test.want {
-				t.Fatalf("contrastingTextColor(%q) = %q, %v; want %q, %v", test.background, got, ok, test.want, test.valid)
-			}
-		})
 	}
 }
 
@@ -3182,7 +3277,7 @@ func TestSyncedGroupRenameBlocked(t *testing.T) {
 		}
 	}
 	m.openEditGroupForm()
-	if m.form != nil || !strings.Contains(m.status, "cannot be renamed") {
+	if m.form != nil || !strings.Contains(m.status, "cannot be edited") {
 		t.Fatalf("status = %q form=%v", m.status, m.form != nil)
 	}
 }

@@ -6,15 +6,16 @@ const DocumentVersion = 1
 
 // Document is the plaintext vault payload before encryption.
 type Document struct {
-	Version      int                      `json:"version"`
-	Revision     string                   `json:"revision,omitempty"`
-	UpdatedAt    int64                    `json:"updatedAt"`
-	Hosts        []HostEntry              `json:"hosts"`
-	Keys         []KeyEntry               `json:"keys"`
-	Metadata     map[string]metadata.Host `json:"metadata,omitempty"`
-	Preferences  metadata.Preferences     `json:"preferences,omitempty"`
-	Integrations VaultIntegrations        `json:"integrations,omitempty"`
-	Tombstones   Tombstones               `json:"tombstones,omitempty"`
+	Version      int                                  `json:"version"`
+	Revision     string                               `json:"revision,omitempty"`
+	UpdatedAt    int64                                `json:"updatedAt"`
+	Hosts        []HostEntry                          `json:"hosts"`
+	Keys         []KeyEntry                           `json:"keys"`
+	Metadata     map[string]metadata.Host             `json:"metadata,omitempty"`
+	Groups       *map[string]metadata.GroupAppearance `json:"groups,omitempty"`
+	Preferences  metadata.Preferences                 `json:"preferences,omitempty"`
+	Integrations VaultIntegrations                    `json:"integrations,omitempty"`
+	Tombstones   Tombstones                           `json:"tombstones,omitempty"`
 }
 
 type HostEntry struct {

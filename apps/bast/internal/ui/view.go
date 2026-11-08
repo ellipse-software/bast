@@ -2,8 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"math"
-	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -369,12 +367,24 @@ func (m *App) renderHosts(s styleSet) string {
 			}
 			showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr, bitqateErr)
 			rawPrefix := indent + indicator + " "
-			reservedWidth := lipgloss.Width(rawPrefix) + 1 + lipgloss.Width(fmt.Sprintf("(%d)", row.count)) + lipgloss.Width(managedGroupIcon(name, m.nerdFont))
+			accent, branded := providerBrandStyle(row)
+			appearance := metadata.GroupAppearance{}
+			if !branded {
+				appearance = m.appearanceForGroup(row.group)
+			}
+			userIcon := ""
+			if appearance.Icon != "" {
+				userIcon = appearance.Icon + " "
+			}
+			reservedWidth := lipgloss.Width(rawPrefix) + 1 + lipgloss.Width(fmt.Sprintf("(%d)", row.count)) + lipgloss.Width(managedGroupIcon(name, m.nerdFont)) + lipgloss.Width(userIcon)
 			if showError {
 				reservedWidth += 1 + lipgloss.Width("⚠")
 			}
 			name = truncate(name, max(2, rowWidth-reservedWidth))
-			accent, branded := providerBrandStyle(row)
+			if line, ok := renderUserGroupRow(s, appearance, userIcon, rawPrefix, name, row.count, i == m.cursor, rowWidth); ok {
+				list.WriteString(line + "\n")
+				continue
+			}
 			nameStyle := s.active
 			if branded {
 				nameStyle = accent
@@ -431,20 +441,35 @@ func (m *App) renderHosts(s styleSet) string {
 		}
 		host := row.host
 		meta := hostMeta[host.Alias]
-		prefix := "  "
+		mark := "  "
 		if meta.Hidden {
-			prefix = "◌ "
+			mark = "◌ "
 		} else if meta.Favorite {
-			prefix = "◆ "
+			mark = "◆ "
 		}
 		indent := strings.Repeat("  ", row.depth)
-		line := indent + prefix + truncate(hostLabel(host, meta), max(2, rowWidth-lipgloss.Width(indent+prefix)-2))
-		if i == m.cursor {
-			line = selectedRow.Render(line)
-		} else if hostLooksStopped(host, meta) {
-			line = mutedRow.Render(line)
+		userIcon := ""
+		color := ""
+		if !host.Synced {
+			if meta.Icon != "" {
+				userIcon = meta.Icon + " "
+			}
+			color = meta.Color
+		}
+		fg, colored := colorForeground(color)
+		label := truncate(hostLabel(host, meta), max(2, rowWidth-lipgloss.Width(indent+mark+userIcon)-2))
+		var line string
+		if userIcon != "" || colored {
+			line = renderUserHostRow(s, indent, mark, userIcon, label, colored, fg, i == m.cursor, hostLooksStopped(host, meta), rowWidth)
 		} else {
-			line = plainRow.Render(line)
+			line = indent + mark + label
+			if i == m.cursor {
+				line = selectedRow.Render(line)
+			} else if hostLooksStopped(host, meta) {
+				line = mutedRow.Render(line)
+			} else {
+				line = plainRow.Render(line)
+			}
 		}
 		list.WriteString(line + "\n")
 	}
@@ -579,13 +604,22 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 			state = "expanded for search"
 		}
 	}
-	hint := "→ expand · ← parent · ␣ " + m.collapseActionLabel() + " · e rename"
+	hint := "→ expand · ← parent · ␣ " + m.collapseActionLabel() + " · e edit"
 	if sync.IsSyncedGroup(row.group) {
 		hint = "→ expand · ← parent · ␣ " + m.collapseActionLabel() + " · cloud sync (read-only)"
 	}
-	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont))
+	appearance := m.appearanceForGroup(row.group)
+	userIcon := ""
+	if appearance.Icon != "" {
+		userIcon = appearance.Icon + " "
+	}
+	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont)) + lipgloss.Width(userIcon)
 	name := truncate(row.group, max(2, width-3-iconWidth))
-	return "  " + renderManagedGroupName(name, s.active, m.nerdFont) + "\n" +
+	title := renderManagedGroupName(name, s.active, m.nerdFont)
+	if fg, ok := colorForeground(appearance.Color); ok {
+		title = lipgloss.NewStyle().Bold(true).Foreground(fg).Render(name)
+	}
+	return "  " + userIcon + title + "\n" +
 		"  " + s.muted.Render(fmt.Sprintf("%d servers · %s", row.count, state)) + "\n\n" +
 		"  " + s.muted.Render(truncate(hint, max(4, width-3)))
 }
@@ -745,22 +779,22 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	if !hostLooksStopped(host, meta) {
 		primaryAction = connectAction
 	}
+	userIcon := ""
+	if !host.Synced && meta.Icon != "" {
+		userIcon = meta.Icon + " "
+	}
 	titleStyle := s.active
 	if kind, ok := cloud.KindForSource(host.SyncSource); ok {
 		if color, found := providerBrandColor(kind); found {
 			titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color))
 		}
 	}
-	titleMax := max(4, width-3)
-	title := truncate(label, titleMax)
-	if foreground, ok := contrastingTextColor(meta.Color); ok {
-		titleStyle = lipgloss.NewStyle().Bold(true).
-			Foreground(lipgloss.Color(foreground)).
-			Background(lipgloss.Color(meta.Color)).
-			Padding(0, 1)
-		titleMax = max(4, width-5)
-		title = truncate(label, titleMax)
+	fg, colored := colorForeground(meta.Color)
+	if colored && !host.Synced {
+		titleStyle = lipgloss.NewStyle().Bold(true).Foreground(fg)
 	}
+	titleMax := max(4, width-3-lipgloss.Width(userIcon))
+	title := truncate(label, titleMax)
 	dest := destination(host)
 	if dest == "" {
 		dest = host.Alias
@@ -769,12 +803,11 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	if hostLooksStopped(host, meta) {
 		dest = "stopped"
 		destStyle = s.muted
-		if _, ok := contrastingTextColor(meta.Color); !ok {
+		if !colored || host.Synced {
 			titleStyle = s.muted
 		}
 	}
-	titlePart := titleStyle.Render(title)
-	b.WriteString("  " + titlePart + "\n")
+	b.WriteString("  " + userIcon + titleStyle.Render(title) + "\n")
 	b.WriteString(m.renderHostDetailActions(s, host, primaryAction))
 	b.WriteString("  " + destStyle.Render(truncate(dest, max(4, width-3))) + "\n")
 	b.WriteString("  " + s.muted.Render(truncate(hostStatusLine(host, meta), max(4, width-3))) + "\n")
@@ -967,18 +1000,14 @@ func (m *App) renderForm(s styleSet) string {
 					rows := min(7, len(item.options))
 					start := scrollStart(item.selected, len(item.options), rows)
 					for optionIndex := start; optionIndex < min(len(item.options), start+rows); optionIndex++ {
-						option := "  " + item.options[optionIndex].label
-						if optionIndex == item.selected {
-							option = s.selected.Render("› " + item.options[optionIndex].label)
-						} else {
-							option = s.muted.Render(option)
-						}
-						b.WriteString("    " + option + "\n")
+						option := item.options[optionIndex]
+						b.WriteString("    " + renderSelectOption(s, option.label, option.value, optionIndex == item.selected) + "\n")
 					}
 				} else if item.options[item.selected].custom {
 					b.WriteString("    " + f.input.View() + "\n")
 				} else {
-					b.WriteString("    " + s.value.Render(item.options[item.selected].label) + "\n")
+					option := item.options[item.selected]
+					b.WriteString("    " + renderClosedChoice(s, option.label, option.value) + "\n")
 				}
 			} else {
 				b.WriteString("    " + f.input.View() + "\n")
@@ -987,14 +1016,8 @@ func (m *App) renderForm(s styleSet) string {
 				b.WriteString("    " + s.error.Render("✕ "+f.validationError) + "\n")
 			}
 			if item.label == "Color" {
-				colour := strings.TrimSpace(f.input.Value())
-				if foreground, ok := contrastingTextColor(colour); ok {
-					preview := lipgloss.NewStyle().Bold(true).
-						Foreground(lipgloss.Color(foreground)).
-						Background(lipgloss.Color(colour)).
-						Padding(0, 1).
-						Render("Host label preview")
-					b.WriteString("    " + preview + "\n")
+				if preview := colorPreviewLine(s, formColorSample(f), focusedColorValue(item, f.input.Value())); preview != "" {
+					b.WriteString(preview)
 				}
 			}
 			continue
@@ -1064,38 +1087,6 @@ func (m *App) formHint() string {
 		movement = "↑/↓ move"
 	}
 	return action + " • " + movement + " • " + escape
-}
-
-func contrastingTextColor(background string) (string, bool) {
-	background = strings.TrimSpace(background)
-	if !strings.HasPrefix(background, "#") {
-		return "", false
-	}
-	hex := strings.TrimPrefix(background, "#")
-	if len(hex) == 3 {
-		hex = string([]byte{hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]})
-	}
-	if len(hex) != 6 {
-		return "", false
-	}
-	value, err := strconv.ParseUint(hex, 16, 24)
-	if err != nil {
-		return "", false
-	}
-	channel := func(v uint64) float64 {
-		srgb := float64(v) / 255
-		if srgb <= 0.04045 {
-			return srgb / 12.92
-		}
-		return math.Pow((srgb+0.055)/1.055, 2.4)
-	}
-	r := channel(value >> 16)
-	g := channel((value >> 8) & 0xff)
-	b := channel(value & 0xff)
-	if 0.2126*r+0.7152*g+0.0722*b > 0.2 {
-		return "#111827", true
-	}
-	return "#FFFFFF", true
 }
 
 func (m *App) helpContentWidth() int {

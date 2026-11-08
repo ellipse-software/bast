@@ -98,7 +98,7 @@ bast doctor [--fix] [--probe] [--category name] [--json]
 ```sh
 bast hosts list [--search text] [--sort smart|label|recent|group] [--all] [--json]
 bast hosts show <host> [--json]
-bast hosts add [label] --hostname host [--user u] [--password | --password-only] [--group g] [--tag t] [--json]
+bast hosts add [label] --hostname host [--user u] [--password | --password-only] [--group g] [--tag t] [--icon emoji] [--color name|hex] [--json]
 bast hosts edit <host> [patch flags] [--password] [--clear-password] [--json]
 bast hosts delete <host> [--yes] [--json]
 bast hosts favorite <host> [--json]
@@ -106,7 +106,7 @@ bast hosts hide <host> [--json]
 bast hosts known-host remove <host> [--yes] [--json]
 ```
 
-Host edits are **patches**: omitted flags leave values unchanged. Use `--clear-group`, `--clear-notes`, `--clear-identity`, etc. to remove values.
+Host edits are **patches**: omitted flags leave values unchanged. Use `--clear-group`, `--clear-icon`, `--clear-color`, `--clear-notes`, `--clear-identity`, etc. to remove values. Colour names are `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, and `gray`. Hex is also accepted. `--icon` is one emoji or flag.
 
 Labels with spaces work: `bast "Production web"`. Aliases are normalized (e.g. `Production_web`).
 
@@ -284,7 +284,7 @@ TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is en
 | `~/.ssh/bast/sync/<provider>/config` | Cloud-synced host blocks (while sync is enabled) |
 | `~/.ssh/bast/keys/` | Generated/imported keys (private keys mode 0600) |
 | `~/.ssh/google_compute_engine` | Fallback GCP identity (created on demand) |
-| `~/.config/bast/state.json` | Metadata: groups, tags, colors, notes, favorites, usage stats, sync settings |
+| `~/.config/bast/state.json` | Metadata: groups, icons, colors, tags, notes, favorites, usage stats, sync settings |
 | `~/.config/bast/upstash-box-api-key` | Upstash Box API key (mode 0600; not vaulted) |
 | `~/.config/bast/passwords/<managed-id>` | Optional host SSH password (mode 0600; not vaulted) |
 | `~/.config/bast/vercel-token` | Vercel access token (mode 0600; not vaulted) |
@@ -293,7 +293,7 @@ TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is en
 | `~/.ssh/bast/keys/railway` | Railway SSH key registered with the account |
 | `~/.ssh/config` | Gets `Include ~/.ssh/bast/config` on first run |
 
-Connection settings (hostname, user, port, identity files, password-only flags) live in SSH config. Bast metadata (groups, tags, notes) lives in `state.json`. Host passwords stay in `~/.config/bast/passwords/` and are fed to `ssh` via askpass. They do not sync through Vault.
+Connection settings (hostname, user, port, identity files, password-only flags) live in SSH config. Bast metadata (groups, icons, colours, tags, notes) lives in `state.json`. Host passwords stay in `~/.config/bast/passwords/` and are fed to `ssh` via askpass. They do not sync through Vault.
 
 ## Safety
 

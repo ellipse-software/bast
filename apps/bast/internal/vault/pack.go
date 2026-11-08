@@ -124,6 +124,11 @@ func (p Packer) Pack() (Document, error) {
 	if p.Store != nil {
 		doc.Preferences = p.Store.Preferences()
 		doc.Integrations = packIntegrations(p.Store.Integrations())
+		groups := p.Store.Groups()
+		if groups == nil {
+			groups = map[string]metadata.GroupAppearance{}
+		}
+		doc.Groups = &groups
 	}
 	return doc, nil
 }

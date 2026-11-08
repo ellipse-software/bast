@@ -118,7 +118,7 @@ func buildCatalog() []Binding {
 		bind(ActionNewOrFork, []string{"n"}, ScopeHosts, "New", "new").withFooter(20).when(hostsFooterProviderCreate).noHelp(),
 		bind(ActionSortOrSync, []string{"s"}, ScopeHosts, "Sync", "sync").withFooter(30).when(hostsFooterProvider).noHelp(),
 		bind(ActionToggleHidden, []string{"."}, ScopeHosts, "Show stopped", "show stopped").withFooter(40).when(hostsFooterShowStopped).noHelp(),
-		bind(ActionEdit, []string{"e"}, ScopeHosts, "Rename", "rename").withFooter(20).when(hostsFooterGroupRename).noHelp(),
+		bind(ActionEdit, []string{"e"}, ScopeHosts, "Edit", "edit").withFooter(20).when(hostsFooterGroupRename).noHelp(),
 		bind(ActionHostsEnter, []string{"enter"}, ScopeHosts, "Connect", "connect").withFooter(10).when(hostsFooterSandbox).noHelp(),
 		bind(ActionStopSandbox, []string{"o"}, ScopeHosts, "Stop", "stop").withFooter(20).when(hostsFooterSandboxRunning).noHelp(),
 		bind(ActionReload, []string{"r"}, ScopeHosts, "Resume", "resume").withFooter(20).when(hostsFooterSandboxStopped).noHelp(),

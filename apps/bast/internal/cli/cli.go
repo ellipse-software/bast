@@ -314,7 +314,7 @@ Connection: --user, --port, --identity, --password, --password-only, --proxy-jum
 Advanced: --forward-agent, --startup-command, --request-tty, --set-env,
           --local-forward, --remote-forward, --dynamic-forward, --compression,
           --keepalive, --ssh-option
-Metadata: label paths like Work/api set the group; or --group, --tag, --environment, --color, --notes`,
+Metadata: label paths like Work/api set the group; or --group, --tag, --environment, --icon, --color, --notes`,
 		"hosts edit": `Usage: bast hosts edit <host> [options]
 
 Connection: --label, --hostname, --user, --port, --identity, --password,
@@ -323,7 +323,7 @@ Advanced: --forward-agent, --startup-command, --request-tty, --set-env,
           --local-forward, --remote-forward, --dynamic-forward, --compression,
           --keepalive, --ssh-option
 Metadata: --label paths like Work/api set the group; or --group, --tag,
-          --environment, --color, --notes
+          --environment, --icon, --color, --notes
 Repeat list options to provide multiple values. Use the corresponding --clear-*
 option to restore a default or remove values.`,
 		"hosts delete":  "Usage: bast hosts delete <host> [--yes]",
@@ -476,6 +476,7 @@ type hostRecord struct {
 	Tags            []string                   `json:"tags"`
 	Environment     string                     `json:"environment"`
 	Color           string                     `json:"color"`
+	Icon            string                     `json:"icon"`
 	Notes           string                     `json:"notes"`
 	Favorite        bool                       `json:"favorite"`
 	Hidden          bool                       `json:"hidden"`
@@ -605,7 +606,7 @@ func (r *Runner) load(ctx context.Context) ([]hostRecord, []keyRecord, error) {
 			PasswordStored: hosts[i].Managed && hostpass.Exists(r.Paths.PasswordsDir, hosts[i].ManagedID),
 			ProxyJump:      emptyNone(resolved.ProxyJump), Advanced: adv,
 			Group: meta.Group,
-			Tags:  nonNil(meta.Tags), Environment: meta.Environment, Color: meta.Color, Notes: meta.Notes, Favorite: meta.Favorite,
+			Tags:  nonNil(meta.Tags), Environment: meta.Environment, Color: meta.Color, Icon: meta.Icon, Notes: meta.Notes, Favorite: meta.Favorite,
 			Hidden: meta.Hidden, Managed: hosts[i].Managed, Synced: hosts[i].Synced, SyncSource: hosts[i].SyncSource,
 			SyncID: hosts[i].SyncID, Source: hosts[i].Source, KnownHost: hosts[i].KnownHost, ResolveError: resolveErrors[i],
 			LastUsedAt: meta.LastUsedAt, ConnectionCount: meta.ConnectionCount, raw: hosts[i], meta: meta,

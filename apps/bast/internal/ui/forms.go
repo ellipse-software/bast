@@ -35,7 +35,8 @@ const (
 	descHostSSHFlags       = "Optional - Any other OpenSSH options, separated by ;"
 	descHostTags           = "Optional - Comma-separated tags included in search"
 	descHostEnvironment    = "Optional - Environment name like production or staging"
-	descHostColor          = "Optional - Hex colour for the host label"
+	descHostIcon           = "Optional - One emoji or flag shown before the name"
+	descHostColor          = "Optional - Theme colour or hex for the name"
 	descHostNotes          = "Optional - Short note in details and search"
 	descHostRDP            = "Optional - Show a Remote Desktop action for this host"
 	descKeyName            = "Required - Short name for this keypair"
@@ -368,7 +369,11 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			input.ExtraOptions = append([]string{"IdentitiesOnly yes"}, input.ExtraOptions...)
 		}
 		oldAlias := values["Original label"]
-		meta := metadata.Host{Label: label, Group: group, Tags: splitCSV(values["Tags"]), Environment: values["Environment"], Color: values["Color"], Notes: values["Notes"], RDP: values[rdpFieldLabel] == rdpOnValue}
+		icon, color, appearanceErr := normalizeAppearance(values["Icon"], values["Color"])
+		if appearanceErr != nil {
+			return m.formError(appearanceErr.Error())
+		}
+		meta := metadata.Host{Label: label, Group: group, Tags: splitCSV(values["Tags"]), Environment: values["Environment"], Color: color, Icon: icon, Notes: values["Notes"], RDP: values[rdpFieldLabel] == rdpOnValue}
 		if meta.Label == input.Alias {
 			meta.Label = ""
 		}
@@ -421,11 +426,15 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		return m.finishMutation(err, "Host saved")
 	case "group_edit":
 		oldPath := values["Original path"]
-		newPath, err := m.renameGroup(oldPath, values["Name"])
+		icon, color, appearanceErr := normalizeAppearance(values["Icon"], values["Color"])
+		if appearanceErr != nil {
+			return m.formValidationError(appearanceErr.Error())
+		}
+		newPath, err := m.saveGroupEdit(oldPath, values["Name"], icon, color)
 		if err == nil {
 			m.selectAfterLoadSection, m.selectAfterLoadName, m.selectAfterLoadGroup = hostsSection, newPath, true
 		}
-		return m.finishMutation(err, "Group renamed")
+		return m.finishMutation(err, "Group saved")
 	case "metadata_edit":
 		alias := values["Alias"]
 		old := m.metadata.Host(alias)
@@ -433,8 +442,12 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		if err != nil {
 			return m.formError(err.Error())
 		}
+		icon, color, appearanceErr := normalizeAppearance(values["Icon"], values["Color"])
+		if appearanceErr != nil {
+			return m.formError(appearanceErr.Error())
+		}
 		groupCreated := group != "" && !m.groupExists(group)
-		old.Label, old.Group, old.Tags, old.Environment, old.Color, old.Notes = label, group, splitCSV(values["Tags"]), values["Environment"], values["Color"], values["Notes"]
+		old.Label, old.Group, old.Tags, old.Environment, old.Color, old.Icon, old.Notes = label, group, splitCSV(values["Tags"]), values["Environment"], color, icon, values["Notes"]
 		old.RDP = values[rdpFieldLabel] == rdpOnValue
 		if old.Label == alias {
 			old.Label = ""
@@ -650,6 +663,18 @@ func (m *App) finishMutation(err error, success string) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func normalizeAppearance(icon, color string) (string, string, error) {
+	icon, err := metadata.NormalizeIcon(icon)
+	if err != nil {
+		return "", "", err
+	}
+	color, err = metadata.NormalizeColor(color)
+	if err != nil {
+		return "", "", err
+	}
+	return icon, color, nil
+}
+
 func (m *App) formError(message string) (tea.Model, tea.Cmd) {
 	if m.form != nil {
 		message = m.form.title + " failed: " + message
@@ -701,13 +726,17 @@ func (m *App) openEditGroupForm() {
 		return
 	}
 	if sync.IsSyncedGroup(group) {
-		m.status, m.statusError = "Cloud sync groups cannot be renamed", true
+		m.status, m.statusError = "Cloud sync groups cannot be edited", true
 		return
 	}
-	m.openForm("Rename group: "+groupShortName(group), "group_edit", []field{
+	appearance := m.appearanceForGroup(group)
+	m.openForm("Edit group: "+groupShortName(group), "group_edit", []field{
 		{label: "Original path", value: group, hidden: true},
 		{label: "Name", description: "Renames this group for every host inside it", value: groupShortName(group)},
+		{label: "Icon", description: descHostIcon, value: appearance.Icon, placeholder: "🇩🇪", optional: true},
+		colorFormField(appearance.Color, ""),
 	})
+	m.form.revealed = len(m.form.fields) - 1
 }
 
 func (m *App) openEditHostForm() {
@@ -724,7 +753,7 @@ func (m *App) openEditHostForm() {
 	if !host.Managed {
 		m.openHostForm("Edit metadata: "+m.hostLabel(host), "metadata_edit", hostFormFields(m, metadataHostValues{
 			label: labelPath, tags: strings.Join(meta.Tags, ", "),
-			environment: meta.Environment, color: meta.Color, notes: meta.Notes, rdp: meta.RDP,
+			environment: meta.Environment, color: meta.Color, icon: meta.Icon, notes: meta.Notes, rdp: meta.RDP,
 			labelDesc: "Optional - Display name; use / for groups; SSH alias stays " + host.Alias,
 		}, hostConnectionValues{}, []field{{label: "Alias", value: host.Alias, hidden: true}}))
 		return
@@ -739,7 +768,7 @@ func (m *App) openEditHostForm() {
 	passwordStored := hostpass.Exists(m.paths.PasswordsDir, host.ManagedID)
 	m.openHostForm("Edit host: "+m.hostLabel(host), "host_edit", hostFormFields(m, metadataHostValues{
 		label: labelPath, tags: strings.Join(meta.Tags, ", "),
-		environment: meta.Environment, color: meta.Color, notes: meta.Notes, rdp: meta.RDP,
+		environment: meta.Environment, color: meta.Color, icon: meta.Icon, notes: meta.Notes, rdp: meta.RDP,
 	}, hostConnectionValues{
 		includeConnection: true,
 		hostname:          host.Resolved.HostName,

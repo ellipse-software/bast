@@ -274,6 +274,39 @@ func TestInvocationAndCommandHelp(t *testing.T) {
 	}
 }
 
+func TestHostIconAndColorFlags(t *testing.T) {
+	home := t.TempDir()
+	client := fakeOpenSSH(t)
+	out, errOut, err := runTestCLI(t, home, client, "--json", "hosts", "add", "web", "--hostname", "web.example", "--icon", "🇩🇪", "--color", "red")
+	if err != nil || errOut != "" || !strings.Contains(out, `"alias":"web"`) {
+		t.Fatalf("add output=%q stderr=%q err=%v", out, errOut, err)
+	}
+	out, errOut, err = runTestCLI(t, home, client, "--json", "hosts", "show", "web")
+	if err != nil || errOut != "" || !strings.Contains(out, `"icon":"🇩🇪"`) || !strings.Contains(out, `"color":"red"`) {
+		t.Fatalf("show output=%q stderr=%q err=%v", out, errOut, err)
+	}
+	_, errOut, err = runTestCLI(t, home, client, "--json", "hosts", "edit", "web", "--color", "nope")
+	if err == nil || !strings.Contains(errOut, "validation") {
+		t.Fatalf("expected colour validation, stderr=%q err=%v", errOut, err)
+	}
+	_, errOut, err = runTestCLI(t, home, client, "--json", "hosts", "edit", "web", "--color", "#abc")
+	if err != nil || errOut != "" {
+		t.Fatalf("hex edit stderr=%q err=%v", errOut, err)
+	}
+	out, _, err = runTestCLI(t, home, client, "--json", "hosts", "show", "web")
+	if err != nil || !strings.Contains(out, `"color":"#AABBCC"`) || !strings.Contains(out, `"icon":"🇩🇪"`) {
+		t.Fatalf("show after hex = %q err=%v", out, err)
+	}
+	_, errOut, err = runTestCLI(t, home, client, "--json", "hosts", "edit", "web", "--clear-icon")
+	if err != nil || errOut != "" {
+		t.Fatalf("clear icon stderr=%q err=%v", errOut, err)
+	}
+	out, _, err = runTestCLI(t, home, client, "hosts", "show", "web")
+	if err != nil || strings.Contains(out, "Icon:") || !strings.Contains(out, "Color: #AABBCC") {
+		t.Fatalf("text show = %q err=%v", out, err)
+	}
+}
+
 func TestHostAddRejectsDeepGroupPaths(t *testing.T) {
 	home := t.TempDir()
 	_, errOut, err := runTestCLI(t, home, fakeOpenSSH(t), "--json", "hosts", "add", "leaf", "--hostname", "host.example", "--group", "a/b/c/d/e/f")

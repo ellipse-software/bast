@@ -1,6 +1,9 @@
 package cli
 
-import "bast/internal/cloud"
+import (
+	"bast/internal/cloud"
+	"bast/internal/metadata"
+)
 
 type valueKind int
 
@@ -514,7 +517,8 @@ func hostAddFlags() []flagSpec {
 		{name: "proxy-jump", desc: "jump host", kind: valueHost},
 		{name: "group", desc: "group path"},
 		{name: "environment", desc: "environment"},
-		{name: "color", desc: "label colour"},
+		enumFlag("color", "label colour", metadata.ANSIColorTokens()...),
+		{name: "icon", desc: "emoji or flag"},
 		{name: "notes", desc: "notes"},
 		{name: "tag", desc: "tag", repeatable: true},
 		enumFlag("forward-agent", "agent forwarding", "yes", "no"),
@@ -542,6 +546,7 @@ func hostEditFlags() []flagSpec {
 		boolFlag("clear-tags", "clear tags"),
 		boolFlag("clear-environment", "clear environment"),
 		boolFlag("clear-color", "clear colour"),
+		boolFlag("clear-icon", "clear icon"),
 		boolFlag("clear-notes", "clear notes"),
 		boolFlag("clear-forward-agent", "use OpenSSH default agent forwarding"),
 		boolFlag("clear-startup-command", "clear startup command"),

@@ -47,7 +47,7 @@ func TestContextualFootersBySection(t *testing.T) {
 	}
 	m.sortHosts()
 	m.cursor = 0
-	if got := m.browseFooterHint(80); !strings.Contains(got, "␣") || !strings.Contains(got, "e rename") {
+	if got := m.browseFooterHint(80); !strings.Contains(got, "␣") || !strings.Contains(got, "e edit") {
 		t.Fatalf("group = %q", got)
 	}
 

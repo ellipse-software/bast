@@ -120,6 +120,12 @@ func (r *Runner) hostShow(args []string) error {
 	}
 	fmt.Fprintf(r.Out, "Alias: %s\nLabel: %s\nDestination: %s@%s:%s\nAuthentication: %s\nProxy jump: %s\nGroup: %s\nTags: %s\nEnvironment: %s\nNotes: %s\nManaged: %t\nSource: %s\nKnown host: %t\nFavorite: %t\nHidden: %t\nConnections: %d\n",
 		host.Alias, host.Label, host.User, host.Hostname, host.Port, host.Authentication, emptyDefault(host.ProxyJump), host.Group, strings.Join(host.Tags, ", "), host.Environment, host.Notes, host.Managed, host.Source, host.KnownHost, host.Favorite, host.Hidden, host.ConnectionCount)
+	if host.Icon != "" {
+		fmt.Fprintf(r.Out, "Icon: %s\n", host.Icon)
+	}
+	if host.Color != "" {
+		fmt.Fprintf(r.Out, "Color: %s\n", host.Color)
+	}
 	if summary := formatAdvancedSummary(host.Advanced); summary != "" {
 		fmt.Fprintf(r.Out, "Advanced:\n%s\n", summary)
 	}
@@ -138,6 +144,7 @@ func (r *Runner) hostAdd(args []string) error {
 	group := fs.String("group", "", "group path")
 	environment := fs.String("environment", "", "environment")
 	color := fs.String("color", "", "label colour")
+	icon := fs.String("icon", "", "emoji or flag")
 	notes := fs.String("notes", "", "notes")
 	var tags stringsFlag
 	var advanced hostAdvancedAddFlags
@@ -216,6 +223,10 @@ func (r *Runner) hostAdd(args []string) error {
 		if err != nil {
 			return err
 		}
+		*icon, err = r.prompt("Icon", *icon, false)
+		if err != nil {
+			return err
+		}
 		*color, err = r.prompt("Color", *color, false)
 		if err != nil {
 			return err
@@ -266,11 +277,19 @@ func (r *Runner) hostAdd(args []string) error {
 		Alias: sshconfig.NormalizeAlias(leaf), HostName: *hostname, User: *user, Port: *port,
 		IdentityFile: *identity, PasswordOnly: *passwordOnly,
 	}, adv)
+	*color, err = metadata.NormalizeColor(*color)
+	if err != nil {
+		return fail("validation", err.Error())
+	}
+	*icon, err = metadata.NormalizeIcon(*icon)
+	if err != nil {
+		return fail("validation", err.Error())
+	}
 	host, err := r.config.Add(input)
 	if err != nil {
 		return err
 	}
-	meta := metadata.Host{Label: leaf, Group: normalizedGroup, Tags: splitValues(tags), Environment: *environment, Color: *color, Notes: *notes}
+	meta := metadata.Host{Label: leaf, Group: normalizedGroup, Tags: splitValues(tags), Environment: *environment, Color: *color, Icon: *icon, Notes: *notes}
 	if meta.Label == input.Alias {
 		meta.Label = ""
 	}
@@ -287,7 +306,7 @@ func (r *Runner) hostAdd(args []string) error {
 
 func (r *Runner) hostEdit(args []string) error {
 	fs := newFlagSet("hosts edit")
-	var label, hostname, user, port, identity, proxy, group, environment, color, notes optionalString
+	var label, hostname, user, port, identity, proxy, group, environment, color, icon, notes optionalString
 	fs.Var(&label, "label", "new display label and managed alias")
 	fs.Var(&hostname, "hostname", "server hostname or IP")
 	fs.Var(&user, "user", "remote user")
@@ -297,6 +316,7 @@ func (r *Runner) hostEdit(args []string) error {
 	fs.Var(&group, "group", "group path")
 	fs.Var(&environment, "environment", "environment")
 	fs.Var(&color, "color", "label colour")
+	fs.Var(&icon, "icon", "emoji or flag")
 	fs.Var(&notes, "notes", "notes")
 	passwordOnly := fs.Bool("password-only", false, "use password only")
 	storePassword := fs.Bool("password", false, "prompt for a password Bast enters on connect")
@@ -309,6 +329,7 @@ func (r *Runner) hostEdit(args []string) error {
 	clearTags := fs.Bool("clear-tags", false, "clear tags")
 	clearEnvironment := fs.Bool("clear-environment", false, "clear environment")
 	clearColor := fs.Bool("clear-color", false, "clear colour")
+	clearIcon := fs.Bool("clear-icon", false, "clear icon")
 	clearNotes := fs.Bool("clear-notes", false, "clear notes")
 	var tags stringsFlag
 	var advanced hostAdvancedEditFlags
@@ -333,7 +354,7 @@ func (r *Runner) hostEdit(args []string) error {
 		set   bool
 		clear bool
 		name  string
-	}{{user.set, *clearUser, "user"}, {port.set, *clearPort, "port"}, {proxy.set, *clearProxy, "proxy-jump"}, {group.set, *clearGroup, "group"}, {environment.set, *clearEnvironment, "environment"}, {color.set, *clearColor, "color"}, {notes.set, *clearNotes, "notes"}, {len(tags) > 0, *clearTags, "tags"}} {
+	}{{user.set, *clearUser, "user"}, {port.set, *clearPort, "port"}, {proxy.set, *clearProxy, "proxy-jump"}, {group.set, *clearGroup, "group"}, {environment.set, *clearEnvironment, "environment"}, {color.set, *clearColor, "color"}, {icon.set, *clearIcon, "icon"}, {notes.set, *clearNotes, "notes"}, {len(tags) > 0, *clearTags, "tags"}} {
 		if conflict.set && conflict.clear {
 			return usagef("cannot set and clear %s in the same command", conflict.name)
 		}
@@ -351,7 +372,7 @@ func (r *Runner) hostEdit(args []string) error {
 	}
 	configChanged := hostname.set || user.set || port.set || identity.set || proxy.set || *passwordOnly || *storePassword || *clearUser || *clearPort || *clearIdentity || *clearProxy || advanced.changed()
 	passwordChanged := *storePassword || *clearPassword
-	metadataChanged := label.set || group.set || environment.set || color.set || notes.set || len(tags) > 0 || *clearGroup || *clearTags || *clearEnvironment || *clearColor || *clearNotes
+	metadataChanged := label.set || group.set || environment.set || color.set || icon.set || notes.set || len(tags) > 0 || *clearGroup || *clearTags || *clearEnvironment || *clearColor || *clearIcon || *clearNotes
 	var wizardAdvanced *sshconfig.AdvancedSettings
 	if !configChanged && !metadataChanged && !passwordChanged {
 		if r.NoInput || !r.interactive() {
@@ -427,6 +448,11 @@ func (r *Runner) hostEdit(args []string) error {
 			return err
 		}
 		environment.set = true
+		icon.value, err = r.prompt("Icon", host.Icon, false)
+		if err != nil {
+			return err
+		}
+		icon.set = true
 		color.value, err = r.prompt("Color", host.Color, false)
 		if err != nil {
 			return err
@@ -488,7 +514,16 @@ func (r *Runner) hostEdit(args []string) error {
 		newMeta.Environment = environment.value
 	}
 	if color.set {
-		newMeta.Color = color.value
+		newMeta.Color, err = metadata.NormalizeColor(color.value)
+		if err != nil {
+			return fail("validation", err.Error())
+		}
+	}
+	if icon.set {
+		newMeta.Icon, err = metadata.NormalizeIcon(icon.value)
+		if err != nil {
+			return fail("validation", err.Error())
+		}
 	}
 	if notes.set {
 		newMeta.Notes = notes.value
@@ -504,6 +539,9 @@ func (r *Runner) hostEdit(args []string) error {
 	}
 	if *clearColor {
 		newMeta.Color = ""
+	}
+	if *clearIcon {
+		newMeta.Icon = ""
 	}
 	if *clearNotes {
 		newMeta.Notes = ""

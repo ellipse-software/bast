@@ -168,6 +168,7 @@ type App struct {
 	metadata                    *metadata.Store
 	syncer                      *sync.Engine
 	hostMeta                    map[string]metadata.Host
+	groupAppearance             map[string]metadata.GroupAppearance
 	hostMetaRevision            uint64
 	hostGeneration              uint64
 	collapseRevision            uint64
@@ -276,6 +277,7 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		return nil, err
 	}
 	app.hostMeta, app.hostMetaRevision = store.HostsSnapshot()
+	app.groupAppearance = store.Groups()
 	app.historySuggestions = store.HistoryImport().Pending
 	app.onboardingPending = store.ShouldOnboard()
 	if pass, err := vault.LoadPassphrase(vault.PassphrasePath(p.StateFile)); err == nil && pass != "" {

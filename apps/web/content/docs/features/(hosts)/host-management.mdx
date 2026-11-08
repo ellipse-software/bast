@@ -20,13 +20,15 @@ Choose **Advanced** to configure jump hosts, startup commands, forwarding, keepa
 
 ## Metadata fields
 
-**Groups** use slash paths like `Work/Production`. You can nest up to five levels. Press `m` on a local host, then type to fuzzy-search existing groups. Choose a match, select the create row for a new path, or clear the group with **No group**. Press Space on a group header to collapse or expand it. Right expands the focused group. Left collapses it, or moves to the parent group when that group is already collapsed or a host inside it is selected.
+**Groups** use slash paths like `Work/Production`. You can nest up to five levels. Press `m` on a local host, then type to fuzzy-search existing groups. Choose a match, select the create row for a new path, or clear the group with **No group**. Press Space on a group header to collapse or expand it. Right expands the focused group. Left collapses it, or moves to the parent group when that group is already collapsed or a host inside it is selected. Press `e` on a local group header to edit its name, icon, and colour. Each group keeps its own icon and colour. Nested groups and hosts do not inherit them. Cloud sync groups stay read-only.
 
 **Tags** are comma-separated labels included in search.
 
 **Environment** is a free-form field (for example `production` or `staging`).
 
-**Color** tints the label in the list so you can spot servers at a glance. Use a hex value.
+**Icon** is one emoji or flag shown before the name in the list and on the detail title.
+
+**Color** colours that name. Pick a theme colour (`red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`) or a custom hex value. Theme colours follow the terminal palette. Hex is drawn as the exact colour. The same choices apply to a group and to a host.
 
 **Notes** are short text included in the detail panel and search results.
 

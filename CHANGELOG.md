@@ -6,6 +6,7 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- Host and group list rows can show an emoji or flag, and a theme ANSI colour or custom hex. `e` on a local group edits the name, icon, and colour. `bast hosts add` and `bast hosts edit` take `--icon` and accept colour names (`red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`) or hex.
 - About lists the community Discord at discord.gg/bast.
 - boxd sync through the `boxd` CLI: import computers from every region of the active org (or an org filter), then create, stop, start, restart, fork, and delete them from the TUI and CLI. Create only targets an org already in that sync. SSH uses the port and key from the entries the boxd CLI keeps in `~/.ssh/config`, so `boxd auth login` must have run. Bast does not store a boxd token. Standby and hibernated computers wake on connect. Fork copies the disk, memory, and running processes.
 

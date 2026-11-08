@@ -707,31 +707,21 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 					rows := min(7, len(item.options))
 					start := scrollStart(item.selected, len(item.options), rows)
 					for optionIndex := start; optionIndex < min(len(item.options), start+rows); optionIndex++ {
-						option := "  " + item.options[optionIndex].label
-						if optionIndex == item.selected {
-							option = s.selected.Render("› " + item.options[optionIndex].label)
-						} else {
-							option = s.muted.Render(option)
-						}
-						b.WriteString("    " + option + "\n")
+						option := item.options[optionIndex]
+						b.WriteString("    " + renderSelectOption(s, option.label, option.value, optionIndex == item.selected) + "\n")
 					}
 				} else if item.options[item.selected].custom {
 					b.WriteString("    " + f.input.View() + "\n")
 				} else {
-					b.WriteString("    " + s.value.Render(item.options[item.selected].label) + "\n")
+					option := item.options[item.selected]
+					b.WriteString("    " + renderClosedChoice(s, option.label, option.value) + "\n")
 				}
 			} else {
 				b.WriteString("    " + f.input.View() + "\n")
 			}
 			if item.label == "Color" {
-				colour := strings.TrimSpace(f.input.Value())
-				if foreground, ok := contrastingTextColor(colour); ok {
-					preview := lipgloss.NewStyle().Bold(true).
-						Foreground(lipgloss.Color(foreground)).
-						Background(lipgloss.Color(colour)).
-						Padding(0, 1).
-						Render("Host label preview")
-					b.WriteString("    " + preview + "\n")
+				if preview := colorPreviewLine(s, formColorSample(f), focusedColorValue(item, f.input.Value())); preview != "" {
+					b.WriteString(preview)
 				}
 			}
 			continue
@@ -836,11 +826,45 @@ func hostFormFields(m *App, meta metadataHostValues, conn hostConnectionValues, 
 	fields = append(fields,
 		field{label: "Tags", section: formSectionMetadata, description: descHostTags, value: meta.tags, placeholder: "web, production", optional: true},
 		field{label: "Environment", section: formSectionMetadata, description: descHostEnvironment, value: meta.environment, placeholder: "production", optional: true},
-		field{label: "Color", section: formSectionMetadata, description: descHostColor, value: meta.color, placeholder: "#7C3AED", optional: true},
+		field{label: "Icon", section: formSectionMetadata, description: descHostIcon, value: meta.icon, placeholder: "🇩🇪", optional: true},
+		colorFormField(meta.color, formSectionMetadata),
 		field{label: "Notes", section: formSectionMetadata, description: descHostNotes, value: meta.notes, optional: true},
 		rdpFormField(meta.rdp),
 	)
 	return fields
+}
+
+func colorFormField(current, section string) field {
+	item := field{
+		label:       "Color",
+		section:     section,
+		description: descHostColor,
+		placeholder: "#7C3AED",
+		optional:    true,
+		options:     []fieldOption{{label: "Default", value: ""}},
+	}
+	for _, color := range metadata.ANSIPalette() {
+		item.options = append(item.options, fieldOption{label: color.Label, value: color.Token})
+	}
+	item.options = append(item.options, fieldOption{label: "Custom hex", custom: true})
+	normalized, err := metadata.NormalizeColor(current)
+	if err != nil || normalized == "" {
+		item.value = ""
+		return item
+	}
+	if _, ok := metadata.ANSICode(normalized); ok {
+		for i, option := range item.options {
+			if !option.custom && option.value == normalized {
+				item.selected = i
+				item.value = normalized
+				return item
+			}
+		}
+	}
+	item.selected = len(item.options) - 1
+	item.customValue = normalized
+	item.value = normalized
+	return item
 }
 
 func rdpFormField(enabled bool) field {
@@ -862,8 +886,8 @@ func rdpFormField(enabled bool) field {
 }
 
 type metadataHostValues struct {
-	label, tags, environment, color, notes, labelDesc string
-	rdp                                               bool
+	label, tags, environment, color, icon, notes, labelDesc string
+	rdp                                                     bool
 }
 
 type hostConnectionValues struct {
