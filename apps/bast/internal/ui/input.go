@@ -239,6 +239,15 @@ func (m *App) updateMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	if m.statusError && m.status != "" {
+		switch msg.Mouse().Button {
+		case tea.MouseWheelUp:
+			m.scrollError(-3)
+		case tea.MouseWheelDown:
+			m.scrollError(3)
+		}
+		return m, nil
+	}
 	if m.credits || m.onboarding || m.form != nil {
 		return m, nil
 	}

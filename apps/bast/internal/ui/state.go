@@ -131,7 +131,11 @@ func (m *App) appearanceForGroup(path string) metadata.GroupAppearance {
 }
 
 func (m *App) filteredHostsWithMetadata(hostMetadata map[string]metadata.Host) []sshconfig.Host {
-	q := strings.ToLower(m.searchText())
+	return m.filteredHostsQuery(hostMetadata, m.searchText())
+}
+
+func (m *App) filteredHostsQuery(hostMetadata map[string]metadata.Host, query string) []sshconfig.Host {
+	q := strings.ToLower(query)
 	out := make([]sshconfig.Host, 0, len(m.hosts))
 	for _, h := range m.hosts {
 		meta := hostMetadata[h.Alias]
@@ -172,7 +176,6 @@ type hostGroup struct {
 }
 
 func (m *App) hostRows() []hostRow {
-	hostMetadata := m.hostMetadata()
 	search := m.searchText()
 	cache := m.hostRowsCache
 	if cache.rows != nil &&
@@ -186,7 +189,25 @@ func (m *App) hostRows() []hostRow {
 		}
 	}
 	hostSignature := hostListSignature(m.hosts)
-	hosts := m.filteredHostsWithMetadata(hostMetadata)
+	rows := m.buildHostRows(search)
+	m.hostRowsCache = hostRowsCache{
+		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
+		collapseGeneration: m.collapseRevision, search: search,
+		showHidden: m.showHidden, hostSignature: hostSignature, rows: rows,
+	}
+	return rows
+}
+
+func (m *App) hostRowsForQuery(query string) []hostRow {
+	if query == m.searchText() {
+		return m.hostRows()
+	}
+	return m.buildHostRows(query)
+}
+
+func (m *App) buildHostRows(query string) []hostRow {
+	hostMetadata := m.hostMetadata()
+	hosts := m.filteredHostsQuery(hostMetadata, query)
 	groups := map[string]*hostGroup{}
 	ungrouped := []sshconfig.Host{}
 	topLevelOrder := []string{}
@@ -245,12 +266,7 @@ func (m *App) hostRows() []hostRow {
 			}
 			continue
 		}
-		rows = m.appendGroupRows(rows, groups[group], 0)
-	}
-	m.hostRowsCache = hostRowsCache{
-		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
-		collapseGeneration: m.collapseRevision, search: search,
-		showHidden: m.showHidden, hostSignature: hostSignature, rows: rows,
+		rows = m.appendGroupRows(rows, groups[group], 0, query)
 	}
 	return rows
 }
@@ -353,7 +369,7 @@ func hostListSignature(hosts []sshconfig.Host) uint64 {
 	return signature
 }
 
-func (m *App) appendGroupRows(rows []hostRow, group *hostGroup, depth int) []hostRow {
+func (m *App) appendGroupRows(rows []hostRow, group *hostGroup, depth int, query string) []hostRow {
 	label := groupShortName(group.path)
 	keepProviderRoot := depth == 0 && cloudsync.IsSyncedGroup(group.path)
 	for !keepProviderRoot && len(group.hosts) == 0 && len(group.children) == 1 {
@@ -361,14 +377,14 @@ func (m *App) appendGroupRows(rows []hostRow, group *hostGroup, depth int) []hos
 		label += "/" + groupShortName(group.path)
 	}
 	rows = append(rows, hostRow{group: group.path, label: label, header: true, count: group.count, depth: depth})
-	if m.collapsedGroups[group.path] && m.searchText() == "" {
+	if m.collapsedGroups[group.path] && query == "" {
 		return rows
 	}
 	for _, host := range group.hosts {
 		rows = append(rows, hostRow{group: group.path, host: host, depth: depth + 1})
 	}
 	for _, child := range group.children {
-		rows = m.appendGroupRows(rows, child, depth+1)
+		rows = m.appendGroupRows(rows, child, depth+1, query)
 	}
 	return rows
 }
@@ -768,15 +784,15 @@ func (m *App) focusGroupHeader(group string) bool {
 	return false
 }
 
-func (m *App) setGroupCollapsed(group string, collapsed bool) tea.Cmd {
+func (m *App) applyGroupCollapsed(group string, collapsed bool, query string) (bool, tea.Cmd) {
 	if m.collapsedGroups == nil {
 		m.collapsedGroups = map[string]bool{}
 	}
 	if m.collapsedGroups[group] == collapsed {
-		return nil
+		return false, nil
 	}
-	if collapsed && m.searchText() != "" {
-		return m.setNotice("Clear the search filter to collapse groups")
+	if collapsed && query != "" {
+		return false, m.setNotice("Clear the search filter to collapse groups")
 	}
 	if collapsed {
 		m.collapsedGroups[group] = true
@@ -784,16 +800,24 @@ func (m *App) setGroupCollapsed(group string, collapsed bool) tea.Cmd {
 		delete(m.collapsedGroups, group)
 	}
 	m.collapseRevision++
+	if err := m.persistCollapsedGroups(); err != nil {
+		m.setError(err)
+	}
+	return true, nil
+}
+
+func (m *App) setGroupCollapsed(group string, collapsed bool) tea.Cmd {
+	wrote, cmd := m.applyGroupCollapsed(group, collapsed, m.searchText())
+	if !wrote {
+		return cmd
+	}
 	for i, row := range m.hostRows() {
 		if row.header && row.group == group {
 			m.cursor = i
 			break
 		}
 	}
-	if err := m.persistCollapsedGroups(); err != nil {
-		m.setError(err)
-	}
-	return nil
+	return cmd
 }
 
 func (m *App) toggleSelectedGroup() tea.Cmd {
@@ -804,25 +828,21 @@ func (m *App) toggleSelectedGroup() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	if m.collapsedGroups == nil {
-		m.collapsedGroups = map[string]bool{}
+	collapsed := false
+	if m.collapsedGroups != nil {
+		collapsed = m.collapsedGroups[group]
 	}
-	if m.collapsedGroups[group] {
-		delete(m.collapsedGroups, group)
-	} else {
-		m.collapsedGroups[group] = true
+	wrote, cmd := m.applyGroupCollapsed(group, !collapsed, "")
+	if !wrote {
+		return cmd
 	}
-	m.collapseRevision++
 	for i, row := range m.hostRows() {
 		if row.header && row.group == group {
 			m.cursor = i
 			break
 		}
 	}
-	if err := m.persistCollapsedGroups(); err != nil {
-		m.setError(err)
-	}
-	return nil
+	return cmd
 }
 
 func (m *App) collapseAllGroups() tea.Cmd {
@@ -930,8 +950,21 @@ func (m *App) collapseActionLabel() string {
 
 func (m *App) searchText() string { return strings.TrimPrefix(m.search, "\x00") }
 func (m *App) setError(err error) {
+	m.showError(err.Error())
+}
+
+func (m *App) showError(message string) {
 	m.statusID++
-	m.status, m.statusError = err.Error(), true
+	m.status = message
+	m.statusError = true
+	m.errorOffset = 0
+}
+
+func (m *App) dismissError() {
+	m.statusID++
+	m.status = ""
+	m.statusError = false
+	m.errorOffset = 0
 }
 
 func (m *App) setNotice(message string) tea.Cmd {

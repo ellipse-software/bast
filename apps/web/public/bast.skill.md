@@ -272,7 +272,7 @@ Requires the `boxd` CLI on `PATH` and `boxd auth login`. Bast does not store a b
 
 ## Files (SFTP)
 
-TUI Files tab (`5`) is a dual-pane local/remote browser over OpenSSH SFTP. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
+TUI Files tab (`5`) is a dual-pane browser over OpenSSH SFTP. Both panes open on a host picker: Local first, then the same groups as Hosts. A pane shows `local` or the host name only after you choose it. Shift+D returns a pane to the picker from a local directory or a connected host. Enter toggles a group in the picker. Left and Right move to the parent directory and into the selected directory. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
 
 TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Boat/Upstash/Vercel/Hetzner/BitQate/Railway/Fly.io/DigitalOcean/boxd). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`. First TUI with no hosts shows a skippable start chooser (`esc` skips, `BAST_NO_ONBOARDING=1` disables).
 

@@ -122,12 +122,36 @@ func hostHubIndex(t *testing.T, m *App, id string) int {
 	return -1
 }
 
-func enterHostFormSection(t *testing.T, m *App, section string) {
+func focusHostFormField(t *testing.T, m *App, label string) {
 	t.Helper()
 	for i, item := range hostHubItems(m.form) {
-		if item.section == section {
+		if item.title == label {
+			m.form.screen = "hub"
 			m.form.hubIndex = i
-			m.enterHostSection(section)
+			m.form.selecting = false
+			m.focusHostHubItem()
+			return
+		}
+	}
+	t.Fatalf("field %q not on the host form", label)
+}
+
+func enterHostFormSection(t *testing.T, m *App, section string) {
+	t.Helper()
+	if section == formSectionAuth {
+		focusHostFormField(t, m, methodFieldLabel)
+		return
+	}
+	if section == formSectionMetadata {
+		section = formSectionCustomisation
+	}
+	if section == formSectionAdvanced {
+		m.enterHostSection(section)
+		return
+	}
+	for _, item := range hostHubItems(m.form) {
+		if item.section == section && item.id != "advanced" {
+			focusHostFormField(t, m, item.title)
 			return
 		}
 	}
@@ -1485,7 +1509,7 @@ func TestExternalHostEditOnlyOffersMetadataAndIsFullyRevealed(t *testing.T) {
 		t.Fatalf("form = %+v", m.form)
 	}
 	rendered := m.renderForm(m.styles())
-	if !strings.Contains(rendered, "Label") || !strings.Contains(rendered, "Metadata") || strings.Contains(rendered, "Authentication") || strings.Contains(rendered, "Hostname") {
+	if !strings.Contains(rendered, "Label") || !strings.Contains(rendered, "Customisation") || strings.Contains(rendered, "Authentication") || strings.Contains(rendered, "Hostname") {
 		t.Fatalf("metadata editor layout is incorrect:\n%s", rendered)
 	}
 	enterHostFormSection(t, m, formSectionMetadata)
@@ -1530,9 +1554,9 @@ func TestFooterShowsControlsForTheActiveFormState(t *testing.T) {
 func TestEditFormUsesArrowsToMoveAndEnterToSave(t *testing.T) {
 	m := testApp(t)
 	m.openEditHostForm()
-	enterHostFormSection(t, m, formSectionMetadata)
+	focusHostFormField(t, m, "Tags")
 	if m.form == nil || m.form.fields[m.form.index].label != "Tags" {
-		t.Fatal("metadata section did not open on the tags field")
+		t.Fatal("tags field was not focused")
 	}
 	m.form.input.SetValue("api")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
@@ -1575,7 +1599,7 @@ func TestEditFormUsesSpaceToChangeAChoice(t *testing.T) {
 func TestHostFormQuitKeysWorkFromMenus(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
-	m.form.hubIndex = hostHubIndex(t, m, "auth")
+	m.form.hubIndex = hostHubIndex(t, m, "advanced")
 	m.focusHostHubItem()
 	_, cmd := m.updateForm(press("q"))
 	if cmd == nil {
@@ -1605,35 +1629,128 @@ func TestHostFormQuitKeysWorkFromMenus(t *testing.T) {
 	}
 }
 
+func TestColorGridMovesAndRendersSwatches(t *testing.T) {
+	if got, _ := moveColorGrid(0, 10, 5, "right"); got != 1 {
+		t.Fatalf("right = %d", got)
+	}
+	if got, _ := moveColorGrid(0, 10, 5, "left"); got != 0 {
+		t.Fatalf("left edge = %d", got)
+	}
+	if got, _ := moveColorGrid(1, 10, 5, "down"); got != 6 {
+		t.Fatalf("down = %d", got)
+	}
+	if got, _ := moveColorGrid(6, 10, 5, "up"); got != 1 {
+		t.Fatalf("up = %d", got)
+	}
+	if got, _ := moveColorGrid(4, 10, 5, "right"); got != 4 {
+		t.Fatalf("right edge = %d", got)
+	}
+	if got, _ := moveColorGrid(9, 10, 5, "down"); got != 9 {
+		t.Fatalf("down edge = %d", got)
+	}
+
+	m := testApp(t)
+	m.openAddHostForm()
+	focusHostFormField(t, m, "Color")
+	m.form.selecting = true
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	item := m.form.fields[m.form.index]
+	if item.options[item.selected].value != "red" {
+		t.Fatalf("highlight = %q", item.options[item.selected].value)
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	item = m.form.fields[m.form.index]
+	if item.options[item.selected].value != "cyan" {
+		t.Fatalf("down highlight = %q", item.options[item.selected].value)
+	}
+	body := m.renderHostForm(m.styles())
+	red := lipgloss.NewStyle().Background(lipgloss.Color("1")).Render(strings.Repeat(" ", colorSwatchInner))
+	if !strings.Contains(body, red) || !strings.Contains(body, "Default") || !strings.Contains(body, "Cyan") {
+		t.Fatalf("colour grid:\n%s", body)
+	}
+	footer := m.renderFooter(m.styles())
+	if !strings.Contains(footer, "highlight") {
+		t.Fatalf("footer = %q", footer)
+	}
+}
+
+func TestEmptyColorHexReturnsToPalette(t *testing.T) {
+	m := testApp(t)
+	m.openAddHostForm()
+	focusHostFormField(t, m, "Color")
+	item := &m.form.fields[m.form.index]
+	for i, option := range item.options {
+		if option.custom {
+			item.selected = i
+			break
+		}
+	}
+	item.customValue = "#AABBCC"
+	m.form.selecting = false
+	m.focusFormField()
+
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if m.form.selecting || m.form.input.Value() == "" {
+		t.Fatal("backspace should delete a hex character before leaving the field")
+	}
+
+	m.form.input.SetValue("")
+	body := m.renderHostForm(m.styles())
+	if !strings.Contains(body, "⌫/Esc colours") {
+		t.Fatalf("empty hex field should show how to return:\n%s", body)
+	}
+	footer := m.renderFooter(m.styles())
+	if !strings.Contains(footer, "⌫/Esc colours") {
+		t.Fatalf("footer = %q", footer)
+	}
+
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if !m.form.selecting {
+		t.Fatal("backspace on an empty hex field should reopen the colours")
+	}
+	body = m.renderHostForm(m.styles())
+	if !strings.Contains(body, "Gray") || !strings.Contains(body, "Custom") {
+		t.Fatalf("palette should be visible:\n%s", body)
+	}
+
+	m = testApp(t)
+	m.openForm("Edit group: Work", "group_edit", []field{colorFormField("#ABC", "")})
+	m.form.selecting = false
+	m.focusFormField()
+	m.form.input.SetValue("")
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if m.form == nil || !m.form.selecting {
+		t.Fatal("group colour hex should return to the palette")
+	}
+}
+
 func TestHostFormBackspaceNavigatesSubmenus(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
-	enterHostFormSection(t, m, formSectionMetadata)
+	focusHostFormField(t, m, "Tags")
 	m.form.input.SetValue("")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
-	if m.form.screen != formSectionMetadata {
-		t.Fatalf("backspace in an empty text field navigated away: screen=%q", m.form.screen)
+	if m.form == nil || m.form.fields[m.form.index].label != "Tags" {
+		t.Fatal("backspace in an empty text field navigated away")
 	}
 
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
-	m.form.hubIndex = 1
-	m.focusHostHubItem()
+	focusHostFormField(t, m, "Hostname")
 	m.form.input.SetValue("prod")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
-	if m.form.hubIndex != 1 || m.form.input.Value() != "pro" {
-		t.Fatalf("backspace should edit text before navigating: hubIndex=%d value=%q", m.form.hubIndex, m.form.input.Value())
+	if m.form.fields[m.form.index].label != "Hostname" || m.form.input.Value() != "pro" {
+		t.Fatalf("backspace should edit text before navigating: label=%q value=%q", m.form.fields[m.form.index].label, m.form.input.Value())
 	}
 	m.form.input.SetValue("")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
-	if m.form == nil || m.form.hubIndex != 1 {
+	if m.form == nil || m.form.fields[m.form.index].label != "Hostname" {
 		t.Fatal("backspace in an empty hostname field should remain in the field")
 	}
 
-	m.form.hubIndex = hostHubIndex(t, m, "auth")
+	m.form.hubIndex = hostHubIndex(t, m, "advanced")
 	m.focusHostHubItem()
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
 	if m.form != nil {
-		t.Fatal("backspace on a host hub menu should close the form")
+		t.Fatal("backspace on Advanced should close the form")
 	}
 
 	m.openAddHostForm()
@@ -1758,41 +1875,52 @@ func TestAdvancedHostFormSavesEverySection(t *testing.T) {
 	}
 }
 
+func TestHostFormScrollKeepsTheFocusedFieldVisible(t *testing.T) {
+	m := testApp(t)
+	m.height = 14
+	m.openAddHostForm()
+	focusHostFormField(t, m, "Notes")
+	rendered := m.renderForm(m.styles())
+	if !strings.Contains(rendered, "› Notes") {
+		t.Fatalf("focused Notes field is not in the form window:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "Hostname") {
+		t.Fatalf("scroll window still includes Hostname:\n%s", rendered)
+	}
+}
+
 func TestFormRevealsFieldsProgressivelyAndRevisitsThem(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
 	initial := m.renderForm(m.styles())
-	if !strings.Contains(initial, "Label") || !strings.Contains(initial, "Authentication") || !strings.Contains(initial, "User") {
+	if !strings.Contains(initial, "Basics") || !strings.Contains(initial, "Hostname") || !strings.Contains(initial, "Customisation") || !strings.Contains(initial, "Advanced") || strings.Contains(initial, "Authentication") {
 		t.Fatalf("initial hub form layout is incorrect:\n%s", initial)
 	}
-	m.form.input.SetValue("prod")
+	m.form.input.SetValue("prod.example")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	second := m.renderForm(m.styles())
-	if !strings.Contains(second, "Label  prod") || !strings.Contains(second, "› Hostname") {
-		t.Fatalf("Enter did not advance to hostname:\n%s", second)
+	if !strings.Contains(second, "Hostname  prod.example") || !strings.Contains(second, "› User") {
+		t.Fatalf("Enter did not advance to user:\n%s", second)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
-	if m.form.hubIndex != 0 {
-		t.Fatalf("up did not revisit label: hubIndex=%d", m.form.hubIndex)
+	if m.form.hubIndex != 0 || m.form.fields[m.form.index].label != "Hostname" {
+		t.Fatalf("up did not revisit hostname: hubIndex=%d", m.form.hubIndex)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.form.hubIndex != 1 {
-		t.Fatalf("down did not return to hostname: hubIndex=%d", m.form.hubIndex)
-	}
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.form.hubIndex != hostHubIndex(t, m, "user") {
-		t.Fatalf("down did not move to user: hubIndex=%d", m.form.hubIndex)
+	if m.form.fields[m.form.index].label != "User" {
+		t.Fatalf("down did not return to user: %q", m.form.fields[m.form.index].label)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	third := m.renderForm(m.styles())
-	if !strings.Contains(third, "› Authentication") {
-		t.Fatal("down did not move to authentication menu")
+	if m.form.fields[m.form.index].label != methodFieldLabel || !strings.Contains(third, "› Method") {
+		t.Fatal("down did not move to method")
 	}
 }
 
 func TestHostFormExplainsOptionalConnectionFields(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
+	focusHostFormField(t, m, "Label")
 
 	initial := m.renderForm(m.styles())
 	if !strings.Contains(initial, "use / for groups") {
@@ -5146,4 +5274,114 @@ func TestBitqateSyncActionsStayOnBitqate(t *testing.T) {
 	if m.metadata.GCP().DefaultSSHUser != "gcp-user" {
 		t.Fatalf("GCP SSH user changed: %q", m.metadata.GCP().DefaultSSHUser)
 	}
+}
+
+func TestLongErrorScrollsAndKeepsActions(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 80, 16
+	var body strings.Builder
+	body.WriteString("ERROR_START\n")
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&body, "detail line %02d\n", i)
+	}
+	body.WriteString("ERROR_END")
+	m.showError(body.String())
+
+	view := m.render()
+	if h := lipgloss.Height(view); h > m.height {
+		t.Fatalf("error view height %d exceeds terminal %d", h, m.height)
+	}
+	if !strings.Contains(view, "ERROR_START") || strings.Contains(view, "ERROR_END") || strings.Contains(view, "ERROR_START detail") {
+		t.Fatalf("expected the start of a long error on its own line:\n%s", view)
+	}
+	for _, text := range []string{"Action failed", "Enter/Esc return", "↑/↓ scroll"} {
+		if !strings.Contains(view, text) {
+			t.Fatalf("error overlay missing %q:\n%s", text, view)
+		}
+	}
+	if end, action := errorLine(view, "ERROR_START"), errorLine(view, "Enter/Esc return"); end < 0 || action <= end {
+		t.Fatalf("actions should sit under the message: message=%d action=%d", end, action)
+	}
+
+	m.Update(press("j"))
+	if m.errorOffset != 1 {
+		t.Fatalf("j offset = %d", m.errorOffset)
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if m.errorOffset != 2 {
+		t.Fatalf("down offset = %d", m.errorOffset)
+	}
+	m.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown}))
+	if m.errorOffset != 5 {
+		t.Fatalf("wheel offset = %d", m.errorOffset)
+	}
+	m.form = &form{title: "Add host"}
+	m.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
+	m.form = nil
+	if m.errorOffset != 2 {
+		t.Fatalf("wheel over a form offset = %d", m.errorOffset)
+	}
+
+	page := m.errorPage()
+	m.Update(press("g"))
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
+	if m.errorOffset != page {
+		t.Fatalf("pgdown offset = %d want %d", m.errorOffset, page)
+	}
+
+	m.Update(press("G"))
+	if m.errorOffset != m.maxErrorOffset() {
+		t.Fatalf("G offset = %d want %d", m.errorOffset, m.maxErrorOffset())
+	}
+	bottom := m.render()
+	if h := lipgloss.Height(bottom); h > m.height {
+		t.Fatalf("scrolled error height %d exceeds terminal %d", h, m.height)
+	}
+	if !strings.Contains(bottom, "ERROR_END") || strings.Contains(bottom, "ERROR_START") {
+		t.Fatalf("expected the end of a long error:\n%s", bottom)
+	}
+	if !strings.Contains(bottom, "Enter/Esc return") {
+		t.Fatalf("actions missing after scrolling:\n%s", bottom)
+	}
+	if end, action := errorLine(bottom, "ERROR_END"), errorLine(bottom, "Enter/Esc return"); end < 0 || action <= end {
+		t.Fatalf("actions should stay under the scrolled message: message=%d action=%d", end, action)
+	}
+
+	m.Update(press("g"))
+	if m.errorOffset != 0 {
+		t.Fatalf("g offset = %d", m.errorOffset)
+	}
+	top := m.render()
+	if !strings.Contains(top, "ERROR_START") || strings.Contains(top, "ERROR_END") {
+		t.Fatalf("g should return to the start:\n%s", top)
+	}
+
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.statusError || m.status != "" || m.errorOffset != 0 {
+		t.Fatalf("enter should dismiss, status=%q error=%v offset=%d", m.status, m.statusError, m.errorOffset)
+	}
+
+	m.showError("failed")
+	short := m.render()
+	if !strings.Contains(short, "Action failed") || !strings.Contains(short, "Enter/Esc return") {
+		t.Fatalf("short error:\n%s", short)
+	}
+	if strings.Contains(short, "↑/↓ scroll") {
+		t.Fatalf("short error offered scrolling:\n%s", short)
+	}
+
+	m.errorOffset = 12
+	m.setError(errors.New("next failure"))
+	if m.errorOffset != 0 || m.status != "next failure" {
+		t.Fatalf("new error did not reset scroll: offset=%d status=%q", m.errorOffset, m.status)
+	}
+}
+
+func errorLine(view, needle string) int {
+	for i, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, needle) {
+			return i
+		}
+	}
+	return -1
 }

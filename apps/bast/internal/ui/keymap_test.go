@@ -86,6 +86,12 @@ func TestFilesPreviewAndOpenDirBindings(t *testing.T) {
 	if b, ok := m.matchBinding("enter"); !ok || b.ID != ActionFilesEnter {
 		t.Fatalf("files enter = %+v ok=%v", b, ok)
 	}
+	if b, ok := m.matchBinding("right"); !ok || b.ID != ActionFilesOpenDir {
+		t.Fatalf("files right = %+v ok=%v", b, ok)
+	}
+	if b, ok := m.matchBinding("left"); !ok || b.ID != ActionFilesParent {
+		t.Fatalf("files left = %+v ok=%v", b, ok)
+	}
 }
 
 func TestDoctorKeyDoesNotStealFilesDisconnect(t *testing.T) {

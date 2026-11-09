@@ -15,14 +15,15 @@ import (
 )
 
 const (
-	formSectionBasics       = "basics"
-	formSectionAuth         = "auth"
-	formSectionAdvanced     = "advanced"
-	formSectionMetadata     = "metadata"
-	hostFormSaveButtonLabel = " Save "
-	hostSaveHintInterval    = 2 * time.Second
-	rdpFieldLabel           = "Open RDP"
-	rdpOnValue              = "on"
+	formSectionBasics        = "basics"
+	formSectionAuth          = "auth"
+	formSectionAdvanced      = "advanced"
+	formSectionMetadata      = "metadata"
+	formSectionCustomisation = "customisation"
+	hostFormSaveButtonLabel  = " Save "
+	hostSaveHintInterval     = 2 * time.Second
+	rdpFieldLabel            = "Open RDP"
+	rdpOnValue               = "on"
 )
 
 type hostHubItem struct {
@@ -106,27 +107,30 @@ func (f *form) sectionFieldIndices(section string) []int {
 }
 
 func hostHubInline(id string) bool {
-	switch id {
-	case "label", "hostname", "user":
-		return true
-	default:
-		return false
-	}
+	return id != "advanced"
 }
 
 func hostHubItems(f *form) []hostHubItem {
-	items := []hostHubItem{
-		{id: "label", title: "Label", section: formSectionBasics},
-	}
+	var items []hostHubItem
 	if f.action != "metadata_edit" {
-		items = append(items,
-			hostHubItem{id: "hostname", title: "Hostname", section: formSectionBasics},
-			hostHubItem{id: "user", title: "User", section: formSectionBasics},
-			hostHubItem{id: "auth", title: "Authentication", section: formSectionAuth},
-			hostHubItem{id: "advanced", title: "Advanced", section: formSectionAdvanced},
-		)
+		items = append(items, hostHubFields(f, []string{"Hostname", "User", methodFieldLabel, passwordFieldLabel, "Port"}, formSectionBasics)...)
 	}
-	items = append(items, hostHubItem{id: "metadata", title: "Metadata", section: formSectionMetadata})
+	items = append(items, hostHubFields(f, []string{"Label", "Icon", "Color", "Tags", "Environment", "Notes", rdpFieldLabel}, formSectionCustomisation)...)
+	if f.action != "metadata_edit" {
+		items = append(items, hostHubItem{id: "advanced", title: "Advanced", section: formSectionAdvanced})
+	}
+	return items
+}
+
+func hostHubFields(f *form, labels []string, section string) []hostHubItem {
+	items := make([]hostHubItem, 0, len(labels))
+	for _, label := range labels {
+		field := f.fieldByLabel(label)
+		if field == nil || field.hidden {
+			continue
+		}
+		items = append(items, hostHubItem{id: label, title: label, section: section})
+	}
 	return items
 }
 
@@ -257,16 +261,41 @@ func (m *App) enterHostSection(section string) {
 		m.enterAdvancedHub()
 		return
 	}
-	f := m.form
-	indices := f.sectionFieldIndices(section)
-	if len(indices) == 0 {
+	want := ""
+	switch section {
+	case formSectionAuth:
+		want = methodFieldLabel
+	case formSectionMetadata:
+		section = formSectionCustomisation
+	}
+	for i, item := range hostHubItems(m.form) {
+		if item.id == "advanced" || item.section != section {
+			continue
+		}
+		if want != "" && item.title != want {
+			continue
+		}
+		m.commitHostHubField()
+		m.form.screen = "hub"
+		m.form.hubIndex = i
+		m.form.selecting = false
+		m.focusHostHubItem()
 		return
 	}
-	m.commitHostHubField()
-	f.screen = section
-	f.index = indices[0]
-	f.selecting = false
-	m.focusFormField()
+}
+
+func (m *App) syncHostHubIndex() {
+	f := m.form
+	if f == nil || !isHostForm(f) || (f.screen != "" && f.screen != "hub") || f.index < 0 || f.index >= len(f.fields) {
+		return
+	}
+	label := f.fields[f.index].label
+	for i, item := range hostHubItems(f) {
+		if item.id != "advanced" && item.title == label {
+			f.hubIndex = i
+			return
+		}
+	}
 }
 
 func (m *App) exitHostSection() {
@@ -422,27 +451,7 @@ func (m *App) updateHostForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	item := hostHubItems(f)[f.hubIndex]
 	if hostHubInline(item.id) {
-		switch key {
-		case "esc":
-			m.form = nil
-			return m, nil
-		case "up", "shift+tab":
-			m.moveHostHub(-1)
-			return m, nil
-		case "down", "tab":
-			m.moveHostHub(1)
-			return m, nil
-		case "enter":
-			return m.hostHubEnter()
-		case "backspace", "ctrl+h":
-			var cmd tea.Cmd
-			m.form.input, cmd = m.form.input.Update(msg)
-			return m, cmd
-		default:
-			var cmd tea.Cmd
-			m.form.input, cmd = m.form.input.Update(msg)
-			return m, cmd
-		}
+		return m.updateHostHubField(msg)
 	}
 
 	switch key {
@@ -462,6 +471,100 @@ func (m *App) updateHostForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *App) updateHostHubField(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	f := m.form
+	if f.index < 0 || f.index >= len(f.fields) {
+		return m, nil
+	}
+	item := &f.fields[f.index]
+
+	if f.selecting {
+		switch key {
+		case "esc", "backspace", "ctrl+h":
+			f.selecting = false
+			m.focusFormField()
+		case "up", "down", "j", "k", "left", "right", "h", "l":
+			m.applyChoiceMove(item, key)
+		case "shift+tab":
+			f.selecting = false
+			m.commitFormField()
+			m.moveHostHub(-1)
+		case "enter", "tab":
+			return m.hostHubChoiceEnter()
+		}
+		return m, nil
+	}
+
+	if key == "esc" && len(item.options) > 0 && item.options[item.selected].custom {
+		m.commitFormField()
+		f.selecting = true
+		m.focusFormField()
+		return m, nil
+	}
+	if m.backspaceOpensChoices(item, key) {
+		return m, nil
+	}
+	if key == "esc" {
+		m.form = nil
+		return m, nil
+	}
+	if (key == "backspace" || key == "ctrl+h") && len(item.options) > 0 && !item.options[item.selected].custom {
+		return m, nil
+	}
+	if key == "up" || key == "shift+tab" {
+		m.commitFormField()
+		m.moveHostHub(-1)
+		return m, nil
+	}
+	if key == "down" || key == "tab" {
+		m.commitFormField()
+		m.moveHostHub(1)
+		return m, nil
+	}
+	if key == "space" && len(item.options) > 0 && !item.options[item.selected].custom {
+		f.selecting = true
+		m.focusFormField()
+		return m, nil
+	}
+	if key == "enter" {
+		if len(item.options) > 0 && !item.options[item.selected].custom {
+			f.selecting = true
+			m.focusFormField()
+			return m, nil
+		}
+		m.commitFormField()
+		m.moveHostHub(1)
+		return m, nil
+	}
+	if len(item.options) > 0 && !item.options[item.selected].custom {
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.form.input, cmd = m.form.input.Update(msg)
+	return m, cmd
+}
+
+func (m *App) hostHubChoiceEnter() (tea.Model, tea.Cmd) {
+	f := m.form
+	item := &f.fields[f.index]
+	f.selecting = false
+	m.focusFormField()
+	if item.options[item.selected].custom {
+		return m, nil
+	}
+	m.commitFormField()
+	if item.label == methodFieldLabel && item.value == passwordOnlyIdentity {
+		if idx := f.fieldIndex(passwordFieldLabel); idx >= 0 && !f.fields[idx].hidden {
+			f.index = idx
+			f.selecting = false
+			m.syncHostHubIndex()
+			m.focusFormField()
+		}
+	}
+	return m, nil
+}
+
 func (m *App) updateHostSectionForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	f := m.form
@@ -477,13 +580,8 @@ func (m *App) updateHostSectionForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "esc", "backspace", "ctrl+h":
 			f.selecting = false
 			m.focusFormField()
-		case "up", "down", "j", "k":
-			direction := 1
-			if key == "up" || key == "k" {
-				direction = -1
-			}
-			item.selected = (item.selected + direction + len(item.options)) % len(item.options)
-			m.focusFormField()
+		case "up", "down", "j", "k", "left", "right", "h", "l":
+			m.applyChoiceMove(item, key)
 		case "shift+tab":
 			f.selecting = false
 			m.commitFormField()
@@ -500,6 +598,9 @@ func (m *App) updateHostSectionForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.commitFormField()
 		f.selecting = true
 		m.focusFormField()
+		return m, nil
+	}
+	if m.backspaceOpensChoices(item, key) {
 		return m, nil
 	}
 	if key == "esc" {
@@ -553,57 +654,137 @@ func (m *App) renderHostForm(s styleSet) string {
 }
 
 func (m *App) renderHostHubForm(s styleSet) string {
-	f := m.form
-	items := hostHubItems(f)
+	header := m.renderHostFormHeader(s, "")
+	lines, focus := m.hostHubLines(s)
+	room := max(1, m.terminalHeight()-3-lipgloss.Height(header))
+	start := 0
+	if len(lines) > room {
+		start = scrollStart(focus, len(lines), room)
+	}
+	end := min(len(lines), start+room)
 	var b strings.Builder
-	b.WriteString(m.renderHostFormHeader(s, ""))
-	b.WriteString("  " + s.active.Render("Basics") + "\n")
-	for _, hub := range items {
-		if hub.section == formSectionBasics {
-			m.renderHostHubBasicsRow(&b, s, hub)
-		}
+	b.WriteString(header)
+	for _, line := range lines[start:end] {
+		b.WriteString(line)
+		b.WriteByte('\n')
 	}
-
-	b.WriteString("\n  " + s.muted.Render("Configure") + "\n")
-	for _, hub := range items {
-		if hub.section == formSectionBasics {
-			continue
-		}
-		m.renderHostHubMenuRow(&b, s, hub)
-	}
-
 	return b.String()
 }
 
-func (m *App) renderHostHubBasicsRow(b *strings.Builder, s styleSet, hub hostHubItem) {
+func hostHubSectionTitle(section string) string {
+	switch section {
+	case formSectionBasics:
+		return "Basics"
+	case formSectionCustomisation:
+		return "Customisation"
+	case formSectionAdvanced:
+		return "Advanced"
+	default:
+		return ""
+	}
+}
+
+func (m *App) hostHubLines(s styleSet) ([]string, int) {
+	f := m.form
+	var lines []string
+	focus := 0
+	section := ""
+	for _, hub := range hostHubItems(f) {
+		if hub.section != section {
+			if len(lines) > 0 {
+				lines = append(lines, "")
+			}
+			lines = append(lines, "  "+s.active.Render(hostHubSectionTitle(hub.section)))
+			section = hub.section
+		}
+		start := len(lines)
+		if hub.id == "advanced" {
+			lines = append(lines, m.hostHubMenuLines(s, hub)...)
+		} else {
+			lines = append(lines, m.hostHubFieldLines(s, hub)...)
+		}
+		if f.hubIndex >= 0 && hostHubItems(f)[f.hubIndex].id == hub.id && start < len(lines) {
+			focus = start
+			if f.selecting {
+				focus = len(lines) - 1
+			}
+		}
+	}
+	return lines, focus
+}
+
+func (m *App) hostHubFieldLines(s styleSet, hub hostHubItem) []string {
 	f := m.form
 	idx := f.fieldIndex(hub.title)
 	if idx < 0 {
-		return
+		return nil
 	}
 	item := f.fields[idx]
 	active := f.hubIndex >= 0 && hostHubItems(f)[f.hubIndex].id == hub.id
-	value := strings.TrimSpace(item.value)
-
-	if active {
-		b.WriteString("  " + s.active.Render("› "+item.label) + "\n")
-		if item.description != "" {
-			b.WriteString("    " + s.muted.Render(truncate(item.description, max(20, m.terminalWidth()-8))) + "\n")
+	if !active {
+		value := hubFieldValue(item)
+		if hub.id == "Label" {
+			value = metadata.LabelLeaf(strings.TrimSpace(item.value))
+			if value == "" {
+				value = "-"
+			}
 		}
-		if hub.id == "label" {
-			b.WriteString("    " + m.renderLabelPathInput(s) + "\n")
-		} else {
-			b.WriteString("    " + f.input.View() + "\n")
-		}
-		return
+		return []string{"  " + s.muted.Render("  "+item.label+"  "+value)}
 	}
-	if hub.id == "label" {
-		value = metadata.LabelLeaf(value)
+	lines := []string{"  " + s.active.Render("› "+item.label)}
+	if item.description != "" {
+		lines = append(lines, "    "+s.muted.Render(truncate(item.description, max(20, m.terminalWidth()-8))))
+	}
+	switch {
+	case len(item.options) > 0 && f.selecting && item.label == "Color":
+		for _, line := range renderColorGrid(s, item.options, item.selected, item.customValue, m.terminalWidth()) {
+			lines = append(lines, "    "+line)
+		}
+	case len(item.options) > 0 && f.selecting:
+		rows := min(7, len(item.options))
+		start := scrollStart(item.selected, len(item.options), rows)
+		for optionIndex := start; optionIndex < min(len(item.options), start+rows); optionIndex++ {
+			option := item.options[optionIndex]
+			lines = append(lines, "    "+renderSelectOption(s, option.label, option.value, optionIndex == item.selected))
+		}
+	case len(item.options) > 0 && item.options[item.selected].custom:
+		lines = append(lines, "    "+f.input.View())
+		if hint := customColorReturnHint(s, item, f.input.Value()); hint != "" {
+			lines = append(lines, hint)
+		}
+	case len(item.options) > 0:
+		option := item.options[item.selected]
+		lines = append(lines, "    "+renderClosedChoice(s, option.label, option.value))
+	case hub.id == "Label":
+		lines = append(lines, "    "+m.renderLabelPathInput(s))
+	default:
+		lines = append(lines, "    "+f.input.View())
+	}
+	if item.label == "Color" {
+		if preview := colorPreviewLine(s, formColorSample(f), focusedColorValue(item, f.input.Value())); preview != "" {
+			preview = strings.TrimRight(preview, "\n")
+			for _, line := range strings.Split(preview, "\n") {
+				lines = append(lines, line)
+			}
+		}
+	}
+	return lines
+}
+
+func hubFieldValue(item field) string {
+	value := strings.TrimSpace(item.value)
+	if len(item.options) > 0 && !item.options[item.selected].custom {
+		value = item.options[item.selected].label
+	} else if item.secret {
+		if value != "" {
+			return "********"
+		}
+		return "-"
 	}
 	if value == "" {
-		value = "-"
+		return "-"
 	}
-	b.WriteString("  " + s.muted.Render("  "+item.label+"  "+value) + "\n")
+	return value
 }
 
 // Slashes stay muted. The inactive side of the path (group vs leaf) is muted
@@ -655,7 +836,7 @@ func (m *App) renderLabelPathInput(s styleSet) string {
 	return out.String()
 }
 
-func (m *App) renderHostHubMenuRow(b *strings.Builder, s styleSet, hub hostHubItem) {
+func (m *App) hostHubMenuLines(s styleSet, hub hostHubItem) []string {
 	f := m.form
 	active := f.hubIndex >= 0 && hostHubItems(f)[f.hubIndex].id == hub.id
 	summary := m.hostFormSummary(hub.section)
@@ -664,11 +845,12 @@ func (m *App) renderHostHubMenuRow(b *strings.Builder, s styleSet, hub hostHubIt
 	}
 	line := hub.title + "  " + summary
 	if active {
-		b.WriteString("  " + s.selected.Render("› "+truncate(line, max(20, m.terminalWidth()-6))) + "\n")
-		b.WriteString("    " + s.muted.Render("Enter to configure") + "\n")
-		return
+		return []string{
+			"  " + s.selected.Render("› "+truncate(line, max(20, m.terminalWidth()-6))),
+			"    " + s.muted.Render("Enter to configure"),
+		}
 	}
-	b.WriteString("  " + s.muted.Render("  "+truncate(line, max(20, m.terminalWidth()-4))) + "\n")
+	return []string{"  " + s.muted.Render("  "+truncate(line, max(20, m.terminalWidth()-4)))}
 }
 
 func (m *App) renderHostSectionForm(s styleSet) string {
@@ -703,7 +885,11 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 				b.WriteString("    " + s.muted.Render(truncate(item.description, max(20, m.terminalWidth()-8))) + "\n")
 			}
 			if len(item.options) > 0 {
-				if f.selecting {
+				if f.selecting && item.label == "Color" {
+					for _, line := range renderColorGrid(s, item.options, item.selected, item.customValue, m.terminalWidth()) {
+						b.WriteString("    " + line + "\n")
+					}
+				} else if f.selecting {
 					rows := min(7, len(item.options))
 					start := scrollStart(item.selected, len(item.options), rows)
 					for optionIndex := start; optionIndex < min(len(item.options), start+rows); optionIndex++ {
@@ -712,6 +898,9 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 					}
 				} else if item.options[item.selected].custom {
 					b.WriteString("    " + f.input.View() + "\n")
+					if hint := customColorReturnHint(s, item, f.input.Value()); hint != "" {
+						b.WriteString(hint + "\n")
+					}
 				} else {
 					option := item.options[item.selected]
 					b.WriteString("    " + renderClosedChoice(s, option.label, option.value) + "\n")
@@ -775,6 +964,9 @@ func hostFormHint(f *form, textInputActive, showEnterKey bool) string {
 	}
 	if f.screen != "" && f.screen != "hub" {
 		if f.selecting {
+			if f.fields[f.index].label == "Color" {
+				return "←/→/↑/↓ highlight • Enter select • Esc back • q quit"
+			}
 			return "↑/↓ or j/k choose • Enter select • ⌫/Esc back • q quit"
 		}
 		item := f.fields[f.index]
@@ -782,8 +974,8 @@ func hostFormHint(f *form, textInputActive, showEnterKey bool) string {
 		if len(item.options) > 0 && !item.options[item.selected].custom {
 			action = "Enter change"
 		}
-		if len(item.options) > 0 && item.options[item.selected].custom {
-			return action + " • Esc choices • ⌫ edit • " + save
+		if hint := customChoiceEscapeHint(item, f.input.Value()); hint != "" {
+			return action + " • " + hint + " • " + save
 		}
 		hint := action + " • ↑/↓ or Tab move • ⌫/Esc back"
 		if !textInputActive {
@@ -796,6 +988,22 @@ func hostFormHint(f *form, textInputActive, showEnterKey bool) string {
 	if f.hubIndex >= 0 && f.hubIndex < len(items) {
 		hub := items[f.hubIndex]
 		if hostHubInline(hub.id) {
+			idx := f.fieldIndex(hub.title)
+			if idx >= 0 {
+				item := f.fields[idx]
+				if f.selecting && item.label == "Color" {
+					return "←/→/↑/↓ highlight • Enter select • Esc back • q quit"
+				}
+				if hint := customChoiceEscapeHint(item, f.input.Value()); hint != "" && !f.selecting {
+					return "Enter next • ↑/↓ move • " + hint + " • " + save
+				}
+				if len(item.options) > 0 && !item.options[item.selected].custom {
+					if f.selecting {
+						return "↑/↓ or j/k choose • Enter select • ⌫/Esc back • q quit"
+					}
+					return "Enter change • ↑/↓ or Tab move • " + save + " • q quit • Esc cancel"
+				}
+			}
 			return "Enter next • ↑/↓ or Tab move • " + save + " • q type • Esc cancel"
 		}
 	}
@@ -809,26 +1017,26 @@ func hostFormFields(m *App, meta metadataHostValues, conn hostConnectionValues, 
 		labelDesc = descHostLabel
 	}
 	fields = append(fields,
-		field{label: "Label", section: formSectionBasics, description: labelDesc, value: meta.label, placeholder: "Work/api"},
+		field{label: "Label", section: formSectionCustomisation, description: labelDesc, value: meta.label, placeholder: "Work/api"},
 	)
 	if conn.includeConnection {
 		method := m.methodField(conn.identity, conn.passwordOnly)
-		method.section = formSectionAuth
+		method.section = formSectionBasics
 		fields = append(fields,
 			field{label: "Hostname", section: formSectionBasics, description: descHostHostname, value: conn.hostname, placeholder: "server.example.com"},
 			field{label: "User", section: formSectionBasics, description: descHostUser, value: conn.user, placeholder: "ubuntu", optional: true},
 			method,
 			m.passwordField(conn.passwordStored),
-			field{label: "Port", section: formSectionAuth, description: descHostPort, value: conn.port, placeholder: "22", optional: true},
+			field{label: "Port", section: formSectionBasics, description: descHostPort, value: conn.port, placeholder: "22", optional: true},
 		)
 		fields = append(fields, advancedFormFields(m, conn.advanced)...)
 	}
 	fields = append(fields,
-		field{label: "Tags", section: formSectionMetadata, description: descHostTags, value: meta.tags, placeholder: "web, production", optional: true},
-		field{label: "Environment", section: formSectionMetadata, description: descHostEnvironment, value: meta.environment, placeholder: "production", optional: true},
-		field{label: "Icon", section: formSectionMetadata, description: descHostIcon, value: meta.icon, placeholder: "🇩🇪", optional: true},
-		colorFormField(meta.color, formSectionMetadata),
-		field{label: "Notes", section: formSectionMetadata, description: descHostNotes, value: meta.notes, optional: true},
+		field{label: "Tags", section: formSectionCustomisation, description: descHostTags, value: meta.tags, placeholder: "web, production", optional: true},
+		field{label: "Environment", section: formSectionCustomisation, description: descHostEnvironment, value: meta.environment, placeholder: "production", optional: true},
+		field{label: "Icon", section: formSectionCustomisation, description: descHostIcon, value: meta.icon, placeholder: "🇩🇪", optional: true},
+		colorFormField(meta.color, formSectionCustomisation),
+		field{label: "Notes", section: formSectionCustomisation, description: descHostNotes, value: meta.notes, optional: true},
 		rdpFormField(meta.rdp),
 	)
 	return fields
@@ -870,7 +1078,7 @@ func colorFormField(current, section string) field {
 func rdpFormField(enabled bool) field {
 	item := field{
 		label:       rdpFieldLabel,
-		section:     formSectionMetadata,
+		section:     formSectionCustomisation,
 		description: descHostRDP,
 		optional:    true,
 		options: []fieldOption{

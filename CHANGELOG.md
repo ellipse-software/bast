@@ -6,9 +6,19 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- Files: Left and Right move to the parent directory and into the selected directory. Both panes open on the host picker, with Local at the top and the same groups as Hosts, so either pane can be this machine or any host. A pane shows `local` or the host name only after you choose it. Host, Sync, and Files rows leave one column before the icon. The host form is one scroll: Basics includes authentication, Customisation holds the label, icon, colour, and other metadata, and Advanced still opens on its own.
 - Host and group list rows can show an emoji or flag, and a theme ANSI colour or custom hex. `e` on a local group edits the name, icon, and colour. `bast hosts add` and `bast hosts edit` take `--icon` and accept colour names (`red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`) or hex.
 - About lists the community Discord at discord.gg/bast.
 - boxd sync through the `boxd` CLI: import computers from every region of the active org (or an org filter), then create, stop, start, restart, fork, and delete them from the TUI and CLI. Create only targets an org already in that sync. SSH uses the port and key from the entries the boxd CLI keeps in `~/.ssh/config`, so `boxd auth login` must have run. Bast does not store a boxd token. Standby and hibernated computers wake on connect. Fork copies the disk, memory, and running processes.
+
+### Changed
+
+- Files: Shift+D returns the focused pane to the host picker from a local directory or a connected host. Enter on a group in that picker collapses it when it is open, and expands it when it is closed.
+- Colour: Esc leaves a custom hex value and returns to the theme colours. Backspace does the same once the hex field is empty. The picker is a grid of swatches. Arrows move the highlight.
+
+### Fixed
+
+- Long full-screen errors scroll with the keyboard and the mouse wheel. The actions stay visible at the bottom.
 
 ## v0.11.0 - 2026-10-27
 

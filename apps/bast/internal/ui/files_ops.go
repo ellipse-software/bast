@@ -121,6 +121,16 @@ func (m *App) setFilesPaneRemote(index int) tea.Cmd {
 	return m.setNotice("Pick a host")
 }
 
+// returnFilesPaneToPicker is Shift+D. A connected host disconnects. A local
+// directory uses the same picker as Shift+R.
+func (m *App) returnFilesPaneToPicker(index int) tea.Cmd {
+	pane := &m.files.panes[index]
+	if pane.kind == filesPaneRemote {
+		return m.disconnectFilesPane(index)
+	}
+	return m.setFilesPaneRemote(index)
+}
+
 func (m *App) disconnectFilesPane(index int) tea.Cmd {
 	pane := &m.files.panes[index]
 	pane.closeSession()
@@ -695,12 +705,11 @@ func (m *App) filesOpenShell() (tea.Model, tea.Cmd) {
 		})
 	}
 	if pane.pickingHost() {
-		hosts := m.filesHostList(pane)
-		if pane.hostCursor < 0 || pane.hostCursor >= len(hosts) {
+		row, ok := m.filesPickerRowAt(pane)
+		if !ok || row.local || row.row.header {
 			return m, m.setNotice("Select a host first")
 		}
-		host := hosts[pane.hostCursor]
-		return m.startSSH(host, m.filesPrepareFn(host))
+		return m.startSSH(row.row.host, m.filesPrepareFn(row.row.host))
 	}
 	host, ok := m.findHost(pane.alias)
 	if !ok {

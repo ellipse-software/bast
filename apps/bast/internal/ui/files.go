@@ -3,7 +3,6 @@ package ui
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -116,20 +115,12 @@ func (m *App) initFilesState() {
 	if m.files.ready {
 		return
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "."
-	}
-	m.files.panes[0] = filesPane{
-		kind:      filesPaneLocal,
-		cwd:       home,
-		marked:    map[string]struct{}{},
-		pathInput: newFilesPathInput(m.terminalWidth()),
-	}
-	m.files.panes[1] = filesPane{
-		kind:      filesPaneRemote,
-		marked:    map[string]struct{}{},
-		pathInput: newFilesPathInput(m.terminalWidth()),
+	for i := range m.files.panes {
+		m.files.panes[i] = filesPane{
+			kind:      filesPaneRemote,
+			marked:    map[string]struct{}{},
+			pathInput: newFilesPathInput(m.terminalWidth()),
+		}
 	}
 	m.files.focus = 0
 	m.files.ready = true
@@ -143,15 +134,12 @@ func newFilesPathInput(width int) textinput.Model {
 }
 
 func (m *App) enterFilesSection() tea.Cmd {
-	alreadyReady := m.files.ready
 	m.initFilesState()
 	m.section = filesSection
 	m.search = ""
-	if alreadyReady {
-		// Returning to Files keeps the last listing so tab switches stay snappy.
-		return nil
-	}
-	return m.refreshFilesPane(0)
+	// Both panes stay on the host picker until Local or a host is chosen.
+	// Returning to Files keeps whatever each pane already opened.
+	return nil
 }
 
 func (m *App) openFilesForHost(host sshconfig.Host) tea.Cmd {
@@ -162,8 +150,11 @@ func (m *App) openFilesForHost(host sshconfig.Host) tea.Cmd {
 	m.section = filesSection
 	m.search = ""
 	m.files.focus = 1
-	m.files.panes[1].kind = filesPaneRemote
-	return tea.Batch(m.refreshFilesPane(0), m.connectFilesHost(1, host))
+	cmds := []tea.Cmd{m.connectFilesHost(1, host)}
+	if !m.files.panes[0].pickingHost() {
+		cmds = append(cmds, m.refreshFilesPane(0))
+	}
+	return tea.Batch(cmds...)
 }
 
 func (p *filesPane) clearMarks() {
@@ -228,6 +219,32 @@ func (p *filesPane) connected() bool {
 
 func (p *filesPane) pickingHost() bool {
 	return p.kind == filesPaneRemote && p.session == nil
+}
+
+// pickerHeader is the line above the host list. An idle picker has none.
+// A search shows the query, and a connect in progress shows the host name.
+func (p *filesPane) pickerHeader() string {
+	if !p.pickingHost() {
+		return ""
+	}
+	if p.connecting {
+		return p.alias
+	}
+	if p.hostSearch == "" {
+		return ""
+	}
+	title := "/" + strings.TrimPrefix(p.hostSearch, "\x00")
+	if strings.HasPrefix(p.hostSearch, "\x00") {
+		title += "█"
+	}
+	return title
+}
+
+func filesPickerListHeight(pane *filesPane, height int) int {
+	if pane.pickerHeader() != "" {
+		return max(1, height-1)
+	}
+	return max(1, height)
 }
 
 func (p *filesPane) closeSession() {
@@ -401,66 +418,36 @@ func (j filesJump) labelFor(index int) (string, bool) {
 
 func (m *App) renderFilesHostPicker(s styleSet, pane *filesPane, focused bool, height, width int) string {
 	var b strings.Builder
-	tone := filesPaneTone(s, pane, focused)
-	marker := " "
-	if focused {
-		marker = "›"
-	}
-	title := "remote"
-	if strings.HasPrefix(pane.hostSearch, "\x00") || pane.hostSearch != "" {
-		q := strings.TrimPrefix(pane.hostSearch, "\x00")
-		title = "remote  /" + q
-		if strings.HasPrefix(pane.hostSearch, "\x00") {
-			title += "█"
+	if header := pane.pickerHeader(); header != "" {
+		tone := filesPaneTone(s, pane, focused)
+		marker := " "
+		if focused {
+			marker = "›"
 		}
+		b.WriteString(marker + " " + tone.Render(header) + "\n")
 	}
-	b.WriteString(marker + " " + tone.Render(title) + "\n")
 	if pane.connecting {
 		b.WriteString("  " + s.muted.Render("Connecting…") + "\n")
 		return b.String()
 	}
-	hosts := m.filesHostList(pane)
-	if len(hosts) == 0 {
-		b.WriteString("  " + s.muted.Render("No hosts") + "\n")
-		return b.String()
+	rows := m.filesPickerRows(pane)
+	if pane.hostCursor >= len(rows) {
+		pane.hostCursor = len(rows) - 1
 	}
-	if pane.hostCursor >= len(hosts) {
-		pane.hostCursor = len(hosts) - 1
+	if pane.hostCursor < 0 {
+		pane.hostCursor = 0
 	}
-	listHeight := max(1, height-1)
+	listHeight := filesPickerListHeight(pane, height)
 	offset := 0
 	if pane.hostCursor >= listHeight {
 		offset = pane.hostCursor - listHeight + 1
 	}
-	end := min(len(hosts), offset+listHeight)
+	end := min(len(rows), offset+listHeight)
+	query := m.filesPickerQuery(pane)
 	for i := offset; i < end; i++ {
-		line := "   " + m.hostLabel(hosts[i])
-		if focused && i == pane.hostCursor {
-			b.WriteString(s.selected.Width(width).Render(truncate(line, width)) + "\n")
-		} else {
-			b.WriteString(s.value.Width(width).Render(truncate(line, width)) + "\n")
-		}
+		b.WriteString(m.renderFilesPickerLine(s, rows[i], focused && i == pane.hostCursor, width, query) + "\n")
 	}
 	return b.String()
-}
-
-func (m *App) filesHostList(pane *filesPane) []sshconfig.Host {
-	q := strings.ToLower(strings.TrimPrefix(pane.hostSearch, "\x00"))
-	out := make([]sshconfig.Host, 0, len(m.hosts))
-	meta := m.hostMetadata()
-	for _, host := range m.hosts {
-		if meta[host.Alias].Hidden && !m.showHidden {
-			continue
-		}
-		if q != "" {
-			label := strings.ToLower(m.hostLabel(host))
-			if !strings.Contains(label, q) && !strings.Contains(strings.ToLower(host.Alias), q) {
-				continue
-			}
-		}
-		out = append(out, host)
-	}
-	return out
 }
 
 func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
@@ -547,12 +534,17 @@ func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 		return m.enterFilesDirectory()
 	case "o":
 		return m.openFilesPreview()
-	case "backspace", "h", "ctrl+h":
+	case "left", "backspace", "h", "ctrl+h":
 		if pane.pickingHost() {
-			return m, nil
+			return m.filesPickerLeft()
 		}
 		return m.filesParent()
+	case "right":
+		return m.enterFilesDirectory()
 	case "space":
+		if pane.pickingHost() {
+			return m.filesPickerToggle()
+		}
 		return m.toggleFilesMark()
 	case "v":
 		return m.toggleFilesRange()
@@ -586,9 +578,7 @@ func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 	case "t":
 		return m.filesOpenShell()
 	case "D":
-		if pane.kind == filesPaneRemote {
-			return m, m.disconnectFilesPane(m.files.focus)
-		}
+		return m, m.returnFilesPaneToPicker(m.files.focus)
 	}
 	return m, nil
 }
@@ -726,16 +716,13 @@ func (m *App) beginFilesPathEdit() (tea.Model, tea.Cmd) {
 func (m *App) moveFilesCursor(delta int) (tea.Model, tea.Cmd) {
 	pane := m.filesFocusedPane()
 	if pane.pickingHost() {
-		hosts := m.filesHostList(pane)
-		if len(hosts) == 0 {
-			return m, nil
-		}
+		rows := m.filesPickerRows(pane)
 		pane.hostCursor += delta
 		if pane.hostCursor < 0 {
 			pane.hostCursor = 0
 		}
-		if pane.hostCursor >= len(hosts) {
-			pane.hostCursor = len(hosts) - 1
+		if pane.hostCursor >= len(rows) {
+			pane.hostCursor = len(rows) - 1
 		}
 		return m, nil
 	}
@@ -758,9 +745,9 @@ func (m *App) moveFilesCursorHome() (tea.Model, tea.Cmd) {
 func (m *App) moveFilesCursorEnd() (tea.Model, tea.Cmd) {
 	pane := m.filesFocusedPane()
 	if pane.pickingHost() {
-		hosts := m.filesHostList(pane)
-		if len(hosts) > 0 {
-			pane.hostCursor = len(hosts) - 1
+		rows := m.filesPickerRows(pane)
+		if len(rows) > 0 {
+			pane.hostCursor = len(rows) - 1
 		}
 		return m, nil
 	}
@@ -774,11 +761,7 @@ func (m *App) moveFilesCursorEnd() (tea.Model, tea.Cmd) {
 func (m *App) activateFilesSelection() (tea.Model, tea.Cmd) {
 	pane := m.filesFocusedPane()
 	if pane.pickingHost() {
-		hosts := m.filesHostList(pane)
-		if pane.hostCursor < 0 || pane.hostCursor >= len(hosts) {
-			return m, nil
-		}
-		return m, m.connectFilesHost(m.files.focus, hosts[pane.hostCursor])
+		return m.activateFilesPicker()
 	}
 	entry, ok := pane.selectedEntry()
 	if !ok {
@@ -793,7 +776,7 @@ func (m *App) activateFilesSelection() (tea.Model, tea.Cmd) {
 func (m *App) enterFilesDirectory() (tea.Model, tea.Cmd) {
 	pane := m.filesFocusedPane()
 	if pane.pickingHost() {
-		return m.activateFilesSelection()
+		return m.expandFilesPickerRow()
 	}
 	entry, ok := pane.selectedEntry()
 	if !ok || !entry.IsDir {
@@ -910,25 +893,34 @@ func (m *App) filesRowAt(paneIndex, relY int) (index int, header, ok bool) {
 	if relY >= sideHeight {
 		return 0, false, false
 	}
-	if relY == 0 {
-		return 0, true, true
-	}
 	pane := &m.files.panes[paneIndex]
 	if pane.err != "" || pane.loading || pane.connecting {
 		return 0, false, false
 	}
 	if pane.pickingHost() {
-		hosts := m.filesHostList(pane)
-		listHeight := max(1, sideHeight-1)
+		if pane.pickerHeader() != "" {
+			if relY == 0 {
+				return 0, true, true
+			}
+			relY--
+		}
+		rows := m.filesPickerRows(pane)
+		listHeight := filesPickerListHeight(pane, sideHeight)
 		offset := 0
 		if pane.hostCursor >= listHeight {
 			offset = pane.hostCursor - listHeight + 1
 		}
-		idx := offset + relY - 1
-		if idx < 0 || idx >= len(hosts) || relY-1 >= listHeight {
+		if relY >= listHeight {
+			return 0, false, false
+		}
+		idx := offset + relY
+		if idx < 0 || idx >= len(rows) {
 			return 0, false, false
 		}
 		return idx, false, true
+	}
+	if relY == 0 {
+		return 0, true, true
 	}
 	// Match renderFilesBrowser: listHeight arg is sideHeight-1.
 	listHeight := sideHeight - 1

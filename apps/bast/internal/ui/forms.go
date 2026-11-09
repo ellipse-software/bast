@@ -35,7 +35,7 @@ const (
 	descHostSSHFlags       = "Optional - Any other OpenSSH options, separated by ;"
 	descHostTags           = "Optional - Comma-separated tags included in search"
 	descHostEnvironment    = "Optional - Environment name like production or staging"
-	descHostIcon           = "Optional - One emoji or flag shown before the name"
+	descHostIcon           = "Optional - One emoji shown before the name"
 	descHostColor          = "Optional - Theme colour or hex for the name"
 	descHostNotes          = "Optional - Short note in details and search"
 	descHostRDP            = "Optional - Show a Remote Desktop action for this host"
@@ -70,18 +70,23 @@ func (m *App) formTextInputActive() bool {
 		if f.selecting {
 			return false
 		}
+		if f.screen == formScreenAdvancedHub {
+			return false
+		}
 		if f.screen != "" && f.screen != "hub" {
-			if f.screen == formScreenAdvancedHub {
-				return false
-			}
 			item := &f.fields[f.index]
 			return len(item.options) == 0 || item.options[item.selected].custom
 		}
 		items := hostHubItems(f)
-		if f.hubIndex >= 0 && f.hubIndex < len(items) {
-			return hostHubInline(items[f.hubIndex].id)
+		if f.hubIndex < 0 || f.hubIndex >= len(items) || !hostHubInline(items[f.hubIndex].id) {
+			return false
 		}
-		return false
+		idx := f.fieldIndex(items[f.hubIndex].title)
+		if idx < 0 {
+			return false
+		}
+		item := &f.fields[idx]
+		return len(item.options) == 0 || item.options[item.selected].custom
 	}
 	item := &f.fields[f.index]
 	if f.selecting {
@@ -193,13 +198,8 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "esc", "backspace", "ctrl+h":
 			f.selecting = false
 			m.focusFormField()
-		case "up", "down", "j", "k":
-			direction := 1
-			if key == "up" || key == "k" {
-				direction = -1
-			}
-			item.selected = (item.selected + direction + len(item.options)) % len(item.options)
-			m.focusFormField()
+		case "up", "down", "j", "k", "left", "right", "h", "l":
+			m.applyChoiceMove(item, key)
 		case "shift+tab":
 			f.selecting = false
 			m.commitFormField()
@@ -226,6 +226,9 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.commitFormField()
 		f.selecting = true
 		m.focusFormField()
+		return m, nil
+	}
+	if m.backspaceOpensChoices(item, key) {
 		return m, nil
 	}
 	if key == "esc" {
@@ -679,8 +682,7 @@ func (m *App) formError(message string) (tea.Model, tea.Cmd) {
 	if m.form != nil {
 		message = m.form.title + " failed: " + message
 	}
-	m.statusID++
-	m.status, m.statusError = message, true
+	m.showError(message)
 	return m, nil
 }
 
@@ -726,7 +728,7 @@ func (m *App) openEditGroupForm() {
 		return
 	}
 	if sync.IsSyncedGroup(group) {
-		m.status, m.statusError = "Cloud sync groups cannot be edited", true
+		m.showError("Cloud sync groups cannot be edited")
 		return
 	}
 	appearance := m.appearanceForGroup(group)
@@ -745,7 +747,7 @@ func (m *App) openEditHostForm() {
 		return
 	}
 	if host.Synced {
-		m.status, m.statusError = "Synced hosts are read-only; manage them in the Sync tab", true
+		m.showError("Synced hosts are read-only; manage them in the Sync tab")
 		return
 	}
 	meta := m.metadata.Host(host.Alias)
@@ -787,7 +789,7 @@ func (m *App) openGroupAssignmentForm() {
 		return
 	}
 	if host.Synced {
-		m.status, m.statusError = "Synced hosts are read-only; manage them in the Sync tab", true
+		m.showError("Synced hosts are read-only; manage them in the Sync tab")
 		return
 	}
 	meta := m.metadata.Host(host.Alias)
@@ -852,11 +854,11 @@ func (m *App) openDeleteHostForm() {
 		return
 	}
 	if host.Synced {
-		m.status, m.statusError = "Synced hosts cannot be deleted; disconnect the provider in Sync", true
+		m.showError("Synced hosts cannot be deleted; disconnect the provider in Sync")
 		return
 	}
 	if !host.Managed {
-		m.status, m.statusError = "External hosts cannot be deleted by Bast", true
+		m.showError("External hosts cannot be deleted by Bast")
 		return
 	}
 	label := m.hostLabel(host)
@@ -883,7 +885,7 @@ func (m *App) openEditKeyForm() {
 		return
 	}
 	if !key.Managed {
-		m.status, m.statusError = "External keys cannot be edited by Bast", true
+		m.showError("External keys cannot be edited by Bast")
 		return
 	}
 	m.openForm("Edit key comment: "+key.Name, "key_comment", []field{
@@ -906,7 +908,7 @@ func (m *App) openInstallKeyForm() {
 		return
 	}
 	if len(m.hosts) == 0 {
-		m.status, m.statusError = "Add a server before installing a public key", true
+		m.showError("Add a server before installing a public key")
 		return
 	}
 	server := field{
@@ -981,7 +983,7 @@ func (m *App) methodField(current string, passwordOnly bool) field {
 func (m *App) passwordField(stored bool) field {
 	item := field{
 		label:       passwordFieldLabel,
-		section:     formSectionAuth,
+		section:     formSectionBasics,
 		description: descHostPassword,
 		optional:    true,
 		secret:      true,
@@ -1034,6 +1036,7 @@ func (m *App) syncHostPasswordField() {
 			f.index = idx
 			f.selecting = false
 			m.focusFormField()
+			m.syncHostHubIndex()
 		}
 	}
 }
@@ -1094,6 +1097,66 @@ func (m *App) focusFormField() {
 	f.input.Placeholder = item.placeholder
 	f.input.SetCursor(len([]rune(item.value)))
 	f.input.Focus()
+}
+
+func (m *App) applyChoiceMove(item *field, key string) bool {
+	if item == nil || len(item.options) == 0 {
+		return false
+	}
+	if item.label == "Color" {
+		next, ok := moveColorGrid(item.selected, len(item.options), colorGridColumns(m.terminalWidth()), key)
+		if !ok {
+			return false
+		}
+		item.selected = next
+		m.focusFormField()
+		return true
+	}
+	switch key {
+	case "up", "k", "down", "j":
+		direction := 1
+		if key == "up" || key == "k" {
+			direction = -1
+		}
+		item.selected = (item.selected + direction + len(item.options)) % len(item.options)
+		m.focusFormField()
+		return true
+	default:
+		return false
+	}
+}
+
+func customOptionSelected(item field) bool {
+	return len(item.options) > 0 && item.selected >= 0 && item.selected < len(item.options) && item.options[item.selected].custom
+}
+
+func customChoiceEscapeHint(item field, input string) string {
+	if !customOptionSelected(item) {
+		return ""
+	}
+	label := "choices"
+	if item.label == "Color" {
+		label = "colours"
+	}
+	if strings.TrimSpace(input) == "" {
+		return "⌫/Esc " + label
+	}
+	return "Esc " + label
+}
+
+// backspaceOpensChoices returns to the preset list after the custom value has
+// been deleted. A non-empty value still deletes one character.
+func (m *App) backspaceOpensChoices(item *field, key string) bool {
+	if m.form == nil || item == nil || (key != "backspace" && key != "ctrl+h") {
+		return false
+	}
+	if !customOptionSelected(*item) || m.form.input.Value() != "" {
+		return false
+	}
+	m.commitFormField()
+	m.form.selecting = true
+	m.focusFormField()
+	return true
 }
 
 func (m *App) commitFormField() {

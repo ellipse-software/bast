@@ -11,11 +11,14 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/files"
+	"bast/internal/metadata"
 	"bast/internal/platform"
 	"bast/internal/vault"
 )
 
 func applyFilesList(m *App, pane int, cwd string, entries []files.Entry) {
+	// A directory listing is a local browser. The Files tab opens on the picker.
+	m.files.panes[pane].kind = filesPaneLocal
 	m.files.panes[pane].cwd = cwd
 	m.files.panes[pane].listGen++
 	m.Update(filesListMsg{
@@ -47,8 +50,11 @@ func TestFilesTabNavigationAndMarks(t *testing.T) {
 	applyFilesList(m, 0, dir, entries)
 
 	body := m.renderFiles(m.styles())
-	if !strings.Contains(body, "local") || !strings.Contains(body, "remote") {
+	if !strings.Contains(body, "local") || strings.Contains(body, "remote") {
 		t.Fatalf("files body:\n%s", body)
+	}
+	if !m.files.panes[1].pickingHost() {
+		t.Fatal("the other pane should stay on the host picker")
 	}
 	if !strings.Contains(body, "a.txt") || !strings.Contains(body, "sub/") {
 		t.Fatalf("expected local entries:\n%s", body)
@@ -85,6 +91,7 @@ func TestFilesTabNavigationAndMarks(t *testing.T) {
 func TestFilesPathEditCancel(t *testing.T) {
 	m := testApp(t)
 	_ = m.enterFilesSection()
+	m.files.panes[0].kind = filesPaneLocal
 	m.files.panes[0].cwd = t.TempDir()
 	m.updateFilesKeys("/")
 	if !m.files.panes[0].pathEdit {
@@ -93,6 +100,133 @@ func TestFilesPathEditCancel(t *testing.T) {
 	m.updateFilesKeys("esc")
 	if m.files.panes[0].pathEdit {
 		t.Fatal("esc should cancel path edit")
+	}
+}
+
+func TestFilesArrowsEnterAndLeaveDirectories(t *testing.T) {
+	m := testApp(t)
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.enterFilesSection()
+	entries, err := files.ListLocal(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyFilesList(m, 0, dir, entries)
+	for i, entry := range m.files.panes[0].entries {
+		if entry.Name == "sub" {
+			m.files.panes[0].cursor = i
+		}
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	if m.files.panes[0].cwd != sub {
+		t.Fatalf("right cwd = %q, want %q", m.files.panes[0].cwd, sub)
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
+	if m.files.panes[0].cwd != dir {
+		t.Fatalf("left cwd = %q, want %q", m.files.panes[0].cwd, dir)
+	}
+}
+
+func TestFilesPickerMirrorsGroupsWithLocalFirst(t *testing.T) {
+	m := testApp(t)
+	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("beta", metadata.Host{Group: "Work"}); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshHostMetadata()
+	_ = m.enterFilesSection()
+	m.files.focus = 1
+	body := m.renderFiles(m.styles())
+	localAt := strings.Index(body, "Local")
+	workAt := strings.Index(body, "Work")
+	if localAt < 0 || workAt < 0 || localAt > workAt || !strings.Contains(body, "alpha") {
+		t.Fatalf("picker should list Local above the Work group:\n%s", body)
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.files.panes[1].kind != filesPaneLocal {
+		t.Fatal("enter on Local should make the pane local")
+	}
+
+	m.files.focus = 0
+	m.updateFilesKeys("R")
+	m.files.panes[0].hostCursor = 1
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
+	if !m.collapsedGroups["Work"] {
+		t.Fatal("space on the Files group should collapse it for Hosts too")
+	}
+	for _, row := range m.hostRows() {
+		if !row.header && row.host.Alias == "alpha" {
+			t.Fatal("collapsed Work group still lists alpha on Hosts")
+		}
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	if m.collapsedGroups["Work"] {
+		t.Fatal("right on a collapsed group should expand it")
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if !m.collapsedGroups["Work"] {
+		t.Fatal("enter on an open group should collapse it")
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.collapsedGroups["Work"] {
+		t.Fatal("enter on a collapsed group should expand it")
+	}
+}
+
+func TestFilesPaneTitleFollowsConnection(t *testing.T) {
+	m := testApp(t)
+	_ = m.enterFilesSection()
+	if !m.files.panes[0].pickingHost() || !m.files.panes[1].pickingHost() {
+		t.Fatal("both panes should open on the host picker")
+	}
+	body := m.renderFiles(m.styles())
+	if strings.Contains(body, "remote") || strings.Contains(body, "local") {
+		t.Fatalf("idle pickers should not show a pane title:\n%s", body)
+	}
+	if strings.Count(body, "Local") < 2 {
+		t.Fatalf("expected a picker on both panes:\n%s", body)
+	}
+
+	m.files.panes[0].hostSearch = "\x00alp"
+	body = m.renderFiles(m.styles())
+	if !strings.Contains(body, "/alp") || strings.Contains(body, "remote") {
+		t.Fatalf("host search should show the query without a remote title:\n%s", body)
+	}
+	m.files.panes[0].hostSearch = ""
+
+	m.files.panes[0].kind = filesPaneLocal
+	m.files.panes[0].cwd = t.TempDir()
+	body = m.renderFiles(m.styles())
+	if !strings.Contains(body, "local") {
+		t.Fatalf("a local pane should be titled local:\n%s", body)
+	}
+
+	m.files.panes[1].session = &files.Session{}
+	m.files.panes[1].alias = "web"
+	m.files.panes[1].cwd = "/var"
+	body = m.renderFiles(m.styles())
+	if !strings.Contains(body, "web") {
+		t.Fatalf("a connected pane should show the host name:\n%s", body)
+	}
+}
+
+func TestFilesDisconnectReturnsLocalPaneToPicker(t *testing.T) {
+	m := testApp(t)
+	_ = m.enterFilesSection()
+	m.files.panes[0].kind = filesPaneLocal
+	m.files.panes[0].cwd = t.TempDir()
+	m.Update(press("D"))
+	if !m.files.panes[0].pickingHost() {
+		t.Fatal("D on a local pane should return to the host picker")
 	}
 }
 
@@ -249,6 +383,7 @@ func TestFilesLocalPaneKeepsCwd(t *testing.T) {
 	m := testApp(t)
 	dir := t.TempDir()
 	_ = m.enterFilesSection()
+	m.files.panes[0].kind = filesPaneLocal
 	m.files.panes[0].cwd = dir
 	m.updateFilesKeys("L")
 	if m.files.panes[0].cwd != dir {
@@ -259,6 +394,7 @@ func TestFilesLocalPaneKeepsCwd(t *testing.T) {
 func TestFilesPathEditAcceptsSpace(t *testing.T) {
 	m := testApp(t)
 	_ = m.enterFilesSection()
+	m.files.panes[0].kind = filesPaneLocal
 	m.files.panes[0].cwd = t.TempDir()
 	m.updateFilesKeys("/")
 	m.updateFilesKeys("space")
@@ -516,7 +652,7 @@ func TestFilesMouseFocusSelectAndEnter(t *testing.T) {
 	m.files.focus = 0
 
 	layout := m.panelLayout()
-	// Click right pane header: focus remote picker.
+	// Click the right pane's first row: focus that picker.
 	m.Update(tea.MouseClickMsg(tea.Mouse{
 		X: layout.listWidth + 1, Y: layout.detailTop, Button: tea.MouseLeft,
 	}))
@@ -564,9 +700,9 @@ func TestFilesMouseHostPickerSelect(t *testing.T) {
 	_ = m.enterFilesSection()
 	m.files.focus = 0
 	layout := m.panelLayout()
-	// Click first host from the other pane: focus + select (do not connect).
+	// The idle picker has no title row, so the first host is the top line.
 	m.Update(tea.MouseClickMsg(tea.Mouse{
-		X: layout.listWidth + 1, Y: layout.detailTop + 1, Button: tea.MouseLeft,
+		X: layout.listWidth + 1, Y: layout.detailTop, Button: tea.MouseLeft,
 	}))
 	if m.files.focus != 1 {
 		t.Fatal("expected right pane focused")
@@ -574,12 +710,15 @@ func TestFilesMouseHostPickerSelect(t *testing.T) {
 	if m.files.panes[1].hostCursor != 0 {
 		t.Fatalf("hostCursor = %d", m.files.panes[1].hostCursor)
 	}
+	if m.files.panes[1].hostSearch != "" {
+		t.Fatal("the first picker row is a host, not a title")
+	}
 	if m.files.panes[1].connecting {
 		t.Fatal("first click from other pane should not connect")
 	}
 	// Click second host.
 	m.Update(tea.MouseClickMsg(tea.Mouse{
-		X: layout.listWidth + 1, Y: layout.detailTop + 2, Button: tea.MouseLeft,
+		X: layout.listWidth + 1, Y: layout.detailTop + 1, Button: tea.MouseLeft,
 	}))
 	if m.files.panes[1].hostCursor != 1 {
 		t.Fatalf("hostCursor = %d, want 1", m.files.panes[1].hostCursor)

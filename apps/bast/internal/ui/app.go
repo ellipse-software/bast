@@ -206,6 +206,7 @@ type App struct {
 	status              string
 	statusError         bool
 	statusID            uint64
+	errorOffset         int
 	hostSaveHintID      uint64
 	hostSaveHintEnter   bool
 	width               int
@@ -912,11 +913,11 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.sshSession {
 			m.statusID++
 			m.status, m.statusError = "", false
+			m.errorOffset = 0
 			return m, m.loadCmd()
 		}
 		if msg.err != nil {
-			m.statusID++
-			m.status, m.statusError = msg.name+": "+openssh.FormatError(msg.err), true
+			m.showError(msg.name + ": " + openssh.FormatError(msg.err))
 			return m, m.loadCmd()
 		}
 		return m, tea.Batch(m.loadCmd(), m.setNotice(msg.name+" completed"))
@@ -984,16 +985,27 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.statusID++
 					m.status, m.statusError = "Sending report…", false
+					m.errorOffset = 0
 					return m, func() tea.Msg {
 						return reportResultMsg{err: telemetry.ReportError(report)}
 					}
 				}
-				m.statusID++
-				m.status, m.statusError = "", false
+				m.dismissError()
 				return m, nil
 			case "enter", "esc", "backspace", "ctrl+h":
-				m.statusID++
-				m.status, m.statusError = "", false
+				m.dismissError()
+			case "up", "k":
+				m.scrollError(-1)
+			case "down", "j":
+				m.scrollError(1)
+			case "pgup":
+				m.scrollError(-m.errorPage())
+			case "pgdown":
+				m.scrollError(m.errorPage())
+			case "g", "home":
+				m.errorOffset = 0
+			case "G", "end":
+				m.errorOffset = m.maxErrorOffset()
 			}
 			return m, nil
 		}

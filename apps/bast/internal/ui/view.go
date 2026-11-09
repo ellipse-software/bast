@@ -125,30 +125,238 @@ func (m *App) renderHeader(s styleSet) string {
 	return header
 }
 
-func (m *App) renderError(s styleSet) string {
-	contentWidth := max(16, min(66, m.terminalWidth()-10))
+type errorBox struct {
+	border bool
+	pad    bool
+	gap    bool
+	view   int
+}
+
+func (b errorBox) rows() int {
+	n := b.view + 1
+	if b.border {
+		n += 2
+	}
+	if b.pad {
+		n += 2
+	}
+	if b.gap {
+		n++
+	}
+	return n
+}
+
+func layoutError(bodyHeight, contentLines int) errorBox {
+	if bodyHeight < 1 {
+		bodyHeight = 1
+	}
+	if contentLines < 0 {
+		contentLines = 0
+	}
+	options := []errorBox{
+		{border: true, pad: true, gap: true},
+		{border: true},
+		{},
+	}
+	for _, opt := range options {
+		opt.view = contentLines
+		if opt.rows() <= bodyHeight {
+			return opt
+		}
+	}
+	// Drop padding, then the border, so a short terminal still has a line of the message to scroll.
+	for _, opt := range options {
+		frameRows := opt.rows() // action, plus border and padding; the message view is still 0
+		view := bodyHeight - frameRows
+		if view >= 1 {
+			opt.view = view
+			return opt
+		}
+	}
+	return errorBox{}
+}
+
+func errorBoxMetrics(termWidth int) (pad, contentWidth int) {
+	if termWidth < 1 {
+		termWidth = 1
+	}
+	pad = 2
+	contentWidth = min(66, termWidth-2-pad*2)
+	if contentWidth >= 8 {
+		return pad, contentWidth
+	}
+	pad = 0
+	contentWidth = min(66, max(1, termWidth-2))
+	if contentWidth < 1 {
+		return 0, 1
+	}
+	return pad, contentWidth
+}
+
+func wrapKeptLines(text string, width int) []string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	parts := strings.Split(text, "\n")
+	lines := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			lines = append(lines, "")
+			continue
+		}
+		lines = append(lines, wrapWords(part, width)...)
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
+}
+
+func fitPlain(text string, width int) string {
+	if width < 1 {
+		return ""
+	}
+	if lipgloss.Width(text) <= width {
+		return text
+	}
+	return truncate(text, width)
+}
+
+func errorActionLabel(report, scroll bool) string {
+	label := "Enter/Esc return"
+	if report {
+		label = "Space send report · Enter/Esc return"
+	}
+	if scroll {
+		label += " · ↑/↓ scroll"
+	}
+	return label
+}
+
+func (m *App) errorScrollLines(s styleSet, width int) []string {
 	explanation := "The action did not complete."
 	if m.form != nil {
 		explanation += " Your entries are still available when you return."
 	} else {
 		explanation += " Run bast doctor for a full diagnosis."
 	}
-	footer := "Enter/Esc return"
-	if telemetry.Enabled() {
-		footer = "Space send report · Enter/Esc return"
+	lines := []string{
+		s.error.Bold(true).Render(fitPlain("✕  Action failed", width)),
+		"",
+		s.muted.Render(fitPlain("What happened", width)),
 	}
-	content := s.error.Bold(true).Render("✕  Action failed") +
-		"\n\n" + s.muted.Render("What happened") +
-		"\n" + s.value.Width(contentWidth).Render(m.status) +
-		"\n\n" + s.muted.Width(contentWidth).Render(explanation) +
-		"\n\n" + s.muted.Render(footer)
-	panel := lipgloss.NewStyle().
-		Width(contentWidth).
-		Padding(1, 2).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#EF4444")).
-		Render(content)
-	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, panel)
+	for _, line := range wrapKeptLines(m.status, width) {
+		if line == "" {
+			lines = append(lines, "")
+			continue
+		}
+		lines = append(lines, s.value.Render(line))
+	}
+	lines = append(lines, "")
+	for _, line := range wrapWords(explanation, width) {
+		if line == "" {
+			lines = append(lines, "")
+			continue
+		}
+		lines = append(lines, s.muted.Render(line))
+	}
+	return lines
+}
+
+func (m *App) errorLayout(s styleSet) (pad, contentWidth int, lines []string, box errorBox) {
+	bodyHeight := max(1, m.terminalHeight()-3)
+	pad, contentWidth = errorBoxMetrics(m.terminalWidth())
+	lines = m.errorScrollLines(s, contentWidth)
+	box = layoutError(bodyHeight, len(lines))
+	return pad, contentWidth, lines, box
+}
+
+func (m *App) maxErrorOffset() int {
+	_, _, lines, box := m.errorLayout(m.styles())
+	return max(0, len(lines)-box.view)
+}
+
+func (m *App) clampErrorOffset() {
+	if m.errorOffset < 0 {
+		m.errorOffset = 0
+	}
+	if maxOffset := m.maxErrorOffset(); m.errorOffset > maxOffset {
+		m.errorOffset = maxOffset
+	}
+}
+
+func (m *App) scrollError(delta int) {
+	m.errorOffset += delta
+	m.clampErrorOffset()
+}
+
+func (m *App) errorPage() int {
+	_, _, _, box := m.errorLayout(m.styles())
+	if box.view < 1 {
+		return 1
+	}
+	return box.view
+}
+
+func renderErrorBox(border lipgloss.Style, pad, contentWidth int, box errorBox, visible []string, action string) string {
+	if !box.border {
+		var b strings.Builder
+		for i, line := range visible {
+			if i > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(padVisual(line, contentWidth))
+		}
+		if len(visible) > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(padVisual(action, contentWidth))
+		return b.String()
+	}
+	inner := contentWidth + pad*2
+	top := border.Render("╭" + strings.Repeat("─", inner) + "╮")
+	bot := border.Render("╰" + strings.Repeat("─", inner) + "╯")
+	side := border.Render("│")
+	row := func(line string) string {
+		gap := strings.Repeat(" ", pad)
+		return side + gap + padVisual(line, contentWidth) + gap + side
+	}
+	var b strings.Builder
+	b.WriteString(top)
+	writeRow := func(line string) {
+		b.WriteByte('\n')
+		b.WriteString(row(line))
+	}
+	if box.pad {
+		writeRow("")
+	}
+	for _, line := range visible {
+		writeRow(line)
+	}
+	if box.gap {
+		writeRow("")
+	}
+	writeRow(action)
+	if box.pad {
+		writeRow("")
+	}
+	b.WriteByte('\n')
+	b.WriteString(bot)
+	return b.String()
+}
+
+func (m *App) renderError(s styleSet) string {
+	bodyHeight := max(1, m.terminalHeight()-3)
+	pad, contentWidth, lines, box := m.errorLayout(s)
+	m.clampErrorOffset()
+	start := m.errorOffset
+	end := min(len(lines), start+box.view)
+	if start > end {
+		start = end
+	}
+	action := s.muted.Render(fitPlain(errorActionLabel(telemetry.Enabled(), box.view < len(lines)), contentWidth))
+	border := lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444"))
+	panel := renderErrorBox(border, pad, contentWidth, box, lines[start:end], action)
+	return lipgloss.Place(m.terminalWidth(), bodyHeight, lipgloss.Center, lipgloss.Center, panel)
 }
 
 const (
@@ -309,169 +517,12 @@ func (m *App) renderHosts(s styleSet) string {
 	if layout.mobile && len(rowsData) > listHeight {
 		rowWidth -= mobileScrollbarWidth
 	}
-	selectedRow := s.selected.Width(rowWidth)
-	mutedRow := s.muted.Width(rowWidth)
-	activeRow := s.active.Width(rowWidth)
-	plainRow := s.plain.Width(rowWidth)
-	hostMeta := m.hostMetadata()
-	gcpErr := m.providerShowsSyncError("gcp", notableSyncError(m.metadata.GCP().LastSyncError, m.syncStatus.GCP.GCloudError))
-	awsErr := m.providerShowsSyncError("aws", notableSyncError(m.metadata.AWS().LastSyncError, m.syncStatus.AWS.AWSCLIError))
-	azureErr := m.providerShowsSyncError("azure", notableSyncError(m.metadata.Azure().LastSyncError, m.syncStatus.Azure.AzureCLIError))
-	boatErr := m.providerShowsSyncError("boat", notableSyncError(m.metadata.Boat().LastSyncError, m.syncStatus.Boat.BoatCLIError))
-	upstashErr := m.providerShowsSyncError("upstash", notableSyncError(m.metadata.Upstash().LastSyncError, m.syncStatus.Upstash.Error))
-	vercelErr := m.providerShowsSyncError("vercel", notableSyncError(m.metadata.Vercel().LastSyncError, m.syncStatus.Vercel.Error))
-	hetznerErr := m.providerShowsSyncError("hetzner", notableSyncError(m.metadata.Hetzner().LastSyncError, m.syncStatus.Hetzner.Error))
-	bitqateErr := m.providerShowsSyncError("bitqate", notableSyncError(m.metadata.Bitqate().LastSyncError, m.syncStatus.Bitqate.Error))
 	start := scrollStart(m.cursor, len(rowsData), listHeight)
 	var list strings.Builder
 	list.Grow(listHeight * (rowWidth + 8))
+	query := m.searchText()
 	for i := start; i < min(len(rowsData), start+listHeight); i++ {
-		row := rowsData[i]
-		if row.historyHeader {
-			indicator := "▾"
-			if m.historySuggestionsCollapsed && m.searchText() == "" {
-				indicator = "▸"
-			}
-			line := indicator + " " + row.label + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
-			if i == m.cursor {
-				line = selectedRow.Render(line)
-			} else {
-				line = mutedRow.Render(line)
-			}
-			list.WriteString(line + "\n")
-			continue
-		}
-		if row.suggestion != nil {
-			indent := strings.Repeat("  ", row.depth)
-			line := indent + "＋ " + truncate(row.suggestion.Alias, max(2, rowWidth-lipgloss.Width(indent)-4))
-			if i == m.cursor {
-				line = selectedRow.Render(line)
-			} else {
-				line = mutedRow.Render(line)
-			}
-			list.WriteString(line + "\n")
-			continue
-		}
-		if row.header {
-			indent := strings.Repeat("  ", row.depth)
-			indicator := "▾"
-			if m.collapsedGroups[row.group] && m.searchText() == "" {
-				indicator = "▸"
-			}
-			name := row.label
-			if name == "" {
-				name = row.group
-				if slash := strings.LastIndex(name, "/"); row.depth > 0 && slash >= 0 {
-					name = name[slash+1:]
-				}
-			}
-			showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr, bitqateErr)
-			rawPrefix := indent + indicator + " "
-			accent, branded := providerBrandStyle(row)
-			appearance := metadata.GroupAppearance{}
-			if !branded {
-				appearance = m.appearanceForGroup(row.group)
-			}
-			userIcon := ""
-			if appearance.Icon != "" {
-				userIcon = appearance.Icon + " "
-			}
-			reservedWidth := lipgloss.Width(rawPrefix) + 1 + lipgloss.Width(fmt.Sprintf("(%d)", row.count)) + lipgloss.Width(managedGroupIcon(name, m.nerdFont)) + lipgloss.Width(userIcon)
-			if showError {
-				reservedWidth += 1 + lipgloss.Width("⚠")
-			}
-			name = truncate(name, max(2, rowWidth-reservedWidth))
-			if line, ok := renderUserGroupRow(s, appearance, userIcon, rawPrefix, name, row.count, i == m.cursor, rowWidth); ok {
-				list.WriteString(line + "\n")
-				continue
-			}
-			nameStyle := s.active
-			if branded {
-				nameStyle = accent
-			}
-			selected := i == m.cursor
-			selectedBg := s.selected.GetBackground()
-			if selected {
-				nameStyle = nameStyle.Background(selectedBg)
-			}
-			prefix := rawPrefix
-			if branded {
-				prefix = nameStyle.Render(rawPrefix)
-			}
-			namePart := renderManagedGroupName(name, nameStyle, m.nerdFont)
-			if branded && !cloud.IsProviderRoot(row.group) {
-				namePart = nameStyle.Render(name)
-			}
-			countStyle := s.muted
-			if selected {
-				countStyle = s.muted.Background(selectedBg)
-			}
-			count := countStyle.Render(fmt.Sprintf("(%d)", row.count))
-			gap := " "
-			if selected {
-				gap = lipgloss.NewStyle().Background(selectedBg).Render(" ")
-			}
-			line := prefix + namePart + gap + count
-			if showError {
-				warnPad := strings.Repeat(" ", max(1, rowWidth-lipgloss.Width(line)-lipgloss.Width("⚠")))
-				warn := "⚠"
-				if selected {
-					warnPad = lipgloss.NewStyle().Background(selectedBg).Render(warnPad)
-					warn = s.error.Background(selectedBg).Render("⚠")
-				} else {
-					warn = s.error.Render("⚠")
-				}
-				line += warnPad + warn
-			}
-			switch {
-			case selected && branded:
-				pad := max(0, rowWidth-lipgloss.Width(line))
-				if pad > 0 {
-					line += lipgloss.NewStyle().Background(selectedBg).Render(strings.Repeat(" ", pad))
-				}
-			case selected:
-				line = selectedRow.Render(line)
-			case branded:
-				line = plainRow.Render(line)
-			default:
-				line = activeRow.Render(line)
-			}
-			list.WriteString(line + "\n")
-			continue
-		}
-		host := row.host
-		meta := hostMeta[host.Alias]
-		mark := "  "
-		if meta.Hidden {
-			mark = "◌ "
-		} else if meta.Favorite {
-			mark = "◆ "
-		}
-		indent := strings.Repeat("  ", row.depth)
-		userIcon := ""
-		color := ""
-		if !host.Synced {
-			if meta.Icon != "" {
-				userIcon = meta.Icon + " "
-			}
-			color = meta.Color
-		}
-		fg, colored := colorForeground(color)
-		label := truncate(hostLabel(host, meta), max(2, rowWidth-lipgloss.Width(indent+mark+userIcon)-2))
-		var line string
-		if userIcon != "" || colored {
-			line = renderUserHostRow(s, indent, mark, userIcon, label, colored, fg, i == m.cursor, hostLooksStopped(host, meta), rowWidth)
-		} else {
-			line = indent + mark + label
-			if i == m.cursor {
-				line = selectedRow.Render(line)
-			} else if hostLooksStopped(host, meta) {
-				line = mutedRow.Render(line)
-			} else {
-				line = plainRow.Render(line)
-			}
-		}
-		list.WriteString(line + "\n")
+		list.WriteString(m.renderHostRowLine(s, rowsData[i], i == m.cursor, rowWidth, query) + "\n")
 	}
 	listPanel := lipgloss.NewStyle().Width(rowWidth).Height(listHeight).Render(strings.TrimRight(list.String(), "\n"))
 	if layout.mobile && len(rowsData) > listHeight {
@@ -496,6 +547,155 @@ func (m *App) renderHosts(s styleSet) string {
 	}
 	divider := s.rule.Render(strings.TrimSuffix(strings.Repeat("│\n", bodyHeight), "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, listPanel, divider, detail)
+}
+
+func (m *App) renderHostRowLine(s styleSet, row hostRow, selected bool, rowWidth int, query string) string {
+	selectedRow := s.selected.Width(rowWidth)
+	mutedRow := s.muted.Width(rowWidth)
+	activeRow := s.active.Width(rowWidth)
+	plainRow := s.plain.Width(rowWidth)
+	if row.historyHeader {
+		indicator := "▾"
+		if m.historySuggestionsCollapsed && query == "" {
+			indicator = "▸"
+		}
+		line := " " + indicator + " " + row.label + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
+		if selected {
+			return selectedRow.Render(line)
+		}
+		return mutedRow.Render(line)
+	}
+	if row.suggestion != nil {
+		indent := strings.Repeat("  ", row.depth)
+		line := " " + indent + "＋ " + truncate(row.suggestion.Alias, max(2, rowWidth-lipgloss.Width(indent)-5))
+		if selected {
+			return selectedRow.Render(line)
+		}
+		return mutedRow.Render(line)
+	}
+	if row.header {
+		indent := strings.Repeat("  ", row.depth)
+		indicator := "▾"
+		if m.collapsedGroups[row.group] && query == "" {
+			indicator = "▸"
+		}
+		name := row.label
+		if name == "" {
+			name = row.group
+			if slash := strings.LastIndex(name, "/"); row.depth > 0 && slash >= 0 {
+				name = name[slash+1:]
+			}
+		}
+		gcpErr := m.providerShowsSyncError("gcp", notableSyncError(m.metadata.GCP().LastSyncError, m.syncStatus.GCP.GCloudError))
+		awsErr := m.providerShowsSyncError("aws", notableSyncError(m.metadata.AWS().LastSyncError, m.syncStatus.AWS.AWSCLIError))
+		azureErr := m.providerShowsSyncError("azure", notableSyncError(m.metadata.Azure().LastSyncError, m.syncStatus.Azure.AzureCLIError))
+		boatErr := m.providerShowsSyncError("boat", notableSyncError(m.metadata.Boat().LastSyncError, m.syncStatus.Boat.BoatCLIError))
+		upstashErr := m.providerShowsSyncError("upstash", notableSyncError(m.metadata.Upstash().LastSyncError, m.syncStatus.Upstash.Error))
+		vercelErr := m.providerShowsSyncError("vercel", notableSyncError(m.metadata.Vercel().LastSyncError, m.syncStatus.Vercel.Error))
+		hetznerErr := m.providerShowsSyncError("hetzner", notableSyncError(m.metadata.Hetzner().LastSyncError, m.syncStatus.Hetzner.Error))
+		bitqateErr := m.providerShowsSyncError("bitqate", notableSyncError(m.metadata.Bitqate().LastSyncError, m.syncStatus.Bitqate.Error))
+		showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr, bitqateErr)
+		rawPrefix := indent + indicator + " "
+		accent, branded := providerBrandStyle(row)
+		appearance := metadata.GroupAppearance{}
+		if !branded {
+			appearance = m.appearanceForGroup(row.group)
+		}
+		userIcon := ""
+		if appearance.Icon != "" {
+			userIcon = appearance.Icon + " "
+		}
+		reservedWidth := 1 + lipgloss.Width(rawPrefix) + 1 + lipgloss.Width(fmt.Sprintf("(%d)", row.count)) + lipgloss.Width(managedGroupIcon(name, m.nerdFont)) + lipgloss.Width(userIcon)
+		if showError {
+			reservedWidth += 1 + lipgloss.Width("⚠")
+		}
+		name = truncate(name, max(2, rowWidth-reservedWidth))
+		if line, ok := renderUserGroupRow(s, appearance, userIcon, rawPrefix, name, row.count, selected, rowWidth); ok {
+			return line
+		}
+		nameStyle := s.active
+		if branded {
+			nameStyle = accent
+		}
+		selectedBg := s.selected.GetBackground()
+		if selected {
+			nameStyle = nameStyle.Background(selectedBg)
+		}
+		prefix := rawPrefix
+		if branded {
+			prefix = nameStyle.Render(rawPrefix)
+		}
+		namePart := renderManagedGroupName(name, nameStyle, m.nerdFont)
+		if branded && !cloud.IsProviderRoot(row.group) {
+			namePart = nameStyle.Render(name)
+		}
+		countStyle := s.muted
+		if selected {
+			countStyle = s.muted.Background(selectedBg)
+		}
+		count := countStyle.Render(fmt.Sprintf("(%d)", row.count))
+		gap := " "
+		if selected {
+			gap = lipgloss.NewStyle().Background(selectedBg).Render(" ")
+		}
+		line := prefix + namePart + gap + count
+		if showError {
+			warnPad := strings.Repeat(" ", max(1, rowWidth-1-lipgloss.Width(line)-lipgloss.Width("⚠")))
+			warn := "⚠"
+			if selected {
+				warnPad = lipgloss.NewStyle().Background(selectedBg).Render(warnPad)
+				warn = s.error.Background(selectedBg).Render("⚠")
+			} else {
+				warn = s.error.Render("⚠")
+			}
+			line += warnPad + warn
+		}
+		switch {
+		case selected && branded:
+			line = listGutter(true, selectedBg) + line
+			pad := max(0, rowWidth-lipgloss.Width(line))
+			if pad > 0 {
+				line += lipgloss.NewStyle().Background(selectedBg).Render(strings.Repeat(" ", pad))
+			}
+			return line
+		case selected:
+			return selectedRow.Render(" " + line)
+		case branded:
+			return plainRow.Render(" " + line)
+		default:
+			return activeRow.Render(" " + line)
+		}
+	}
+	host := row.host
+	meta := m.hostMetadata()[host.Alias]
+	mark := "  "
+	if meta.Hidden {
+		mark = "◌ "
+	} else if meta.Favorite {
+		mark = "◆ "
+	}
+	indent := strings.Repeat("  ", row.depth)
+	userIcon := ""
+	color := ""
+	if !host.Synced {
+		if meta.Icon != "" {
+			userIcon = meta.Icon + " "
+		}
+		color = meta.Color
+	}
+	fg, colored := colorForeground(color)
+	label := truncate(hostLabel(host, meta), max(2, rowWidth-lipgloss.Width(indent+mark+userIcon)-3))
+	if userIcon != "" || colored {
+		return renderUserHostRow(s, indent, mark, userIcon, label, colored, fg, selected, hostLooksStopped(host, meta), rowWidth)
+	}
+	line := " " + indent + mark + label
+	if selected {
+		return selectedRow.Render(line)
+	}
+	if hostLooksStopped(host, meta) {
+		return mutedRow.Render(line)
+	}
+	return plainRow.Render(line)
 }
 
 func (m *App) renderHistorySuggestionsDetail(s styleSet, count, width int) string {
@@ -996,7 +1196,11 @@ func (m *App) renderForm(s styleSet) string {
 				b.WriteString("    " + s.muted.Render(truncate(item.description, max(20, m.terminalWidth()-8))) + "\n")
 			}
 			if len(item.options) > 0 {
-				if f.selecting {
+				if f.selecting && item.label == "Color" {
+					for _, line := range renderColorGrid(s, item.options, item.selected, item.customValue, m.terminalWidth()) {
+						b.WriteString("    " + line + "\n")
+					}
+				} else if f.selecting {
 					rows := min(7, len(item.options))
 					start := scrollStart(item.selected, len(item.options), rows)
 					for optionIndex := start; optionIndex < min(len(item.options), start+rows); optionIndex++ {
@@ -1005,6 +1209,9 @@ func (m *App) renderForm(s styleSet) string {
 					}
 				} else if item.options[item.selected].custom {
 					b.WriteString("    " + f.input.View() + "\n")
+					if hint := customColorReturnHint(s, item, f.input.Value()); hint != "" {
+						b.WriteString(hint + "\n")
+					}
 				} else {
 					option := item.options[item.selected]
 					b.WriteString("    " + renderClosedChoice(s, option.label, option.value) + "\n")
@@ -1073,14 +1280,17 @@ func (m *App) formHint() string {
 		action += " • Ctrl+Y copy name"
 	}
 	if f.selecting {
+		if f.fields[f.index].label == "Color" {
+			return "←/→/↑/↓ highlight • 󰌑 select • Esc/⌫ close"
+		}
 		return action + " • Esc/⌫ close"
 	}
 	escape := "Esc cancel"
 	if !m.formTextInputActive() {
 		escape = "Esc/⌫ cancel"
 	}
-	if len(f.fields[f.index].options) > 0 && f.fields[f.index].options[f.fields[f.index].selected].custom {
-		escape = "Esc choices"
+	if hint := customChoiceEscapeHint(f.fields[f.index], f.input.Value()); hint != "" {
+		escape = hint
 	}
 	movement := "↑/↓ revisit"
 	if isEditForm(f) {

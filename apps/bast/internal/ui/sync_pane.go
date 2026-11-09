@@ -301,7 +301,7 @@ func (m *App) renderSyncListRow(s styleSet, d cloud.Descriptor, status, count st
 	}
 	plain := syncListStatusText(status, count)
 	statusRendered := renderSyncListStatus(s, status, count, selected)
-	room := width - lipgloss.Width(plain) - 1
+	room := width - lipgloss.Width(plain) - 2
 	if room < 1 {
 		room = 1
 	}
@@ -315,15 +315,18 @@ func (m *App) renderSyncListRow(s styleSet, d cloud.Descriptor, status, count st
 		label := truncate(d.GroupRoot, max(1, room-lipgloss.Width(icon)))
 		name = brandText(color, icon+label, rest)
 	}
-	gapN := width - lipgloss.Width(name) - lipgloss.Width(plain)
+	gapN := width - 1 - lipgloss.Width(name) - lipgloss.Width(plain)
 	if gapN < 1 {
 		gapN = 1
 	}
 	gap := strings.Repeat(" ", gapN)
+	gutter := " "
 	if selected {
-		gap = lipgloss.NewStyle().Background(s.selected.GetBackground()).Render(gap)
+		bg := lipgloss.NewStyle().Background(s.selected.GetBackground())
+		gap = bg.Render(gap)
+		gutter = bg.Render(gutter)
 	}
-	return name + gap + statusRendered
+	return gutter + name + gap + statusRendered
 }
 
 func syncListStatusText(word, count string) string {

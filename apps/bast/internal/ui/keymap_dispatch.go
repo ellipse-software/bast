@@ -214,7 +214,7 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 	case ActionFilesParent:
 		m.initFilesState()
 		if m.filesFocusedPane().pickingHost() {
-			return m, nil
+			return m.filesPickerLeft()
 		}
 		return m.filesParent()
 	case ActionFilesEnter:
@@ -240,6 +240,9 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 		return m.beginFilesPathEdit()
 	case ActionFilesMark:
 		m.initFilesState()
+		if m.filesFocusedPane().pickingHost() {
+			return m.filesPickerToggle()
+		}
 		return m.toggleFilesMark()
 	case ActionFilesRange:
 		m.initFilesState()
@@ -278,10 +281,7 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 		return m, m.refreshFilesPane(m.files.focus)
 	case ActionFilesDisconnect:
 		m.initFilesState()
-		if m.filesFocusedPane().kind == filesPaneRemote {
-			return m, m.disconnectFilesPane(m.files.focus)
-		}
-		return m, nil
+		return m, m.returnFilesPaneToPicker(m.files.focus)
 	case ActionFilesEscape:
 		return m.actionFilesEscape()
 	default:
