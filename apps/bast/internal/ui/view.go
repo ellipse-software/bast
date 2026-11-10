@@ -64,6 +64,11 @@ func (m *App) renderHostDetailActions(s styleSet, host sshconfig.Host, primary s
 	if m.hostMetadata()[host.Alias].RDP {
 		line += " " + s.title.Render(rdpAction)
 	}
+	if m.forwardOpen(host.Alias) {
+		line += " " + s.title.Render(closeTunnelAction)
+	} else if m.hostHasForwards(host) {
+		line += " " + s.title.Render(forwardAction)
+	}
 	return line + "\n\n"
 }
 
@@ -101,12 +106,14 @@ func (m *App) render() string {
 		body = m.renderHosts(styles)
 	} else if m.section == keysSection {
 		body = m.renderKeys(styles)
-	} else if m.section == vaultSection {
+	} else if m.section == vaultSection && m.sectionEnabled(vaultSection) {
 		body = m.renderVault(styles)
 	} else if m.section == filesSection {
 		body = m.renderFiles(styles)
-	} else {
+	} else if m.section == syncSection && m.sectionEnabled(syncSection) {
 		body = m.renderSync(styles)
+	} else {
+		body = m.renderHosts(styles)
 	}
 	bodyStyle, frameStyle := m.frameStyles(width, bodyHeight)
 	body = bodyStyle.Render(body)
@@ -460,8 +467,9 @@ func (m *App) frameStyles(width, bodyHeight int) (body, frame lipgloss.Style) {
 }
 
 func (m *App) renderTabs(s styleSet) string {
-	parts := make([]string, 0, len(headerTabSections))
-	for _, sec := range headerTabSections {
+	sections := m.visibleSections()
+	parts := make([]string, 0, len(sections))
+	for _, sec := range sections {
 		label := m.tabChip(sec)
 		if m.section == sec {
 			parts = append(parts, s.active.Render(label))
@@ -472,12 +480,11 @@ func (m *App) renderTabs(s styleSet) string {
 	return strings.Join(parts, headerTabSpacing)
 }
 
-func tabAtX(x int) (section, bool) {
+func (m *App) tabAtX(x int) (section, bool) {
 	cursor := lipgloss.Width(headerTitle) + 2
 	gap := lipgloss.Width(headerTabSpacing)
-	dummy := &App{}
-	for _, sec := range headerTabSections {
-		label := dummy.tabChip(sec)
+	for _, sec := range m.visibleSections() {
+		label := m.tabChip(sec)
 		width := lipgloss.Width(label)
 		if x >= cursor && x < cursor+width {
 			return sec, true
@@ -503,6 +510,9 @@ func (m *App) renderHosts(s styleSet) string {
 		var extras []string
 		if ok {
 			extras = append(extras, s.title.Render(" "+formatChip(add)+" "))
+		}
+		if addEntry, entryOK := firstBinding(ActionAddEntry); entryOK {
+			extras = append(extras, s.title.Render(" "+formatChip(addEntry)+" "))
 		}
 		return m.renderSeal(s, "◇  No hosts yet", []string{
 			"Your SSH map is empty.",
@@ -536,6 +546,12 @@ func (m *App) renderHosts(s styleSet) string {
 			detailContent = m.renderHistorySuggestionDetail(s, *rowsData[m.cursor].suggestion, detailWidth)
 		} else if rowsData[m.cursor].header {
 			detailContent = m.renderGroupDetail(s, rowsData[m.cursor], detailWidth)
+		} else if rowsData[m.cursor].forwardHeader {
+			detailContent = ""
+		} else if rowsData[m.cursor].forwardAlias != "" {
+			detailContent = m.renderForwardDetail(s, rowsData[m.cursor].forwardAlias, detailWidth)
+		} else if rowsData[m.cursor].entry != nil {
+			detailContent = m.renderEntryDetail(s, *rowsData[m.cursor].entry, detailWidth)
 		} else {
 			detailContent = m.renderHostDetail(s, rowsData[m.cursor].host, detailWidth)
 		}
@@ -605,7 +621,7 @@ func (m *App) renderHostRowLine(s styleSet, row hostRow, selected bool, rowWidth
 		if appearance.Icon != "" {
 			userIcon = appearance.Icon + " "
 		}
-		reservedWidth := 1 + lipgloss.Width(rawPrefix) + 1 + lipgloss.Width(fmt.Sprintf("(%d)", row.count)) + lipgloss.Width(managedGroupIcon(name, m.nerdFont)) + lipgloss.Width(userIcon)
+		reservedWidth := 1 + lipgloss.Width(rawPrefix) + 1 + lipgloss.Width(fmt.Sprintf("(%d)", row.count)) + lipgloss.Width(managedGroupIcon(name, m.nerdFont, m.windowsTerminal)) + lipgloss.Width(userIcon)
 		if showError {
 			reservedWidth += 1 + lipgloss.Width("⚠")
 		}
@@ -625,7 +641,7 @@ func (m *App) renderHostRowLine(s styleSet, row hostRow, selected bool, rowWidth
 		if branded {
 			prefix = nameStyle.Render(rawPrefix)
 		}
-		namePart := renderManagedGroupName(name, nameStyle, m.nerdFont)
+		namePart := renderManagedGroupName(name, nameStyle, m.nerdFont, m.windowsTerminal)
 		if branded && !cloud.IsProviderRoot(row.group) {
 			namePart = nameStyle.Render(name)
 		}
@@ -665,6 +681,15 @@ func (m *App) renderHostRowLine(s styleSet, row hostRow, selected bool, rowWidth
 		default:
 			return activeRow.Render(" " + line)
 		}
+	}
+	if row.forwardHeader {
+		return m.renderForwardHeader(s, rowWidth, selected)
+	}
+	if row.forwardAlias != "" {
+		return m.renderForwardRow(s, row, selected, rowWidth)
+	}
+	if row.entry != nil {
+		return m.renderEntryRow(s, row, selected, rowWidth)
 	}
 	host := row.host
 	meta := m.hostMetadata()[host.Alias]
@@ -813,9 +838,9 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 	if appearance.Icon != "" {
 		userIcon = appearance.Icon + " "
 	}
-	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont)) + lipgloss.Width(userIcon)
+	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont, m.windowsTerminal)) + lipgloss.Width(userIcon)
 	name := truncate(row.group, max(2, width-3-iconWidth))
-	title := renderManagedGroupName(name, s.active, m.nerdFont)
+	title := renderManagedGroupName(name, s.active, m.nerdFont, m.windowsTerminal)
 	if fg, ok := colorForeground(appearance.Color); ok {
 		title = lipgloss.NewStyle().Bold(true).Foreground(fg).Render(name)
 	}
@@ -826,11 +851,13 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 
 func (m *App) renderProviderGroupDetail(s styleSet, row hostRow, kind cloud.Kind, width int) string {
 	var b strings.Builder
-	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont))
+	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont, m.windowsTerminal))
 	name := truncate(row.group, max(2, width-3-iconWidth))
-	titlePart := renderManagedGroupName(name, s.active, m.nerdFont)
+	titlePart := renderManagedGroupName(name, s.active, m.nerdFont, m.windowsTerminal)
 	b.WriteString("  " + titlePart + "\n")
-	b.WriteString(m.renderDetailActionChip(s, m.providerGroupPrimaryAction(kind)))
+	if action := m.providerGroupPrimaryAction(kind); action != "" {
+		b.WriteString(m.renderDetailActionChip(s, action))
+	}
 
 	running, stopped := m.providerGroupStats(row.group)
 	summary := fmt.Sprintf("%d instances", running+stopped)
@@ -883,9 +910,9 @@ func brandText(fg, text string, rest lipgloss.Style) string {
 	return st.Render(text)
 }
 
-func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool) string {
+func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont, windowsTerminal bool) string {
 	icon := func(group string) string {
-		return managedGroupIcon(group, nerdFont)
+		return managedGroupIcon(group, nerdFont, windowsTerminal)
 	}
 	suffix := func(root, branded string) string {
 		rest := strings.TrimPrefix(name, root)
@@ -933,7 +960,7 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool
 	}
 }
 
-func managedGroupIcon(name string, nerdFont bool) string {
+func managedGroupIcon(name string, nerdFont, windowsTerminal bool) string {
 	if !nerdFont {
 		return ""
 	}
@@ -945,7 +972,11 @@ func managedGroupIcon(name string, nerdFont bool) string {
 	if !ok || d.NerdIcon == "" {
 		return ""
 	}
-	return d.NerdIcon + " "
+	icon := d.NerdIcon
+	if windowsTerminal {
+		icon = windowsTerminalIcon(icon)
+	}
+	return icon + " "
 }
 
 func providerBrandColor(kind cloud.Kind) (string, bool) {
@@ -1185,8 +1216,35 @@ func (m *App) renderForm(s styleSet) string {
 	if target := destructiveConfirmationTarget(f); target != "" {
 		b.WriteString("  " + s.label.Render("Name to type") + s.value.Render(target) + "\n\n")
 	}
+	lastSection := ""
 	for i, item := range f.fields {
 		if item.hidden || i > f.revealed {
+			continue
+		}
+		if item.section != "" && item.section != lastSection {
+			b.WriteString("\n  " + s.muted.Render(item.section) + "\n")
+			lastSection = item.section
+		}
+		if i == f.index && viaPickerField(f, &item) {
+			b.WriteString("  " + s.active.Render("› "+item.label) + "\n")
+			if item.description != "" {
+				b.WriteString("    " + s.muted.Render(truncate(item.description, max(20, m.terminalWidth()-8))) + "\n")
+			}
+			b.WriteString("    " + f.input.View() + "\n")
+			choices := m.viaPickerChoices()
+			selected := item.selected
+			if selected < 0 || selected >= len(choices) {
+				selected = 0
+			}
+			rows := min(7, len(choices))
+			start := 0
+			if rows > 0 {
+				start = scrollStart(selected, len(choices), rows)
+			}
+			for choice := start; choice < min(len(choices), start+rows); choice++ {
+				option := choices[choice]
+				b.WriteString("    " + renderSelectOption(s, option.label, option.value, choice == selected) + "\n")
+			}
 			continue
 		}
 		if i == f.index {
@@ -1253,27 +1311,28 @@ func (m *App) formHint() string {
 		return hostFormHint(m.form, m.formTextInputActive(), m.hostSaveHintEnter)
 	}
 	f := m.form
-	action := "󰌑 next"
+	enter := enterGlyph(m.windowsTerminal)
+	action := enter + " next"
 	if isEditForm(f) && !f.selecting {
-		action = "󰌑 save"
+		action = enter + " save"
 		if len(f.fields[f.index].options) > 0 && !f.fields[f.index].options[f.fields[f.index].selected].custom {
 			action += " • ␣ change"
 		}
 	} else if f.selecting {
-		action = "↑/↓ or j/k choose • 󰌑 select"
+		action = "↑/↓ or j/k choose • " + enter + " select"
 	} else if len(f.fields[f.index].options) > 0 && !f.fields[f.index].options[f.fields[f.index].selected].custom {
-		action = "󰌑 change"
+		action = enter + " change"
 	}
 	if !isEditForm(f) && !hasNextFormField(f) {
-		action = "󰌑 save"
+		action = enter + " save"
 		if f.action == "host_delete" || f.action == "key_delete" || f.action == "known_delete" || f.action == "files_delete" {
-			action = "󰌑 delete"
+			action = enter + " delete"
 		}
 		if f.action == "vault_reset_passphrase" {
-			action = "󰌑 reset"
+			action = enter + " reset"
 		}
 		if f.action == "vault_rotate_passphrase" {
-			action = "󰌑 rotate"
+			action = enter + " rotate"
 		}
 	}
 	if destructiveConfirmationTarget(f) != "" {
@@ -1281,7 +1340,7 @@ func (m *App) formHint() string {
 	}
 	if f.selecting {
 		if f.fields[f.index].label == "Color" {
-			return "←/→/↑/↓ highlight • 󰌑 select • Esc/⌫ close"
+			return "←/→/↑/↓ highlight • " + enter + " select • Esc/⌫ close"
 		}
 		return action + " • Esc/⌫ close"
 	}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -809,6 +810,12 @@ func (r *Runner) connect(args []string) error {
 	}
 	host, err := r.findHost(fs.Arg(0), hosts)
 	if err != nil {
+		var commandErr *commandError
+		if errors.As(err, &commandErr) && commandErr.code == "not_found" {
+			if entry, entryErr := r.store.EntryByAnyLabel(fs.Arg(0)); entryErr == nil {
+				return r.openStoredEntry(entry)
+			}
+		}
 		return err
 	}
 	connectbanner.Write(r.Out)

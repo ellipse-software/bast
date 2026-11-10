@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"bast/internal/feature"
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/openssh"
@@ -131,8 +132,13 @@ func (e Engine) diagnose(ctx context.Context, opt Options, st runState) Report {
 	e.checkAgent(&r, st)
 	e.checkKnownHosts(ctx, &r, st)
 	e.checkMetadata(&r, st)
-	e.checkVault(&r)
-	e.checkSync(&r, st)
+	if !feature.VaultDisabled() {
+		e.checkVault(&r)
+	}
+	if !feature.SyncDisabled() {
+		e.checkSync(&r, st)
+	}
+	r.dropDisabledFeatures()
 	e.checkSuggest(ctx, &r, st, opt)
 	if opt.Probe {
 		e.checkProbe(ctx, &r, st)

@@ -305,9 +305,9 @@ func (m *App) renderSyncListRow(s styleSet, d cloud.Descriptor, status, count st
 	if room < 1 {
 		room = 1
 	}
-	name := renderManagedGroupName(d.GroupRoot, rest, m.nerdFont)
+	name := renderManagedGroupName(d.GroupRoot, rest, m.nerdFont, m.windowsTerminal)
 	if lipgloss.Width(name) > room {
-		icon := managedGroupIcon(d.GroupRoot, m.nerdFont)
+		icon := managedGroupIcon(d.GroupRoot, m.nerdFont, m.windowsTerminal)
 		color, ok := providerBrandColor(d.Kind)
 		if !ok {
 			color = "#E5E7EB"
@@ -352,9 +352,9 @@ func renderSyncListStatus(s styleSet, word, count string, selected bool) string 
 
 func (m *App) renderSyncTitle(d cloud.Descriptor, width int) string {
 	room := max(4, width-2)
-	name := renderManagedGroupName(d.GroupRoot, lipgloss.Style{}, m.nerdFont)
+	name := renderManagedGroupName(d.GroupRoot, lipgloss.Style{}, m.nerdFont, m.windowsTerminal)
 	if lipgloss.Width(name) > room {
-		icon := managedGroupIcon(d.GroupRoot, m.nerdFont)
+		icon := managedGroupIcon(d.GroupRoot, m.nerdFont, m.windowsTerminal)
 		color, ok := providerBrandColor(d.Kind)
 		if !ok {
 			color = "#E5E7EB"

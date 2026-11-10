@@ -15,7 +15,7 @@ import (
 	"bast/internal/platform"
 )
 
-const CurrentVersion = 9
+const CurrentVersion = 10
 
 type Host struct {
 	Label           string     `json:"label,omitempty"`
@@ -256,13 +256,15 @@ func (i *Integrations) UnmarshalJSON(data []byte) error {
 // VaultTombstones records Bast-managed hosts and keys that were deleted locally
 // so a later vault pack/merge can drop the remote copies instead of restoring them.
 type VaultTombstones struct {
-	Hosts map[string]int64 `json:"hosts,omitempty"` // managedId -> deletedAt
-	Keys  map[string]int64 `json:"keys,omitempty"`  // fingerprint or name:name -> deletedAt
+	Hosts   map[string]int64 `json:"hosts,omitempty"`   // managedId -> deletedAt
+	Keys    map[string]int64 `json:"keys,omitempty"`    // fingerprint or name:name -> deletedAt
+	Entries map[string]int64 `json:"entries,omitempty"` // entry id -> deletedAt
 }
 
 type State struct {
 	Version         int                        `json:"version"`
 	Hosts           map[string]Host            `json:"hosts"`
+	Entries         map[string]Entry           `json:"entries,omitempty"`
 	Groups          map[string]GroupAppearance `json:"groups,omitempty"`
 	Preferences     Preferences                `json:"preferences,omitempty"`
 	Integrations    Integrations               `json:"integrations,omitempty"`
@@ -298,6 +300,9 @@ func Open(path string) (*Store, error) {
 	}
 	if s.state.Hosts == nil {
 		s.state.Hosts = map[string]Host{}
+	}
+	if s.state.Entries == nil {
+		s.state.Entries = map[string]Entry{}
 	}
 	for alias, host := range s.state.Hosts {
 		if host.Group == "GCP" {
@@ -441,6 +446,7 @@ func (s *Store) SaveGroupEdit(oldPath, newPath string, aliases map[string]bool, 
 	defer s.mu.Unlock()
 
 	previousHosts := cloneHosts(s.state.Hosts)
+	previousEntries := cloneEntryMap(s.state.Entries)
 	previousGroups := cloneGroupAppearances(s.state.Groups)
 	previousPreferences := s.state.Preferences
 
@@ -457,6 +463,7 @@ func (s *Store) SaveGroupEdit(oldPath, newPath string, aliases map[string]bool, 
 			s.state.Hosts[alias] = meta
 		}
 		s.state.Groups = moveGroupAppearances(s.state.Groups, oldPath, newPath)
+		s.rewriteEntryGroupsLocked(oldPath, newPath)
 	}
 	if appearance.empty() {
 		delete(s.state.Groups, newPath)
@@ -472,6 +479,7 @@ func (s *Store) SaveGroupEdit(oldPath, newPath string, aliases map[string]bool, 
 	}
 	if err := s.save(); err != nil {
 		s.state.Hosts = previousHosts
+		s.state.Entries = previousEntries
 		s.state.Groups = previousGroups
 		s.state.Preferences = previousPreferences
 		return err
@@ -1168,8 +1176,9 @@ func cloneInt64Map(in map[string]int64) map[string]int64 {
 
 func cloneVaultTombstones(in VaultTombstones) VaultTombstones {
 	return VaultTombstones{
-		Hosts: cloneInt64Map(in.Hosts),
-		Keys:  cloneInt64Map(in.Keys),
+		Hosts:   cloneInt64Map(in.Hosts),
+		Keys:    cloneInt64Map(in.Keys),
+		Entries: cloneInt64Map(in.Entries),
 	}
 }
 

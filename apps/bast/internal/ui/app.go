@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"bast/internal/cloud/sync"
 	"bast/internal/doctor"
+	"bast/internal/feature"
 	"bast/internal/history"
 	"bast/internal/keys"
 	"bast/internal/metadata"
@@ -19,6 +21,7 @@ import (
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
+	"bast/internal/tunnel"
 	"bast/internal/vault"
 )
 
@@ -150,6 +153,8 @@ type hostListRowsCache struct {
 	hostSignature      uint64
 	historyCollapsed   bool
 	suggestionSig      uint64
+	entrySignature     uint64
+	forwardSig         string
 	rows               []hostRow
 }
 
@@ -213,6 +218,9 @@ type App struct {
 	height              int
 	dark                bool
 	nerdFont            bool
+	windowsTerminal     bool
+	noSync              bool
+	noVault             bool
 	version             string
 	latestVersion       string
 	updateSuggestion    string
@@ -247,6 +255,8 @@ type App struct {
 
 	selectAfterLoadSection section
 	selectAfterLoadName    string
+	selectAfterLoadEntry   string
+	tunnelSup              *tunnel.Supervisor
 	selectAfterLoadGroup   bool
 }
 
@@ -269,6 +279,9 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		loading:          true,
 		dark:             true,
 		nerdFont:         detectNerdFont(os.Getenv),
+		windowsTerminal:  windowsTerminalSession(os.Getenv),
+		noSync:           feature.SyncDisabled(),
+		noVault:          feature.VaultDisabled(),
 		version:          version,
 		collapsedGroups:  collapsedGroupsFromPrefs(store.Preferences().CollapsedGroups),
 		syncingProviders: map[string]bool{},
@@ -285,6 +298,11 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		app.vaultPassphrase = pass
 	}
 	app.refreshVaultSessionCache()
+	sup, err := tunnel.Open(filepath.Join(tunnel.CacheDir(p.Home), "tunnels"), client.SSH)
+	if err != nil {
+		return nil, err
+	}
+	app.tunnelSup = sup
 	return app, nil
 }
 
@@ -414,6 +432,12 @@ func (m *App) autoSyncCmds() tea.Cmd {
 	m.autoSyncStarted = true
 	if m.syncingProviders == nil {
 		m.syncingProviders = map[string]bool{}
+	}
+	if m.noSync {
+		if m.noVault {
+			return nil
+		}
+		return m.vaultPullCmd(false)
 	}
 	var autoSyncCmds []tea.Cmd
 	if m.metadata.GCP().Enabled && m.metadata.GCP().AutoSync && !m.syncingProviders["gcp"] {
@@ -907,6 +931,21 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.vaultPushCmd()
+	case entryStatusMsg:
+		m.status, m.statusError = msg.text, false
+		return m, msg.next
+	case entryOpenedMsg:
+		if msg.err != nil {
+			m.setError(msg.err)
+			return m, nil
+		}
+		if msg.id != "" {
+			if err := m.metadata.RecordEntryUse(msg.id); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+		}
+		return m, m.setNotice(msg.notice)
 	case processDoneMsg:
 		m.loading = true
 		m.enriching = false
@@ -970,11 +1009,13 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
+			m.closeOwnedTunnels()
 			return m, tea.Quit
 		}
 		if m.statusError && m.status != "" {
 			switch msg.String() {
 			case "q":
+				m.closeOwnedTunnels()
 				return m, tea.Quit
 			case "space":
 				if telemetry.Enabled() {

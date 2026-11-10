@@ -32,7 +32,7 @@ func TestContextualFootersBySection(t *testing.T) {
 
 	m.section = hostsSection
 	m.hosts = nil
-	if got := m.browseFooterHint(80); got != "a add · ?" {
+	if got := m.browseFooterHint(80); got != "a add · A desktop or web · ?" {
 		t.Fatalf("empty hosts = %q", got)
 	}
 
@@ -80,7 +80,11 @@ func TestContextualFootersBySection(t *testing.T) {
 
 	m.section = filesSection
 	m.initFilesState()
+	if got := m.browseFooterHint(80); !strings.Contains(got, "enter connect") || !strings.Contains(got, "/ search") || !strings.Contains(got, "esc back") {
+		t.Fatalf("files picker = %q", got)
+	}
+	m.files.panes[m.files.focus].kind = filesPaneLocal
 	if got := m.browseFooterHint(80); !strings.Contains(got, "tab") || !strings.Contains(got, "esc back") {
-		t.Fatalf("files = %q", got)
+		t.Fatalf("files browse = %q", got)
 	}
 }

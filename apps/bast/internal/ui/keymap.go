@@ -49,6 +49,9 @@ const (
 	ActionCollapseAll
 	ActionExpandAll
 	ActionAddHost
+	ActionAddEntry
+	ActionStartForward
+	ActionCloseTunnel
 	ActionEdit
 	ActionAssignGroup
 	ActionDelete
@@ -187,6 +190,15 @@ func catalog() []Binding {
 }
 
 func (m *App) matchBinding(key string) (Binding, bool) {
+	// Tab numbers follow the tabs that are actually shown. The catalog keys are
+	// the full set, so a hidden Vault would otherwise leave "3" opening Vault.
+	if m.scopeActive(ScopeGlobal) && len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+		sec, ok := m.sectionForDigit(key)
+		if !ok {
+			return Binding{}, false
+		}
+		return Binding{ID: tabAction(sec), Keys: []string{key}, Scope: ScopeGlobal, Name: sectionTitle(sec)}, true
+	}
 	for _, scope := range m.matchScopes() {
 		for _, b := range catalog() {
 			if b.HelpOnly || b.SkipMatch || b.Scope != scope {
@@ -202,6 +214,15 @@ func (m *App) matchBinding(key string) (Binding, bool) {
 		}
 	}
 	return Binding{}, false
+}
+
+func (m *App) scopeActive(scope Scope) bool {
+	for _, item := range m.matchScopes() {
+		if item == scope {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *App) matchScopes() []Scope {
@@ -256,11 +277,11 @@ func keyIn(keys []string, key string) bool {
 	return false
 }
 
-func formatKey(key string, nerd bool) string {
+func formatKey(key string, nerd, windowsTerminal bool) string {
 	switch key {
 	case "enter":
 		if nerd {
-			return "󰌑"
+			return enterGlyph(windowsTerminal)
 		}
 		return "enter"
 	case "space":
@@ -302,13 +323,13 @@ func formatKey(key string, nerd bool) string {
 	}
 }
 
-func formatChord(b Binding, nerd bool) string {
+func formatChord(b Binding, nerd, windowsTerminal bool) string {
 	if b.Chord != "" {
-		return b.Chord
+		return strings.ReplaceAll(b.Chord, nerdEnterGlyph, enterGlyph(windowsTerminal))
 	}
 	parts := make([]string, 0, len(b.Keys))
 	for _, key := range b.Keys {
-		parts = append(parts, formatKey(key, nerd))
+		parts = append(parts, formatKey(key, nerd, windowsTerminal))
 	}
 	return strings.Join(parts, " ")
 }
@@ -318,7 +339,7 @@ func formatHint(b Binding, m *App) string {
 	if b.HintOf != nil {
 		hint = b.HintOf(m)
 	}
-	chord := formatChord(b, m.nerdFont)
+	chord := formatChord(b, m.nerdFont, m.windowsTerminal)
 	if hint == "" {
 		return chord
 	}
@@ -359,24 +380,12 @@ func (m *App) keyPromoteChip() string {
 }
 
 func (m *App) tabChip(sec section) string {
-	id := ActionTabHosts
-	name := "Hosts"
-	switch sec {
-	case keysSection:
-		id, name = ActionTabKeys, "Keys"
-	case vaultSection:
-		id, name = ActionTabVault, "Vault"
-	case syncSection:
-		id, name = ActionTabSync, "Sync"
-	case filesSection:
-		id, name = ActionTabFiles, "Files"
-	}
-	b, ok := firstBinding(id)
+	name := sectionTitle(sec)
+	key, ok := m.tabDigit(sec)
 	if !ok {
-		return formatChip(Binding{Keys: []string{"?"}, Name: name})
+		return name
 	}
-	b.Name = name
-	return formatChip(b)
+	return formatChip(Binding{Keys: []string{key}, Name: name})
 }
 
 func (m *App) catalogFooterParts() []string {
@@ -491,6 +500,12 @@ func (m *App) helpRows(bindings []Binding, shadowed map[string]bool) []helpRow {
 			}
 		}
 		display := b
+		if display.HelpOnly && display.Name == "Tabs" {
+			display.Chord = m.tabsChord()
+		}
+		if display.ID == ActionSortOrSync && m.noSync {
+			display.Name = "Cycle sort"
+		}
 		if len(shadowed) > 0 && !b.HelpOnly {
 			display.Keys = keys
 			if b.Chord != "" && len(keys) < len(b.Keys) {
@@ -498,7 +513,7 @@ func (m *App) helpRows(bindings []Binding, shadowed map[string]bool) []helpRow {
 			}
 		}
 		row := helpRow{
-			chord:   formatChord(display, m.nerdFont),
+			chord:   formatChord(display, m.nerdFont, m.windowsTerminal),
 			name:    b.Name,
 			enabled: b.HelpOnly || b.When == nil || b.When(m),
 		}

@@ -140,7 +140,7 @@ func TestGroupAppearanceRoundTripRenameAndVersion(t *testing.T) {
 	if err := json.Unmarshal(saved, &state); err != nil {
 		t.Fatal(err)
 	}
-	if state.Version != 9 {
+	if state.Version != CurrentVersion {
 		t.Fatalf("saved version = %d", state.Version)
 	}
 	if reopened.Host("alpha").Group != "Prod/EU" || reopened.Groups()["Prod/EU"].Color != "#AABBCC" {

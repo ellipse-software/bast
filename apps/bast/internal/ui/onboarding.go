@@ -60,10 +60,13 @@ func (m *App) onboardingActions() []onboardingAction {
 	} else {
 		actions = append(actions, onboardingAction{"enter", "hosts"})
 	}
-	return append(actions,
-		onboardingAction{"3", "vault · other computers"},
-		onboardingAction{"4", "sync · cloud VMs"},
-	)
+	if key, ok := m.tabDigit(vaultSection); ok {
+		actions = append(actions, onboardingAction{key, "vault · other computers"})
+	}
+	if key, ok := m.tabDigit(syncSection); ok {
+		actions = append(actions, onboardingAction{key, "sync · cloud VMs"})
+	}
+	return actions
 }
 
 func counted(n int, noun string) string {
@@ -140,6 +143,7 @@ func (m *App) decideOnboarding() {
 func (m *App) updateOnboarding(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "q":
+		m.closeOwnedTunnels()
 		return m, tea.Quit
 	case "esc", "backspace", "ctrl+h":
 		return m.afterOnboarding("onboarding_skip", m.skipOnboarding)
@@ -151,26 +155,6 @@ func (m *App) updateOnboarding(key string) (tea.Model, tea.Cmd) {
 			m.openAddHostForm()
 			return nil
 		})
-	case "1":
-		return m.afterOnboarding("onboarding_continue", func() tea.Cmd {
-			return m.switchToSection(hostsSection)
-		})
-	case "2":
-		return m.afterOnboarding("onboarding_skip", func() tea.Cmd {
-			return m.switchToSection(keysSection)
-		})
-	case "3":
-		return m.afterOnboarding("onboarding_vault", func() tea.Cmd {
-			return m.switchToSection(vaultSection)
-		})
-	case "4":
-		return m.afterOnboarding("onboarding_sync", func() tea.Cmd {
-			return m.switchToSection(syncSection)
-		})
-	case "5":
-		return m.afterOnboarding("onboarding_skip", func() tea.Cmd {
-			return m.switchToSection(filesSection)
-		})
 	case "?":
 		return m.afterOnboarding("onboarding_help", func() tea.Cmd {
 			m.help, m.helpOffset = true, 0
@@ -180,6 +164,20 @@ func (m *App) updateOnboarding(key string) (tea.Model, tea.Cmd) {
 		return m.afterOnboarding("onboarding_skip", func() tea.Cmd {
 			m.credits = true
 			return nil
+		})
+	}
+	if sec, ok := m.sectionForDigit(key); ok {
+		event := "onboarding_skip"
+		switch sec {
+		case hostsSection:
+			event = "onboarding_continue"
+		case vaultSection:
+			event = "onboarding_vault"
+		case syncSection:
+			event = "onboarding_sync"
+		}
+		return m.afterOnboarding(event, func() tea.Cmd {
+			return m.switchToSection(sec)
 		})
 	}
 	return m, nil

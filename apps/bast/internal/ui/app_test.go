@@ -2341,6 +2341,14 @@ func TestManagedKeyCommentCanBeEditedAfterImport(t *testing.T) {
 	if !strings.Contains(footer, "󰌑 delete") || strings.Contains(footer, "󰌑 save") {
 		t.Fatalf("delete footer is incorrect: %q", footer)
 	}
+	m.windowsTerminal = true
+	footer = m.renderFooter(m.styles())
+	if !strings.Contains(footer, "↵ delete") || strings.Contains(footer, nerdEnterGlyph) {
+		t.Fatalf("Windows Terminal delete footer is incorrect: %q", footer)
+	}
+	if chord := formatChord(Binding{Chord: nerdEnterGlyph + " then ~."}, true, true); chord != "↵ then ~." {
+		t.Fatalf("Windows Terminal chord = %q", chord)
+	}
 	if m.form.input.Placeholder != "work" || !strings.Contains(deleteForm, "work") {
 		t.Fatalf("delete confirmation does not show the required name as a placeholder:\n%s", deleteForm)
 	}
@@ -3523,7 +3531,7 @@ func TestCollapseAndExpandAllGroups(t *testing.T) {
 }
 
 func TestGoogleCloudGroupNameUsesGoogleColors(t *testing.T) {
-	rendered := renderManagedGroupName("Google Cloud", lipgloss.NewStyle(), false)
+	rendered := renderManagedGroupName("Google Cloud", lipgloss.NewStyle(), false, false)
 	if !strings.Contains(rendered, "\x1b[") {
 		t.Fatalf("expected ANSI colours: %q", rendered)
 	}
@@ -3534,14 +3542,14 @@ func TestGoogleCloudGroupNameUsesGoogleColors(t *testing.T) {
 	if width := lipgloss.Width(rendered); width != len("Google Cloud") {
 		t.Fatalf("width = %d", width)
 	}
-	if got := renderManagedGroupName("Work", lipgloss.NewStyle(), false); got != "Work" {
+	if got := renderManagedGroupName("Work", lipgloss.NewStyle(), false, false); got != "Work" {
 		t.Fatalf("ordinary group changed: %q", got)
 	}
 }
 
 func TestAmazonEC2GroupNameUsesOneBrandColor(t *testing.T) {
 	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5CF6"))
-	rendered := renderManagedGroupName("Amazon EC2/default/eu-west-2", restStyle, false)
+	rendered := renderManagedGroupName("Amazon EC2/default/eu-west-2", restStyle, false, false)
 	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render("Amazon EC2")
 	if !strings.HasPrefix(rendered, provider) {
 		t.Fatalf("Amazon EC2 brand colour was not applied uniformly: %q", rendered)
@@ -3553,7 +3561,7 @@ func TestAmazonEC2GroupNameUsesOneBrandColor(t *testing.T) {
 
 func TestMicrosoftAzureGroupNameUsesOneBrandColor(t *testing.T) {
 	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	rendered := renderManagedGroupName("Microsoft Azure/Production/apps", restStyle, false)
+	rendered := renderManagedGroupName("Microsoft Azure/Production/apps", restStyle, false, false)
 	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0078D4")).Render("Microsoft Azure")
 	if !strings.HasPrefix(rendered, provider) {
 		t.Fatalf("Microsoft Azure brand colour was not applied uniformly: %q", rendered)
@@ -3564,7 +3572,7 @@ func TestMicrosoftAzureGroupNameUsesOneBrandColor(t *testing.T) {
 }
 
 func TestBoatGroupNameUsesBrandColor(t *testing.T) {
-	rendered := renderManagedGroupName("Boat", lipgloss.NewStyle(), false)
+	rendered := renderManagedGroupName("Boat", lipgloss.NewStyle(), false, false)
 	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#263FA9")).Render("Boat")
 	if rendered != provider {
 		t.Fatalf("Boat brand colour was not applied: %q", rendered)
@@ -3572,12 +3580,12 @@ func TestBoatGroupNameUsesBrandColor(t *testing.T) {
 }
 
 func TestVercelGroupNameIsWhiteTriangle(t *testing.T) {
-	rendered := renderManagedGroupName("Vercel", lipgloss.NewStyle(), false)
+	rendered := renderManagedGroupName("Vercel", lipgloss.NewStyle(), false, false)
 	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Vercel")
 	if rendered != provider {
 		t.Fatalf("Vercel brand colour was not applied: %q", rendered)
 	}
-	withIcon := renderManagedGroupName("Vercel", lipgloss.NewStyle(), true)
+	withIcon := renderManagedGroupName("Vercel", lipgloss.NewStyle(), true, false)
 	if !strings.Contains(withIcon, "\u25b2") {
 		t.Fatalf("Vercel triangle icon missing: %q", withIcon)
 	}
@@ -3585,7 +3593,7 @@ func TestVercelGroupNameIsWhiteTriangle(t *testing.T) {
 
 func TestUpstashGroupNameUsesBrandColor(t *testing.T) {
 	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	rendered := renderManagedGroupName("Upstash/dev", restStyle, false)
+	rendered := renderManagedGroupName("Upstash/dev", restStyle, false, false)
 	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00E9A3")).Render("Upstash")
 	if !strings.HasPrefix(rendered, provider) {
 		t.Fatalf("Upstash brand colour was not applied uniformly: %q", rendered)
@@ -3597,7 +3605,7 @@ func TestUpstashGroupNameUsesBrandColor(t *testing.T) {
 
 func TestManagedGroupNameCopiesRestBackground(t *testing.T) {
 	rest := lipgloss.NewStyle().Background(lipgloss.Color("#1F2937"))
-	rendered := renderManagedGroupName("Upstash", rest, false)
+	rendered := renderManagedGroupName("Upstash", rest, false, false)
 	want := brandText("#00E9A3", "Upstash", rest)
 	if rendered != want {
 		t.Fatalf("got %q want %q", rendered, want)
@@ -3605,8 +3613,8 @@ func TestManagedGroupNameCopiesRestBackground(t *testing.T) {
 	if !strings.Contains(rendered, "48;2;31;41;55") {
 		t.Fatalf("expected rest background under Upstash brand text: %q", rendered)
 	}
-	icon := managedGroupIcon("Upstash", true)
-	withIcon := renderManagedGroupName("Upstash", rest, true)
+	icon := managedGroupIcon("Upstash", true, false)
+	withIcon := renderManagedGroupName("Upstash", rest, true, false)
 	if !strings.Contains(withIcon, brandText("#00E9A3", icon+"Upstash", rest)) {
 		t.Fatalf("expected rest background under Upstash icon: %q", withIcon)
 	}
@@ -3632,7 +3640,7 @@ func TestSelectedProviderGroupKeepsBackgroundUnderBrand(t *testing.T) {
 
 	m.nerdFont = true
 	body = m.renderHosts(s)
-	icon := managedGroupIcon("Upstash", true)
+	icon := managedGroupIcon("Upstash", true, m.windowsTerminal)
 	want = brandText("#00E9A3", icon+"Upstash", s.selected)
 	if !strings.Contains(body, want) {
 		t.Fatalf("selected Upstash icon missing selected background:\nwant %q\n%s", want, body)

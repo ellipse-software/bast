@@ -118,7 +118,7 @@ func (m *App) enterVaultSection() tea.Cmd {
 }
 
 func (m *App) switchToSection(sec section) tea.Cmd {
-	if m.syncBusy != "" {
+	if m.syncBusy != "" || !m.sectionEnabled(sec) {
 		return nil
 	}
 	m.clearFilesOverlays()
@@ -1203,7 +1203,7 @@ func (m *App) vaultPullCmd(interactive bool) tea.Cmd {
 }
 
 func (m *App) vaultPullCmdOpts(interactive, thenPush bool) tea.Cmd {
-	if !m.vaultLinked() {
+	if m.noVault || !m.vaultLinked() {
 		return nil
 	}
 	passphrase := m.vaultPassphrase
@@ -1280,7 +1280,7 @@ func (m *App) vaultPushCmd() tea.Cmd {
 }
 
 func (m *App) vaultPushCmdOpts(synced bool) tea.Cmd {
-	if !m.vaultLinked() {
+	if m.noVault || !m.vaultLinked() {
 		return nil
 	}
 	passphrase := m.vaultPassphrase
@@ -1376,7 +1376,7 @@ func (m *App) vaultPushCmdOpts(synced bool) tea.Cmd {
 }
 
 func (m *App) scheduleVaultPush() tea.Cmd {
-	if !m.vaultLinked() {
+	if m.noVault || !m.vaultLinked() {
 		return nil
 	}
 	if m.vaultPassphrase == "" {

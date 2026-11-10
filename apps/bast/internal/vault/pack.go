@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -113,13 +114,15 @@ func (p Packer) Pack() (Document, error) {
 		keyEntries = append(keyEntries, entry)
 	}
 
+	desktop := packDesktopEntries(p.Store, p.Previous.Entries, now)
 	doc := Document{
 		Version:    DocumentVersion,
 		UpdatedAt:  now,
 		Hosts:      entries,
 		Keys:       keyEntries,
 		Metadata:   metaOut,
-		Tombstones: packTombstones(p.Store, p.Previous.Tombstones, entries, keyEntries),
+		Entries:    desktop,
+		Tombstones: packTombstones(p.Store, p.Previous.Tombstones, entries, keyEntries, desktop),
 	}
 	if p.Store != nil {
 		doc.Preferences = p.Store.Preferences()
@@ -133,13 +136,43 @@ func (p Packer) Pack() (Document, error) {
 	return doc, nil
 }
 
-func packTombstones(store *metadata.Store, previous Tombstones, liveHosts []HostEntry, liveKeys []KeyEntry) Tombstones {
+func packDesktopEntries(store *metadata.Store, previous []DesktopEntry, now int64) []DesktopEntry {
+	if store == nil {
+		return nil
+	}
+	prev := map[string]DesktopEntry{}
+	for _, entry := range previous {
+		prev[entry.ID] = entry
+	}
+	live := store.Entries()
+	out := make([]DesktopEntry, 0, len(live))
+	for _, entry := range live {
+		item := DesktopEntry{Entry: entry, DeletedAt: 0}
+		item.UpdatedAt = now
+		if earlier, ok := prev[entry.ID]; ok && desktopEqual(earlier, item) {
+			item.UpdatedAt = earlier.UpdatedAt
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+func desktopEqual(a, b DesktopEntry) bool {
+	a.UpdatedAt, b.UpdatedAt = 0, 0
+	a.DeletedAt, b.DeletedAt = 0, 0
+	return reflect.DeepEqual(a, b)
+}
+
+func packTombstones(store *metadata.Store, previous Tombstones, liveHosts []HostEntry, liveKeys []KeyEntry, liveEntries []DesktopEntry) Tombstones {
 	hosts := mergeTombstones(previous.Hosts, nil)
 	keys := mergeTombstones(previous.Keys, nil)
+	entryTombs := mergeTombstones(previous.Entries, nil)
 	if store != nil {
 		stored := store.VaultTombstones()
 		hosts = mergeTombstones(hosts, stored.Hosts)
 		keys = mergeTombstones(keys, stored.Keys)
+		entryTombs = mergeTombstones(entryTombs, stored.Entries)
 	}
 	for _, host := range liveHosts {
 		delete(hosts, host.ManagedID)
@@ -150,13 +183,19 @@ func packTombstones(store *metadata.Store, previous Tombstones, liveHosts []Host
 			delete(keys, "name:"+key.Name)
 		}
 	}
+	for _, entry := range liveEntries {
+		delete(entryTombs, entry.ID)
+	}
 	if len(hosts) == 0 {
 		hosts = nil
 	}
 	if len(keys) == 0 {
 		keys = nil
 	}
-	return Tombstones{Hosts: hosts, Keys: keys}
+	if len(entryTombs) == 0 {
+		entryTombs = nil
+	}
+	return Tombstones{Hosts: hosts, Keys: keys, Entries: entryTombs}
 }
 
 func hostEntryEqual(a, b HostEntry) bool {

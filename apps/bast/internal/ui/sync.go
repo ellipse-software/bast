@@ -998,11 +998,11 @@ func (m *App) providerChooserTitle(kind cloud.Kind, width int) string {
 	if !ok {
 		return truncate(string(kind), width)
 	}
-	title := renderManagedGroupName(d.GroupRoot, lipgloss.NewStyle(), m.nerdFont)
+	title := renderManagedGroupName(d.GroupRoot, lipgloss.NewStyle(), m.nerdFont, m.windowsTerminal)
 	if lipgloss.Width(title) <= width {
 		return title
 	}
-	icon := managedGroupIcon(d.GroupRoot, m.nerdFont)
+	icon := managedGroupIcon(d.GroupRoot, m.nerdFont, m.windowsTerminal)
 	rest := max(1, width-lipgloss.Width(icon))
 	return icon + truncate(d.GroupRoot, rest)
 }
@@ -1057,7 +1057,7 @@ func (m *App) renderProviderPage(s styleSet) string {
 	inv := m.providerInventoryRows()
 	m.clampProviderCursor()
 
-	title := renderManagedGroupName(d.GroupRoot, lipgloss.NewStyle(), m.nerdFont)
+	title := renderManagedGroupName(d.GroupRoot, lipgloss.NewStyle(), m.nerdFont, m.windowsTerminal)
 	var b strings.Builder
 	b.WriteString("  " + title + "\n\n")
 	b.WriteString(m.renderProviderIdentity(s, m.syncProvider))

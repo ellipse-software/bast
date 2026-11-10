@@ -15,6 +15,7 @@ type Document struct {
 	Groups       *map[string]metadata.GroupAppearance `json:"groups,omitempty"`
 	Preferences  metadata.Preferences                 `json:"preferences,omitempty"`
 	Integrations VaultIntegrations                    `json:"integrations,omitempty"`
+	Entries      []DesktopEntry                       `json:"entries,omitempty"`
 	Tombstones   Tombstones                           `json:"tombstones,omitempty"`
 }
 
@@ -43,9 +44,16 @@ type KeyEntry struct {
 	DeletedAt     int64  `json:"deletedAt,omitempty"`
 }
 
+// DesktopEntry is a Remote Desktop or web entry stored in the vault.
+type DesktopEntry struct {
+	metadata.Entry
+	DeletedAt int64 `json:"deletedAt,omitempty"`
+}
+
 type Tombstones struct {
-	Hosts map[string]int64 `json:"hosts,omitempty"` // managedId -> deletedAt
-	Keys  map[string]int64 `json:"keys,omitempty"`  // fingerprint or name -> deletedAt
+	Hosts   map[string]int64 `json:"hosts,omitempty"`   // managedId -> deletedAt
+	Keys    map[string]int64 `json:"keys,omitempty"`    // fingerprint or name -> deletedAt
+	Entries map[string]int64 `json:"entries,omitempty"` // entry id -> deletedAt
 }
 
 // VaultIntegrations stores sync settings without credentials or last-sync telemetry.

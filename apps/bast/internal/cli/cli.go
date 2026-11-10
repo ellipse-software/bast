@@ -19,6 +19,7 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"bast/internal/askpass"
+	"bast/internal/feature"
 	"bast/internal/hostpass"
 	"bast/internal/keys"
 	"bast/internal/metadata"
@@ -38,6 +39,8 @@ Usage:
   bast doctor                  Diagnose SSH config, keys, and Bast setup
   bast connect <host>          Connect using an alias or display label
   bast hosts <command>         Manage SSH hosts
+  bast rdp <command>           Open Remote Desktop entries
+  bast web <command>           Open internal web pages
   bast keys <command>          Manage SSH keys
   bast sync <command>          Sync cloud VMs into Bast
   bast boat <command>          Create and manage Boat sandboxes
@@ -55,6 +58,9 @@ Usage:
 Host commands:
   list, show, add, edit, delete, promote, favorite, unfavorite, hide, show-hidden,
   sort, known-host
+
+Remote Desktop and web commands:
+  list, add, edit, delete, open, close
 
 Key commands:
   list, show, generate, import, promote, comment, export, install, passphrase,
@@ -98,14 +104,15 @@ Global options:
   --json                      Emit structured JSON
   --no-input                  Never prompt for missing input
 
-Run "bast doctor --help", "bast hosts <command> --help", "bast keys <command> --help",
+Run "bast doctor --help", "bast hosts <command> --help", "bast rdp <command> --help",
+"bast web <command> --help", "bast keys <command> --help",
 "bast sync <command> --help", "bast boat <command> --help", "bast upstash <command> --help",
 "bast vercel <command> --help", "bast hetzner <command> --help", "bast bitqate <command> --help",
 "bast railway <command> --help", "bast fly <command> --help", "bast digitalocean <command> --help",
 "bast boxd <command> --help", "bast vault <command> --help", or "bast completion --help" for details.
 `
 
-func PrintHelp(out io.Writer) { fmt.Fprint(out, help) }
+func PrintHelp(out io.Writer) { fmt.Fprint(out, helpText()) }
 
 type Runner struct {
 	Paths   paths.Paths
@@ -168,7 +175,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "doctor", "connect", "hosts", "keys", "sync", "boat", "box", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "do", "boxd", "vault", "completion", "__complete":
+	case "tui", "update", "doctor", "connect", "hosts", "rdp", "web", "keys", "sync", "boat", "box", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "do", "boxd", "vault", "completion", "__complete":
 		return true
 	}
 	return false
@@ -207,6 +214,9 @@ func (r *Runner) Run(args []string) error {
 		PrintHelp(r.Out)
 		return nil
 	}
+	if env, off := feature.CommandDisabled(args[0]); off {
+		return r.report(fail("feature_disabled", args[0]+" is disabled ("+env+")"))
+	}
 	if len(args) >= 2 && (args[len(args)-1] == "-h" || args[len(args)-1] == "--help") {
 		command := "--help"
 		if len(args) >= 3 {
@@ -235,6 +245,10 @@ func (r *Runner) Run(args []string) error {
 				err = r.connect(args[1:])
 			case "hosts":
 				err = r.hosts(args[1:])
+			case "rdp":
+				err = r.rdp(args[1:])
+			case "web":
+				err = r.web(args[1:])
 			case "keys":
 				err = r.keys(args[1:])
 			case "sync":
@@ -284,7 +298,7 @@ func (r *Runner) report(err error) error {
 		_ = json.NewEncoder(r.Err).Encode(map[string]any{"ok": false, "error": map[string]string{"code": ce.code, "message": ce.message}})
 	} else {
 		fmt.Fprintln(r.Err, "bast:", ce.message)
-		if !r.NoInput && telemetry.Enabled() {
+		if ce.code != "feature_disabled" && !r.NoInput && telemetry.Enabled() {
 			if in, ok := r.In.(*os.File); ok && term.IsTerminal(in.Fd()) {
 				telemetry.OfferReport(r.In, r.Err, telemetry.Report{
 					Message: ce.message,
@@ -328,6 +342,20 @@ Repeat list options to provide multiple values. Use the corresponding --clear-*
 option to restore a default or remove values.`,
 		"hosts delete":  "Usage: bast hosts delete <host> [--yes]",
 		"hosts promote": "Usage: bast hosts promote <host>",
+		"rdp --help":    "Usage: bast rdp <list|add|edit|delete|open|close>",
+		"rdp list":      "Usage: bast rdp list [--search text] [--all]",
+		"rdp add":       "Usage: bast rdp add [label] --address host [--port n] [--via host] [--user name] [--domain name] [--fullscreen] [--admin]",
+		"rdp edit":      "Usage: bast rdp edit <label> [options]",
+		"rdp delete":    "Usage: bast rdp delete <label> [--yes]",
+		"rdp open":      "Usage: bast rdp open <label>",
+		"rdp close":     "Usage: bast rdp close <label>",
+		"web --help":    "Usage: bast web <list|add|edit|delete|open|close>",
+		"web list":      "Usage: bast web list [--search text] [--all]",
+		"web add":       "Usage: bast web add [label] --url https://host/ [--via host]",
+		"web edit":      "Usage: bast web edit <label> [options]",
+		"web delete":    "Usage: bast web delete <label> [--yes]",
+		"web open":      "Usage: bast web open <label>",
+		"web close":     "Usage: bast web close <label>",
 		"keys --help": `Usage: bast keys <command>
 
 Commands: list, show, generate, import, promote, comment, export, install,

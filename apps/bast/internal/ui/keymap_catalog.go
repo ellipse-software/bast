@@ -51,6 +51,8 @@ func buildCatalog() []Binding {
 		bind(ActionQuit, []string{"esc", "backspace", "ctrl+h"}, ScopeGlobal, "Quit", "").noHelp(),
 		bind(ActionHelpToggle, []string{"?"}, ScopeGlobal, "Help", "").withFooter(1000),
 		bind(ActionDoctorOpen, []string{"D"}, ScopeGlobal, "Doctor", "").when(func(m *App) bool { return m.section != filesSection }),
+		// Digits are resolved from the visible tabs in matchBinding. These keys are
+		// the numbering when every tab is shown.
 		bind(ActionTabHosts, []string{"1"}, ScopeGlobal, "Hosts", "").noHelp(),
 		bind(ActionTabKeys, []string{"2"}, ScopeGlobal, "Keys", "").noHelp(),
 		bind(ActionTabVault, []string{"3"}, ScopeGlobal, "Vault", "").noHelp(),
@@ -71,6 +73,7 @@ func buildCatalog() []Binding {
 		// Hosts.
 		bind(ActionHostsEnter, []string{"enter"}, ScopeHosts, "Connect or add suggestion", ""),
 		bind(ActionAddHost, []string{"a"}, ScopeHosts, "Add host", "add"),
+		bind(ActionAddEntry, []string{"A"}, ScopeHosts, "Add Remote Desktop or web page", ""),
 		bind(ActionEdit, []string{"e"}, ScopeHosts, "Edit or review suggestion", "edit"),
 		bind(ActionAssignGroup, []string{"m"}, ScopeHosts, "Move host to group", ""),
 		bind(ActionDismissHistory, []string{"x"}, ScopeHosts, "Dismiss history suggestion", "dismiss"),
@@ -96,6 +99,7 @@ func buildCatalog() []Binding {
 		// Hosts footer variants.
 		bind(ActionToggleHidden, []string{"."}, ScopeHosts, "Show hidden", "show hidden").withFooter(10).when(hostsFooterEmptyHidden).noHelp(),
 		bind(ActionAddHost, []string{"a"}, ScopeHosts, "Add host", "add").withFooter(20).when(hostsFooterEmpty).noHelp(),
+		bind(ActionAddEntry, []string{"A"}, ScopeHosts, "Desktop or web", "desktop or web").withFooter(30).when(hostsFooterEmpty).noHelp(),
 		bind(ActionToggleGroup, []string{"space"}, ScopeHosts, "Collapse", "").chord("␣").hintOf(func(m *App) string {
 			if m.historySuggestionsCollapsed && m.searchText() == "" {
 				return "expand"
@@ -115,18 +119,18 @@ func buildCatalog() []Binding {
 			return ok
 		}).noHelp(),
 		bind(ActionToggleGroup, []string{"space"}, ScopeHosts, "Collapse", "").chord("␣").hintOf(func(m *App) string { return m.collapseActionLabel() }).withFooter(10).when(hostsFooterGroup).noHelp(),
-		bind(ActionNewOrFork, []string{"n"}, ScopeHosts, "New", "new").withFooter(20).when(hostsFooterProviderCreate).noHelp(),
-		bind(ActionSortOrSync, []string{"s"}, ScopeHosts, "Sync", "sync").withFooter(30).when(hostsFooterProvider).noHelp(),
+		bind(ActionNewOrFork, []string{"n"}, ScopeHosts, "New", "new").withFooter(20).when(whenSync(hostsFooterProviderCreate)).noHelp(),
+		bind(ActionSortOrSync, []string{"s"}, ScopeHosts, "Sync", "sync").withFooter(30).when(whenSync(hostsFooterProvider)).noHelp(),
 		bind(ActionToggleHidden, []string{"."}, ScopeHosts, "Show stopped", "show stopped").withFooter(40).when(hostsFooterShowStopped).noHelp(),
 		bind(ActionEdit, []string{"e"}, ScopeHosts, "Edit", "edit").withFooter(20).when(hostsFooterGroupRename).noHelp(),
 		bind(ActionHostsEnter, []string{"enter"}, ScopeHosts, "Connect", "connect").withFooter(10).when(hostsFooterSandbox).noHelp(),
-		bind(ActionStopSandbox, []string{"o"}, ScopeHosts, "Stop", "stop").withFooter(20).when(hostsFooterSandboxRunning).noHelp(),
-		bind(ActionReload, []string{"r"}, ScopeHosts, "Resume", "resume").withFooter(20).when(hostsFooterSandboxStopped).noHelp(),
-		bind(ActionStopSandbox, []string{"o"}, ScopeHosts, "Stop", "stop").withFooter(20).when(hostsFooterHetznerOrBitqateRunning).noHelp(),
-		bind(ActionReload, []string{"r"}, ScopeHosts, "Start", "start").withFooter(20).when(hostsFooterHetznerOrBitqateStopped).noHelp(),
-		bind(ActionRestartHost, []string{"R"}, ScopeHosts, "Restart", "restart").withFooter(30).when(hostsFooterHetznerOrBitqateRunning).noHelp(),
-		bind(ActionNewOrFork, []string{"n"}, ScopeHosts, "Fork", "fork").withFooter(30).when(hostsFooterSandbox).noHelp(),
-		bind(ActionDelete, []string{"d"}, ScopeHosts, "Delete", "delete").withFooter(40).when(hostsFooterSandboxDelete).noHelp(),
+		bind(ActionStopSandbox, []string{"o"}, ScopeHosts, "Stop", "stop").withFooter(20).when(whenSync(hostsFooterSandboxRunning)).noHelp(),
+		bind(ActionReload, []string{"r"}, ScopeHosts, "Resume", "resume").withFooter(20).when(whenSync(hostsFooterSandboxStopped)).noHelp(),
+		bind(ActionStopSandbox, []string{"o"}, ScopeHosts, "Stop", "stop").withFooter(20).when(whenSync(hostsFooterHetznerOrBitqateRunning)).noHelp(),
+		bind(ActionReload, []string{"r"}, ScopeHosts, "Start", "start").withFooter(20).when(whenSync(hostsFooterHetznerOrBitqateStopped)).noHelp(),
+		bind(ActionRestartHost, []string{"R"}, ScopeHosts, "Restart", "restart").withFooter(30).when(whenSync(hostsFooterHetznerOrBitqateRunning)).noHelp(),
+		bind(ActionNewOrFork, []string{"n"}, ScopeHosts, "Fork", "fork").withFooter(30).when(whenSync(hostsFooterSandbox)).noHelp(),
+		bind(ActionDelete, []string{"d"}, ScopeHosts, "Delete", "delete").withFooter(40).when(whenSync(hostsFooterSandboxDelete)).noHelp(),
 		bind(ActionOpenFiles, []string{"F"}, ScopeHosts, "Files", "files").withFooter(50).when(hostsFooterSandboxDesktop).noHelp(),
 		bind(ActionHostsEnter, []string{"enter"}, ScopeHosts, "Connect", "connect").withFooter(10).when(hostsFooterSyncedMobile).noHelp(),
 		bind(ActionHostsEnter, []string{"enter"}, ScopeHosts, "Connect", "").withFooter(10).when(hostsFooterSyncedDesktop).noHelp(),
@@ -137,6 +141,11 @@ func buildCatalog() []Binding {
 		bind(ActionEdit, []string{"e"}, ScopeHosts, "Edit", "edit").withFooter(20).when(hostsFooterLocalDesktop).noHelp(),
 		bind(ActionOpenFiles, []string{"F"}, ScopeHosts, "Files", "files").withFooter(30).when(hostsFooterLocalDesktop).noHelp(),
 		bind(ActionOpenRDP, []string{"ctrl+o"}, ScopeHosts, "RDP", "rdp").withFooter(15).when(hostsFooterRDP).noHelp(),
+		bind(ActionStartForward, []string{"ctrl+f"}, ScopeHosts, "Forward", "forward").withFooter(16).when(hostsFooterForward).noHelp(),
+		bind(ActionHostsEnter, []string{"enter"}, ScopeHosts, "Open", "open").withFooter(10).when(hostsFooterEntry).noHelp(),
+		bind(ActionEdit, []string{"e"}, ScopeHosts, "Edit", "edit").withFooter(20).when(hostsFooterEntry).noHelp(),
+		bind(ActionDelete, []string{"d"}, ScopeHosts, "Delete", "delete").withFooter(30).when(hostsFooterEntry).noHelp(),
+		bind(ActionCloseTunnel, []string{"c"}, ScopeHosts, "Close tunnel", "close").withFooter(40).when(hostsFooterCloseTunnel).noHelp(),
 
 		// Keys.
 		bind(ActionGenerateKey, []string{"g"}, ScopeKeys, "Generate key", "generate"),
@@ -239,6 +248,10 @@ func buildCatalog() []Binding {
 		bind(ActionNone, nil, ScopeDuringSSH, "Return to Bast", "").chord("exit").helpOnly(),
 		bind(ActionNone, nil, ScopeDuringSSH, "Force-close a stuck session", "").chord("󰌑 then ~.").helpOnly(),
 	}
+}
+
+func whenSync(fn func(*App) bool) func(*App) bool {
+	return func(m *App) bool { return !m.noSync && fn(m) }
 }
 
 func hostsFooterEmpty(m *App) bool {
@@ -367,6 +380,33 @@ func hostsFooterLocalMobile(m *App) bool {
 func hostsFooterLocalDesktop(m *App) bool {
 	host, ok := m.selectedHost()
 	return ok && !host.Synced && !m.isMobileLayout()
+}
+
+func hostsFooterForward(m *App) bool {
+	host, ok := m.selectedHost()
+	return ok && m.hostHasForwards(host) && !m.forwardOpen(host.Alias)
+}
+
+func hostsFooterCloseTunnel(m *App) bool {
+	return hostsFooterEntryTunnel(m) || hostsFooterForwardOpen(m)
+}
+
+func hostsFooterForwardOpen(m *App) bool {
+	if _, ok := m.selectedForward(); ok {
+		return true
+	}
+	host, ok := m.selectedHost()
+	return ok && m.forwardOpen(host.Alias)
+}
+
+func hostsFooterEntry(m *App) bool {
+	_, ok := m.selectedEntry()
+	return ok
+}
+
+func hostsFooterEntryTunnel(m *App) bool {
+	entry, ok := m.selectedEntry()
+	return ok && m.entryTunnelOpen(entry)
 }
 
 func hostsFooterRDP(m *App) bool {

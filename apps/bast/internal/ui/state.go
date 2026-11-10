@@ -9,16 +9,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bast/internal/cloud"
-	bitqatecloud "bast/internal/cloud/bitqate"
-	boatcloud "bast/internal/cloud/boat"
-	boxdcloud "bast/internal/cloud/boxd"
-	docloud "bast/internal/cloud/digitalocean"
-	flycloud "bast/internal/cloud/fly"
-	hetznercloud "bast/internal/cloud/hetzner"
-	railwaycloud "bast/internal/cloud/railway"
 	cloudsync "bast/internal/cloud/sync"
-	upstashcloud "bast/internal/cloud/upstash"
-	vercelcloud "bast/internal/cloud/vercel"
+	"bast/internal/hostlife"
 	"bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/platform"
@@ -161,6 +153,9 @@ type hostRow struct {
 	group         string
 	label         string
 	host          sshconfig.Host
+	entry         *metadata.Entry
+	forwardAlias  string
+	forwardHeader bool
 	suggestion    *metadata.HistorySuggestion
 	historyHeader bool
 	header        bool
@@ -171,6 +166,7 @@ type hostRow struct {
 type hostGroup struct {
 	path     string
 	hosts    []sshconfig.Host
+	entries  []metadata.Entry
 	children []*hostGroup
 	count    int
 }
@@ -206,10 +202,15 @@ func (m *App) hostRowsForQuery(query string) []hostRow {
 }
 
 func (m *App) buildHostRows(query string) []hostRow {
+	return m.assembleRows(query, nil)
+}
+
+func (m *App) assembleRows(query string, entries []metadata.Entry) []hostRow {
 	hostMetadata := m.hostMetadata()
 	hosts := m.filteredHostsQuery(hostMetadata, query)
 	groups := map[string]*hostGroup{}
 	ungrouped := []sshconfig.Host{}
+	ungroupedEntries := []metadata.Entry{}
 	topLevelOrder := []string{}
 	seenTopLevel := map[string]bool{}
 	for _, host := range hosts {
@@ -247,6 +248,41 @@ func (m *App) buildHostRows(query string) []hostRow {
 		}
 		parent.hosts = append(parent.hosts, host)
 	}
+	for _, entry := range entries {
+		parts := groupPathParts(entry.Group)
+		if len(parts) == 0 {
+			if !seenTopLevel[""] {
+				seenTopLevel[""] = true
+				topLevelOrder = append(topLevelOrder, "")
+			}
+			ungroupedEntries = append(ungroupedEntries, entry)
+			continue
+		}
+		if !seenTopLevel[parts[0]] {
+			seenTopLevel[parts[0]] = true
+			topLevelOrder = append(topLevelOrder, parts[0])
+		}
+		path := ""
+		var parent *hostGroup
+		for _, part := range parts {
+			if path == "" {
+				path = part
+			} else {
+				path += "/" + part
+			}
+			node := groups[path]
+			if node == nil {
+				node = &hostGroup{path: path}
+				groups[path] = node
+				if parent != nil {
+					parent.children = append(parent.children, node)
+				}
+			}
+			node.count++
+			parent = node
+		}
+		parent.entries = append(parent.entries, entry)
+	}
 	for _, d := range cloud.Descriptors() {
 		if seenTopLevel[d.GroupRoot] {
 			continue
@@ -261,9 +297,7 @@ func (m *App) buildHostRows(query string) []hostRow {
 	rows := make([]hostRow, 0, len(hosts)+len(groups))
 	for _, group := range topLevelOrder {
 		if group == "" {
-			for _, host := range ungrouped {
-				rows = append(rows, hostRow{host: host})
-			}
+			rows = m.appendSortedMembers(rows, "", 0, ungrouped, ungroupedEntries)
 			continue
 		}
 		rows = m.appendGroupRows(rows, groups[group], 0, query)
@@ -274,7 +308,10 @@ func (m *App) buildHostRows(query string) []hostRow {
 func (m *App) hostListRows() []hostRow {
 	base := m.hostRows()
 	search := m.searchText()
+	entries := m.listedEntries(search)
+	entrySig := entrySignature(entries)
 	suggestionSig := historySuggestionSignature(m.historySuggestions)
+	forwardSig := strings.Join(m.activeForwardAliases(), "\n")
 	cache := m.hostListRowsCache
 	if cache.rows != nil &&
 		cache.hostGeneration == m.hostGeneration &&
@@ -284,8 +321,13 @@ func (m *App) hostListRows() []hostRow {
 		cache.showHidden == m.showHidden &&
 		cache.hostSignature == m.hostRowsCache.hostSignature &&
 		cache.historyCollapsed == m.historySuggestionsCollapsed &&
-		cache.suggestionSig == suggestionSig {
+		cache.suggestionSig == suggestionSig &&
+		cache.entrySignature == entrySig &&
+		cache.forwardSig == forwardSig {
 		return cache.rows
+	}
+	if len(entries) > 0 {
+		base = m.assembleRows(search, entries)
 	}
 	suggestions := m.visibleHistorySuggestions()
 	rows := base
@@ -300,12 +342,16 @@ func (m *App) hostListRows() []hostRow {
 			}
 		}
 	}
+	if section := m.forwardSection(); len(section) > 0 {
+		rows = append(section, rows...)
+	}
 	m.hostListRowsCache = hostListRowsCache{
 		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
 		collapseGeneration: m.collapseRevision, search: search,
 		showHidden:       m.showHidden,
 		hostSignature:    m.hostRowsCache.hostSignature,
-		historyCollapsed: m.historySuggestionsCollapsed, suggestionSig: suggestionSig, rows: rows,
+		historyCollapsed: m.historySuggestionsCollapsed, suggestionSig: suggestionSig,
+		entrySignature: entrySig, forwardSig: forwardSig, rows: rows,
 	}
 	return rows
 }
@@ -372,7 +418,7 @@ func hostListSignature(hosts []sshconfig.Host) uint64 {
 func (m *App) appendGroupRows(rows []hostRow, group *hostGroup, depth int, query string) []hostRow {
 	label := groupShortName(group.path)
 	keepProviderRoot := depth == 0 && cloudsync.IsSyncedGroup(group.path)
-	for !keepProviderRoot && len(group.hosts) == 0 && len(group.children) == 1 {
+	for !keepProviderRoot && len(group.hosts) == 0 && len(group.entries) == 0 && len(group.children) == 1 {
 		group = group.children[0]
 		label += "/" + groupShortName(group.path)
 	}
@@ -380,9 +426,7 @@ func (m *App) appendGroupRows(rows []hostRow, group *hostGroup, depth int, query
 	if m.collapsedGroups[group.path] && query == "" {
 		return rows
 	}
-	for _, host := range group.hosts {
-		rows = append(rows, hostRow{group: group.path, host: host, depth: depth + 1})
-	}
+	rows = m.appendSortedMembers(rows, group.path, depth+1, group.hosts, group.entries)
 	for _, child := range group.children {
 		rows = m.appendGroupRows(rows, child, depth+1, query)
 	}
@@ -418,6 +462,11 @@ func (m *App) hasHiddenHosts() bool {
 			return true
 		}
 	}
+	for _, entry := range m.metadata.Entries() {
+		if entry.Hidden {
+			return true
+		}
+	}
 	return false
 }
 func (m *App) filteredKeys() []keys.Key {
@@ -446,7 +495,7 @@ func (m *App) filteredKeys() []keys.Key {
 }
 func (m *App) selectedHost() (sshconfig.Host, bool) {
 	rows := m.hostListRows()
-	if m.cursor >= 0 && m.cursor < len(rows) && !rows[m.cursor].header && rows[m.cursor].suggestion == nil {
+	if m.cursor >= 0 && m.cursor < len(rows) && !rows[m.cursor].header && rows[m.cursor].suggestion == nil && rows[m.cursor].entry == nil && rows[m.cursor].forwardAlias == "" && !rows[m.cursor].forwardHeader {
 		return rows[m.cursor].host, true
 	}
 	return sshconfig.Host{}, false
@@ -664,6 +713,11 @@ func (m *App) restoreHostCursor(kind, name string) {
 }
 
 func (m *App) selectAfterLoad() {
+	if id := m.selectAfterLoadEntry; id != "" {
+		m.selectAfterLoadEntry = ""
+		m.selectEntry(id)
+		return
+	}
 	name := m.selectAfterLoadName
 	if name == "" {
 		m.clampCursor()
@@ -687,8 +741,8 @@ func (m *App) selectAfterLoad() {
 				_ = m.persistCollapsedGroups()
 			}
 		}
-		for i, row := range m.hostRows() {
-			if (selectGroup && row.header && row.group == name) || (!selectGroup && !row.header && row.host.Alias == name) {
+		for i, row := range m.hostListRows() {
+			if (selectGroup && row.header && !row.historyHeader && row.group == name) || (!selectGroup && row.entry == nil && !row.header && row.suggestion == nil && row.host.Alias == name) {
 				index = i
 				break
 			}
@@ -718,6 +772,12 @@ func (m *App) groupExists(group string) bool {
 	metadataByHost := m.hostMetadata()
 	for _, host := range m.hosts {
 		existing, err := normalizeGroupPath(metadataByHost[host.Alias].Group)
+		if err == nil && (existing == group || strings.HasPrefix(existing, group+"/")) {
+			return true
+		}
+	}
+	for _, entry := range m.metadata.Entries() {
+		existing, err := normalizeGroupPath(entry.Group)
 		if err == nil && (existing == group || strings.HasPrefix(existing, group+"/")) {
 			return true
 		}
@@ -1058,41 +1118,71 @@ func (m *App) hostLooksStopped(host sshconfig.Host) bool {
 }
 
 func hostLooksStopped(host sshconfig.Host, meta metadata.Host) bool {
-	if !host.Synced {
-		return false
+	return hostlife.LooksStopped(host, meta)
+}
+
+func (m *App) appendSortedMembers(rows []hostRow, group string, depth int, hosts []sshconfig.Host, entries []metadata.Entry) []hostRow {
+	type member struct {
+		host     sshconfig.Host
+		entry    metadata.Entry
+		hasHost  bool
+		hasEntry bool
+		favorite bool
+		used     *time.Time
+		label    string
+		group    string
 	}
-	kind, ok := cloud.KindForSource(host.SyncSource)
-	if !ok || !cloud.CapabilitiesFor(kind).Stop {
-		return false
+	members := make([]member, 0, len(hosts)+len(entries))
+	meta := m.hostMetadata()
+	for _, host := range hosts {
+		item := meta[host.Alias]
+		members = append(members, member{
+			host: host, hasHost: true, favorite: item.Favorite, used: item.LastUsedAt,
+			label: hostLabel(host, item), group: item.Group,
+		})
 	}
-	if kind == cloud.Boat {
-		return boatcloud.HostLooksStopped(host.Resolved.HostName, meta.Tags)
+	for _, entry := range entries {
+		members = append(members, member{
+			entry: entry, hasEntry: true, favorite: entry.Favorite, used: entry.LastUsedAt,
+			label: entry.Label, group: entry.Group,
+		})
 	}
-	if kind == cloud.Upstash {
-		return upstashcloud.HostLooksStopped(meta.Tags)
+	order := m.metadata.Preferences().Sort
+	sort.SliceStable(members, func(i, j int) bool {
+		return memberBefore(order, members[i].favorite, members[j].favorite, members[i].used, members[j].used, members[i].label, members[j].label, members[i].group, members[j].group)
+	})
+	for _, item := range members {
+		if item.hasEntry {
+			entry := item.entry
+			rows = append(rows, hostRow{group: group, entry: &entry, depth: depth})
+			continue
+		}
+		rows = append(rows, hostRow{group: group, host: item.host, depth: depth})
 	}
-	if kind == cloud.Vercel {
-		return vercelcloud.HostLooksStopped(meta.Tags)
+	return rows
+}
+
+func memberBefore(order string, aFavorite, bFavorite bool, aUsed, bUsed *time.Time, aLabel, bLabel, aGroup, bGroup string) bool {
+	switch order {
+	case "alias", "label":
+		return strings.ToLower(aLabel) < strings.ToLower(bLabel)
+	case "recent":
+		return later(aUsed, bUsed)
+	case "group":
+		if aGroup != bGroup {
+			return strings.ToLower(aGroup) < strings.ToLower(bGroup)
+		}
 	}
-	if kind == cloud.Hetzner {
-		return hetznercloud.HostLooksStopped(meta.Tags)
+	if aFavorite != bFavorite {
+		return aFavorite
 	}
-	if kind == cloud.Bitqate {
-		return bitqatecloud.HostLooksStopped(meta.Tags)
+	if (aUsed != nil) != (bUsed != nil) {
+		return aUsed != nil
 	}
-	if kind == cloud.Railway {
-		return railwaycloud.HostLooksStopped(meta.Tags)
+	if aUsed != nil && !aUsed.Equal(*bUsed) {
+		return aUsed.After(*bUsed)
 	}
-	if kind == cloud.Fly {
-		return flycloud.HostLooksStopped(host.Resolved.HostName, meta.Tags)
-	}
-	if kind == cloud.DigitalOcean {
-		return docloud.HostLooksStopped(meta.Tags, "")
-	}
-	if kind == cloud.Boxd {
-		return boxdcloud.HostLooksStopped(meta.Tags)
-	}
-	return false
+	return strings.ToLower(aLabel) < strings.ToLower(bLabel)
 }
 func hostIdentity(h sshconfig.Host, passwordStored bool) string {
 	if passwordOnly(h.Resolved) {

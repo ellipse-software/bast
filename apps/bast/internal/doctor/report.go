@@ -9,6 +9,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/term"
+
+	"bast/internal/feature"
 )
 
 type Severity string
@@ -117,6 +119,23 @@ func (r *Report) finalize() {
 		}
 		return a.ID < b.ID
 	})
+}
+
+func (r *Report) dropDisabledFeatures() {
+	if !feature.SyncDisabled() && !feature.VaultDisabled() {
+		return
+	}
+	out := make([]Finding, 0, len(r.Findings))
+	for _, f := range r.Findings {
+		if feature.SyncDisabled() && f.Category == CatSync {
+			continue
+		}
+		if feature.VaultDisabled() && f.Category == CatVault {
+			continue
+		}
+		out = append(out, f)
+	}
+	r.Findings = out
 }
 
 func (r *Report) filter(categories []string) {

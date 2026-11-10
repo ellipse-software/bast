@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bast/internal/cloud"
+	"bast/internal/feature"
 	"bast/internal/metadata"
 )
 
@@ -86,35 +87,75 @@ var globalFlagSpecs = []flagSpec{
 }
 
 func completionRoot() specNode {
+	children := []specNode{
+		{name: "tui", desc: "open the TUI"},
+		{name: "update", desc: "update installer-managed copies"},
+		{name: "connect", desc: "connect to a host", args: []argSpec{{kind: valueHost, desc: "host"}}},
+		hostsSpec(),
+		entrySpec("rdp", "open Remote Desktop entries"),
+		entrySpec("web", "open internal web pages"),
+		keysSpec(),
+	}
+	if !feature.SyncDisabled() {
+		children = append(children, syncSpec(), boatSpec(), upstashSpec(), vercelSpec(), hetznerSpec(), bitqateSpec(), railwaySpec(), flySpec(), digitalOceanSpec(), boxdSpec())
+	}
+	if !feature.VaultDisabled() {
+		children = append(children, vaultSpec())
+	}
+	children = append(children, specNode{
+		name: "completion",
+		desc: "print a shell completion script",
+		args: []argSpec{{kind: valueShell, desc: "shell"}},
+	})
 	return specNode{
 		desc: "bast",
 		flags: []flagSpec{
 			{name: "version", desc: "print version", boolean: true},
 		},
-		args: []argSpec{{kind: valueHost, desc: "host", optional: true}},
+		args:     []argSpec{{kind: valueHost, desc: "host", optional: true}},
+		children: children,
+	}
+}
+
+func entrySpec(name, desc string) specNode {
+	label := argSpec{desc: "label"}
+	return specNode{
+		name: name,
+		desc: desc,
 		children: []specNode{
-			{name: "tui", desc: "open the TUI"},
-			{name: "update", desc: "update installer-managed copies"},
-			{name: "connect", desc: "connect to a host", args: []argSpec{{kind: valueHost, desc: "host"}}},
-			hostsSpec(),
-			keysSpec(),
-			syncSpec(),
-			boatSpec(),
-			upstashSpec(),
-			vercelSpec(),
-			hetznerSpec(),
-			bitqateSpec(),
-			railwaySpec(),
-			flySpec(),
-			digitalOceanSpec(),
-			boxdSpec(),
-			vaultSpec(),
-			{
-				name: "completion",
-				desc: "print a shell completion script",
-				args: []argSpec{{kind: valueShell, desc: "shell"}},
-			},
+			{name: "list", desc: "list entries", flags: []flagSpec{{name: "search", desc: "filter entries"}, boolFlag("all", "include hidden entries")}},
+			{name: "add", desc: "add an entry", flags: entryFlags(), args: []argSpec{{desc: "label", optional: true}}},
+			{name: "edit", desc: "edit an entry", flags: entryFlags(), args: []argSpec{label}},
+			{name: "delete", desc: "delete an entry", flags: []flagSpec{boolFlag("yes", "skip confirmation")}, args: []argSpec{label}},
+			{name: "open", desc: "open an entry", args: []argSpec{label}},
+			{name: "close", desc: "close a tunnel", args: []argSpec{label}},
 		},
+	}
+}
+
+func entryFlags() []flagSpec {
+	return []flagSpec{
+		{name: "label", desc: "display label"},
+		{name: "group", desc: "group path"},
+		{name: "tags", desc: "comma-separated tags"},
+		{name: "environment", desc: "environment name"},
+		{name: "icon", desc: "one emoji or flag"},
+		{name: "color", desc: "theme colour or hex"},
+		{name: "notes", desc: "short note"},
+		{name: "via", desc: "SSH host to tunnel through"},
+		{name: "address", desc: "Remote Desktop address"},
+		{name: "port", desc: "Remote Desktop port"},
+		{name: "user", desc: "Remote Desktop username"},
+		{name: "domain", desc: "Remote Desktop domain"},
+		{name: "url", desc: "http or https URL"},
+		boolFlag("fullscreen", "open full screen"),
+		boolFlag("admin", "admin session"),
+		boolFlag("clear-via", "remove the jump host"),
+		boolFlag("clear-user", "remove the username"),
+		boolFlag("clear-domain", "remove the domain"),
+		boolFlag("clear-port", "use the default port"),
+		boolFlag("no-fullscreen", "open in a window"),
+		boolFlag("no-admin", "use a normal session"),
 	}
 }
 

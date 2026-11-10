@@ -98,9 +98,11 @@ func (m *App) formTextInputActive() bool {
 func (m *App) updateFormQuit(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	key := msg.String()
 	if key == "ctrl+c" {
+		m.closeOwnedTunnels()
 		return m, tea.Quit, true
 	}
 	if key == "q" && !m.formTextInputActive() {
+		m.closeOwnedTunnels()
 		return m, tea.Quit, true
 	}
 	return m, nil, false
@@ -187,6 +189,16 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	key := msg.String()
 	f := m.form
+	if f.action == "entry_save" && (key == "ctrl+s" || key == "super+s" || key == "meta+s" || key == "cmd+s") {
+		if viaPickerField(f, &f.fields[f.index]) {
+			m.commitViaSelection()
+		}
+		m.commitFormField()
+		return m.submitForm()
+	}
+	if f.index >= 0 && f.index < len(f.fields) && viaPickerField(f, &f.fields[f.index]) {
+		return m.updateViaPicker(msg)
+	}
 	if key == "ctrl+y" {
 		if target := destructiveConfirmationTarget(f); target != "" {
 			return m, tea.Batch(tea.SetClipboard(target), m.setNotice("Confirmation name copied"))
@@ -496,6 +508,14 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			err = m.metadata.DeleteHostWithTombstone(alias, host.ManagedID)
 		}
 		return m.finishMutation(err, "Host deleted")
+	case "entry_kind":
+		return m.submitEntryKind(values)
+	case "entry_save":
+		return m.submitEntrySave(values)
+	case "entry_delete":
+		return m.submitEntryDelete(values)
+	case "entry_group":
+		return m.submitEntryGroup(values)
 	case "key_generate":
 		cmd, _, err := m.keyring.GenerateCommand(values["Name"], strings.ToLower(values["Algorithm"]))
 		if err != nil {
@@ -702,7 +722,7 @@ func destructiveConfirmationTarget(f *form) string {
 	switch f.action {
 	case "key_delete":
 		label = "Key"
-	case "host_delete", "known_delete", "vault_reset_passphrase", "files_delete":
+	case "host_delete", "known_delete", "vault_reset_passphrase", "files_delete", "entry_delete":
 		// keep Confirmation
 	default:
 		return ""
@@ -809,6 +829,20 @@ func (m *App) groupAssignmentField(current string) field {
 	metadataByHost := m.hostMetadata()
 	for _, host := range m.hosts {
 		parts := groupPathParts(metadataByHost[host.Alias].Group)
+		path := ""
+		for _, part := range parts {
+			if path == "" {
+				path = part
+			} else {
+				path += "/" + part
+			}
+			if !sync.IsSyncedGroup(path) {
+				paths[path] = true
+			}
+		}
+	}
+	for _, entry := range m.metadata.Entries() {
+		parts := groupPathParts(entry.Group)
 		path := ""
 		for _, part := range parts {
 			if path == "" {
@@ -1073,6 +1107,12 @@ func (m *App) focusFormField() {
 	} else {
 		f.input.EchoMode = textinput.EchoNormal
 		f.input.EchoCharacter = '*'
+	}
+	if viaPickerField(f, item) {
+		f.input.SetValue("")
+		f.input.Placeholder = "Filter hosts"
+		f.input.Focus()
+		return
 	}
 	if len(item.options) > 0 {
 		option := item.options[item.selected]
