@@ -52,7 +52,95 @@ const rows: Row[] = [
   },
 ];
 
-export function Comparison() {
+const bastCell = "bg-[color-mix(in_srgb,#c6b6f2_8%,#05080f)] text-[#e8eef6]";
+const nightCell = "border-b border-white/15 px-4 py-3.5 align-top leading-relaxed";
+
+function NightComparison() {
+  return (
+    <section className="w-full">
+      <div className="mb-6 flex flex-wrap items-baseline justify-between gap-x-8 gap-y-2">
+        <h2 className="text-[1.65rem] font-medium leading-none tracking-[-0.03em]">
+          Bast, Termius, or PuTTY?
+        </h2>
+        <Link
+          href="/alternatives"
+          className="text-sm text-[#9aa8bc] outline-none transition-colors hover:text-[#e8eef6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#c6b6f2]"
+        >
+          Other comparisons
+        </Link>
+      </div>
+      <div className="relative">
+        <div
+          tabIndex={0}
+          className="overflow-x-auto outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#c6b6f2]"
+        >
+          <table className="w-full min-w-[46rem] border-collapse text-left">
+            <thead>
+              <tr>
+                <th
+                  scope="col"
+                  className="sticky top-0 left-0 z-20 w-[8.5rem] min-w-[8.5rem] border-b border-white/15 bg-[#05080f] px-4 py-3 text-[13px] font-medium text-[#9aa8bc]"
+                >
+                  <span className="sr-only">Question</span>
+                </th>
+                <th
+                  scope="col"
+                  className={`sticky top-0 z-10 min-w-[12.5rem] border-b border-white/15 px-4 py-3 font-medium ${bastCell}`}
+                >
+                  Bast
+                  <span className="mt-0.5 block text-xs font-normal text-[#9aa8bc]">
+                    Terminal picker
+                  </span>
+                </th>
+                <th
+                  scope="col"
+                  className="sticky top-0 z-10 min-w-[12.5rem] border-b border-white/15 bg-[#05080f] px-4 py-3 font-medium text-[#e8eef6]"
+                >
+                  Termius
+                  <span className="mt-0.5 block text-xs font-normal text-[#9aa8bc]">
+                    GUI SSH client
+                  </span>
+                </th>
+                <th
+                  scope="col"
+                  className="sticky top-0 z-10 min-w-[12.5rem] border-b border-white/15 bg-[#05080f] px-4 py-3 font-medium text-[#e8eef6]"
+                >
+                  PuTTY
+                  <span className="mt-0.5 block text-xs font-normal text-[#9aa8bc]">
+                    Classic Windows client
+                  </span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.question}>
+                  <th
+                    scope="row"
+                    className={`${nightCell} sticky left-0 z-10 w-[8.5rem] min-w-[8.5rem] bg-[#05080f] text-[13px] font-medium text-[#9aa8bc]`}
+                  >
+                    {row.question}
+                  </th>
+                  <td className={`${nightCell} text-sm ${bastCell}`}>{row.bast}</td>
+                  <td className={`${nightCell} text-sm text-[#c9d5e6]`}>{row.termius}</td>
+                  <td className={`${nightCell} text-sm text-[#c9d5e6]`}>{row.putty}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-[#05080f] to-transparent lg:hidden"
+        />
+      </div>
+    </section>
+  );
+}
+
+export function Comparison({ tone = "default" }: { tone?: "default" | "night" }) {
+  if (tone === "night") return <NightComparison />;
+
   return (
     <section className="w-full">
       <div className="mb-6 max-w-xl">

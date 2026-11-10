@@ -11,7 +11,7 @@ import Link from "next/link";
 
 import { TuiDemo } from "@/components/tui-demo";
 
-const features: {
+export const showcaseFeatures: {
   title: string;
   description: string;
   icon: LucideIcon;
@@ -74,7 +74,7 @@ export function Showcase() {
 
         <div className="border-t border-border">
           <div className="grid grid-cols-1 gap-px bg-border sm:grid-cols-2 lg:grid-cols-3">
-            {features.map((feature) => {
+            {showcaseFeatures.map((feature) => {
               const Icon = feature.icon;
               return (
                 <Link

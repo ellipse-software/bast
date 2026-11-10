@@ -19,6 +19,7 @@ import {
 } from "@/lib/company";
 import { bastRepoUrl, bastReleasesUrl, bastSponsorUrl } from "@/lib/github";
 import { pageMaxWidthClass } from "@/lib/layout";
+import { nightSurface } from "@/lib/night";
 import {
   comparisonNavItems,
   guideNavItems,
@@ -134,22 +135,39 @@ async function FooterStatus() {
   return <FooterStatusLink status={status.aggregate} />;
 }
 
-export function SiteFooter() {
+export function SiteFooter({
+  tone = "default",
+}: {
+  tone?: "default" | "night";
+} = {}) {
+  const night = tone === "night";
+
   return (
-    <footer className="relative z-10 border-t border-border bg-background">
+    <footer
+      className={
+        night
+          ? "relative z-10 border-t border-white/15 bg-[#05080f] text-[#e8eef6]"
+          : "relative z-10 border-t border-border bg-background"
+      }
+      style={night ? nightSurface : undefined}
+    >
       <div
-        className={`mx-auto w-full ${pageMaxWidthClass} px-4 py-12 sm:px-6 sm:py-14`}
+        className={
+          night
+            ? "mx-auto w-full max-w-[90rem] px-4 py-12 sm:px-6 sm:py-14 xl:px-10"
+            : `mx-auto w-full ${pageMaxWidthClass} px-4 py-12 sm:px-6 sm:py-14`
+        }
       >
         <div className="mb-10 flex flex-col gap-6 sm:mb-12 sm:flex-row sm:items-start sm:justify-between">
           <div className="max-w-sm">
             <Link href="/" className="inline-flex">
-              <WordmarkLogo />
+              <WordmarkLogo color={night ? "white" : "accent"} />
             </Link>
             <p className="mt-3 text-sm leading-relaxed text-muted">
               The fast way into the servers you use every day.
             </p>
           </div>
-          <AgentResources contextUrl={llmsTxtUrl} />
+          <AgentResources contextUrl={llmsTxtUrl} tone={tone} />
         </div>
 
         <div className="grid grid-cols-2 gap-8 sm:grid-cols-4">
@@ -279,7 +297,7 @@ export function SiteFooter() {
         </div>
       </div>
 
-      <FooterWordmark />
+      <FooterWordmark tone={tone} />
     </footer>
   );
 }

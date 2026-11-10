@@ -110,6 +110,27 @@ Host edits are **patches**: omitted flags leave values unchanged. Use `--clear-g
 
 Labels with spaces work: `bast "Production web"`. Aliases are normalized (e.g. `Production_web`).
 
+## Remote Desktop and web entries
+
+Entries are not SSH hosts and are not written to `~/.ssh/config`. `a` still adds an SSH host. In the TUI, `A` adds a Remote Desktop entry or a web page. Enter opens it. `Ctrl+O` on an SSH host still opens that host's address when Open RDP is on.
+
+```sh
+bast rdp list [--search text] [--all] [--json]
+bast rdp add [label] --address host [--port n] [--via alias] [--user name] [--domain name] [--fullscreen] [--admin] [--json]
+bast rdp edit <label> [patch flags] [--json]
+bast rdp delete <label> [--yes] [--json]
+bast rdp open <label>
+bast rdp close <label>
+bast web list [--search text] [--all] [--json]
+bast web add [label] --url https://host/ [--via alias] [--json]
+bast web edit <label> [patch flags] [--json]
+bast web delete <label> [--yes] [--json]
+bast web open <label>
+bast web close <label>
+```
+
+`--via` is the alias of an existing SSH host. Bast starts `ssh -N -L` for Remote Desktop and `ssh -N -D` for a page. The page opens in a separate Chrome, Edge, Brave, Chromium, or Firefox profile. Bast does not store an RDP password. A URL with a username or password is rejected. `bast <label>` opens an entry only when no SSH host has that name.
+
 ## Key commands
 
 ```sh
@@ -274,7 +295,7 @@ Requires the `boxd` CLI on `PATH` and `boxd auth login`. Bast does not store a b
 
 TUI Files tab (`5`) is a dual-pane browser over OpenSSH SFTP. Both panes open on a host picker: Local first, then the same groups as Hosts. A pane shows `local` or the host name only after you choose it. Shift+D returns a pane to the picker from a local directory or a connected host. Enter toggles a group in the picker. Left and Right move to the parent directory and into the selected directory. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
 
-TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Boat/Upstash/Vercel/Hetzner/BitQate/Railway/Fly.io/DigitalOcean/boxd). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`. First TUI with no hosts shows a skippable start chooser (`esc` skips, `BAST_NO_ONBOARDING=1` disables).
+TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Boat/Upstash/Vercel/Hetzner/BitQate/Railway/Fly.io/DigitalOcean/boxd). `BAST_NO_VAULT=1` hides Vault and rejects `bast vault`. `BAST_NO_SYNC=1` hides Sync and rejects `bast sync` plus the provider commands (`bast boat`, `bast upstash`, `bast vercel`, `bast hetzner`, `bast bitqate`, `bast railway`, `bast fly`, `bast digitalocean`, `bast boxd`). Remaining tabs are numbered from 1 with no gaps. Hosts already imported stay usable. Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`. First TUI with no hosts shows a skippable start chooser (`esc` skips, `BAST_NO_ONBOARDING=1` disables).
 
 ## File layout
 

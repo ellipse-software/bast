@@ -11,8 +11,9 @@ const nerdSymbols = localFont({
 });
 
 type Section = "hosts" | "keys" | "vault" | "sync" | "files";
+
+export type DemoSection = Section;
 type SyncProvider =
-  | ""
   | "gcp"
   | "aws"
   | "azure"
@@ -140,10 +141,15 @@ const hostTree: HostGroupNode[] = [
         favorite: true,
         destination: "deploy@api.prod.example.com",
         summary: "Bast managed · known host",
-        access: [{ label: "Auth", value: "~/.ssh/bast/keys/work" }],
+        access: [
+          { label: "Auth", value: "~/.ssh/bast/keys/work" },
+          { label: "Jump", value: "bastion" },
+        ],
         about: [
-          { label: "Tags", value: "web, api" },
-          { label: "Used", value: "2026-07-26 14:02 (18)" },
+          { label: "Env", value: "production" },
+          { label: "Tags", value: "web, api, edge" },
+          { label: "Used", value: "2026-07-26 14:02 (128)" },
+          { label: "Notes", value: "public API behind the edge proxy" },
         ],
       },
       {
@@ -151,7 +157,27 @@ const hostTree: HostGroupNode[] = [
         destination: "ops@bastion.prod.example.com",
         summary: "Bast managed · known host",
         access: [{ label: "Auth", value: "~/.ssh/bast/keys/work" }],
-        about: [{ label: "Tags", value: "jump" }],
+        about: [
+          { label: "Env", value: "production" },
+          { label: "Tags", value: "jump" },
+          { label: "Used", value: "2026-07-26 13:11 (46)" },
+          { label: "Notes", value: "jump host for the prod VPC" },
+        ],
+      },
+      {
+        name: "metrics",
+        destination: "obs@metrics.prod.example.com",
+        summary: "Bast managed · known host",
+        access: [
+          { label: "Auth", value: "~/.ssh/bast/keys/work" },
+          { label: "Jump", value: "bastion" },
+        ],
+        about: [
+          { label: "Env", value: "production" },
+          { label: "Tags", value: "obs" },
+          { label: "Used", value: "2026-07-25 09:18 (7)" },
+          { label: "Notes", value: "Prometheus and Grafana" },
+        ],
       },
     ],
   },
@@ -174,7 +200,12 @@ const hostTree: HostGroupNode[] = [
               { label: "Auth", value: "~/.ssh/bast/keys/work" },
               { label: "SSH name", value: "gcp_demo_web-01" },
             ],
-            about: [{ label: "Used", value: "2026-07-26 13:40 (4)" }],
+            about: [
+              { label: "Env", value: "demo" },
+              { label: "Tags", value: "web, public" },
+              { label: "Used", value: "2026-07-26 13:40 (24)" },
+              { label: "Notes", value: "us-central1-a · e2-medium" },
+            ],
           },
           {
             name: "gpu-training",
@@ -189,6 +220,12 @@ const hostTree: HostGroupNode[] = [
               },
               { label: "Jump", value: "IAP tunnel" },
               { label: "SSH name", value: "gcp_demo_gpu-training" },
+            ],
+            about: [
+              { label: "Env", value: "demo" },
+              { label: "Tags", value: "gpu, batch" },
+              { label: "Used", value: "2026-07-24 02:16 (3)" },
+              { label: "Notes", value: "a2-highgpu-1g · IAP only" },
             ],
           },
         ],
@@ -211,11 +248,18 @@ const hostTree: HostGroupNode[] = [
             destination: "ec2-user@10.20.1.14",
             summary: "AWS synced · known host",
             access: [
+              { label: "Auth", value: "~/.ssh/bast/keys/work" },
               { label: "Jump", value: "EC2 Instance Connect Endpoint" },
               {
                 label: "SSH name",
                 value: "aws_production_us-east-1_i-0123456789abcdef0",
               },
+            ],
+            about: [
+              { label: "Env", value: "production" },
+              { label: "Tags", value: "worker, queue" },
+              { label: "Used", value: "2026-07-27 18:04 (11)" },
+              { label: "Notes", value: "i-0123456789abcdef0 · us-east-1a" },
             ],
           },
         ],
@@ -238,8 +282,15 @@ const hostTree: HostGroupNode[] = [
             destination: "azureuser@10.30.2.8",
             summary: "Azure synced · known host",
             access: [
+              { label: "Auth", value: "~/.ssh/bast/keys/work" },
               { label: "Jump", value: "Azure Bastion tunnel" },
               { label: "SSH name", value: "azure_Production_apps_api-01" },
+            ],
+            about: [
+              { label: "Env", value: "production" },
+              { label: "Tags", value: "api" },
+              { label: "Used", value: "2026-07-28 10:02 (6)" },
+              { label: "Notes", value: "Standard_D2s_v5 · eastus" },
             ],
           },
         ],
@@ -263,6 +314,10 @@ const ungroupedHosts: HostItem[] = [
     destination: "git@github.com",
     summary: "external · known host",
     access: [{ label: "Auth", value: "~/.ssh/id_ed25519_github" }],
+    about: [
+      { label: "Tags", value: "git" },
+      { label: "Used", value: "2026-07-26 16:44 (53)" },
+    ],
     promote: true,
   },
 ];
@@ -272,17 +327,17 @@ const keys: KeyItem[] = [
     name: "work",
     inAgent: true,
     summary: "ed25519 · Bast managed · agent cached",
-    fingerprint: "SHA256:abc123…bast",
+    fingerprint: "SHA256:n4Q8mP2sL6vR1tY9wK3xC7bH5dF0gJ8aE2uI4oZ6qW",
     rows: [
       { label: "Private", value: "~/.ssh/bast/keys/work" },
       { label: "Public", value: "~/.ssh/bast/keys/work.pub" },
-      { label: "Used by", value: "api, bastion, web-01" },
+      { label: "Used by", value: "api, bastion, metrics, web-01" },
     ],
   },
   {
     name: "id_rsa_legacy",
     summary: "rsa · external",
-    fingerprint: "SHA256:def456…legacy",
+    fingerprint: "SHA256:a1B2c3D4e5F6g7H8i9J0kLmNoPqRsTuVwXyZ0123456",
     rows: [
       { label: "Private", value: "~/.ssh/id_rsa" },
       { label: "Public", value: "~/.ssh/id_rsa.pub" },
@@ -292,7 +347,7 @@ const keys: KeyItem[] = [
     name: "github_deploy",
     summary: "ed25519 · external · agent cached",
     inAgent: true,
-    fingerprint: "SHA256:ghi789…deploy",
+    fingerprint: "SHA256:z9Y8x7W6v5U4t3S2r1Q0pOnMlKjIhGfEdCbA9876543",
     rows: [
       { label: "Private", value: "~/.ssh/id_ed25519_github" },
       { label: "Used by", value: "github.com" },
@@ -300,87 +355,204 @@ const keys: KeyItem[] = [
   },
 ];
 
-type SyncTile = {
-  id: Exclude<SyncProvider, "">;
-  title: string;
-  googleCloud?: boolean;
-  detail: string;
-  description: string;
+type SyncSetting = {
+  label: string;
+  value: string;
 };
 
-const syncTiles: SyncTile[] = [
+type SyncProviderModel = {
+  id: SyncProvider;
+  status: "on" | "off" | "error" | "syncing";
+  count?: number;
+  error?: string;
+  settings: SyncSetting[];
+  lifecycle: SyncSetting[];
+};
+
+const syncProviders: SyncProviderModel[] = [
   {
     id: "gcp",
-    title: "Google Cloud",
-    googleCloud: true,
-    detail: "2 · 2026-07-26 13:55",
-    description: "Import Compute Engine VMs into Bast",
+    status: "on",
+    count: 2,
+    settings: [
+      { label: "Enabled", value: "on" },
+      { label: "Auto-sync", value: "on" },
+      { label: "SSH user", value: "ubuntu" },
+      { label: "Projects", value: "all" },
+      { label: "Add service account", value: "" },
+      { label: "Disconnect", value: "" },
+    ],
+    lifecycle: [{ label: "Sync now", value: "" }],
   },
   {
     id: "aws",
-    title: "Amazon EC2",
-    detail: "4 · 2026-07-27 18:20",
-    description: "Import EC2 instances into Bast",
+    status: "on",
+    count: 4,
+    settings: [
+      { label: "Enabled", value: "on" },
+      { label: "Auto-sync", value: "off" },
+      { label: "SSH user", value: "ec2-user" },
+      { label: "Profiles", value: "all" },
+      { label: "Regions", value: "all" },
+      { label: "Disconnect", value: "" },
+    ],
+    lifecycle: [{ label: "Sync now", value: "" }],
   },
   {
     id: "azure",
-    title: "Microsoft Azure",
-    detail: "3 · 2026-07-28 10:12",
-    description: "Import Azure VMs into Bast",
+    status: "error",
+    error:
+      "could not find Azure CLI; install Azure CLI 2.62 or later and run az login",
+    settings: [
+      { label: "Login", value: "" },
+      { label: "Enabled", value: "on" },
+      { label: "Auto-sync", value: "off" },
+      { label: "SSH user", value: "azureuser" },
+      { label: "Subscriptions", value: "all" },
+      { label: "Resource groups", value: "all" },
+      { label: "Disconnect", value: "" },
+    ],
+    lifecycle: [{ label: "Sync now", value: "" }],
   },
   {
     id: "boat",
-    title: "Boat",
-    detail: "2 running",
-    description: "Import Boat sandboxes into Bast",
+    status: "on",
+    count: 2,
+    settings: [
+      { label: "Enabled", value: "on" },
+      { label: "Auto-sync", value: "on" },
+      { label: "Disconnect", value: "" },
+    ],
+    lifecycle: [
+      { label: "Sync now", value: "" },
+      { label: "New sandbox", value: "" },
+    ],
   },
   {
     id: "upstash",
-    title: "Upstash",
-    detail: "2 running",
-    description: "Import Upstash Box sandboxes into Bast",
+    status: "on",
+    count: 2,
+    settings: [
+      { label: "New token", value: "" },
+      { label: "Enabled", value: "on" },
+      { label: "Auto-sync", value: "on" },
+      { label: "Disconnect", value: "" },
+    ],
+    lifecycle: [
+      { label: "Sync now", value: "" },
+      { label: "New box", value: "" },
+    ],
   },
   {
     id: "vercel",
-    title: "Vercel",
-    detail: "1 running",
-    description: "Import Vercel Sandboxes into Bast",
+    status: "on",
+    count: 1,
+    settings: [
+      { label: "New token", value: "" },
+      { label: "Enabled", value: "on" },
+      { label: "Auto-sync", value: "on" },
+      { label: "Team", value: "on" },
+      { label: "Projects", value: "on" },
+      { label: "Disconnect", value: "" },
+    ],
+    lifecycle: [
+      { label: "Sync now", value: "" },
+      { label: "Cleanup", value: "2 unrestorable" },
+      { label: "New sandbox", value: "" },
+    ],
   },
   {
     id: "hetzner",
-    title: "Hetzner Cloud",
-    detail: "1 running",
-    description: "Import Hetzner Cloud servers into Bast",
+    status: "on",
+    count: 1,
+    settings: [
+      { label: "New token", value: "" },
+      { label: "Enabled", value: "on" },
+      { label: "Auto-sync", value: "off" },
+      { label: "Private IP", value: "off" },
+      { label: "SSH user", value: "root" },
+      { label: "SSH port", value: "22" },
+      { label: "Contexts", value: "all" },
+      { label: "Locations", value: "all" },
+      { label: "Remove token", value: "" },
+      { label: "Disconnect", value: "" },
+    ],
+    lifecycle: [{ label: "Sync now", value: "" }],
   },
   {
     id: "bitqate",
-    title: "BitQate",
-    detail: "2 running",
-    description: "Import BitQate VPS instances into Bast",
+    status: "on",
+    count: 2,
+    settings: [
+      { label: "New token", value: "" },
+      { label: "Enabled", value: "on" },
+      { label: "Auto-sync", value: "on" },
+      { label: "SSH user", value: "root" },
+      { label: "SSH port", value: "22" },
+      { label: "Regions", value: "all" },
+      { label: "Disconnect", value: "" },
+    ],
+    lifecycle: [{ label: "Sync now", value: "" }],
   },
   {
     id: "railway",
-    title: "Railway",
-    detail: "2 running",
-    description: "Import Railway services into Bast",
+    status: "on",
+    count: 2,
+    settings: [
+      { label: "New token", value: "" },
+      { label: "Enabled", value: "on" },
+      { label: "Auto-sync", value: "on" },
+      { label: "Disconnect", value: "" },
+    ],
+    lifecycle: [
+      { label: "Sync now", value: "" },
+      { label: "New service", value: "" },
+    ],
   },
   {
     id: "fly",
-    title: "Fly.io",
-    detail: "1 running",
-    description: "Import Fly Machines into Bast",
+    status: "off",
+    settings: [
+      { label: "Login", value: "" },
+      { label: "Enabled", value: "off" },
+      { label: "Auto-sync", value: "off" },
+      { label: "SSH user", value: "root" },
+      { label: "Orgs", value: "all" },
+      { label: "Apps", value: "all" },
+    ],
+    lifecycle: [{ label: "Sync now", value: "" }],
   },
   {
     id: "digitalocean",
-    title: "DigitalOcean",
-    detail: "3 running",
-    description: "Create and import Droplets in Bast",
+    status: "on",
+    count: 3,
+    settings: [
+      { label: "Enabled", value: "on" },
+      { label: "Auto-sync", value: "on" },
+      { label: "SSH user", value: "root" },
+      { label: "Contexts", value: "all" },
+      { label: "Regions", value: "all" },
+      { label: "Disconnect", value: "" },
+    ],
+    lifecycle: [
+      { label: "Sync now", value: "" },
+      { label: "New droplet", value: "" },
+    ],
   },
   {
     id: "boxd",
-    title: "boxd",
-    detail: "2 running",
-    description: "Import boxd computers into Bast",
+    status: "on",
+    count: 2,
+    settings: [
+      { label: "Enabled", value: "on" },
+      { label: "Auto-sync", value: "on" },
+      { label: "Orgs", value: "all" },
+      { label: "Disconnect", value: "" },
+    ],
+    lifecycle: [
+      { label: "Sync now", value: "" },
+      { label: "New computer", value: "" },
+    ],
   },
 ];
 
@@ -399,153 +571,6 @@ const vaultMenu: SyncMenuItem[] = [
   },
   { label: "Log out" },
 ];
-
-type ProviderPage = {
-  identity: string[];
-  chips: string[];
-  config: SyncMenuItem[];
-};
-
-const providerPages: Record<Exclude<SyncProvider, "">, ProviderPage> = {
-  gcp: {
-    identity: [
-      "enabled · 2 · 2026-07-26 13:55",
-      "you@example.com · auto-sync on",
-    ],
-    chips: ["Sync"],
-    config: [
-      { label: "Disconnect" },
-      { label: "Disable auto-sync" },
-      { label: "Default SSH user" },
-      { label: "Project filter" },
-      { label: "Add service account key" },
-      { label: "Refresh status" },
-    ],
-  },
-  aws: {
-    identity: [
-      "enabled · 4 · 2026-07-27 18:20",
-      "default, production · auto-sync off",
-    ],
-    chips: ["Sync"],
-    config: [
-      { label: "Disconnect" },
-      { label: "Enable auto-sync" },
-      { label: "Default SSH user" },
-      { label: "Profile filter" },
-      { label: "Region filter" },
-      { label: "Refresh status" },
-    ],
-  },
-  azure: {
-    identity: [
-      "enabled · 3 · 2026-07-28 10:12",
-      "Production · auto-sync off",
-    ],
-    chips: ["Sync"],
-    config: [
-      { label: "Disconnect" },
-      { label: "Enable auto-sync" },
-      { label: "Default SSH user" },
-      { label: "Subscription filter" },
-      { label: "Resource group filter" },
-      { label: "Refresh status" },
-    ],
-  },
-  boat: {
-    identity: ["enabled · 2 running", "ted · auto-sync on"],
-    chips: ["Sync", "New sandbox"],
-    config: [
-      { label: "Disconnect" },
-      { label: "Refresh status" },
-    ],
-  },
-  upstash: {
-    identity: ["enabled · 2 running", "key stored · auto-sync on"],
-    chips: ["Sync", "New box", "API key"],
-    config: [
-      { label: "Disconnect" },
-      { label: "Disable auto-sync" },
-      { label: "Refresh status" },
-    ],
-  },
-  vercel: {
-    identity: ["enabled · 1 running", "token stored · auto-sync on"],
-    chips: ["Sync", "New sandbox", "Token"],
-    config: [
-      { label: "Disconnect" },
-      { label: "Disable auto-sync" },
-      { label: "Refresh status" },
-    ],
-  },
-  hetzner: {
-    identity: ["enabled · 1 running", "token stored · auto-sync off"],
-    chips: ["Sync", "API token"],
-    config: [
-      { label: "Disconnect" },
-      { label: "Enable auto-sync" },
-      { label: "Prefer private IP" },
-      { label: "Default SSH user" },
-      { label: "Default SSH port" },
-      { label: "Refresh status" },
-    ],
-  },
-  bitqate: {
-    identity: ["enabled · 2 running", "token stored · auto-sync on"],
-    chips: ["Sync", "API token"],
-    config: [
-      { label: "Disconnect" },
-      { label: "Disable auto-sync" },
-      { label: "Default SSH user" },
-      { label: "Default SSH port" },
-      { label: "Region filter" },
-      { label: "Refresh status" },
-    ],
-  },
-  railway: {
-    identity: ["enabled · 2 running", "token stored · auto-sync on"],
-    chips: ["Sync", "New service", "API token"],
-    config: [
-      { label: "Disconnect" },
-      { label: "Disable auto-sync" },
-      { label: "Refresh status" },
-    ],
-  },
-  fly: {
-    identity: ["enabled · 1 running", "flyctl · auto-sync on"],
-    chips: ["Sync", "New machine"],
-    config: [
-      { label: "Disconnect" },
-      { label: "Disable auto-sync" },
-      { label: "Default SSH user" },
-      { label: "Org filter" },
-      { label: "App filter" },
-      { label: "Refresh status" },
-    ],
-  },
-  digitalocean: {
-    identity: ["enabled · 3 running", "default · auto-sync on"],
-    chips: ["Sync", "New droplet"],
-    config: [
-      { label: "Disconnect" },
-      { label: "Disable auto-sync" },
-      { label: "Default SSH user" },
-      { label: "Context filter" },
-      { label: "Region filter" },
-      { label: "Refresh status" },
-    ],
-  },
-  boxd: {
-    identity: ["enabled · 2 running", "boxd · auto-sync on"],
-    chips: ["Sync", "New computer"],
-    config: [
-      { label: "Disconnect" },
-      { label: "Disable auto-sync" },
-      { label: "Org filter" },
-      { label: "Refresh status" },
-    ],
-  },
-};
 
 const localFiles: FileEntry[] = [
   {
@@ -598,10 +623,14 @@ const filePreviewBodies: Record<string, string> = {
   "notes.md":
     "# roll\n\napi first\njump box last\nkeep secrets out of git\ncheck health after deploy\nrevert on 5xx\nwrite the postmortem",
   "secret.env": "REGION=us-east-1\nLOG_LEVEL=info\nKEEPALIVE=30",
-  "id_ed25519.pub": "ssh-ed25519 AAAAC3… work",
+  "id_ed25519.pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeDemoKeyOnly work",
+  README:
+    "api\n\nEdge proxy in front.\nJump through bastion.\nKey is work.\nHealth: /ready",
+  "docker-compose.yml":
+    "services:\n  api:\n    image: registry.example.com/api:2026.07.26\n    restart: unless-stopped\n    ports:\n      - \"443:443\"",
 };
 
-const previewVisibleLines = 5;
+const previewVisibleLines = 12;
 
 const remoteFiles: FileEntry[] = [
   {
@@ -662,6 +691,69 @@ const remoteFiles: FileEntry[] = [
 
 const localTone = "#94A3B8";
 const remoteTone = "#14B8A6";
+
+type FilePane =
+  | { mode: "picker"; cursor: number }
+  | { mode: "local"; cursor: number }
+  | { mode: "remote"; cursor: number; hostId: string };
+
+function clampIndex(index: number, count: number): number {
+  if (count <= 0) return 0;
+  return Math.max(0, Math.min(count - 1, index));
+}
+
+function filePaneCount(pane: FilePane, hostCount: number): number {
+  if (pane.mode === "picker") return 1 + hostCount;
+  if (pane.mode === "local") return localFiles.length;
+  return remoteFiles.length;
+}
+
+function browserEntries(pane: FilePane): FileEntry[] | null {
+  if (pane.mode === "local") return localFiles;
+  if (pane.mode === "remote") return remoteFiles;
+  return null;
+}
+
+function hostById(rows: HostListRow[], id: string): HostItem | undefined {
+  for (const row of rows) {
+    if (row.kind === "host" && row.id === id) return row.host;
+  }
+  return undefined;
+}
+
+function syncDetailRows(provider: SyncProviderModel): Array<SyncSetting & { section: "Settings" | "Lifecycle" }> {
+  return [
+    ...provider.settings.map((row) => ({ section: "Settings" as const, ...row })),
+    ...provider.lifecycle.map((row) => ({ section: "Lifecycle" as const, ...row })),
+  ];
+}
+
+function syncValueClass(value: string): string {
+  switch (value) {
+    case "on":
+      return "text-[#10B981]";
+    case "off":
+    case "syncing":
+    case "all":
+      return "text-muted";
+    case "error":
+      return "text-[#EF4444]";
+    default:
+      return "text-foreground";
+  }
+}
+
+function scrollSelectedInto(container: HTMLElement | null) {
+  const item = container?.querySelector<HTMLElement>('[aria-selected="true"]');
+  if (!container || !item) return;
+  const listRect = container.getBoundingClientRect();
+  const itemRect = item.getBoundingClientRect();
+  if (itemRect.top < listRect.top) {
+    container.scrollTop -= listRect.top - itemRect.top;
+  } else if (itemRect.bottom > listRect.bottom) {
+    container.scrollTop += itemRect.bottom - listRect.bottom;
+  }
+}
 
 const panelGrid = "grid h-full min-h-0 grid-cols-[38%_1fr]";
 
@@ -727,22 +819,35 @@ function defaultHostCursor(rows: HostListRow[]): number {
   return gcp >= 0 ? gcp : 0;
 }
 
-export function TuiDemo() {
-  const [section, setSection] = useState<Section>("hosts");
+export function TuiDemo({
+  showLabel = true,
+  showHints = true,
+  roomy = false,
+  initialSection = "hosts",
+}: {
+  showLabel?: boolean;
+  showHints?: boolean;
+  roomy?: boolean;
+  initialSection?: Section;
+}) {
+  const [section, setSection] = useState<Section>(initialSection);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [hostCursor, setHostCursor] = useState(() =>
     defaultHostCursor(buildHostRows({})),
   );
   const [keyCursor, setKeyCursor] = useState(0);
-  const [syncProvider, setSyncProvider] = useState<SyncProvider>("");
-  const [syncCursor, setSyncCursor] = useState(0);
+  const [syncListIndex, setSyncListIndex] = useState(0);
+  const [syncDetail, setSyncDetail] = useState(false);
+  const [syncDetailCursor, setSyncDetailCursor] = useState(0);
   const [vaultCursor, setVaultCursor] = useState(-1);
   const [filesFocus, setFilesFocus] = useState<0 | 1>(0);
-  const [localCursor, setLocalCursor] = useState(2);
-  const [remoteCursor, setRemoteCursor] = useState(0);
-  const [localMarked, setLocalMarked] = useState<Record<string, boolean>>({
-    "secret.env": true,
-  });
+  const [filePanes, setFilePanes] = useState<[FilePane, FilePane]>([
+    { mode: "picker", cursor: 0 },
+    { mode: "local", cursor: 2 },
+  ]);
+  const [fileMarks, setFileMarks] = useState<
+    [Record<string, boolean>, Record<string, boolean>]
+  >([{}, { "secret.env": true }]);
   const [filesInfo, setFilesInfo] = useState(false);
   const [filesPreview, setFilesPreview] = useState(false);
   const [previewOffset, setPreviewOffset] = useState(0);
@@ -753,28 +858,26 @@ export function TuiDemo() {
   const selectedHostRow = hostRows[safeHostCursor];
   const selectedKey = keys[Math.min(keyCursor, keys.length - 1)];
 
-  const providerPage = syncProvider ? providerPages[syncProvider] : null;
-  const syncItemCount = providerPage
-    ? providerPage.chips.length + providerPage.config.length
-    : syncTiles.length;
-  const safeSyncCursor = Math.min(syncCursor, Math.max(0, syncItemCount - 1));
+  const safeSyncListIndex = clampIndex(syncListIndex, syncProviders.length);
+  const syncProvider = syncProviders[safeSyncListIndex];
+  const syncRows = syncProvider ? syncDetailRows(syncProvider) : [];
+  const safeSyncDetailCursor = clampIndex(syncDetailCursor, syncRows.length);
   const safeVaultCursor = Math.min(vaultCursor, vaultMenu.length - 1);
-  const safeLocalCursor = Math.min(
-    localCursor,
-    Math.max(0, localFiles.length - 1),
-  );
-  const safeRemoteCursor = Math.min(
-    remoteCursor,
-    Math.max(0, remoteFiles.length - 1),
-  );
+  const focusedPane = filePanes[filesFocus];
+  const focusedFileEntry = (() => {
+    const entries = browserEntries(focusedPane);
+    if (!entries) return undefined;
+    return entries[clampIndex(focusedPane.cursor, entries.length)];
+  })();
 
   const switchSection = useCallback((next: Section) => {
     setSection(next);
     setFilesPreview(false);
     setPreviewOffset(0);
     if (next === "sync") {
-      setSyncProvider("");
-      setSyncCursor(0);
+      setSyncListIndex(0);
+      setSyncDetail(false);
+      setSyncDetailCursor(0);
     }
     if (next === "vault") {
       setVaultCursor(-1);
@@ -802,22 +905,24 @@ export function TuiDemo() {
 
   const moveSync = useCallback(
     (delta: number) => {
-      setSyncCursor((current) => {
-        if (!providerPage) {
-          return Math.max(0, Math.min(syncItemCount - 1, current + delta));
-        }
-        const chipCount = providerPage.chips.length;
-        if (delta > 0 && current < chipCount) {
-          return Math.min(syncItemCount - 1, chipCount);
-        }
-        if (delta < 0 && current === chipCount) {
-          return 0;
-        }
-        return Math.max(0, Math.min(syncItemCount - 1, current + delta));
-      });
+      if (syncDetail) {
+        setSyncDetailCursor((current) =>
+          clampIndex(current + delta, syncRows.length),
+        );
+        return;
+      }
+      setSyncListIndex((current) =>
+        clampIndex(current + delta, syncProviders.length),
+      );
+      setSyncDetailCursor(0);
     },
-    [providerPage, syncItemCount],
+    [syncDetail, syncRows.length],
   );
+
+  const openSyncDetail = useCallback(() => {
+    setSyncDetail(true);
+    setSyncDetailCursor(0);
+  }, []);
 
   const moveVault = useCallback((delta: number) => {
     setVaultCursor((current) =>
@@ -827,27 +932,32 @@ export function TuiDemo() {
 
   const moveFiles = useCallback(
     (delta: number) => {
-      if (filesFocus === 0) {
-        setLocalCursor((current) =>
-          Math.max(0, Math.min(localFiles.length - 1, current + delta)),
-        );
-      } else {
-        setRemoteCursor((current) =>
-          Math.max(0, Math.min(remoteFiles.length - 1, current + delta)),
-        );
-      }
+      setFilePanes((current) => {
+        const next: [FilePane, FilePane] = [current[0], current[1]];
+        const pane = next[filesFocus];
+        next[filesFocus] = {
+          ...pane,
+          cursor: clampIndex(
+            pane.cursor + delta,
+            filePaneCount(pane, hostRows.length),
+          ),
+        };
+        return next;
+      });
     },
-    [filesFocus],
+    [filesFocus, hostRows.length],
   );
 
-  const focusedFilesEntry = useCallback(() => {
-    const entries = filesFocus === 0 ? localFiles : remoteFiles;
-    const cursor = filesFocus === 0 ? safeLocalCursor : safeRemoteCursor;
-    return entries[cursor];
-  }, [filesFocus, safeLocalCursor, safeRemoteCursor]);
+  const setFilePane = useCallback((index: 0 | 1, pane: FilePane) => {
+    setFilePanes((current) => {
+      const next: [FilePane, FilePane] = [current[0], current[1]];
+      next[index] = pane;
+      return next;
+    });
+  }, []);
 
   const toggleFilesPreview = useCallback(() => {
-    const entry = focusedFilesEntry();
+    const entry = focusedFileEntry;
     if (!entry || entry.isDir) return;
     setFilesInfo(false);
     setFilesPreview((open) => {
@@ -856,11 +966,11 @@ export function TuiDemo() {
       }
       return !open;
     });
-  }, [focusedFilesEntry]);
+  }, [focusedFileEntry]);
 
   const scrollFilesPreview = useCallback(
     (delta: number) => {
-      const entry = focusedFilesEntry();
+      const entry = focusedFileEntry;
       const body = entry ? (filePreviewBodies[entry.name] ?? "") : "";
       const lineCount = body === "" ? 0 : body.split("\n").length;
       const maxOffset = Math.max(0, lineCount - previewVisibleLines);
@@ -868,54 +978,75 @@ export function TuiDemo() {
         Math.max(0, Math.min(maxOffset, current + delta)),
       );
     },
-    [focusedFilesEntry],
+    [focusedFileEntry],
   );
 
   const stepFilesPreview = useCallback(
     (delta: number) => {
-      const entries = filesFocus === 0 ? localFiles : remoteFiles;
-      const cursor = filesFocus === 0 ? safeLocalCursor : safeRemoteCursor;
-      const setCursor = filesFocus === 0 ? setLocalCursor : setRemoteCursor;
+      const entries = browserEntries(focusedPane);
+      if (!entries) return;
+      const cursor = clampIndex(focusedPane.cursor, entries.length);
       for (let i = 1; i < entries.length; i += 1) {
         const idx = cursor + delta * i;
-        if (idx < 0 || idx >= entries.length) {
-          return;
-        }
-        if (entries[idx].isDir) {
-          continue;
-        }
-        setCursor(idx);
+        if (idx < 0 || idx >= entries.length) return;
+        if (entries[idx].isDir) continue;
+        setFilePane(filesFocus, { ...focusedPane, cursor: idx });
         setPreviewOffset(0);
         setFilesInfo(false);
         setFilesPreview(true);
         return;
       }
     },
-    [filesFocus, safeLocalCursor, safeRemoteCursor],
+    [filesFocus, focusedPane, setFilePane],
   );
 
   const toggleFilesMark = useCallback(() => {
-    if (filesFocus !== 0) return;
-    const entry = localFiles[safeLocalCursor];
+    if (focusedPane.mode !== "local") return;
+    const entries = browserEntries(focusedPane);
+    const entry = entries?.[clampIndex(focusedPane.cursor, entries.length)];
     if (!entry) return;
-    setLocalMarked((current) => {
-      const next = { ...current };
-      if (next[entry.name]) {
-        delete next[entry.name];
-      } else {
-        next[entry.name] = true;
-      }
+    setFileMarks((current) => {
+      const next: [Record<string, boolean>, Record<string, boolean>] = [
+        { ...current[0] },
+        { ...current[1] },
+      ];
+      const marks = next[filesFocus];
+      if (marks[entry.name]) delete marks[entry.name];
+      else marks[entry.name] = true;
       return next;
     });
-  }, [filesFocus, safeLocalCursor]);
+  }, [filesFocus, focusedPane]);
 
-  const activateSync = useCallback(() => {
-    if (syncProvider) return;
-    const tile = syncTiles[safeSyncCursor];
-    if (!tile) return;
-    setSyncProvider(tile.id);
-    setSyncCursor(0);
-  }, [safeSyncCursor, syncProvider]);
+  const openFilesPickerRow = useCallback(
+    (index: 0 | 1, cursor: number) => {
+      setFilesFocus(index);
+      if (cursor <= 0) {
+        setFilePane(index, { mode: "local", cursor: 0 });
+        return;
+      }
+      const row = hostRows[cursor - 1];
+      if (!row) return;
+      if (row.kind === "group") {
+        toggleGroup(row.id);
+        setFilePane(index, { mode: "picker", cursor });
+        return;
+      }
+      setFilePane(index, { mode: "remote", cursor: 0, hostId: row.id });
+    },
+    [hostRows, setFilePane, toggleGroup],
+  );
+
+  const activateFiles = useCallback(() => {
+    const pane = filePanes[filesFocus];
+    if (pane.mode === "picker") {
+      openFilesPickerRow(
+        filesFocus,
+        clampIndex(pane.cursor, filePaneCount(pane, hostRows.length)),
+      );
+      return;
+    }
+    toggleFilesPreview();
+  }, [filePanes, filesFocus, hostRows.length, openFilesPickerRow, toggleFilesPreview]);
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
@@ -963,22 +1094,16 @@ export function TuiDemo() {
           break;
         case "h":
         case "ArrowLeft":
-          if (section === "sync" && !syncProvider) {
+          if (section === "sync" && syncDetail) {
             event.preventDefault();
-            moveSync(-1);
-          } else if (section === "sync" && providerPage && safeSyncCursor > 0 && safeSyncCursor < providerPage.chips.length) {
-            event.preventDefault();
-            moveSync(-1);
+            setSyncDetail(false);
           }
           break;
         case "l":
         case "ArrowRight":
-          if (section === "sync" && !syncProvider) {
+          if (section === "sync" && !syncDetail) {
             event.preventDefault();
-            moveSync(1);
-          } else if (section === "sync" && providerPage && safeSyncCursor < providerPage.chips.length - 1) {
-            event.preventDefault();
-            moveSync(1);
+            openSyncDetail();
           }
           break;
         case "1":
@@ -1005,10 +1130,13 @@ export function TuiDemo() {
           if (section === "files") {
             event.preventDefault();
             setFilesFocus((current) => (current === 0 ? 1 : 0));
+          } else if (section === "sync") {
+            event.preventDefault();
+            setSyncDetail((current) => !current);
           }
           break;
         case "i":
-          if (section === "files") {
+          if (section === "files" && focusedPane.mode !== "picker") {
             event.preventDefault();
             setFilesPreview(false);
             setPreviewOffset(0);
@@ -1016,7 +1144,7 @@ export function TuiDemo() {
           }
           break;
         case "o":
-          if (section === "files") {
+          if (section === "files" && focusedPane.mode !== "picker") {
             event.preventDefault();
             toggleFilesPreview();
           }
@@ -1026,9 +1154,9 @@ export function TuiDemo() {
           if (section === "hosts" && selectedHostRow?.kind === "group") {
             toggleGroup(selectedHostRow.id);
           } else if (section === "sync") {
-            activateSync();
+            if (!syncDetail) openSyncDetail();
           } else if (section === "files") {
-            toggleFilesPreview();
+            activateFiles();
           }
           break;
         case " ":
@@ -1036,16 +1164,24 @@ export function TuiDemo() {
           if (section === "hosts" && selectedHostRow?.kind === "group") {
             toggleGroup(selectedHostRow.id);
           } else if (section === "sync") {
-            activateSync();
+            if (!syncDetail) openSyncDetail();
           } else if (section === "files" && !filesPreview) {
-            toggleFilesMark();
+            if (focusedPane.mode === "picker") {
+              const cursor = clampIndex(
+                focusedPane.cursor,
+                filePaneCount(focusedPane, hostRows.length),
+              );
+              const row = cursor === 0 ? undefined : hostRows[cursor - 1];
+              if (row?.kind === "group") toggleGroup(row.id);
+            } else {
+              toggleFilesMark();
+            }
           }
           break;
         case "Escape":
-          if (section === "sync" && syncProvider) {
+          if (section === "sync" && syncDetail) {
             event.preventDefault();
-            setSyncProvider("");
-            setSyncCursor(0);
+            setSyncDetail(false);
           } else if (section === "files" && filesPreview) {
             event.preventDefault();
             setFilesPreview(false);
@@ -1053,18 +1189,38 @@ export function TuiDemo() {
           } else if (section === "files" && filesInfo) {
             event.preventDefault();
             setFilesInfo(false);
-          } else if (section === "files" && Object.keys(localMarked).length > 0) {
+          } else if (
+            section === "files" &&
+            focusedPane.mode === "local" &&
+            Object.keys(fileMarks[filesFocus]).length > 0
+          ) {
             event.preventDefault();
-            setLocalMarked({});
+            setFileMarks((current) => {
+              const next: [Record<string, boolean>, Record<string, boolean>] = [
+                current[0],
+                current[1],
+              ];
+              next[filesFocus] = {};
+              return next;
+            });
+          } else if (section === "files" && focusedPane.mode === "remote") {
+            event.preventDefault();
+            setFilePane(filesFocus, { mode: "picker", cursor: 0 });
+          } else if (section === "files") {
+            event.preventDefault();
+            switchSection("hosts");
           }
           break;
       }
     },
     [
-      activateSync,
+      activateFiles,
+      fileMarks,
+      filesFocus,
       filesInfo,
       filesPreview,
-      localMarked,
+      focusedPane,
+      hostRows,
       moveFiles,
       scrollFilesPreview,
       stepFilesPreview,
@@ -1072,49 +1228,20 @@ export function TuiDemo() {
       moveKeys,
       moveSync,
       moveVault,
-      providerPage,
-      safeSyncCursor,
+      openSyncDetail,
       section,
       selectedHostRow,
+      setFilePane,
       switchSection,
-      syncProvider,
+      syncDetail,
       toggleFilesMark,
       toggleFilesPreview,
       toggleGroup,
     ],
   );
 
-  const footerHintDesktop =
-    section === "hosts"
-      ? "↵ connect • ␣ group • a add • e edit • 5 files • ? help"
-      : section === "keys"
-        ? "g generate • i import • x export • a add to server • ? help"
-        : section === "files"
-          ? filesPreview
-            ? "j/k scroll • [ ] file • o/esc close"
-            : filesInfo
-              ? "j/k next • i/esc close"
-              : "tab pane • ␣ mark • o preview • i info • ? help"
-          : section === "vault"
-            ? "↵ action • 4 sync • ? help"
-            : syncProvider
-              ? "↵ action • esc providers • r refresh • ? help"
-              : "hjkl move • ↵ open • 1 hosts • 3 vault • 5 files • ? help";
-
-  const footerHintMobile =
-    section === "hosts"
-      ? "tap select • 1/2/3/4/5 tabs"
-      : section === "keys"
-        ? "tap select • 1/2/3/4/5 tabs"
-        : section === "files"
-          ? filesPreview
-            ? "o/esc close • 1/2/3/4/5 tabs"
-            : filesInfo
-              ? "i/esc close • 1/2/3/4/5 tabs"
-              : "tap pane • o preview • i info • 1/2/3/4/5 tabs"
-          : section === "vault"
-            ? "tap action • 1/2/3/4/5 tabs"
-            : "tap provider • 1/2/3/4/5 tabs";
+  const footerHintDesktop = showHints ? "/ for shortcuts" : "";
+  const footerHintMobile = showHints ? "/ for shortcuts" : "";
 
   return (
     <div
@@ -1133,38 +1260,45 @@ export function TuiDemo() {
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-[11px] sm:gap-x-3 sm:text-inherit">
           <TabButton
             active={section === "hosts"}
+            roomy={roomy}
             onClick={() => switchSection("hosts")}
           >
             [1] Hosts
           </TabButton>
           <TabButton
             active={section === "keys"}
+            roomy={roomy}
             onClick={() => switchSection("keys")}
           >
             [2] Keys
           </TabButton>
           <TabButton
             active={section === "vault"}
+            roomy={roomy}
             onClick={() => switchSection("vault")}
           >
             [3] Vault
           </TabButton>
           <TabButton
             active={section === "sync"}
+            roomy={roomy}
             onClick={() => switchSection("sync")}
           >
             [4] Sync
           </TabButton>
           <TabButton
             active={section === "files"}
+            roomy={roomy}
             onClick={() => switchSection("files")}
           >
             [5] Files
           </TabButton>
         </span>
-        <span className="ml-auto text-[11px] font-bold text-muted sm:text-sm md:text-[15px]">
-          Demo
-        </span>
+        {showLabel ? (
+          <span className="ml-auto text-[11px] font-bold text-muted sm:text-sm md:text-[15px]">
+            Demo
+          </span>
+        ) : null}
       </header>
 
       {section === "vault" ? (
@@ -1174,50 +1308,54 @@ export function TuiDemo() {
           onSelectMenu={setVaultCursor}
           footerDesktop={footerHintDesktop}
           footerMobile={footerHintMobile}
+          roomy={roomy}
         />
       ) : section === "sync" ? (
         <SyncPanel
-          provider={syncProvider}
-          cursor={safeSyncCursor}
-          onSelectTile={(index) => {
-            if (index === safeSyncCursor) {
-              const tile = syncTiles[index];
-              if (tile) {
-                setSyncProvider(tile.id);
-                setSyncCursor(0);
-              }
-              return;
-            }
-            setSyncCursor(index);
+          listIndex={safeSyncListIndex}
+          detail={syncDetail}
+          detailCursor={safeSyncDetailCursor}
+          onSelectProvider={(index) => {
+            setSyncListIndex(index);
+            setSyncDetail(true);
+            setSyncDetailCursor(0);
           }}
-          onSelectIndex={setSyncCursor}
-          onBack={() => {
-            setSyncProvider("");
-            setSyncCursor(0);
+          onSelectSetting={(index) => {
+            setSyncDetail(true);
+            setSyncDetailCursor(index);
           }}
           footerDesktop={footerHintDesktop}
           footerMobile={footerHintMobile}
+          roomy={roomy}
         />
       ) : section === "files" ? (
         <FilesPanel
+          panes={filePanes}
           focus={filesFocus}
-          localCursor={safeLocalCursor}
-          remoteCursor={safeRemoteCursor}
-          localMarked={localMarked}
+          hostRows={hostRows}
+          collapsed={collapsed}
+          marks={fileMarks}
+          roomy={roomy}
           info={filesInfo}
           preview={filesPreview}
           previewOffset={previewOffset}
           onFocus={setFilesFocus}
-          onSelectLocal={setLocalCursor}
-          onSelectRemote={setRemoteCursor}
-          onToggleMark={(name) => {
-            setLocalMarked((current) => {
-              const next = { ...current };
-              if (next[name]) {
-                delete next[name];
-              } else {
-                next[name] = true;
-              }
+          onOpenPickerRow={openFilesPickerRow}
+          onSelectBrowser={(index, cursor) => {
+            const pane = filePanes[index];
+            if (pane.mode === "picker") return;
+            setFilesFocus(index);
+            setFilePane(index, { ...pane, cursor });
+          }}
+          onToggleMark={(index, name) => {
+            setFilesFocus(index);
+            setFileMarks((current) => {
+              const next: [Record<string, boolean>, Record<string, boolean>] = [
+                { ...current[0] },
+                { ...current[1] },
+              ];
+              if (next[index][name]) delete next[index][name];
+              else next[index][name] = true;
               return next;
             });
           }}
@@ -1238,6 +1376,7 @@ export function TuiDemo() {
                 rows={hostRows}
                 cursor={safeHostCursor}
                 collapsed={collapsed}
+                roomy={roomy}
                 onSelect={setHostCursor}
                 onToggleGroup={toggleGroup}
                 className="shrink-0 pt-1.5"
@@ -1246,6 +1385,7 @@ export function TuiDemo() {
               <KeyList
                 items={keys}
                 cursor={keyCursor}
+                roomy={roomy}
                 onSelect={setKeyCursor}
                 className="shrink-0 pt-1.5"
               />
@@ -1272,20 +1412,26 @@ export function TuiDemo() {
                   rows={hostRows}
                   cursor={safeHostCursor}
                   collapsed={collapsed}
+                  roomy={roomy}
                   onSelect={setHostCursor}
                   onToggleGroup={toggleGroup}
-                  className="min-h-0 overflow-hidden pt-1.5"
+                  className={`min-h-0 pt-1.5 ${roomy ? "overflow-y-auto" : "overflow-hidden"}`}
                 />
               ) : (
                 <KeyList
                   items={keys}
                   cursor={keyCursor}
+                  roomy={roomy}
                   onSelect={setKeyCursor}
-                  className="min-h-0 overflow-hidden pt-1.5"
+                  className={`min-h-0 pt-1.5 ${roomy ? "overflow-y-auto" : "overflow-hidden"}`}
                 />
               )}
 
-              <div className="min-w-0 overflow-hidden pt-1.5 pb-10 pl-3 md:pl-4">
+              <div
+                className={`min-w-0 overflow-hidden pt-1.5 pl-3 md:pl-4 ${
+                  footerHintDesktop ? "pb-10" : "pb-3"
+                }`}
+              >
                 {section === "hosts" ? (
                   <HostDetailPane row={selectedHostRow} collapsed={collapsed} />
                 ) : (
@@ -1299,14 +1445,18 @@ export function TuiDemo() {
               className="pointer-events-none absolute top-0 bottom-0 left-[38%] z-10 w-px bg-border"
             />
 
-            <footer className="pointer-events-none absolute inset-x-0 bottom-0 truncate pb-5 pl-[calc(38%+0.75rem)] text-right text-[10px] text-muted sm:text-xs md:pl-[calc(38%+1rem)] md:text-sm">
-              {footerHintDesktop}
-            </footer>
+            {footerHintDesktop ? (
+              <footer className="pointer-events-none absolute bottom-0 left-0 right-[var(--demo-gutter,0px)] pb-5 pl-3 text-left text-[10px] text-muted sm:text-xs md:text-sm">
+                {footerHintDesktop}
+              </footer>
+            ) : null}
           </div>
 
-          <footer className="mt-2 shrink-0 truncate text-right text-[10px] text-muted sm:text-xs md:hidden md:text-sm">
-            {footerHintMobile}
-          </footer>
+          {footerHintMobile ? (
+            <footer className="mt-2 shrink-0 text-left text-[10px] text-muted sm:text-xs md:hidden md:text-sm">
+              {footerHintMobile}
+            </footer>
+          ) : null}
         </>
       )}
     </div>
@@ -1315,10 +1465,12 @@ export function TuiDemo() {
 
 function TabButton({
   active,
+  roomy = false,
   onClick,
   children,
 }: {
   active: boolean;
+  roomy?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -1326,9 +1478,9 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`cursor-pointer border-0 bg-transparent p-0 font-[inherit] font-bold transition-colors ${
-        active ? "text-accent" : "text-muted hover:text-foreground"
-      }`}
+      className={`cursor-pointer border-0 bg-transparent font-[inherit] font-bold transition-colors ${
+        roomy ? "px-1.5 py-1" : "p-0"
+      } ${active ? "text-accent" : "text-muted hover:text-foreground"}`}
     >
       {children}
     </button>
@@ -1336,119 +1488,100 @@ function TabButton({
 }
 
 function FilesPanel({
+  panes,
   focus,
-  localCursor,
-  remoteCursor,
-  localMarked,
+  hostRows,
+  collapsed,
+  marks,
   info,
   preview,
   previewOffset,
   onFocus,
-  onSelectLocal,
-  onSelectRemote,
+  onOpenPickerRow,
+  onSelectBrowser,
   onToggleMark,
   onToggleInfo,
   onTogglePreview,
+  roomy = false,
   footerDesktop,
   footerMobile,
 }: {
+  panes: [FilePane, FilePane];
   focus: 0 | 1;
-  localCursor: number;
-  remoteCursor: number;
-  localMarked: Record<string, boolean>;
+  hostRows: HostListRow[];
+  collapsed: Record<string, boolean>;
+  marks: [Record<string, boolean>, Record<string, boolean>];
   info: boolean;
   preview: boolean;
   previewOffset: number;
   onFocus: (pane: 0 | 1) => void;
-  onSelectLocal: (index: number) => void;
-  onSelectRemote: (index: number) => void;
-  onToggleMark: (name: string) => void;
+  onOpenPickerRow: (pane: 0 | 1, cursor: number) => void;
+  onSelectBrowser: (pane: 0 | 1, cursor: number) => void;
+  onToggleMark: (pane: 0 | 1, name: string) => void;
   onToggleInfo: () => void;
   onTogglePreview: () => void;
+  roomy?: boolean;
   footerDesktop: string;
   footerMobile: string;
 }) {
-  const previewEntry =
-    focus === 0 ? localFiles[localCursor] : remoteFiles[remoteCursor];
+  const previewEntries = browserEntries(panes[focus]);
+  const previewEntry = previewEntries
+    ? previewEntries[clampIndex(panes[focus].cursor, previewEntries.length)]
+    : undefined;
+  const side = (index: 0 | 1, compact: boolean, className?: string) => (
+    <FileSide
+      index={index}
+      pane={panes[index]}
+      focused={focus === index}
+      hostRows={hostRows}
+      collapsed={collapsed}
+      marks={marks[index]}
+      info={info}
+      roomy={roomy}
+      compact={compact}
+      className={className}
+      onFocus={onFocus}
+      onOpenPickerRow={onOpenPickerRow}
+      onSelectBrowser={onSelectBrowser}
+      onToggleMark={onToggleMark}
+      onToggleInfo={onToggleInfo}
+    />
+  );
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <div className={`h-px shrink-0 bg-border ${bleedMargin}`} />
 
       <div className="flex min-h-0 flex-1 flex-col gap-2 pt-2 md:hidden">
-        <FilesPane
-          label="local"
-          path="~/deploy"
-          tone={localTone}
-          focused={focus === 0}
-          entries={localFiles}
-          cursor={localCursor}
-          marked={localMarked}
-          info={info && focus === 0}
-          onFocus={() => onFocus(0)}
-          onSelect={onSelectLocal}
-          onToggleMark={onToggleMark}
-          onToggleInfo={onToggleInfo}
-          compact
-        />
+        {side(0, true)}
         <div className={`h-px shrink-0 bg-border ${bleedMargin}`} />
-        <FilesPane
-          label="api"
-          path="/var/www"
-          tone={remoteTone}
-          focused={focus === 1}
-          entries={remoteFiles}
-          cursor={remoteCursor}
-          info={info && focus === 1}
-          onFocus={() => onFocus(1)}
-          onSelect={onSelectRemote}
-          onToggleInfo={onToggleInfo}
-          compact
-        />
+        {side(1, true)}
       </div>
 
       <div className="relative hidden min-h-0 flex-1 pt-2 md:block">
         <div className="grid h-full min-h-0 grid-cols-2">
-          <FilesPane
-            label="local"
-            path="~/deploy"
-            tone={localTone}
-            focused={focus === 0}
-            entries={localFiles}
-            cursor={localCursor}
-            marked={localMarked}
-            info={info && focus === 0}
-            onFocus={() => onFocus(0)}
-            onSelect={onSelectLocal}
-            onToggleMark={onToggleMark}
-            onToggleInfo={onToggleInfo}
-            className="min-h-0 overflow-hidden pr-3"
-          />
-          <FilesPane
-            label="api"
-            path="/var/www"
-            tone={remoteTone}
-            focused={focus === 1}
-            entries={remoteFiles}
-            cursor={remoteCursor}
-            info={info && focus === 1}
-            onFocus={() => onFocus(1)}
-            onSelect={onSelectRemote}
-            onToggleInfo={onToggleInfo}
-            className="min-h-0 overflow-hidden pl-3 pb-10"
-          />
+          {side(0, false, "min-h-0 overflow-y-auto pr-3")}
+          {side(
+            1,
+            false,
+            `min-h-0 overflow-y-auto pl-3 ${footerDesktop ? "pb-10" : ""}`,
+          )}
         </div>
         <div
           aria-hidden
           className="pointer-events-none absolute top-0 bottom-0 left-1/2 z-10 w-px bg-border"
         />
-        <footer className="pointer-events-none absolute inset-x-0 bottom-0 truncate pb-5 text-right text-[10px] text-muted sm:text-xs md:text-sm">
-          {footerDesktop}
-        </footer>
+        {footerDesktop ? (
+          <footer className="pointer-events-none absolute bottom-0 left-0 right-[var(--demo-gutter,0px)] pb-5 text-left text-[10px] text-muted sm:text-xs md:text-sm">
+            {footerDesktop}
+          </footer>
+        ) : null}
       </div>
 
-      <footer className="mt-2 shrink-0 truncate text-right text-[10px] text-muted sm:text-xs md:hidden">
-        {footerMobile}
-      </footer>
+      {footerMobile ? (
+        <footer className="mt-2 shrink-0 text-left text-[10px] text-muted sm:text-xs md:hidden">
+          {footerMobile}
+        </footer>
+      ) : null}
 
       {preview && previewEntry && !previewEntry.isDir ? (
         <FilesPreview
@@ -1457,6 +1590,277 @@ function FilesPanel({
           onClose={onTogglePreview}
         />
       ) : null}
+    </div>
+  );
+}
+
+function FileSide({
+  index,
+  pane,
+  focused,
+  hostRows,
+  collapsed,
+  marks,
+  info,
+  roomy,
+  compact,
+  className,
+  onFocus,
+  onOpenPickerRow,
+  onSelectBrowser,
+  onToggleMark,
+  onToggleInfo,
+}: {
+  index: 0 | 1;
+  pane: FilePane;
+  focused: boolean;
+  hostRows: HostListRow[];
+  collapsed: Record<string, boolean>;
+  marks: Record<string, boolean>;
+  info: boolean;
+  roomy: boolean;
+  compact: boolean;
+  className?: string;
+  onFocus: (pane: 0 | 1) => void;
+  onOpenPickerRow: (pane: 0 | 1, cursor: number) => void;
+  onSelectBrowser: (pane: 0 | 1, cursor: number) => void;
+  onToggleMark: (pane: 0 | 1, name: string) => void;
+  onToggleInfo: () => void;
+}) {
+  if (pane.mode === "picker") {
+    return (
+      <FilesPicker
+        cursor={clampIndex(pane.cursor, 1 + hostRows.length)}
+        focused={focused}
+        hostRows={hostRows}
+        collapsed={collapsed}
+        roomy={roomy}
+        compact={compact}
+        className={className}
+        onFocus={() => onFocus(index)}
+        onOpen={(cursor) => onOpenPickerRow(index, cursor)}
+      />
+    );
+  }
+  const entries = pane.mode === "local" ? localFiles : remoteFiles;
+  const host = pane.mode === "remote" ? hostById(hostRows, pane.hostId) : undefined;
+  const label =
+    pane.mode === "local" ? "local" : (host?.alias ?? host?.name ?? pane.hostId);
+  return (
+    <FilesBrowser
+      label={label}
+      path={pane.mode === "local" ? "~" : "/"}
+      tone={pane.mode === "local" ? localTone : remoteTone}
+      focused={focused}
+      entries={entries}
+      cursor={clampIndex(pane.cursor, entries.length)}
+      marked={pane.mode === "local" ? marks : undefined}
+      info={info && focused}
+      roomy={roomy}
+      compact={compact}
+      className={className}
+      onFocus={() => onFocus(index)}
+      onSelect={(cursor) => onSelectBrowser(index, cursor)}
+      onToggleMark={
+        pane.mode === "local" ? (name) => onToggleMark(index, name) : undefined
+      }
+      onToggleInfo={onToggleInfo}
+    />
+  );
+}
+
+function FilesPicker({
+  cursor,
+  focused,
+  hostRows,
+  collapsed,
+  roomy,
+  compact,
+  className,
+  onFocus,
+  onOpen,
+}: {
+  cursor: number;
+  focused: boolean;
+  hostRows: HostListRow[];
+  collapsed: Record<string, boolean>;
+  roomy: boolean;
+  compact: boolean;
+  className?: string;
+  onFocus: () => void;
+  onOpen: (cursor: number) => void;
+}) {
+  const listRef = useRef<HTMLUListElement>(null);
+  useEffect(() => {
+    if (!focused) return;
+    scrollSelectedInto(listRef.current);
+  }, [cursor, focused, hostRows]);
+  const listClass = compact ? "max-h-44 overflow-y-auto" : className;
+  return (
+    <ul
+      ref={listRef}
+      role="listbox"
+      aria-label="Choose a host"
+      className={listClass}
+    >
+      <li role="option" aria-selected={focused && cursor === 0}>
+        <button
+          type="button"
+          onClick={() => {
+            onFocus();
+            onOpen(0);
+          }}
+          className={fileRowClass(focused && cursor === 0, roomy, true)}
+        >
+          {"   "}Local
+        </button>
+      </li>
+      {hostRows.map((row, index) => {
+        const selected = focused && cursor === index + 1;
+        const pad =
+          row.depth > 0 ? { paddingLeft: `${row.depth * 0.95}rem` } : undefined;
+        if (row.kind === "group") {
+          const indicator = collapsed[row.id] ? "▸" : "▾";
+          return (
+            <li key={row.id} role="option" aria-selected={selected}>
+              <button
+                type="button"
+                onClick={() => onOpen(index + 1)}
+                style={pad}
+                className={`w-full cursor-pointer truncate whitespace-nowrap border-0 text-left font-[inherit] font-bold transition-colors ${
+                  roomy ? "py-1.5" : "py-0.5"
+                } ${
+                  selected
+                    ? "bg-highlight text-foreground"
+                    : "bg-transparent text-accent hover:bg-highlight/70"
+                }`}
+              >
+                {indicator}{" "}
+                {row.googleCloud ? (
+                  <ProviderTitle provider="gcp" />
+                ) : row.label === "Amazon EC2" ? (
+                  <ProviderTitle provider="aws" />
+                ) : row.label === "Microsoft Azure" ? (
+                  <ProviderTitle provider="azure" />
+                ) : (
+                  row.label
+                )}{" "}
+                <span className="font-normal text-muted">({row.count})</span>
+              </button>
+            </li>
+          );
+        }
+        const prefix = row.host.favorite ? "◆ " : "  ";
+        return (
+          <li key={row.id} role="option" aria-selected={selected}>
+            <button
+              type="button"
+              onClick={() => onOpen(index + 1)}
+              style={pad}
+              className={fileRowClass(selected, roomy, true)}
+            >
+              {prefix}
+              {row.host.name}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function fileRowClass(selected: boolean, roomy: boolean, preserveSpace: boolean): string {
+  return `w-full cursor-pointer truncate border-0 text-left font-[inherit] transition-colors ${
+    preserveSpace ? "whitespace-pre" : "whitespace-nowrap"
+  } ${roomy ? "py-1.5" : "py-0.5"} ${
+    selected
+      ? "bg-highlight font-bold text-foreground"
+      : "bg-transparent text-foreground hover:bg-highlight/70"
+  }`;
+}
+
+function FilesBrowser({
+  label,
+  path,
+  tone,
+  focused,
+  entries,
+  cursor,
+  marked,
+  info,
+  onFocus,
+  onSelect,
+  onToggleMark,
+  onToggleInfo,
+  roomy = false,
+  compact = false,
+  className,
+}: {
+  label: string;
+  path: string;
+  tone: string;
+  focused: boolean;
+  entries: FileEntry[];
+  cursor: number;
+  marked?: Record<string, boolean>;
+  info?: boolean;
+  onFocus: () => void;
+  onSelect: (index: number) => void;
+  onToggleMark?: (name: string) => void;
+  onToggleInfo?: () => void;
+  roomy?: boolean;
+  compact?: boolean;
+  className?: string;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!focused || info) return;
+    scrollSelectedInto(listRef.current);
+  }, [cursor, entries, focused, info]);
+  const marker = focused ? "›" : " ";
+  const entry = entries[cursor];
+  const rootClass = compact ? "max-h-44 overflow-y-auto" : className;
+  return (
+    <div ref={listRef} className={rootClass}>
+      <button
+        type="button"
+        onClick={onFocus}
+        className="mb-1 w-full cursor-pointer truncate border-0 bg-transparent p-0 text-left font-[inherit]"
+      >
+        <span>{marker} </span>
+        <span className={focused ? "font-bold" : ""} style={{ color: tone }}>
+          {label}  {path}
+        </span>
+      </button>
+      {info && entry ? (
+        <FilesInfo entry={entry} onClose={onToggleInfo} />
+      ) : entries.length === 0 ? (
+        <p className="truncate pl-2 text-muted">Empty · a new folder · / jump</p>
+      ) : (
+        <ul role="listbox" aria-label={`${label} files`}>
+          {entries.map((item, index) => {
+            const isSelected = focused && index === cursor;
+            const isMarked = Boolean(marked?.[item.name]);
+            const prefix = isMarked ? " •" : "  ";
+            const name = item.isDir ? `${item.name}/` : item.name;
+            return (
+              <li key={item.name} role="option" aria-selected={isSelected}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onFocus();
+                    onSelect(index);
+                  }}
+                  onDoubleClick={() => onToggleMark?.(item.name)}
+                  className={fileRowClass(isSelected, roomy, true)}
+                >
+                  {prefix} {name}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -1491,91 +1895,6 @@ function FilesPreview({
         ) : null}
       </div>
     </button>
-  );
-}
-
-function FilesPane({
-  label,
-  path,
-  tone,
-  focused,
-  entries,
-  cursor,
-  marked,
-  info,
-  onFocus,
-  onSelect,
-  onToggleMark,
-  onToggleInfo,
-  compact = false,
-  className,
-}: {
-  label: string;
-  path: string;
-  tone: string;
-  focused: boolean;
-  entries: FileEntry[];
-  cursor: number;
-  marked?: Record<string, boolean>;
-  info?: boolean;
-  onFocus: () => void;
-  onSelect: (index: number) => void;
-  onToggleMark?: (name: string) => void;
-  onToggleInfo?: () => void;
-  compact?: boolean;
-  className?: string;
-}) {
-  const marker = focused ? "›" : " ";
-  const entry = entries[cursor];
-  return (
-    <div className={className}>
-      <button
-        type="button"
-        onClick={onFocus}
-        className={`mb-1 w-full cursor-pointer truncate border-0 bg-transparent p-0 text-left font-[inherit] ${
-          focused ? "font-bold" : ""
-        }`}
-        style={{ color: tone }}
-      >
-        {marker} {label}{" "}
-        <span className={focused ? "" : "font-normal"}>{path}</span>
-      </button>
-      {info && entry ? (
-        <FilesInfo entry={entry} onClose={onToggleInfo} />
-      ) : (
-        <ul
-          role="listbox"
-          aria-label={`${label} files`}
-          className={compact ? "max-h-[7.5rem] overflow-hidden" : undefined}
-        >
-          {entries.map((item, index) => {
-            const isSelected = focused && index === cursor;
-            const isMarked = Boolean(marked?.[item.name]);
-            const prefix = isMarked ? " •" : "  ";
-            const name = item.isDir ? `${item.name}/` : item.name;
-            return (
-              <li key={item.name} role="option" aria-selected={isSelected}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onFocus();
-                    onSelect(index);
-                  }}
-                  onDoubleClick={() => onToggleMark?.(item.name)}
-                  className={`w-full cursor-pointer truncate whitespace-pre border-0 py-0.5 text-left font-[inherit] transition-colors ${
-                    isSelected
-                      ? "bg-highlight font-bold text-foreground"
-                      : "bg-transparent text-foreground hover:bg-highlight/70"
-                  }`}
-                >
-                  {prefix} {name}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
   );
 }
 
@@ -1620,6 +1939,7 @@ function HostList({
   rows,
   cursor,
   collapsed,
+  roomy = false,
   onSelect,
   onToggleGroup,
   className,
@@ -1627,12 +1947,27 @@ function HostList({
   rows: HostListRow[];
   cursor: number;
   collapsed: Record<string, boolean>;
+  roomy?: boolean;
   onSelect: (index: number) => void;
   onToggleGroup: (groupId: string) => void;
   className?: string;
 }) {
+  const listRef = useRef<HTMLUListElement>(null);
+  useEffect(() => {
+    const list = listRef.current;
+    const item = list?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!list || !item) return;
+    const listRect = list.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    if (itemRect.top < listRect.top) {
+      list.scrollTop -= listRect.top - itemRect.top;
+    } else if (itemRect.bottom > listRect.bottom) {
+      list.scrollTop += itemRect.bottom - listRect.bottom;
+    }
+  }, [cursor, rows]);
+
   return (
-    <ul className={className} role="listbox" aria-label="hosts">
+    <ul ref={listRef} className={className} role="listbox" aria-label="hosts">
       {rows.map((row, index) => {
         const isSelected = index === cursor;
         const pad = row.depth > 0 ? { paddingLeft: `${row.depth * 0.95}rem` } : undefined;
@@ -1647,7 +1982,9 @@ function HostList({
                   onToggleGroup(row.id);
                 }}
                 style={pad}
-                className={`w-full cursor-pointer truncate whitespace-nowrap border-0 py-0.5 text-left font-[inherit] font-bold transition-colors ${
+                className={`w-full cursor-pointer truncate whitespace-nowrap border-0 text-left font-[inherit] font-bold transition-colors ${
+                  roomy ? "py-1.5" : "py-0.5"
+                } ${
                   isSelected
                     ? "bg-highlight text-foreground"
                     : "bg-transparent text-accent hover:bg-highlight/70"
@@ -1676,7 +2013,9 @@ function HostList({
               type="button"
               onClick={() => onSelect(index)}
               style={pad}
-              className={`w-full cursor-pointer truncate whitespace-pre border-0 py-0.5 text-left font-[inherit] transition-colors ${
+              className={`w-full cursor-pointer truncate whitespace-pre border-0 text-left font-[inherit] transition-colors ${
+                roomy ? "py-1.5" : "py-0.5"
+              } ${
                 isSelected
                   ? "bg-highlight font-bold text-foreground"
                   : "bg-transparent text-foreground hover:bg-highlight/70"
@@ -1695,11 +2034,13 @@ function HostList({
 function KeyList({
   items,
   cursor,
+  roomy = false,
   onSelect,
   className,
 }: {
   items: KeyItem[];
   cursor: number;
+  roomy?: boolean;
   onSelect: (index: number) => void;
   className?: string;
 }) {
@@ -1713,7 +2054,9 @@ function KeyList({
             <button
               type="button"
               onClick={() => onSelect(index)}
-              className={`w-full cursor-pointer truncate whitespace-nowrap border-0 py-0.5 text-left font-[inherit] transition-colors ${
+              className={`w-full cursor-pointer truncate whitespace-nowrap border-0 text-left font-[inherit] transition-colors ${
+                roomy ? "py-1.5" : "py-0.5"
+              } ${
                 isSelected
                   ? "bg-highlight font-bold text-foreground"
                   : "bg-transparent text-foreground hover:bg-highlight/70"
@@ -1883,194 +2226,240 @@ function DemoPane({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className={`h-px shrink-0 bg-border ${bleedMargin}`} />
       <div className="min-h-0 flex-1 overflow-hidden pt-1.5">{children}</div>
-      <footer className="mt-2 hidden shrink-0 truncate text-right text-[10px] text-muted sm:text-xs md:block md:text-sm">
-        {footerDesktop}
-      </footer>
-      <footer className="mt-2 shrink-0 truncate text-right text-[10px] text-muted sm:text-xs md:hidden">
-        {footerMobile}
-      </footer>
+      {footerDesktop ? (
+        <footer className="mt-2 hidden shrink-0 pr-[var(--demo-gutter,0px)] text-left text-[10px] text-muted sm:text-xs md:block md:text-sm">
+          {footerDesktop}
+        </footer>
+      ) : null}
+      {footerMobile ? (
+        <footer className="mt-2 shrink-0 text-left text-[10px] text-muted sm:text-xs md:hidden">
+          {footerMobile}
+        </footer>
+      ) : null}
     </div>
   );
 }
 
 function SyncPanel({
-  provider,
-  cursor,
-  onSelectTile,
-  onSelectIndex,
-  onBack,
+  listIndex,
+  detail,
+  detailCursor,
+  onSelectProvider,
+  onSelectSetting,
+  roomy = false,
   footerDesktop,
   footerMobile,
 }: {
-  provider: SyncProvider;
-  cursor: number;
-  onSelectTile: (index: number) => void;
-  onSelectIndex: (index: number) => void;
-  onBack: () => void;
+  listIndex: number;
+  detail: boolean;
+  detailCursor: number;
+  onSelectProvider: (index: number) => void;
+  onSelectSetting: (index: number) => void;
+  roomy?: boolean;
   footerDesktop: string;
   footerMobile: string;
 }) {
-  const page = provider ? providerPages[provider] : null;
-  const selectedTile = syncTiles[cursor];
-  const listRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (provider) return;
-    listRef.current
-      ?.querySelector<HTMLElement>(`[data-sync-index="${cursor}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [cursor, provider]);
+  const provider = syncProviders[listIndex];
+  if (!provider) return null;
   return (
-    <DemoPane footerDesktop={footerDesktop} footerMobile={footerMobile}>
-      {page && provider ? (
-        <ProviderPage
-          provider={provider}
-          page={page}
-          cursor={cursor}
-          onSelect={onSelectIndex}
-          onBack={onBack}
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className={`h-px shrink-0 bg-border ${bleedMargin}`} />
+
+      <div className="flex min-h-0 flex-1 flex-col md:hidden">
+        <SyncList
+          listIndex={listIndex}
+          roomy={roomy}
+          onSelect={onSelectProvider}
+          className="max-h-[42%] shrink-0 overflow-y-auto pt-1.5"
         />
-      ) : (
-        <div className="flex h-full min-h-0 flex-col">
-          <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
-            <div className="grid min-w-0 grid-cols-1 gap-x-2 gap-y-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              {syncTiles.map((tile, index) => (
-                <SyncTileButton
-                  key={tile.id}
-                  tile={tile}
-                  index={index}
-                  selected={index === cursor}
-                  onClick={() => onSelectTile(index)}
-                />
-              ))}
-            </div>
-          </div>
-          {selectedTile ? (
-            <p className="mt-2 shrink-0 truncate pl-2 text-muted">
-              {selectedTile.description}
-            </p>
-          ) : null}
+        <div className={`my-1.5 h-px shrink-0 bg-border ${bleedMargin}`} />
+        <SyncDetail
+          provider={provider}
+          detail={detail}
+          cursor={detailCursor}
+          roomy={roomy}
+          onSelect={onSelectSetting}
+          className="min-h-0 flex-1 overflow-y-auto pt-0.5"
+        />
+      </div>
+
+      <div className="relative hidden min-h-0 flex-1 md:block">
+        <div
+          aria-hidden
+          className={`pointer-events-none absolute top-0 h-px bg-border ${bleedX}`}
+        />
+        <div className={`${panelGrid} md:grid`}>
+          <SyncList
+            listIndex={listIndex}
+            roomy={roomy}
+            onSelect={onSelectProvider}
+            className="min-h-0 overflow-y-auto pt-1.5"
+          />
+          <SyncDetail
+            provider={provider}
+            detail={detail}
+            cursor={detailCursor}
+            roomy={roomy}
+            onSelect={onSelectSetting}
+            className={`min-h-0 overflow-y-auto pt-1.5 pl-3 md:pl-4 ${
+              footerDesktop ? "pb-10" : "pb-3"
+            }`}
+          />
         </div>
-      )}
-    </DemoPane>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute top-0 bottom-0 left-[38%] z-10 w-px bg-border"
+        />
+        {footerDesktop ? (
+          <footer className="pointer-events-none absolute bottom-0 left-0 right-[var(--demo-gutter,0px)] pb-5 pl-3 text-left text-[10px] text-muted sm:text-xs md:text-sm">
+            {footerDesktop}
+          </footer>
+        ) : null}
+      </div>
+
+      {footerMobile ? (
+        <footer className="mt-2 shrink-0 text-left text-[10px] text-muted sm:text-xs md:hidden">
+          {footerMobile}
+        </footer>
+      ) : null}
+    </div>
   );
 }
 
-function BoxRule({
-  start,
-  end,
+function SyncList({
+  listIndex,
+  roomy,
+  onSelect,
   className,
 }: {
-  start: string;
-  end: string;
-  className: string;
-}) {
-  return (
-    <span className={`flex min-w-0 ${className}`} aria-hidden>
-      <span className="shrink-0">{start}</span>
-      <span className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">
-        {"─".repeat(64)}
-      </span>
-      <span className="shrink-0">{end}</span>
-    </span>
-  );
-}
-
-function SyncTileButton({
-  tile,
-  index,
-  selected,
-  onClick,
-}: {
-  tile: SyncTile;
-  index: number;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  const edge = selected ? "text-accent" : "text-muted";
-  return (
-    <button
-      type="button"
-      data-sync-index={index}
-      onClick={onClick}
-      className="flex w-full min-w-0 cursor-pointer flex-col border-0 bg-transparent p-0 text-left font-[inherit]"
-    >
-      <BoxRule start="┌" end="┐" className={edge} />
-      <span className="flex min-w-0">
-        <span className={`shrink-0 ${edge}`}>│</span>
-        <span className="min-w-0 flex-1 truncate px-1 font-bold">
-          <ProviderTitle provider={tile.id} />
-        </span>
-        <span className={`shrink-0 ${edge}`}>│</span>
-      </span>
-      <span className="flex min-w-0">
-        <span className={`shrink-0 ${edge}`}>│</span>
-        <span className="min-w-0 flex-1 truncate px-1 text-muted">
-          {tile.detail}
-        </span>
-        <span className={`shrink-0 ${edge}`}>│</span>
-      </span>
-      <BoxRule start="└" end="┘" className={edge} />
-    </button>
-  );
-}
-
-function ProviderPage({
-  provider,
-  page,
-  cursor,
-  onSelect,
-  onBack,
-}: {
-  provider: Exclude<SyncProvider, "">;
-  page: ProviderPage;
-  cursor: number;
+  listIndex: number;
+  roomy: boolean;
   onSelect: (index: number) => void;
-  onBack: () => void;
+  className?: string;
 }) {
-  const chipCount = page.chips.length;
+  const listRef = useRef<HTMLUListElement>(null);
+  useEffect(() => {
+    scrollSelectedInto(listRef.current);
+  }, [listIndex]);
   return (
-    <>
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <p className="truncate font-bold">
-          <ProviderTitle provider={provider} />
-        </p>
-        <button
-          type="button"
-          onClick={onBack}
-          className="cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-muted hover:text-foreground"
-        >
-          esc
-        </button>
+    <ul ref={listRef} role="listbox" aria-label="providers" className={className}>
+      {syncProviders.map((provider, index) => {
+        const selected = index === listIndex;
+        return (
+          <li key={provider.id} role="option" aria-selected={selected}>
+            <button
+              type="button"
+              onClick={() => onSelect(index)}
+              className={`flex w-full min-w-0 cursor-pointer items-center gap-3 border-0 text-left font-[inherit] transition-colors ${
+                roomy ? "py-1.5" : "py-0.5"
+              } ${
+                selected
+                  ? "bg-highlight"
+                  : "bg-transparent hover:bg-highlight/70"
+              }`}
+            >
+              <span className="min-w-0 flex-1 truncate pl-1">
+                <ProviderTitle provider={provider.id} />
+              </span>
+              <span className="shrink-0 pr-2">
+                <span className={syncValueClass(provider.status)}>
+                  {provider.status}
+                </span>
+                {provider.status === "on" && provider.count ? (
+                  <span className="text-foreground"> ({provider.count})</span>
+                ) : null}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function SyncDetail({
+  provider,
+  detail,
+  cursor,
+  roomy,
+  onSelect,
+  className,
+}: {
+  provider: SyncProviderModel;
+  detail: boolean;
+  cursor: number;
+  roomy: boolean;
+  onSelect: (index: number) => void;
+  className?: string;
+}) {
+  const rows = syncDetailRows(provider);
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!detail) return;
+    scrollSelectedInto(listRef.current);
+  }, [cursor, detail, provider]);
+  const blocks: ReactNode[] = [];
+  let previous = "";
+  rows.forEach((row, index) => {
+    if (row.section !== previous) {
+      if (previous) {
+        blocks.push(<div key={`gap-${row.section}`} className="h-3" />);
+      }
+      blocks.push(<SyncSection key={row.section} title={row.section} />);
+      previous = row.section;
+    }
+    const selected = detail && index === cursor;
+    blocks.push(
+      <button
+        key={`${row.section}-${row.label}`}
+        type="button"
+        role="option"
+        aria-selected={selected}
+        onClick={() => onSelect(index)}
+        className={`flex w-full min-w-0 cursor-pointer items-baseline gap-3 border-0 text-left font-[inherit] transition-colors ${
+          roomy ? "py-1.5" : "py-0.5"
+        } ${
+          selected
+            ? "bg-highlight font-bold text-foreground"
+            : "bg-transparent text-foreground hover:bg-highlight/70"
+        }`}
+      >
+        <span className="min-w-0 flex-1 truncate pl-2">{row.label}</span>
+        {row.value ? (
+          <span className={`shrink-0 pr-2 font-normal ${syncValueClass(row.value)}`}>
+            {row.value}
+          </span>
+        ) : null}
+      </button>,
+    );
+  });
+  return (
+    <div ref={listRef} className={className}>
+      <p className="truncate pl-2">
+        <ProviderTitle provider={provider.id} />
+      </p>
+      {provider.error ? (
+        <p className="mt-2 px-2 text-[#EF4444]">{provider.error}</p>
+      ) : null}
+      <div
+        className="mt-2"
+        role="listbox"
+        aria-label={`${providerLabel[provider.id]} settings`}
+      >
+        {blocks}
       </div>
-      <div className="mb-1 space-y-0.5">
-        {page.identity.map((line) => (
-          <IdentityLine key={line} line={line} />
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-x-4 py-[1lh]">
-        {page.chips.map((label, index) => (
-          <ActionChip
-            key={label}
-            label={label}
-            active={cursor === index}
-            onClick={() => onSelect(index)}
-          />
-        ))}
-      </div>
-      <ul role="listbox" aria-label="sync config" className="max-w-md">
-        {page.config.map((item, index) => {
-          const itemIndex = chipCount + index;
-          return (
-            <MenuRow
-              key={item.label}
-              item={item}
-              selected={cursor === itemIndex}
-              onSelect={() => onSelect(itemIndex)}
-            />
-          );
-        })}
-      </ul>
-    </>
+    </div>
+  );
+}
+
+function SyncSection({ title }: { title: string }) {
+  return (
+    <p className="flex min-w-0 items-center pl-2 text-muted">
+      <span className="shrink-0">{title} </span>
+      <span aria-hidden className="min-w-0 flex-1 overflow-hidden whitespace-nowrap">
+        {"─".repeat(80)}
+      </span>
+    </p>
   );
 }
 
@@ -2078,12 +2467,14 @@ function VaultPanel({
   cursor,
   onSelectChip,
   onSelectMenu,
+  roomy = false,
   footerDesktop,
   footerMobile,
 }: {
   cursor: number;
   onSelectChip: () => void;
   onSelectMenu: (index: number) => void;
+  roomy?: boolean;
   footerDesktop: string;
   footerMobile: string;
 }) {
@@ -2108,6 +2499,7 @@ function VaultPanel({
             key={item.label}
             item={item}
             selected={cursor === index}
+            roomy={roomy}
             onSelect={() => onSelectMenu(index)}
           />
         ))}
@@ -2119,10 +2511,12 @@ function VaultPanel({
 function MenuRow({
   item,
   selected,
+  roomy = false,
   onSelect,
 }: {
   item: SyncMenuItem;
   selected: boolean;
+  roomy?: boolean;
   onSelect: () => void;
 }) {
   return (
@@ -2131,7 +2525,9 @@ function MenuRow({
         type="button"
         disabled={item.disabled}
         onClick={onSelect}
-        className={`flex w-full items-baseline gap-4 border-0 py-0.5 text-left font-[inherit] transition-colors ${
+        className={`flex w-full items-baseline gap-4 border-0 text-left font-[inherit] transition-colors ${
+          roomy ? "py-1.5" : "py-0.5"
+        } ${
           item.disabled
             ? "cursor-default bg-transparent text-muted"
             : selected
@@ -2188,18 +2584,6 @@ function ProviderTitle({
       {providerLabel[provider]}
     </span>
   );
-}
-
-function IdentityLine({ line }: { line: string }) {
-  if (line.startsWith("enabled")) {
-    return (
-      <p className="truncate">
-        <span className="text-[#10B981]">enabled</span>
-        <span className="text-muted">{line.slice("enabled".length)}</span>
-      </p>
-    );
-  }
-  return <p className="truncate text-muted">{line}</p>;
 }
 
 function GoogleCloudLabel() {

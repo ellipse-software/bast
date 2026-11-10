@@ -266,7 +266,3 @@ func (m *App) renderGroupAssignmentForm(s styleSet) string {
 	}
 	return b.String()
 }
-
-func groupAssignmentHint() string {
-	return "Type to filter • ↑/↓ choose • Enter assign/create • Esc cancel"
-}

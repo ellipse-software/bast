@@ -16,37 +16,26 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 	case ActionHelpToggle:
 		m.closeDoctor()
 		m.onboarding = false
-		m.help, m.credits, m.helpOffset = true, false, 0
+		m.credits = false
+		m.openPalette()
 		return m, nil
 	case ActionHelpClose:
-		m.help, m.helpOffset = false, 0
-		return m, nil
-	case ActionHelpScrollUp:
-		m.scrollHelp(-1)
-		return m, nil
-	case ActionHelpScrollDown:
-		m.scrollHelp(1)
-		return m, nil
-	case ActionHelpPageUp:
-		m.scrollHelp(-m.helpBodyHeight())
-		return m, nil
-	case ActionHelpPageDown:
-		m.scrollHelp(m.helpBodyHeight())
-		return m, nil
-	case ActionHelpTop:
-		m.helpOffset = 0
-		return m, nil
-	case ActionHelpBottom:
-		m.helpOffset = m.maxHelpOffset()
+		m.closePalette()
 		return m, nil
 	case ActionCreditsOpen:
-		m.closeDoctor()
-		m.onboarding = false
-		m.credits, m.help, m.helpOffset = true, false, 0
+		m.openCredits()
 		return m, nil
 	case ActionCreditsClose:
 		m.credits = false
 		return m, nil
+	case ActionCreditsLeft:
+		m.moveCreditChoice(-1)
+		return m, nil
+	case ActionCreditsRight:
+		m.moveCreditChoice(1)
+		return m, nil
+	case ActionCreditsActivate:
+		return m.openCreditChoice()
 	case ActionOnboardingReplay:
 		m.replayOnboarding()
 		return m, nil
@@ -64,10 +53,10 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 		m.scrollDoctor(1)
 		return m, nil
 	case ActionDoctorPageUp:
-		m.scrollDoctor(-m.helpBodyHeight())
+		m.scrollDoctor(-m.bodyHeight())
 		return m, nil
 	case ActionDoctorPageDown:
-		m.scrollDoctor(m.helpBodyHeight())
+		m.scrollDoctor(m.bodyHeight())
 		return m, nil
 	case ActionDoctorTop:
 		m.doctorOffset = 0

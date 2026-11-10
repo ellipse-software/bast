@@ -10,35 +10,19 @@ import (
 func TestCatalogKeysAreUniquePerScope(t *testing.T) {
 	seen := map[Scope]map[string]Action{}
 	for _, b := range catalog() {
-		if b.HelpOnly || b.SkipMatch || len(b.Keys) == 0 {
+		if len(b.Keys) == 0 || b.Available != nil {
 			continue
 		}
 		if seen[b.Scope] == nil {
 			seen[b.Scope] = map[string]Action{}
 		}
 		for _, key := range b.Keys {
-			if prev, ok := seen[b.Scope][key]; ok && prev != b.ID && b.When == nil {
-				if other := bindingWhenNil(b.Scope, key); other != b.ID && other != 0 {
-					t.Fatalf("scope %d key %q bound to %d and %d", b.Scope, key, other, b.ID)
-				}
+			if prev, ok := seen[b.Scope][key]; ok && prev != b.ID {
+				t.Fatalf("scope %d key %q bound to %d and %d", b.Scope, key, prev, b.ID)
 			}
-			if b.When == nil {
-				seen[b.Scope][key] = b.ID
-			}
+			seen[b.Scope][key] = b.ID
 		}
 	}
-}
-
-func bindingWhenNil(scope Scope, key string) Action {
-	for _, b := range catalog() {
-		if b.HelpOnly || b.SkipMatch || b.Scope != scope || b.When != nil {
-			continue
-		}
-		if keyIn(b.Keys, key) {
-			return b.ID
-		}
-	}
-	return 0
 }
 
 func TestMatchableBindingsDoNotStealKeys(t *testing.T) {
@@ -48,12 +32,9 @@ func TestMatchableBindingsDoNotStealKeys(t *testing.T) {
 	}
 	first := map[keyScope]Action{}
 	for _, b := range catalog() {
-		if b.HelpOnly || b.SkipMatch {
-			continue
-		}
 		for _, key := range b.Keys {
 			id := keyScope{b.Scope, key}
-			if prev, ok := first[id]; ok && prev != b.ID {
+			if prev, ok := first[id]; ok && prev != b.ID && b.Available == nil {
 				t.Fatalf("scope %d key %q can resolve to %d or %d", b.Scope, key, prev, b.ID)
 			}
 			if _, ok := first[id]; !ok {
@@ -63,20 +44,11 @@ func TestMatchableBindingsDoNotStealKeys(t *testing.T) {
 	}
 }
 
-func TestHelpUpScrollsUpNotDown(t *testing.T) {
-	m := testApp(t)
-	m.help = true
-	if b, ok := m.matchBinding("up"); !ok || b.ID != ActionHelpScrollUp {
-		t.Fatalf("help up = %+v ok=%v", b, ok)
-	}
-	if b, ok := m.matchBinding("down"); !ok || b.ID != ActionHelpScrollDown {
-		t.Fatalf("help down = %+v ok=%v", b, ok)
-	}
-}
-
 func TestFilesPreviewAndOpenDirBindings(t *testing.T) {
 	m := testApp(t)
 	m.section = filesSection
+	m.initFilesState()
+	m.files.panes[m.files.focus].kind = filesPaneLocal
 	if b, ok := m.matchBinding("o"); !ok || b.ID != ActionFilesPreview {
 		t.Fatalf("files o = %+v ok=%v", b, ok)
 	}
@@ -127,7 +99,10 @@ func TestKeysRemapGenerateAndInstall(t *testing.T) {
 	m.section = keysSection
 	m.keys = []keymodel.Key{{Name: "work", PublicPath: "/tmp/work.pub", PrivatePath: "/tmp/work"}}
 
-	if b, ok := m.matchBinding("g"); !ok || b.ID != ActionGenerateKey {
+	if b, ok := m.matchBinding("n"); !ok || b.ID != ActionGenerateKey {
+		t.Fatalf("keys n = %+v ok=%v", b, ok)
+	}
+	if b, ok := m.matchBinding("g"); !ok || b.ID != ActionJumpTop {
 		t.Fatalf("keys g = %+v ok=%v", b, ok)
 	}
 	if b, ok := m.matchBinding("a"); !ok || b.ID != ActionInstallKey {
@@ -146,27 +121,19 @@ func TestKeysRemapGenerateAndInstall(t *testing.T) {
 	}
 }
 
-func TestHelpOnKeysOmitsShadowedJumpTop(t *testing.T) {
+func TestKeysSheetKeepsJumpAndGenerate(t *testing.T) {
 	m := testApp(t)
 	m.section = keysSection
-	var chords []string
-	for _, group := range m.helpGroups() {
-		for _, row := range group.rows {
-			chords = append(chords, row.chord+" "+row.name)
-		}
+	m.keys = []keymodel.Key{{Name: "work", PublicPath: "/tmp/work.pub", PrivatePath: "/tmp/work"}}
+	joined := strings.Join(m.paletteContent(m.styles(), 120), "\n")
+	if !strings.Contains(joined, "generate") {
+		t.Fatalf("keys sheet missing generate:\n%s", joined)
 	}
-	joined := strings.Join(chords, "\n")
-	if !strings.Contains(joined, "Generate") {
-		t.Fatalf("keys help missing generate:\n%s", joined)
+	if !strings.Contains(joined, "add") {
+		t.Fatalf("keys sheet missing add:\n%s", joined)
 	}
-	if !strings.Contains(joined, "Add to server") {
-		t.Fatalf("keys help missing add to server:\n%s", joined)
-	}
-	if strings.Contains(joined, "g  Top") || strings.Contains(joined, "g Top") {
-		t.Fatalf("keys help still lists g as top:\n%s", joined)
-	}
-	if !strings.Contains(joined, "Home") {
-		t.Fatalf("keys help should keep Home for top:\n%s", joined)
+	if !strings.Contains(joined, "g") || !strings.Contains(joined, "top") {
+		t.Fatalf("keys sheet should keep jump to top:\n%s", joined)
 	}
 }
 
@@ -174,9 +141,9 @@ func TestKeysGOpensGenerateAndAInstalls(t *testing.T) {
 	m := testApp(t)
 	m.section = keysSection
 	m.keys = []keymodel.Key{{Name: "work", PublicPath: "/tmp/work.pub", PrivatePath: "/tmp/work"}}
-	m.Update(press("g"))
+	m.Update(press("n"))
 	if m.form == nil || m.form.action != "key_generate" {
-		t.Fatalf("g should generate: %+v", m.form)
+		t.Fatalf("n should generate: %+v", m.form)
 	}
 	m.form = nil
 	m.Update(press("a"))
@@ -190,19 +157,35 @@ func TestKeysGOpensGenerateAndAInstalls(t *testing.T) {
 	}
 }
 
-func TestHelpGDoesNotGenerate(t *testing.T) {
+func TestSlashTypesDuringSearch(t *testing.T) {
+	m := testApp(t)
+	m.Update(press("ctrl+f"))
+	if !strings.HasPrefix(m.search, "\x00") {
+		t.Fatal("ctrl+f should start the filter")
+	}
+	m.Update(press("/"))
+	if m.palette || m.search != "\x00/" {
+		t.Fatalf("slash should type into the filter: palette=%v search=%q", m.palette, m.search)
+	}
+	m.Update(press("?"))
+	if !m.palette {
+		t.Fatal("? should open the sheet while typing")
+	}
+}
+
+func TestSheetKeyRunsAndCloses(t *testing.T) {
 	m := testApp(t)
 	m.section = keysSection
-	m.help = true
-	m.helpOffset = 3
-	if b, ok := m.matchBinding("g"); !ok || b.ID != ActionHelpTop {
-		t.Fatalf("help g = %+v ok=%v", b, ok)
+	m.keys = []keymodel.Key{{Name: "work", PublicPath: "/tmp/work.pub", PrivatePath: "/tmp/work"}}
+	m.Update(press("/"))
+	if !m.palette {
+		t.Fatal("/ should open the sheet")
 	}
-	m.Update(press("g"))
-	if m.form != nil {
-		t.Fatal("g in help opened a form")
+	m.Update(press("n"))
+	if m.palette {
+		t.Fatal("running a key should close the sheet")
 	}
-	if m.helpOffset != 0 {
-		t.Fatalf("help g should jump to top: offset=%d", m.helpOffset)
+	if m.form == nil || m.form.action != "key_generate" {
+		t.Fatalf("n from the sheet should generate: %+v", m.form)
 	}
 }

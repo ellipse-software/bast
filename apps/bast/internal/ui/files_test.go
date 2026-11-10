@@ -93,7 +93,7 @@ func TestFilesPathEditCancel(t *testing.T) {
 	_ = m.enterFilesSection()
 	m.files.panes[0].kind = filesPaneLocal
 	m.files.panes[0].cwd = t.TempDir()
-	m.updateFilesKeys("/")
+	m.updateFilesKeys("ctrl+f")
 	if !m.files.panes[0].pathEdit {
 		t.Fatal("expected path edit")
 	}
@@ -396,7 +396,7 @@ func TestFilesPathEditAcceptsSpace(t *testing.T) {
 	_ = m.enterFilesSection()
 	m.files.panes[0].kind = filesPaneLocal
 	m.files.panes[0].cwd = t.TempDir()
-	m.updateFilesKeys("/")
+	m.updateFilesKeys("ctrl+f")
 	m.updateFilesKeys("space")
 	if !strings.Contains(m.files.panes[0].pathInput.Value(), " ") {
 		t.Fatalf("path input should accept space, got %q", m.files.panes[0].pathInput.Value())
@@ -813,7 +813,7 @@ func TestFilesTransferProgressHint(t *testing.T) {
 	m := testApp(t)
 	_ = m.enterFilesSection()
 	m.files.transfer = filesTransfer{active: true, move: false, preparing: true}
-	hint := m.filesFooterHint()
+	hint := m.filesActivity()
 	if !strings.Contains(hint, "preparing") {
 		t.Fatalf("preparing hint = %q", hint)
 	}
@@ -822,7 +822,7 @@ func TestFilesTransferProgressHint(t *testing.T) {
 	m.files.transfer.done = 2
 	m.files.transfer.total = 5
 	m.files.transfer.bytes = 1536
-	hint = m.filesFooterHint()
+	hint = m.filesActivity()
 	if !strings.Contains(hint, "big.bin") || !strings.Contains(hint, "2/5") || !strings.Contains(hint, "1.5 KB") {
 		t.Fatalf("progress hint = %q", hint)
 	}

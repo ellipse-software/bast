@@ -51,14 +51,6 @@ func (m *App) tabDigit(sec section) (string, bool) {
 	return "", false
 }
 
-func (m *App) tabsChord() string {
-	n := len(m.visibleSections())
-	if n < 2 {
-		return "1"
-	}
-	return "1 … " + strconv.Itoa(n)
-}
-
 func sectionTitle(sec section) string {
 	switch sec {
 	case keysSection:

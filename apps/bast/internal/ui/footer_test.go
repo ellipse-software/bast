@@ -4,41 +4,33 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/lipgloss/v2"
-
 	keymodel "bast/internal/keys"
 	"bast/internal/metadata"
 	"bast/internal/sshconfig"
 )
 
-func TestFitFooterHintDropsTrailingActions(t *testing.T) {
-	parts := []string{"enter", "e edit", "F files", "?"}
-	wide := fitFooterHint(parts, 80)
-	if wide != "enter · e edit · F files · ?" {
-		t.Fatalf("wide = %q", wide)
-	}
-	narrow := fitFooterHint(parts, 12)
-	if lipgloss.Width(narrow) > 12 {
-		t.Fatalf("narrow too wide: %q (%d)", narrow, lipgloss.Width(narrow))
-	}
-	if !strings.Contains(narrow, "enter") && narrow != "?" {
-		t.Fatalf("narrow should keep primary action: %q", narrow)
-	}
+func sheet(m *App) string {
+	return stripANSI(strings.Join(m.paletteContent(m.styles(), 160), "\n"))
 }
 
-func TestContextualFootersBySection(t *testing.T) {
+func TestContextualSheetBySection(t *testing.T) {
 	m := testApp(t)
 	m.width = 100
 
 	m.section = hostsSection
 	m.hosts = nil
-	if got := m.browseFooterHint(80); got != "a add · A desktop or web · ?" {
+	got := sheet(m)
+	if !strings.Contains(got, "add") || !strings.Contains(got, "desktop or web") {
 		t.Fatalf("empty hosts = %q", got)
+	}
+	if strings.Contains(got, "connect") {
+		t.Fatalf("empty hosts should not offer connect: %q", got)
 	}
 
 	m.hosts = []sshconfig.Host{{Alias: "alpha", Managed: true}}
 	m.cursor = 0
-	if got := m.browseFooterHint(80); !strings.Contains(got, "enter") || !strings.Contains(got, "F files") {
+	got = sheet(m)
+	if !strings.Contains(got, "connect") || !strings.Contains(got, "files") {
 		t.Fatalf("host = %q", got)
 	}
 
@@ -47,44 +39,55 @@ func TestContextualFootersBySection(t *testing.T) {
 	}
 	m.sortHosts()
 	m.cursor = 0
-	if got := m.browseFooterHint(80); !strings.Contains(got, "␣") || !strings.Contains(got, "e edit") {
+	got = sheet(m)
+	if !strings.Contains(got, "␣") || !strings.Contains(got, "edit") {
 		t.Fatalf("group = %q", got)
 	}
 
 	m.section = keysSection
 	m.keys = nil
-	if got := m.browseFooterHint(80); got != "g generate · i import · ?" {
+	got = sheet(m)
+	if !strings.Contains(got, "generate") || !strings.Contains(got, "import") {
+		t.Fatalf("empty keys = %q", got)
+	}
+	if strings.Contains(got, "add") && strings.Contains(got, "n") == false {
 		t.Fatalf("empty keys = %q", got)
 	}
 	m.keys = []keymodel.Key{{Name: "work", PublicPath: "/tmp/work.pub", PrivatePath: "/tmp/work"}}
 	m.cursor = 0
-	if got := m.browseFooterHint(80); !strings.Contains(got, "a add") || strings.Contains(got, "u add") {
+	got = sheet(m)
+	if !strings.Contains(got, "add") {
 		t.Fatalf("selected key = %q", got)
 	}
 
 	m.section = vaultSection
 	m.syncCursor = -1
-	if got := m.browseFooterHint(80); !strings.Contains(got, "enter link") {
+	got = sheet(m)
+	if !strings.Contains(got, "link") {
 		t.Fatalf("unlinked vault = %q", got)
 	}
 
 	m.section = syncSection
 	m.syncProvider = ""
-	if got := m.browseFooterHint(80); !strings.Contains(got, "enter open") {
+	got = sheet(m)
+	if !strings.Contains(got, "open") {
 		t.Fatalf("sync root = %q", got)
 	}
 	m.syncProvider = "gcp"
-	if got := m.browseFooterHint(80); !strings.Contains(got, "esc back") {
+	got = sheet(m)
+	if !strings.Contains(got, "back") {
 		t.Fatalf("sync provider = %q", got)
 	}
 
 	m.section = filesSection
 	m.initFilesState()
-	if got := m.browseFooterHint(80); !strings.Contains(got, "enter connect") || !strings.Contains(got, "/ search") || !strings.Contains(got, "esc back") {
+	got = sheet(m)
+	if !strings.Contains(got, "connect") || !strings.Contains(got, "search") {
 		t.Fatalf("files picker = %q", got)
 	}
 	m.files.panes[m.files.focus].kind = filesPaneLocal
-	if got := m.browseFooterHint(80); !strings.Contains(got, "tab") || !strings.Contains(got, "esc back") {
+	got = sheet(m)
+	if !strings.Contains(got, "pane") || !strings.Contains(got, "hosts") {
 		t.Fatalf("files browse = %q", got)
 	}
 }

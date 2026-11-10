@@ -1,8 +1,17 @@
 "use client";
 
 import { Check, ChevronDown } from "lucide-react";
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
+import { OsMark } from "@/components/os-mark";
+import { nightMenuClass } from "@/lib/night";
 import { bastReleaseUrl, bastRepoUrl } from "@/lib/github";
 import {
   defaultMethodFor,
@@ -106,12 +115,20 @@ function CommandDisplay({
   }
 }
 
+type InstallOption<T extends string> = {
+  id: T;
+  label: string;
+  icon?: ReactNode;
+};
+
 type InstallSelectProps<T extends string> = {
   value: T;
-  options: { id: T; label: string }[];
+  options: InstallOption<T>[];
   open: boolean;
   listboxId: string;
   ariaLabel: string;
+  menuAlign?: "start" | "end";
+  menuClassName?: string;
   onToggle: () => void;
   onSelect: (id: T) => void;
 };
@@ -122,10 +139,13 @@ function InstallSelect<T extends string>({
   open,
   listboxId,
   ariaLabel,
+  menuAlign = "start",
+  menuClassName = "bg-background",
+  night = false,
   onToggle,
   onSelect,
-}: InstallSelectProps<T>) {
-  const current = options.find((entry) => entry.id === value)?.label ?? value;
+}: InstallSelectProps<T> & { night?: boolean }) {
+  const current = options.find((entry) => entry.id === value);
 
   return (
     <div className="relative flex">
@@ -134,11 +154,12 @@ function InstallSelect<T extends string>({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listboxId}
-        aria-label={`${ariaLabel}: ${current}`}
+        aria-label={`${ariaLabel}: ${current?.label ?? value}`}
         onClick={onToggle}
-        className="flex items-center gap-1 whitespace-nowrap px-2 py-0.5 text-[11px] leading-none text-muted transition-colors hover:text-foreground"
+        className="flex items-center gap-1 whitespace-nowrap px-2 py-0.5 text-[11px] leading-none text-muted transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-foreground"
       >
-        {current}
+        {current?.icon}
+        {current?.label ?? value}
         <ChevronDown
           className={`size-3 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
           aria-hidden
@@ -149,19 +170,32 @@ function InstallSelect<T extends string>({
           id={listboxId}
           role="listbox"
           aria-label={ariaLabel}
-          className="absolute left-0 top-full z-20 mt-1 min-w-full whitespace-nowrap border border-border bg-background py-1 shadow-lg"
+          className={
+            night
+              ? `night-menu absolute top-full z-20 mt-2 min-w-full whitespace-nowrap py-1.5 ${nightMenuClass} ${
+                  menuAlign === "end" ? "right-0" : "left-0"
+                }`
+              : `absolute top-full z-20 mt-1 min-w-full whitespace-nowrap border border-border py-1 shadow-lg ${menuClassName} ${
+                  menuAlign === "end" ? "right-0" : "left-0"
+                }`
+          }
         >
-          {options.map(({ id, label }) => (
+          {options.map(({ id, label, icon }) => (
             <li key={id} role="option" aria-selected={value === id}>
               <button
                 type="button"
                 onClick={() => onSelect(id)}
-                className={`block w-full px-2.5 py-1 text-left text-[11px] transition-colors ${
+                className={`flex w-full items-center gap-1.5 text-left text-[11px] transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 ${
+                  night
+                    ? "px-3 py-1.5 hover:bg-white/5 focus-visible:outline-[#c6b6f2]"
+                    : "px-2.5 py-1 focus-visible:outline-foreground"
+                } ${
                   value === id
                     ? "text-foreground"
                     : "text-muted hover:text-foreground"
                 }`}
               >
+                {icon}
                 {label}
               </button>
             </li>
@@ -177,12 +211,18 @@ type OpenMenu = "platform" | "method" | null;
 type InstallCommandProps = {
   version?: string | null;
   wingetAvailable: boolean;
+  showVersion?: boolean;
+  platformIcons?: boolean;
+  controlsPlacement?: "start" | "above";
   className?: string;
 };
 
 export function InstallCommand({
   version,
   wingetAvailable,
+  showVersion = true,
+  platformIcons = false,
+  controlsPlacement = "start",
   className = "w-full max-w-xl",
 }: InstallCommandProps) {
   const windowsAvailable = supportsWindowsRelease(version);
@@ -211,10 +251,16 @@ export function InstallCommand({
     selectedMethod ?? defaultMethodFor(platform),
     wingetAvailable,
   );
-  const platforms = installPlatforms(windowsAvailable);
+  const platforms = installPlatforms(windowsAvailable).map((entry) => ({
+    ...entry,
+    icon: platformIcons ? (
+      <OsMark platform={entry.id} className="size-3 shrink-0" />
+    ) : undefined,
+  }));
   const methods = methodsForPlatform(platform, wingetAvailable);
   const showNightly = methodSupportsNightly(method);
   const prompt = promptFor(method);
+  const controlsAbove = controlsPlacement === "above";
 
   useEffect(() => {
     if (!openMenu) return;
@@ -260,14 +306,26 @@ export function InstallCommand({
   return (
     <div className={className}>
       <div ref={rootRef} className="relative">
-        <div className="absolute left-3 top-0 z-10 -translate-y-[calc(50%+6px)]">
-          <div className="inline-flex items-stretch border border-border bg-background">
+        <div
+          className={
+            controlsAbove
+              ? "absolute left-0 top-0 z-10 flex w-max -translate-y-[calc(100%-1px)]"
+              : "absolute left-3 top-0 z-10 -translate-y-[calc(50%+6px)]"
+          }
+        >
+          <div
+            className={`inline-flex items-stretch border border-border ${
+              controlsAbove ? "border-b-0 bg-surface" : "bg-background"
+            }`}
+          >
             <InstallSelect
               value={platform}
               options={platforms}
               open={openMenu === "platform"}
               listboxId={platformListboxId}
               ariaLabel="Operating system"
+              menuClassName={controlsAbove ? "bg-surface" : "bg-background"}
+              night={controlsAbove}
               onToggle={() =>
                 setOpenMenu((current) =>
                   current === "platform" ? null : "platform",
@@ -275,13 +333,15 @@ export function InstallCommand({
               }
               onSelect={selectPlatform}
             />
-            <div className="border-l border-border">
+            <div className={controlsAbove ? "contents" : "border-l border-border"}>
               <InstallSelect
                 value={method}
                 options={methods}
                 open={openMenu === "method"}
                 listboxId={methodListboxId}
                 ariaLabel="Install method"
+                menuClassName={controlsAbove ? "bg-surface" : "bg-background"}
+                night={controlsAbove}
                 onToggle={() =>
                   setOpenMenu((current) =>
                     current === "method" ? null : "method",
@@ -300,7 +360,9 @@ export function InstallCommand({
                   setNightly((current) => !current);
                   setCopied(false);
                 }}
-                className="flex items-center gap-1.5 border-l border-border px-2 py-0.5 text-[11px] leading-none text-muted transition-colors hover:text-foreground"
+                className={`flex items-center gap-1.5 px-2 py-0.5 text-[11px] leading-none text-muted transition-colors hover:text-foreground ${
+                  controlsAbove ? "" : "border-l border-border"
+                }`}
               >
                 <span
                   aria-hidden
@@ -321,7 +383,9 @@ export function InstallCommand({
         <div className="border border-border bg-surface">
           <div className="flex flex-col sm:flex-row sm:items-stretch">
             <div
-              className="flex min-w-0 items-center overflow-x-auto px-4 pb-3 pt-4 font-mono text-xs text-foreground sm:flex-1 sm:pb-3 sm:pt-4 sm:text-sm"
+              className={`flex min-w-0 items-center overflow-x-auto px-4 font-mono text-xs text-foreground sm:flex-1 sm:text-sm ${
+                controlsAbove ? "py-3" : "pb-3 pt-4 sm:pb-3 sm:pt-4"
+              }`}
               aria-live="polite"
             >
               {copied ? (
@@ -353,7 +417,7 @@ export function InstallCommand({
           </div>
         </div>
       </div>
-      {version ? (
+      {showVersion && version ? (
         <p className="mt-3 text-center text-xs text-muted">
           Latest release{" "}
           <a

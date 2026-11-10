@@ -855,7 +855,7 @@ func (m *App) syncTileWidth() int {
 }
 
 func (m *App) syncBodyHeight() int {
-	return max(1, m.terminalHeight()-3)
+	return m.bodyHeight()
 }
 
 const (

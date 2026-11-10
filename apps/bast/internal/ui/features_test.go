@@ -59,8 +59,8 @@ func TestDisabledFeaturesOmitOnboardingRows(t *testing.T) {
 		t.Fatalf("onboarding still offers a hidden feature:\n%s", view)
 	}
 	m.Update(press("3"))
-	if m.section != filesSection || m.onboarding {
-		t.Fatalf("onboarding 3 should open Files: onboarding=%v section=%v", m.onboarding, m.section)
+	if m.section != hostsSection || m.onboarding {
+		t.Fatalf("onboarding 3 should continue to Hosts: onboarding=%v section=%v", m.onboarding, m.section)
 	}
 }
 
@@ -94,8 +94,8 @@ func TestSyncOffSkipsAutoSyncAndProviderActions(t *testing.T) {
 	if m.form != nil {
 		t.Fatalf("n opened a form while sync is off: %#v", m.form)
 	}
-	if !strings.Contains(m.status, "BAST_NO_SYNC") {
-		t.Fatalf("status = %q", m.status)
+	if strings.Contains(m.status, "BAST_NO_SYNC") {
+		t.Fatalf("unavailable new should stay quiet, status = %q", m.status)
 	}
 
 	local := testApp(t)

@@ -194,7 +194,7 @@ func (m *App) filesPreviewContentWidth() int {
 }
 
 func (m *App) filesPreviewInnerHeight() int {
-	bodyH := max(1, m.terminalHeight()-3)
+	bodyH := m.bodyHeight()
 	if m.isMobileLayout() {
 		return max(6, bodyH-4)
 	}
@@ -233,7 +233,7 @@ func (m *App) renderFilesPreview(s styleSet) string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#6B7280")).
 		Render(b.String())
-	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, panel)
+	return lipgloss.Place(m.terminalWidth(), m.bodyHeight(), lipgloss.Center, lipgloss.Center, panel)
 }
 
 func (m *App) filesPreviewTitle(width int) string {

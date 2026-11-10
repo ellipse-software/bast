@@ -97,7 +97,7 @@ bast hosts list         # list hosts
 bast keys list          # list keys
 ```
 
-Press `?` in the TUI for keybindings. [Documentation](https://bast.sh/docs) covers hosts, keys, Vault, cloud sync, Files, doctor, and the CLI.
+Press `/` in the TUI for the actions available right now. [Documentation](https://bast.sh/docs) covers hosts, keys, Vault, cloud sync, Files, doctor, and the CLI.
 
 ## Agent skill
 

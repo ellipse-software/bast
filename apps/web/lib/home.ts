@@ -1,6 +1,8 @@
 export const homeHeadline =
   "Bast.sh: native SSH picker and key manager";
 
+export const homeTitle = "The fast way into the servers you use every day.";
+
 export const homeLead =
   "Browse SSH hosts, transfer files over SFTP, sync cloud VMs, manage keys, and connect from the terminal.";
 

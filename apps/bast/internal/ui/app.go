@@ -111,8 +111,6 @@ type processDoneMsg struct {
 
 type clearStatusMsg uint64
 
-type hostSaveHintTickMsg uint64
-
 type reportResultMsg struct {
 	err error
 }
@@ -191,9 +189,10 @@ type App struct {
 	cursor              int
 	search              string
 	form                *form
-	help                bool
-	helpOffset          int
+	palette             bool
+	paletteOffset       int
 	credits             bool
+	creditsChoice       int
 	onboarding          bool
 	onboardingTracked   bool
 	onboardingReplay    bool
@@ -212,8 +211,6 @@ type App struct {
 	statusError         bool
 	statusID            uint64
 	errorOffset         int
-	hostSaveHintID      uint64
-	hostSaveHintEnter   bool
 	width               int
 	height              int
 	dark                bool
@@ -552,8 +549,8 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		if m.help {
-			m.clampHelpOffset()
+		if m.palette {
+			m.clampPaletteOffset()
 		}
 		if m.doctor {
 			m.clampDoctorOffset()
@@ -977,12 +974,6 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = ""
 		}
 		return m, nil
-	case hostSaveHintTickMsg:
-		if uint64(msg) != m.hostSaveHintID || m.form == nil || !isHostForm(m.form) {
-			return m, nil
-		}
-		m.hostSaveHintEnter = !m.hostSaveHintEnter
-		return m, m.hostSaveHintTickCmd()
 	case updateAvailableMsg:
 		m.latestVersion, m.updateSuggestion = msg.version, msg.suggestion
 		return m, nil
@@ -1012,61 +1003,95 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.closeOwnedTunnels()
 			return m, tea.Quit
 		}
-		if m.statusError && m.status != "" {
-			switch msg.String() {
-			case "q":
-				m.closeOwnedTunnels()
-				return m, tea.Quit
-			case "space":
-				if telemetry.Enabled() {
-					report := telemetry.Report{
-						Message: m.status,
-						Version: m.version,
-						Context: "tui",
-					}
-					m.statusID++
-					m.status, m.statusError = "Sending report…", false
-					m.errorOffset = 0
-					return m, func() tea.Msg {
-						return reportResultMsg{err: telemetry.ReportError(report)}
-					}
-				}
-				m.dismissError()
-				return m, nil
-			case "enter", "esc", "backspace", "ctrl+h":
-				m.dismissError()
-			case "up", "k":
-				m.scrollError(-1)
-			case "down", "j":
-				m.scrollError(1)
-			case "pgup":
-				m.scrollError(-m.errorPage())
-			case "pgdown":
-				m.scrollError(m.errorPage())
-			case "g", "home":
-				m.errorOffset = 0
-			case "G", "end":
-				m.errorOffset = m.maxErrorOffset()
-			}
-			return m, nil
-		}
-		if msg.String() == "esc" && m.vaultBusy != "" && m.form == nil {
-			m.cancelVaultOp()
-			return m, m.setNotice("Vault cancelled")
-		}
-		if m.form != nil {
-			return m.updateForm(msg)
-		}
 		if m.onboarding {
 			return m.updateOnboarding(msg.String())
 		}
-		model, cmd := m.updateKeys(msg)
-		if m.form != nil && isHostForm(m.form) {
-			cmd = tea.Batch(cmd, m.hostSaveHintTickCmd())
+		if m.palette {
+			return m.updatePalette(msg)
 		}
-		return model, cmd
+		if msg.String() == "?" || (msg.String() == "/" && m.slashOpensSheet()) {
+			m.openPalette()
+			return m, nil
+		}
+		return m.routeKey(msg)
 	}
 	return m, nil
+}
+
+func (m *App) updatePalette(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "/", "?", "esc":
+		m.closePalette()
+		return m, nil
+	case "pgup":
+		if m.paletteOverflow() {
+			m.scrollPalette(-m.paletteVisibleRows())
+			return m, nil
+		}
+	case "pgdown":
+		if m.paletteOverflow() {
+			m.scrollPalette(m.paletteVisibleRows())
+			return m, nil
+		}
+	}
+	if !m.paletteHasKey(key) {
+		return m, nil
+	}
+	m.closePalette()
+	return m.routeKey(msg)
+}
+
+func (m *App) routeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.statusError && m.status != "" {
+		switch msg.String() {
+		case "q":
+			m.closeOwnedTunnels()
+			return m, tea.Quit
+		case "space":
+			if telemetry.Enabled() {
+				report := telemetry.Report{
+					Message: m.status,
+					Version: m.version,
+					Context: "tui",
+				}
+				m.statusID++
+				m.status, m.statusError = "Sending report…", false
+				m.errorOffset = 0
+				return m, func() tea.Msg {
+					return reportResultMsg{err: telemetry.ReportError(report)}
+				}
+			}
+			m.dismissError()
+			return m, nil
+		case "enter", "esc", "backspace", "ctrl+h":
+			m.dismissError()
+		case "up", "k":
+			m.scrollError(-1)
+		case "down", "j":
+			m.scrollError(1)
+		case "pgup":
+			m.scrollError(-m.errorPage())
+		case "pgdown":
+			m.scrollError(m.errorPage())
+		case "g", "home":
+			m.errorOffset = 0
+		case "G", "end":
+			m.errorOffset = m.maxErrorOffset()
+		}
+		return m, nil
+	}
+	if msg.String() == "esc" && m.vaultBusy != "" && m.form == nil {
+		m.cancelVaultOp()
+		return m, m.setNotice("Vault cancelled")
+	}
+	if m.form != nil {
+		return m.updateForm(msg)
+	}
+	if m.onboarding {
+		return m.updateOnboarding(msg.String())
+	}
+	return m.updateKeys(msg)
 }
 
 func (m *App) View() tea.View {

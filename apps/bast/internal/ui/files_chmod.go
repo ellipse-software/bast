@@ -450,12 +450,3 @@ func (m *App) renderFilesChmod(s styleSet, width int) string {
 
 	return b.String()
 }
-
-func (m *App) filesChmodHint() string {
-	c := m.files.chmod
-	enter := enterGlyph(m.windowsTerminal)
-	if c.octalEdit {
-		return "type octal · " + enter + " apply · esc back"
-	}
-	return "␣ toggle · 0-7 set · " + enter + " apply · esc"
-}

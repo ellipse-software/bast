@@ -3,13 +3,18 @@
 import { NavDropdown } from "@/components/nav-dropdown";
 import { comparisonNavItems } from "@/lib/marketing";
 
-export function ComparisonsNav() {
+export function ComparisonsNav({
+  tone = "default",
+}: {
+  tone?: "default" | "night";
+}) {
   return (
     <NavDropdown
       label="Comparisons"
       href="/alternatives"
       menuLabel="Comparisons"
       toggleLabel="Open comparisons menu"
+      tone={tone}
       overview={{
         href: "/alternatives",
         label: "All comparisons",

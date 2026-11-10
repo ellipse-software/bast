@@ -10,7 +10,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"bast/internal/files"
-	"bast/internal/platform"
 	"bast/internal/sshconfig"
 )
 
@@ -554,7 +553,7 @@ func (m *App) updateFilesKeys(key string) (tea.Model, tea.Cmd) {
 		}
 		pane.showHidden = !pane.showHidden
 		return m, m.refreshFilesPane(m.files.focus)
-	case "/":
+	case "ctrl+f":
 		if pane.pickingHost() {
 			pane.hostSearch = "\x00"
 			pane.hostCursor = 0
@@ -1036,44 +1035,24 @@ func (m *App) updateFilesMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
-func (m *App) filesFooterHint() string {
-	if status := m.filesFooterStatus(); status != "" {
-		return status
+func (m *App) filesActivity() string {
+	if m.section != filesSection {
+		return ""
 	}
-	return strings.Join(m.catalogFooterParts(), " · ")
-}
-
-func (m *App) filesFooterStatus() string {
 	m.initFilesState()
-	if m.files.chmod.active {
-		return m.filesChmodHint()
-	}
-	if m.files.preview.active {
-		if m.files.preview.loading {
-			return "loading… o/esc close"
-		}
-		return "j/k scroll · [ ] file · o/esc close"
-	}
-	if m.files.info {
-		if m.filesFocusedPane().kind == filesPaneLocal && !platform.SupportsPOSIXPermissions() {
-			return "j/k next · i/esc close"
-		}
-		return "j/k next · p chmod · i/esc close"
+	if m.files.preview.active && m.files.preview.loading {
+		return "loading…"
 	}
 	if m.files.transfer.active {
-		return m.filesTransferHint()
+		return m.filesTransferActivity()
 	}
-	if m.files.jump.active {
-		return "type · label jumps · esc"
-	}
-	pane := m.filesFocusedPane()
-	if pane.connecting {
-		return "connecting… esc"
+	if m.filesFocusedPane().connecting {
+		return "connecting…"
 	}
 	return ""
 }
 
-func (m *App) filesTransferHint() string {
+func (m *App) filesTransferActivity() string {
 	t := m.files.transfer
 	action := "copying"
 	if t.move {
@@ -1092,7 +1071,6 @@ func (m *App) filesTransferHint() string {
 	if t.bytes > 0 {
 		parts = append(parts, formatByteCount(t.bytes))
 	}
-	parts = append(parts, "esc")
 	return strings.Join(parts, " · ")
 }
 

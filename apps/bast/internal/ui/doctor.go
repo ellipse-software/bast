@@ -17,7 +17,7 @@ type doctorDoneMsg struct {
 }
 
 func (m *App) openDoctor() tea.Cmd {
-	m.help, m.credits, m.helpOffset = false, false, 0
+	m.palette, m.credits, m.paletteOffset = false, false, 0
 	m.onboarding = false
 	m.doctor, m.doctorOffset, m.doctorLoading = true, 0, true
 	m.doctorReport = doctor.Report{}
@@ -38,7 +38,7 @@ func (m *App) closeDoctor() {
 }
 
 func (m *App) doctorLines(s styleSet) []string {
-	width := m.helpContentWidth()
+	width := m.contentWidth()
 	lines := []string{"", s.active.Render("Doctor"), ""}
 	if m.doctorLoading {
 		return append(lines, s.muted.Render("Checking SSH setup…"))
@@ -113,7 +113,7 @@ func doctorSummary(r doctor.Report) string {
 
 func (m *App) renderDoctor(s styleSet) string {
 	lines := m.doctorLines(s)
-	bodyHeight := m.helpBodyHeight()
+	bodyHeight := m.bodyHeight()
 	offset := min(max(0, m.doctorOffset), max(0, len(lines)-bodyHeight))
 	end := min(len(lines), offset+bodyHeight)
 	content := lipgloss.NewStyle().
@@ -123,7 +123,7 @@ func (m *App) renderDoctor(s styleSet) string {
 }
 
 func (m *App) maxDoctorOffset() int {
-	return max(0, len(m.doctorLines(m.styles()))-m.helpBodyHeight())
+	return max(0, len(m.doctorLines(m.styles()))-m.bodyHeight())
 }
 
 func (m *App) clampDoctorOffset() {

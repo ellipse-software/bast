@@ -3,7 +3,7 @@ title: Keyboard shortcuts
 description: Every keybinding in the Bast TUI, from navigation to host and key actions.
 ---
 
-Press `?` inside Bast for the in-app reference. Press `v` for version info, credits, and update hints. A first TUI with no hosts is a skippable start chooser; see [First launch](/docs/features/onboarding).
+Press `/` or `?` for the actions that work on the current row. The sheet sits at the bottom and lists only those. Press one of the keys to run it, or `Esc` to close the sheet. While a text field is focused, `/` types a slash and `?` opens the sheet. Press `v` for version info, credits, and update hints. A first TUI with no hosts is a skippable start chooser; see [First launch](/docs/features/onboarding).
 
 ## Navigation
 
@@ -16,12 +16,12 @@ Press `?` inside Bast for the in-app reference. Press `v` for version info, cred
 | `3` | Switch to vault tab |
 | `4` | Switch to sync tab |
 | `5` | Switch to files tab |
-| `/` | Search |
+| `/` or `?` | Action sheet for what is possible now |
+| `Ctrl+F` | Filter the Hosts or Keys list |
 | `r` | Reload config from disk (or refresh sync status on the Sync tab; sync now on Vault) |
-| `?` | Toggle help |
-| `v` | About and version info (`o` replays first-launch chooser, `s` opens https://bast.sh/sponsor) |
+| `v` | About and version info. `o` replays the first-launch chooser. Sponsor, Discord, and Website sit in a row. Sponsor starts selected. `h` / `l` or `←` / `→` move. Enter opens the selected one. `s` opens the sponsor page directly |
 | `D` | Doctor (not in Files; Files uses `D` to disconnect) |
-| `q` | Quit |
+| `q` or `Ctrl+C` | Quit. `Esc` and Backspace do not quit from the host, key, or vault list |
 
 ## Hosts
 
@@ -30,6 +30,7 @@ Press `?` inside Bast for the in-app reference. Press `v` for version info, cred
 | `Enter` | Connect to selected host, or add selected history suggestion |
 | Click / tap **Connect** | Connect on narrow terminals ([mobile layout](/docs/features/mobile-view)) |
 | `a` | Add a host |
+| `A` | Add a Remote Desktop entry or a web page |
 | `e` | Edit selected host, or review selected history suggestion |
 | `m` | Move selected local host to a group |
 | `x` | Dismiss selected history suggestion |
@@ -42,7 +43,8 @@ Press `?` inside Bast for the in-app reference. Press `v` for version info, cred
 | `Space` | Collapse or expand group, including Suggested |
 | `→` | Expand the focused group |
 | `←` | Collapse the focused group, or move to its parent |
-| `Ctrl+O` | Open Remote Desktop for the selected host |
+| `Ctrl+O` | Open Remote Desktop for the selected host, or open the selected Remote Desktop or web entry |
+| `Ctrl+P` | Start a background forward for a host that has local, remote, or dynamic forwards |
 | `s` | Cycle sort mode, or sync the selected provider group |
 | `n` | New on a provider group that can create, or fork a Boat, Upstash, Vercel, Fly.io, DigitalOcean, or boxd host |
 | `o` | Stop or pause a Boat, Upstash, Vercel, Hetzner, BitQate, Railway, Fly.io, DigitalOcean, or boxd host |
@@ -61,7 +63,7 @@ Press `?` inside Bast for the in-app reference. Press `v` for version info, cred
 
 | Key | Action |
 | --- | --- |
-| `g` | Generate a key |
+| `n` | Generate a key |
 | `i` | Import a key |
 | `e` | Edit public key comment |
 | `d` | Delete selected key |
@@ -106,7 +108,7 @@ See [GCP](/docs/features/gcp) / [AWS](/docs/features/aws) / [Azure](/docs/featur
 | `j` / `k` | Move |
 | `g` / `G` | Top / bottom |
 | `f` | Fuzzy jump |
-| `/` | Path jump (or host search on the picker) |
+| `Ctrl+F` | Path jump (or host search on the picker) |
 | `Space` | Toggle mark |
 | `v` | Start or finish range mark |
 | `c` / `m` | Copy / move to the other pane |

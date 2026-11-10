@@ -74,6 +74,19 @@ func (c *connectionProcess) SetStderr(output io.Writer) {
 	}
 }
 
+func (m *App) creditsClick(x, y int) (tea.Model, tea.Cmd) {
+	links := creditLinks()
+	for i, link := range links {
+		chipX, chipY, width, ok := m.creditChipBounds(i)
+		if !ok || y != chipY || x < chipX || x >= chipX+width {
+			continue
+		}
+		m.creditsChoice = i
+		return m.openURL(link.url)
+	}
+	return m, nil
+}
+
 func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
 	if mouse.Button != tea.MouseLeft {
@@ -99,13 +112,9 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.credits {
-		x, y, width := m.creditsSponsorBounds()
-		if width > 0 && mouse.Y == y && mouse.X >= x && mouse.X < x+width {
-			return m.openSponsor()
-		}
-		return m, nil
+		return m.creditsClick(mouse.X, mouse.Y)
 	}
-	if m.help || m.doctor || (m.statusError && m.status != "") {
+	if m.palette || m.doctor || (m.statusError && m.status != "") {
 		return m, nil
 	}
 	m.scrollbarDragging = false
@@ -284,12 +293,12 @@ func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.help {
+	if m.palette && m.paletteOverflow() {
 		switch msg.Mouse().Button {
 		case tea.MouseWheelUp:
-			m.scrollHelp(-3)
+			m.scrollPalette(-3)
 		case tea.MouseWheelDown:
-			m.scrollHelp(3)
+			m.scrollPalette(3)
 		}
 		return m, nil
 	}

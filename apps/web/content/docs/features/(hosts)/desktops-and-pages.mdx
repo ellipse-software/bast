@@ -1,0 +1,37 @@
+---
+title: Desktops and pages
+description: Open Remote Desktop and internal web pages from the host list, directly or through an SSH jump.
+---
+
+Remote Desktop targets and internal web pages are entries in the host list. They are not SSH hosts, and Bast does not write them to `~/.ssh/config`. Press `A` to add one. `a` still adds an SSH host.
+
+Enter opens the entry. On a Remote Desktop entry that is the system client. On a web entry that is the browser. `Ctrl+O` does the same thing. An SSH host keeps the [Open RDP](/docs/features/host-management) checkbox: `Ctrl+O` opens that host's address directly, with no port, username, domain, or tunnel.
+
+## Remote Desktop
+
+The form takes a label, address, port, jump, username, and domain. The port defaults to 3389. Full screen and an admin session are off unless you turn them on. Bast does not store the Remote Desktop password. The system client asks for it.
+
+`DOMAIN\user` in the username field is saved as the domain and the user. `user@domain` stays the username.
+
+Via is a list of SSH hosts. Type to filter it. Direct opens without a tunnel. The jump's own `ProxyJump`, key, and cloud proxy are used as they already are. Bast opens an OpenSSH local forward and points the client at `127.0.0.1` on that port. The client can warn that the certificate name is localhost. That is the local forward.
+
+The forward stays up until you close it, quit Bast, or the client exits on Windows. The row shows a tunnel mark while it is up. **Close** stops it.
+
+## Web pages
+
+A page is an `http` or `https` URL. A URL with a username or password in it is rejected.
+
+With no jump, Bast opens the system browser. With a jump, Bast opens one SOCKS proxy for that jump and a separate browser window that uses only that proxy. Chrome, Edge, Brave, Chromium, and Firefox are tried in that order. The window has its own profile, so the proxy does not become the system proxy. A second page through the same jump reuses the proxy.
+
+## Where they are stored
+
+Entries live in `~/.config/bast/state.json` and sync through Vault with the rest of the Bast state. Groups, search, icons, colours, tags, notes, favorites, and hide work the same way as hosts. Files, known-hosts, and promote do not apply.
+
+```sh
+bast rdp add "DC01" --address 10.0.0.5 --via bastion --user alice --domain CORP
+bast rdp open DC01
+bast web add "Firewall" --url https://192.168.0.1/ --via bastion
+bast web open Firewall
+```
+
+`bast dc01` opens an entry only when no SSH host has that name.

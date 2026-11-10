@@ -52,7 +52,7 @@ func (m *App) isMobileLayout() bool {
 
 func (m *App) panelLayout() panelLayout {
 	width := m.terminalWidth()
-	bodyHeight := max(1, m.terminalHeight()-3)
+	bodyHeight := m.bodyHeight()
 	const contentTop = 2
 
 	if !m.isMobileLayout() {

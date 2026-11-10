@@ -1,9 +1,7 @@
 package ui
 
 import (
-	"runtime"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -21,7 +19,6 @@ const (
 	formSectionMetadata      = "metadata"
 	formSectionCustomisation = "customisation"
 	hostFormSaveButtonLabel  = " Save "
-	hostSaveHintInterval     = 2 * time.Second
 	rdpFieldLabel            = "Open RDP"
 	rdpOnValue               = "on"
 )
@@ -222,17 +219,8 @@ func (m *App) openHostForm(title, action string, fields []field) {
 		title: title, action: action, fields: fields, input: input,
 		screen: "hub", hubIndex: 0,
 	}
-	m.hostSaveHintID++
-	m.hostSaveHintEnter = false
 	m.syncHostPasswordField()
 	m.focusHostHubItem()
-}
-
-func (m *App) hostSaveHintTickCmd() tea.Cmd {
-	hintID := m.hostSaveHintID
-	return tea.Tick(hostSaveHintInterval, func(time.Time) tea.Msg {
-		return hostSaveHintTickMsg(hintID)
-	})
 }
 
 func (m *App) focusHostHubItem() {
@@ -656,7 +644,7 @@ func (m *App) renderHostForm(s styleSet) string {
 func (m *App) renderHostHubForm(s styleSet) string {
 	header := m.renderHostFormHeader(s, "")
 	lines, focus := m.hostHubLines(s)
-	room := max(1, m.terminalHeight()-3-lipgloss.Height(header))
+	room := max(1, m.bodyHeight()-lipgloss.Height(header))
 	start := 0
 	if len(lines) > room {
 		start = scrollStart(focus, len(lines), room)
@@ -945,69 +933,6 @@ func isHostFormSaveKey(msg tea.KeyPressMsg) bool {
 	default:
 		return false
 	}
-}
-
-func hostFormSaveHint(showEnterKey bool) string {
-	if showEnterKey {
-		return "Ctrl+↵ save"
-	}
-	if runtime.GOOS == "darwin" {
-		return "Cmd+S save"
-	}
-	return "Ctrl+S save"
-}
-
-func hostFormHint(f *form, textInputActive, showEnterKey bool) string {
-	save := hostFormSaveHint(showEnterKey)
-	if f.screen == formScreenAdvancedHub {
-		return "Enter open section • ↑/↓ or j/k move • ⌫/Esc back • " + save + " • q quit"
-	}
-	if f.screen != "" && f.screen != "hub" {
-		if f.selecting {
-			if f.fields[f.index].label == "Color" {
-				return "←/→/↑/↓ highlight • Enter select • Esc back • q quit"
-			}
-			return "↑/↓ or j/k choose • Enter select • ⌫/Esc back • q quit"
-		}
-		item := f.fields[f.index]
-		action := "Enter next"
-		if len(item.options) > 0 && !item.options[item.selected].custom {
-			action = "Enter change"
-		}
-		if hint := customChoiceEscapeHint(item, f.input.Value()); hint != "" {
-			return action + " • " + hint + " • " + save
-		}
-		hint := action + " • ↑/↓ or Tab move • ⌫/Esc back"
-		if !textInputActive {
-			hint += " • q quit"
-		}
-		return hint + " • " + save
-	}
-
-	items := hostHubItems(f)
-	if f.hubIndex >= 0 && f.hubIndex < len(items) {
-		hub := items[f.hubIndex]
-		if hostHubInline(hub.id) {
-			idx := f.fieldIndex(hub.title)
-			if idx >= 0 {
-				item := f.fields[idx]
-				if f.selecting && item.label == "Color" {
-					return "←/→/↑/↓ highlight • Enter select • Esc back • q quit"
-				}
-				if hint := customChoiceEscapeHint(item, f.input.Value()); hint != "" && !f.selecting {
-					return "Enter next • ↑/↓ move • " + hint + " • " + save
-				}
-				if len(item.options) > 0 && !item.options[item.selected].custom {
-					if f.selecting {
-						return "↑/↓ or j/k choose • Enter select • ⌫/Esc back • q quit"
-					}
-					return "Enter change • ↑/↓ or Tab move • " + save + " • q quit • Esc cancel"
-				}
-			}
-			return "Enter next • ↑/↓ or Tab move • " + save + " • q type • Esc cancel"
-		}
-	}
-	return "Enter open section • ↑/↓ or j/k move • Tab next • ⌫/Esc cancel • " + save + " • q quit"
 }
 
 func hostFormFields(m *App, meta metadataHostValues, conn hostConnectionValues, hidden []field) []field {

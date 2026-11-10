@@ -13,6 +13,7 @@ import { bastRepoUrl } from "@/lib/github";
 import { discordUrl } from "@/lib/site";
 import { pageMaxWidthClass } from "@/lib/layout";
 import { comparisonNavItems, guideNavItems } from "@/lib/marketing";
+import { nightTheme } from "@/lib/night";
 
 const linkClass =
   "text-foreground/80 transition-colors hover:text-foreground";
@@ -23,7 +24,14 @@ const mobileLinkClass =
 const mobileSectionLabelClass =
   "px-4 pb-1 pt-5 text-xs font-medium tracking-tight text-muted first:pt-3 sm:px-6";
 
-export function SiteHeader() {
+export function SiteHeader({
+  wide = false,
+  tone = "default",
+}: {
+  wide?: boolean;
+  tone?: "default" | "night";
+}) {
+  const night = tone === "night";
   const pathname = usePathname();
   const [openForPath, setOpenForPath] = useState<string | null>(null);
   const [scrolled, setScrolled] = useState(false);
@@ -67,6 +75,7 @@ export function SiteHeader() {
 
   return (
     <header
+      style={night ? nightTheme : undefined}
       className={`sticky top-0 z-30 w-full transition-[background-color,border-color,backdrop-filter] duration-200 ease-out motion-reduce:transition-none ${
         frosted
           ? "border-b border-border/70 bg-background/65 backdrop-blur-xl backdrop-saturate-150"
@@ -74,7 +83,9 @@ export function SiteHeader() {
       }`}
     >
       <div
-        className={`mx-auto flex ${pageMaxWidthClass} items-center justify-between gap-4 px-4 py-4 sm:px-6`}
+        className={`mx-auto flex items-center justify-between gap-4 px-4 py-4 sm:px-6 ${
+          wide ? "w-full lg:px-10" : pageMaxWidthClass
+        }`}
       >
         <Link href="/" className="shrink-0" onClick={() => setOpen(false)}>
           <WordmarkLogo priority color="white" />
@@ -84,8 +95,8 @@ export function SiteHeader() {
           className="hidden items-center gap-x-6 text-sm md:flex"
           aria-label="Primary"
         >
-          <FeaturesNav />
-          <ComparisonsNav />
+          <FeaturesNav tone={tone} />
+          <ComparisonsNav tone={tone} />
           <Link href="/docs" className={linkClass}>
             Docs
           </Link>

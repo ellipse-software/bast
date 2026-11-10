@@ -20,13 +20,13 @@ The Files tab is a dual-pane browser. Each pane can be **local** or **remote**, 
 | `h` / `←` | Parent directory, or collapse a group in the host picker |
 | `l` / `→` | Enter the selected directory, or open the picker row |
 | `g` / `G` | Top / bottom of list |
-| `/` | Edit path (or search hosts on a picker) |
+| `Ctrl+F` | Edit path (or search hosts on a picker) |
 | `f` | Fuzzy jump (type to filter, then a label letter to land) |
 | `D` | Return the focused pane to the host picker |
 
 ## Connecting
 
-Both panes open on a host picker, with no local or remote title. **Local** is the first row. Under it, groups match the Hosts tab, including icons, colours, and collapse. Enter or `→` on Local makes that pane local and titles it `local`, with the path beside it. Enter or `→` on a host connects it and titles the pane with that host's name. Enter toggles a group: it expands a collapsed group and collapses an open one. `→` expands a collapsed group and leaves an open one as it is. Left collapses a group, or moves to its parent when it is already collapsed. Space toggles the group. Collapse is shared with Hosts. `L` opens the local directory directly. `R` opens the picker from that directory. `D` does the same, and it also disconnects a connected host back to the picker. `/` on a picker searches hosts and shows the query in place of a title.
+Both panes open on a host picker, with no local or remote title. **Local** is the first row. Under it, groups match the Hosts tab, including icons, colours, and collapse. Enter or `→` on Local makes that pane local and titles it `local`, with the path beside it. Enter or `→` on a host connects it and titles the pane with that host's name. Enter toggles a group: it expands a collapsed group and collapses an open one. `→` expands a collapsed group and leaves an open one as it is. Left collapses a group, or moves to its parent when it is already collapsed. Space toggles the group. Collapse is shared with Hosts. `L` opens the local directory directly. `R` opens the picker from that directory. `D` does the same, and it also disconnects a connected host back to the picker. `Ctrl+F` on a picker searches hosts and shows the query in place of a title.
 
 Bast prepares cloud access the same way as a normal [connection](/docs/features/connections), then opens OpenSSH SFTP (`ssh -s sftp`).
 
@@ -41,13 +41,13 @@ SFTP uses `BatchMode` for key-based hosts, so passphrase and host-key prompts ca
 | `→` | Enter directory, connect the selected host, choose Local, or expand a group |
 | `h` / `←` / `Backspace` | Parent directory, or collapse a group / move to its parent in the picker |
 | `Tab` | Switch pane |
-| `/` | Jump to a typed path (or search hosts) |
+| `Ctrl+F` | Jump to a typed path (or search hosts) |
 | `.` | Toggle hidden files |
 | `␣` | Toggle mark |
 | `v` | Start or finish a range mark |
 | `f` | Fuzzy jump |
 
-Click a pane to focus it, a row to select it, and the same row again to enter a directory or connect a host. Click the path header to edit the path once a pane is local or connected. On a picker, `/` searches hosts. Scroll wheel moves the pane under the pointer.
+Click a pane to focus it, a row to select it, and the same row again to enter a directory or connect a host. Click the path header to edit the path once a pane is local or connected. On a picker, `Ctrl+F` searches hosts. Scroll wheel moves the pane under the pointer.
 
 ### Fuzzy jump
 

@@ -85,7 +85,7 @@ func (m *App) rdpButtonBounds(layout panelLayout) (x, y, width int, ok bool) {
 func (m *App) render() string {
 	styles := m.styles()
 	width := m.terminalWidth()
-	bodyHeight := max(1, m.terminalHeight()-3)
+	bodyHeight := m.bodyHeight()
 	header := m.renderHeader(styles)
 	var body string
 	if m.statusError && m.status != "" {
@@ -96,8 +96,6 @@ func (m *App) render() string {
 		body = m.renderCredits(styles)
 	} else if m.doctor {
 		body = m.renderDoctor(styles)
-	} else if m.help {
-		body = m.renderHelp(styles)
 	} else if m.form != nil {
 		body = m.renderForm(styles)
 	} else if m.vaultBusyBlocksBody() {
@@ -115,10 +113,32 @@ func (m *App) render() string {
 	} else {
 		body = m.renderHosts(styles)
 	}
-	bodyStyle, frameStyle := m.frameStyles(width, bodyHeight)
-	body = bodyStyle.Render(body)
-	footer := m.renderFooter(styles)
-	return frameStyle.Render(header + "\n" + m.renderHeaderRule(styles) + "\n" + body + "\n" + footer)
+	_, frameStyle := m.frameStyles(width, bodyHeight)
+	frame := header + "\n" + m.renderHeaderRule(styles) + "\n" + clipLines(body, bodyHeight, width)
+	if m.palette {
+		frame += "\n" + clipLines(m.renderPalette(styles), m.sheetRows(), width)
+	}
+	frame += "\n" + clipLines(m.renderFooter(styles), 1, width)
+	return strings.TrimRight(frameStyle.Render(frame), "\n")
+}
+
+func clipLines(text string, rows, width int) string {
+	if rows < 1 {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	if len(lines) > rows {
+		lines = lines[:rows]
+	}
+	for len(lines) < rows {
+		lines = append(lines, "")
+	}
+	for i, line := range lines {
+		if lipgloss.Width(line) > width {
+			lines[i] = truncate(line, width)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *App) renderHeader(s styleSet) string {
@@ -270,7 +290,7 @@ func (m *App) errorScrollLines(s styleSet, width int) []string {
 }
 
 func (m *App) errorLayout(s styleSet) (pad, contentWidth int, lines []string, box errorBox) {
-	bodyHeight := max(1, m.terminalHeight()-3)
+	bodyHeight := m.bodyHeight()
 	pad, contentWidth = errorBoxMetrics(m.terminalWidth())
 	lines = m.errorScrollLines(s, contentWidth)
 	box = layoutError(bodyHeight, len(lines))
@@ -352,7 +372,7 @@ func renderErrorBox(border lipgloss.Style, pad, contentWidth int, box errorBox, 
 }
 
 func (m *App) renderError(s styleSet) string {
-	bodyHeight := max(1, m.terminalHeight()-3)
+	bodyHeight := m.bodyHeight()
 	pad, contentWidth, lines, box := m.errorLayout(s)
 	m.clampErrorOffset()
 	start := m.errorOffset
@@ -504,20 +524,12 @@ func (m *App) renderHosts(s styleSet) string {
 			return "\n  " + s.muted.Render("No hosts match “"+m.searchText()+"”")
 		}
 		if m.hasHiddenHosts() && !m.showHidden {
-			return "\n  " + s.muted.Render("No visible hosts. Press . to show hidden and stopped hosts.")
-		}
-		add, ok := firstBinding(ActionAddHost)
-		var extras []string
-		if ok {
-			extras = append(extras, s.title.Render(" "+formatChip(add)+" "))
-		}
-		if addEntry, entryOK := firstBinding(ActionAddEntry); entryOK {
-			extras = append(extras, s.title.Render(" "+formatChip(addEntry)+" "))
+			return "\n  " + s.muted.Render("No visible hosts.")
 		}
 		return m.renderSeal(s, "◇  No hosts yet", []string{
 			"Your SSH map is empty.",
 			opensshConfigTrust,
-		}, extras)
+		}, nil)
 	}
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
 	layout := m.panelLayout()
@@ -1087,14 +1099,7 @@ func (m *App) renderKeys(s styleSet) string {
 		if m.loading || m.enriching {
 			return "\n  " + s.muted.Render("Loading OpenSSH keys and agent…")
 		}
-		var extras []string
-		if gen, ok := firstBinding(ActionGenerateKey); ok {
-			extras = append(extras, s.title.Render(" "+formatChip(gen)+" "))
-		}
-		if imp, ok := firstBinding(ActionImportKey); ok {
-			extras = append(extras, s.title.Render(" "+formatChip(imp)+" "))
-		}
-		return m.renderSeal(s, "◇  No keys yet", []string{opensshAgentTrust}, extras)
+		return m.renderSeal(s, "◇  No keys yet", []string{opensshAgentTrust}, nil)
 	}
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
 	layout := m.panelLayout()
@@ -1303,151 +1308,20 @@ func (m *App) renderForm(s styleSet) string {
 	return b.String()
 }
 
-func (m *App) formHint() string {
-	if isGroupAssignmentForm(m.form) {
-		return groupAssignmentHint()
-	}
-	if isHostForm(m.form) {
-		return hostFormHint(m.form, m.formTextInputActive(), m.hostSaveHintEnter)
-	}
-	f := m.form
-	enter := enterGlyph(m.windowsTerminal)
-	action := enter + " next"
-	if isEditForm(f) && !f.selecting {
-		action = enter + " save"
-		if len(f.fields[f.index].options) > 0 && !f.fields[f.index].options[f.fields[f.index].selected].custom {
-			action += " • ␣ change"
-		}
-	} else if f.selecting {
-		action = "↑/↓ or j/k choose • " + enter + " select"
-	} else if len(f.fields[f.index].options) > 0 && !f.fields[f.index].options[f.fields[f.index].selected].custom {
-		action = enter + " change"
-	}
-	if !isEditForm(f) && !hasNextFormField(f) {
-		action = enter + " save"
-		if f.action == "host_delete" || f.action == "key_delete" || f.action == "known_delete" || f.action == "files_delete" {
-			action = enter + " delete"
-		}
-		if f.action == "vault_reset_passphrase" {
-			action = enter + " reset"
-		}
-		if f.action == "vault_rotate_passphrase" {
-			action = enter + " rotate"
-		}
-	}
-	if destructiveConfirmationTarget(f) != "" {
-		action += " • Ctrl+Y copy name"
-	}
-	if f.selecting {
-		if f.fields[f.index].label == "Color" {
-			return "←/→/↑/↓ highlight • " + enter + " select • Esc/⌫ close"
-		}
-		return action + " • Esc/⌫ close"
-	}
-	escape := "Esc cancel"
-	if !m.formTextInputActive() {
-		escape = "Esc/⌫ cancel"
-	}
-	if hint := customChoiceEscapeHint(f.fields[f.index], f.input.Value()); hint != "" {
-		escape = hint
-	}
-	movement := "↑/↓ revisit"
-	if isEditForm(f) {
-		movement = "↑/↓ move"
-	}
-	return action + " • " + movement + " • " + escape
-}
-
-func (m *App) helpContentWidth() int {
+func (m *App) contentWidth() int {
 	return max(36, m.terminalWidth()-6)
 }
 
-func (m *App) helpLines(s styleSet) []string {
-	groups := m.helpGroups()
-	keyCol := 8
-	for _, group := range groups {
-		for _, row := range group.rows {
-			keyCol = max(keyCol, min(12, lipgloss.Width(row.chord)))
-		}
-	}
-	width := m.helpContentWidth()
-	lines := []string{
-		"",
-		s.active.Render(m.tabTitle()),
-		"",
-	}
-	for i, group := range groups {
-		if len(group.rows) == 0 {
-			continue
-		}
-		if i > 0 {
-			lines = append(lines, "")
-		}
-		if group.title != "" {
-			lines = append(lines, s.muted.Render(group.title), "")
-		}
-		for _, row := range group.rows {
-			keyStyle, descStyle := s.value, s.muted
-			if !row.enabled {
-				keyStyle, descStyle = s.muted, s.muted
-			}
-			keys := keyStyle.Render(row.chord)
-			gap := max(1, keyCol-lipgloss.Width(row.chord))
-			descWidth := max(8, width-keyCol-2)
-			desc := descStyle.Render(truncate(row.name, descWidth))
-			lines = append(lines, keys+strings.Repeat(" ", gap)+desc)
-		}
-	}
-	return lines
-}
-
-func (m *App) helpBodyHeight() int {
-	return max(1, m.terminalHeight()-3)
-}
-
-func (m *App) maxHelpOffset() int {
-	return max(0, len(m.helpLines(m.styles()))-m.helpBodyHeight())
-}
-
-func (m *App) clampHelpOffset() {
-	if m.helpOffset < 0 {
-		m.helpOffset = 0
-	}
-	if maxOffset := m.maxHelpOffset(); m.helpOffset > maxOffset {
-		m.helpOffset = maxOffset
-	}
-}
-
-func (m *App) scrollHelp(delta int) {
-	m.helpOffset += delta
-	m.clampHelpOffset()
-}
-
-func (m *App) helpCanScroll() bool {
-	return m.maxHelpOffset() > 0
-}
-
-func (m *App) renderHelp(s styleSet) string {
-	lines := m.helpLines(s)
-	bodyHeight := m.helpBodyHeight()
-	offset := min(max(0, m.helpOffset), max(0, len(lines)-bodyHeight))
-	end := min(len(lines), offset+bodyHeight)
-	content := lipgloss.NewStyle().
-		MarginLeft(2).
-		Render(strings.Join(lines[offset:end], "\n"))
-	return lipgloss.Place(m.terminalWidth(), bodyHeight, lipgloss.Left, lipgloss.Top, content)
-}
+const bastLogo = "" +
+	"██████╗  █████╗ ███████╗████████╗\n" +
+	"██╔══██╗██╔══██╗██╔════╝╚══██╔══╝\n" +
+	"██████╔╝███████║███████╗   ██║   \n" +
+	"██╔══██╗██╔══██║╚════██║   ██║   \n" +
+	"██████╔╝██║  ██║███████║   ██║   \n" +
+	"╚═════╝ ╚═╝  ╚═╝╚══════╝   ╚═╝   "
 
 func (m *App) renderCredits(s styleSet) string {
 	const infoWidth = 52
-	banner := strings.Join([]string{
-		"██████╗  █████╗ ███████╗████████╗",
-		"██╔══██╗██╔══██╗██╔════╝╚══██╔══╝",
-		"██████╔╝███████║███████╗   ██║   ",
-		"██╔══██╗██╔══██║╚════██║   ██║   ",
-		"██████╔╝██║  ██║███████║   ██║   ",
-		"╚═════╝ ╚═╝  ╚═╝╚══════╝   ╚═╝   ",
-	}, "\n")
 	version := m.version
 	if version == "" {
 		version = "dev"
@@ -1456,8 +1330,8 @@ func (m *App) renderCredits(s styleSet) string {
 		gap := max(2, infoWidth-lipgloss.Width(label)-lipgloss.Width(value))
 		return s.label.Width(lipgloss.Width(label)).Render(label) + strings.Repeat(" ", gap) + s.value.Render(value)
 	}
-	content := s.active.Width(infoWidth).Align(lipgloss.Center).Render(banner) +
-		"\n\n" + s.muted.Width(infoWidth).Align(lipgloss.Center).Render("The fast way into the servers you use every day.") +
+	content := s.active.Width(infoWidth).Align(lipgloss.Center).Render(bastLogo) +
+		"\n\n" + s.muted.Width(infoWidth).Align(lipgloss.Center).Render(onboardingCopy) +
 		"\n\n" + row("Created by", "@tedbrine") +
 		"\n" + row("Website", "https://bast.sh") +
 		"\n" + row("Discord", "discord.gg/bast") +
@@ -1467,58 +1341,80 @@ func (m *App) renderCredits(s styleSet) string {
 	if m.latestVersion != "" {
 		content += "\n" + row("Update", m.latestVersion+" · "+m.updateSuggestion)
 	}
-	chip := s.title.Render(sponsorAction)
-	content += "\n\n" + lipgloss.NewStyle().Width(infoWidth).Align(lipgloss.Center).Render(chip)
-	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, content)
+	content += "\n\n" + lipgloss.NewStyle().Width(infoWidth).Align(lipgloss.Center).Render(m.renderCreditActions(s))
+	return lipgloss.Place(m.terminalWidth(), m.bodyHeight(), lipgloss.Center, lipgloss.Center, content)
+}
+
+func (m *App) creditChip(s styleSet, index int) string {
+	links := creditLinks()
+	if index < 0 || index >= len(links) {
+		return ""
+	}
+	label := " " + links[index].label + " "
+	if index == m.creditsChoice {
+		return s.title.Render(label)
+	}
+	return s.inactive.Render(label)
+}
+
+func (m *App) renderCreditActions(s styleSet) string {
+	links := creditLinks()
+	parts := make([]string, len(links))
+	for i := range links {
+		parts[i] = m.creditChip(s, i)
+	}
+	return strings.Join(parts, "  ")
 }
 
 func (m *App) creditsSponsorBounds() (x, y, width int) {
-	chip := m.styles().title.Render(sponsorAction)
+	x, y, width, ok := m.creditChipBounds(0)
+	if !ok {
+		return 0, 0, 0
+	}
+	return x, y, width
+}
+
+func (m *App) creditChipBounds(index int) (x, y, width int, ok bool) {
+	chip := m.creditChip(m.styles(), index)
+	if chip == "" {
+		return 0, 0, 0, false
+	}
 	width = lipgloss.Width(chip)
 	for i, line := range strings.Split(m.render(), "\n") {
 		idx := strings.Index(line, chip)
 		if idx < 0 {
 			continue
 		}
-		return lipgloss.Width(line[:idx]), i, width
+		return lipgloss.Width(line[:idx]), i, width, true
 	}
-	return 0, 0, 0
+	return 0, 0, 0, false
 }
 
 func (m *App) renderFooter(s styleSet) string {
-	if m.statusError && m.status != "" {
-		hint := "Enter / Esc / ⌫ return"
-		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
+	width := m.terminalWidth()
+	left := m.statusLine(s)
+	if left == "" && !m.palette {
+		left = s.value.Render("/") + s.muted.Render(" for shortcuts")
 	}
-	if m.onboarding {
-		return strings.Repeat(" ", max(1, m.terminalWidth()))
+	if lipgloss.Width(left) > width {
+		left = truncate(left, width)
 	}
-	if m.credits {
-		hint := strings.Join(m.overlayFooterParts(ScopeCredits), " · ")
-		if hint == "" {
-			hint = "v / Esc / ⌫ close"
-		}
-		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
+	gap := width - lipgloss.Width(left)
+	if gap > 0 {
+		left += strings.Repeat(" ", gap)
 	}
-	if m.doctor {
-		hint := strings.Join(m.overlayFooterParts(ScopeDoctor), " · ")
-		if hint == "" {
-			hint = "D / Esc / ⌫ close"
-		}
-		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
-	}
-	if m.help {
-		hint := strings.Join(m.overlayFooterParts(ScopeHelp), " · ")
-		if hint == "" {
-			hint = "? / Esc / ⌫ close"
-		}
-		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
+	return left
+}
+
+func (m *App) statusLine(s styleSet) string {
+	if m.onboarding || m.credits || m.doctor || (m.statusError && m.status != "") {
+		return ""
 	}
 	query := m.searchText()
 	left := ""
 	switch {
 	case m.vaultBusy != "":
-		left = s.muted.Render(m.vaultBusy + " · esc cancel")
+		left = s.muted.Render(m.vaultBusy)
 	case m.syncBusy != "":
 		left = s.muted.Render(m.syncBusy)
 	case m.syncActivity != "":
@@ -1527,12 +1423,14 @@ func (m *App) renderFooter(s styleSet) string {
 		left = s.muted.Render("syncing…")
 	case m.loading:
 		left = s.muted.Render("loading…")
+	case m.section == filesSection && m.filesActivity() != "":
+		left = s.muted.Render(m.filesActivity())
 	case strings.HasPrefix(m.search, "\x00"):
-		left = "/ " + query + "█"
+		left = "filter: " + query + "█"
 	case query != "":
 		left = "filter: " + query
 	}
-	if m.vaultBusy == "" && m.syncBusy == "" && m.syncActivity == "" && !m.anySyncing() && !m.loading && m.status != "" {
+	if m.vaultBusy == "" && m.syncBusy == "" && m.syncActivity == "" && !m.anySyncing() && !m.loading && m.status != "" && m.filesActivity() == "" {
 		if left != "" {
 			left += "  •  "
 		}
@@ -1544,24 +1442,12 @@ func (m *App) renderFooter(s styleSet) string {
 	} else if left == "" && m.latestVersion != "" {
 		left = s.active.Render("Update " + m.latestVersion + " · " + m.updateSuggestion)
 	}
-	hint := "?"
-	if m.form != nil {
-		hint = m.formHint()
-	} else if m.vaultBusy != "" {
-		hint = "esc"
-	} else if m.syncBusy != "" {
-		hint = ""
-	} else {
-		budget := max(8, m.terminalWidth()-lipgloss.Width(left)-1)
-		hint = m.browseFooterHint(budget)
-	}
-	space := max(1, m.terminalWidth()-lipgloss.Width(left)-lipgloss.Width(hint)-1)
-	return left + strings.Repeat(" ", space) + s.muted.Render(hint)
+	return left
 }
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.onboarding || m.credits || m.doctor || m.help || m.form != nil || m.loading || m.vaultBusyBlocksBody() || m.section == vaultSection || !m.hasListItems() {
+	if m.statusError || m.onboarding || m.credits || m.doctor || m.form != nil || m.loading || m.vaultBusyBlocksBody() || m.section == vaultSection || !m.hasListItems() {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	if m.isMobileLayout() {

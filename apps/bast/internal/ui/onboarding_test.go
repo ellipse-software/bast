@@ -81,40 +81,20 @@ func TestOnboardingChooserIncludesWelcomeFactsAndActions(t *testing.T) {
 	m.keys = testOnboardingKeys()
 	view := m.renderOnboarding(m.styles())
 	for _, want := range []string{
+		"██████╗",
 		"Welcome to Bast",
+		"Termius",
+		"Thank you for supporting my",
+		"project.",
 		onboardingCopy,
-		"2 keys on this machine",
-		"add a host",
-		"vault · other computers",
-		"sync · cloud VMs",
+		"any key to continue",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("empty chooser missing %q:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "skip") || strings.Contains(view, "continue") {
-		t.Fatalf("chooser should not list skip/continue:\n%s", view)
-	}
-
-	m.historySuggestions = []metadata.HistorySuggestion{testHistorySuggestion()}
-	view = m.renderOnboarding(m.styles())
-	if !strings.Contains(view, "1 from zsh history") || !strings.Contains(view, "history") {
-		t.Fatalf("history destination:\n%s", view)
-	}
-
-	m.hosts = []sshconfig.Host{{Alias: "alpha"}, {Alias: "beta"}}
-	m.keys = m.keys[:1]
-	view = m.renderOnboarding(m.styles())
-	if !strings.Contains(view, "2 hosts") || !strings.Contains(view, "1 key") || !strings.Contains(view, "hosts") {
-		t.Fatalf("populated chooser:\n%s", view)
-	}
-	if strings.Contains(view, "add a host") {
-		t.Fatalf("populated chooser should not list add:\n%s", view)
-	}
-	for _, banned := range []string{"Press", "Click", "Step", "skip", "continue"} {
-		if strings.Contains(view, banned) {
-			t.Fatalf("chooser contains %q:\n%s", banned, view)
-		}
+	if strings.Contains(view, "Press") || strings.Contains(view, "Add a host") {
+		t.Fatalf("chooser should not list individual keys:\n%s", view)
 	}
 }
 
@@ -143,21 +123,21 @@ func TestOnboardingSealFitsNarrowTerminals(t *testing.T) {
 	}
 }
 
-func TestOnboardingEscSkipsWithoutSelectingHistory(t *testing.T) {
+func TestOnboardingAnyKeyLandsOnHistoryWhenNoHosts(t *testing.T) {
 	m := testApp(t)
 	m.onboarding = true
 	m.loading = false
 	m.hosts = nil
 	m.historySuggestions = []metadata.HistorySuggestion{testHistorySuggestion()}
-	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
-	if m.onboarding {
-		t.Fatal("esc should dismiss onboarding")
+	m.Update(press("x"))
+	if m.onboarding || m.section != hostsSection {
+		t.Fatalf("any key should open hosts: onboarding=%v section=%v", m.onboarding, m.section)
 	}
 	if m.metadata.ShouldOnboard() {
-		t.Fatal("esc should persist dismissal")
+		t.Fatal("continuing should persist dismissal")
 	}
-	if _, ok := m.selectedHistorySuggestion(); ok {
-		t.Fatal("esc should not select a history suggestion")
+	if _, ok := m.selectedHistorySuggestion(); !ok {
+		t.Fatalf("any key should land on the first suggestion, cursor=%d rows=%+v", m.cursor, m.hostListRows())
 	}
 }
 
@@ -190,46 +170,12 @@ func TestOnboardingEnterLandsOnExistingHosts(t *testing.T) {
 	}
 }
 
-func TestOnboardingQuitDoesNotDismiss(t *testing.T) {
+func TestOnboardingQuestionMarkContinuesToHosts(t *testing.T) {
 	m := testApp(t)
-	m.onboarding = true
-	_, cmd := m.Update(press("q"))
-	requireQuit(t, cmd)
-	if !m.onboarding {
-		t.Fatal("q should leave onboarding eligible")
-	}
-	if m.metadata.Onboarding().DismissedAt != nil {
-		t.Fatal("q should not persist dismissal")
-	}
-}
-
-func TestOnboardingJumpsAndAdd(t *testing.T) {
-	m := testApp(t)
-	m.onboarding = true
-	m.Update(press("3"))
-	if m.onboarding || m.section != vaultSection {
-		t.Fatalf("3 should open vault: onboarding=%v section=%v", m.onboarding, m.section)
-	}
-
-	m = testApp(t)
-	m.onboarding = true
-	m.Update(press("4"))
-	if m.onboarding || m.section != syncSection {
-		t.Fatalf("4 should open sync: onboarding=%v section=%v", m.onboarding, m.section)
-	}
-
-	m = testApp(t)
-	m.onboarding = true
-	m.Update(press("a"))
-	if m.onboarding || m.form == nil || m.form.action != "host_add" {
-		t.Fatalf("a should open add host, form=%#v onboarding=%v", m.form, m.onboarding)
-	}
-
-	m = testApp(t)
 	m.onboarding = true
 	m.Update(press("?"))
-	if m.onboarding || !m.help {
-		t.Fatalf("? should open help: onboarding=%v help=%v", m.onboarding, m.help)
+	if m.onboarding || m.palette || m.section != hostsSection {
+		t.Fatalf("? should continue to hosts: onboarding=%v palette=%v section=%v", m.onboarding, m.palette, m.section)
 	}
 }
 
@@ -268,7 +214,7 @@ func TestAboutCanReplayOnboarding(t *testing.T) {
 		t.Fatalf("o should replay census: onboarding=%v credits=%v replay=%v", m.onboarding, m.credits, m.onboardingReplay)
 	}
 	view := m.render()
-	if !strings.Contains(view, "Welcome to Bast") || !strings.Contains(view, "vault · other computers") {
+	if !strings.Contains(view, "Welcome to Bast") || !strings.Contains(view, "any key to continue") {
 		t.Fatalf("replay chooser:\n%s", view)
 	}
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))

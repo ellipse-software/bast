@@ -16,6 +16,9 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Changed
 
+- First launch shows the Bast logo, the slogan, and a short welcome. Any key continues to Hosts, on a history suggestion when one is waiting to import.
+- The version screen lists Sponsor, Discord, and Website as buttons. Sponsor starts selected. Left and right move the selection. Enter opens the selected page. `o` on that screen still replays the first-launch chooser.
+- The TUI no longer keeps a one-line key footer or a full-screen `?` page. `/` or `?` opens a sheet at the bottom that lists only the actions that apply to the current row, field, or overlay. The status line stays one row. When it is idle, the left side reads “/ for shortcuts”. `Ctrl+F` filters Hosts and Keys, and jumps to a path or searches hosts in Files. On Keys, `n` generates a key and `g` jumps to the top. `Esc` and Backspace no longer quit from the host, key, or vault list. `q` and `Ctrl+C` still quit. A background port forward is `Ctrl+P`.
 - Files: Shift+D returns the focused pane to the host picker from a local directory or a connected host. Enter on a group in that picker collapses it when it is open, and expands it when it is closed.
 - Colour: Esc leaves a custom hex value and returns to the theme colours. Backspace does the same once the hex field is empty. The picker is a grid of swatches. Arrows move the highlight.
 

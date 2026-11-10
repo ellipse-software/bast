@@ -69,8 +69,8 @@ func TestEntryOpensWithoutSSHAndStaysOutOfFiles(t *testing.T) {
 
 	selectHostAlias(t, m, "alpha")
 	m.Update(ctrlO())
-	if fileCalls != 1 || checkboxCalls != 1 {
-		t.Fatalf("ctrl+o on an SSH host used the entry launcher: file=%d checkbox=%d", fileCalls, checkboxCalls)
+	if fileCalls != 1 || checkboxCalls != 0 {
+		t.Fatalf("ctrl+o on a host without Remote Desktop should do nothing: file=%d checkbox=%d", fileCalls, checkboxCalls)
 	}
 }
 

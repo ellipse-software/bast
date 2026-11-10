@@ -55,8 +55,8 @@ func TestHistorySuggestionsFollowHostsAndUseSelectedDetail(t *testing.T) {
 			t.Fatalf("history detail is missing %q:\n%s", text, view)
 		}
 	}
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "enter add") || !strings.Contains(footer, "x dismiss") {
-		t.Fatalf("history footer = %q", footer)
+	if footer := sheet(m); !strings.Contains(footer, "add") || !strings.Contains(footer, "dismiss") {
+		t.Fatalf("history sheet = %q", footer)
 	}
 }
 
