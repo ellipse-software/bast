@@ -1,4 +1,5 @@
-import type { CSSProperties, Metadata } from "next";
+import type { Metadata } from "next";
+import type { CSSProperties } from "react";
 
 import { BeachDither } from "@/components/beach-dither";
 import { Comparison } from "@/components/comparison";

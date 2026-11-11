@@ -97,7 +97,7 @@ const providers = [
 ] as const;
 
 function ProviderMark({ id }: { id: (typeof providers)[number]["id"] }) {
-  const mark = marks[id];
+  const mark: Mark = marks[id];
   return (
     <svg
       viewBox={mark.viewBox}
