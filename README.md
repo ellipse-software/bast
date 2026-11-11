@@ -24,7 +24,7 @@ Browse SSH hosts, open Remote Desktop targets and internal pages, transfer files
 
 </div>
 
-![Bast terminal interface](https://bast.sh/demo.png?a)
+![Bast terminal interface](https://bast.sh/demo.png?12)
 
 ## Install
 
