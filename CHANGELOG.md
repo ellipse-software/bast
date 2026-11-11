@@ -4,6 +4,8 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ## Unreleased
 
+## v0.12.0 - 2026-11-11
+
 ### Added
 
 - A host with a local, remote, or dynamic forward can keep those ports up in the background. **Forward** starts `ssh -N` as its own process, so the ports stay up after you quit Bast or open another window. Every window lists the same forwards under a Forwards separator. **Close** or `c` stops them.
