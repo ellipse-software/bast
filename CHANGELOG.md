@@ -4,6 +4,8 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ## Unreleased
 
+### Added
+
 ## v0.12.0 - 2026-11-11
 
 ### Added
