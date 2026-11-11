@@ -201,7 +201,7 @@ export const openApiSpec = {
             type: "string",
             description: "CLI version such as v0.9.2, nightly.YYYYMMDD.sha, or dev.",
           },
-          os: { type: "string", enum: ["darwin", "linux"] },
+          os: { type: "string", enum: ["darwin", "linux", "windows"] },
           arch: { type: "string", enum: ["arm64", "amd64"] },
           source: { type: "string", enum: ["installer", "cli"] },
         },
@@ -213,7 +213,7 @@ export const openApiSpec = {
         properties: {
           message: { type: "string" },
           version: { type: "string" },
-          os: { type: "string", enum: ["darwin", "linux"] },
+          os: { type: "string", enum: ["darwin", "linux", "windows"] },
           arch: { type: "string", enum: ["arm64", "amd64"] },
           source: { type: "string", enum: ["cli"] },
           code: { type: "string" },

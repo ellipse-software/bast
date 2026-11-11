@@ -26,7 +26,7 @@ const mobileSectionLabelClass =
 
 export function SiteHeader({
   wide = false,
-  tone = "default",
+  tone = "night",
 }: {
   wide?: boolean;
   tone?: "default" | "night";

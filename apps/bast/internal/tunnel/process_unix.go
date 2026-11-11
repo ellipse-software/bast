@@ -3,6 +3,7 @@
 package tunnel
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -10,6 +11,18 @@ import (
 
 func detach(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+}
+
+func detachBackground(cmd *exec.Cmd) {
+	detach(cmd)
+}
+
+func lockFile(f *os.File) error {
+	return syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+}
+
+func unlockFile(f *os.File) error {
+	return syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 }
 
 func killProcess(pid int) {

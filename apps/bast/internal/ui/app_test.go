@@ -523,6 +523,43 @@ func TestVercelAndHetznerSyncErrorsShowIcon(t *testing.T) {
 	}
 }
 
+func TestLaterProviderSyncErrorsShowIcon(t *testing.T) {
+	cases := []struct {
+		alias string
+		group string
+		set   func(*App) error
+	}{
+		{"rail", "Railway", func(m *App) error {
+			return m.metadata.SetRailway(metadata.RailwayIntegration{Enabled: true, LastSyncError: "unauthorized"})
+		}},
+		{"machine", "Fly.io", func(m *App) error {
+			return m.metadata.SetFly(metadata.FlyIntegration{Enabled: true, LastSyncError: "flyctl"})
+		}},
+		{"drop", "DigitalOcean", func(m *App) error {
+			return m.metadata.SetDigitalOcean(metadata.DigitalOceanIntegration{Enabled: true, LastSyncError: "doctl"})
+		}},
+		{"computer", "boxd", func(m *App) error {
+			return m.metadata.SetBoxd(metadata.BoxdIntegration{Enabled: true, LastSyncError: "boxd"})
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.group, func(t *testing.T) {
+			m := testApp(t)
+			m.hosts = []sshconfig.Host{{Alias: tc.alias}}
+			if err := m.metadata.SetHost(tc.alias, metadata.Host{Group: tc.group}); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.set(m); err != nil {
+				t.Fatal(err)
+			}
+			m.sortHosts()
+			if rendered := m.renderHosts(m.styles()); strings.Count(rendered, "⚠") != 1 {
+				t.Fatalf("expected %s error icon:\n%s", tc.group, rendered)
+			}
+		})
+	}
+}
+
 func TestProviderConnectClearsStaleSyncErrorImmediately(t *testing.T) {
 	m := testApp(t)
 	m.syncProvider = "vercel"

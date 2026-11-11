@@ -44,9 +44,9 @@ type session struct {
 	stderr    *limitedWriter
 }
 
-// Supervisor tracks forwards started by this process and forwards left by a
-// detached CLI open. A crashed owner is reaped on Open. A detached forward
-// (owner 0) is left running.
+// Supervisor tracks forwards started by this process and forwards left running
+// with no owner. A crashed owner is reaped on Open. A forward with no owner,
+// including every host port forward, stays up until it is closed.
 type Supervisor struct {
 	dir    string
 	ssh    string
@@ -76,7 +76,11 @@ func Open(dir, ssh string) (*Supervisor, error) {
 		return nil, err
 	}
 	s := &Supervisor{dir: dir, ssh: ssh, rdp: map[string]*session{}, socks: map[string]*session{}, config: map[string]*session{}}
-	if err := s.load(); err != nil {
+	if err := s.withLock(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.syncFromDiskLocked()
+	}); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -120,87 +124,135 @@ func (s *Supervisor) CloseSOCKS(via string) {
 }
 
 // Config starts ssh -N for alias so the host's own LocalForward, RemoteForward,
-// and DynamicForward lines stay up without an interactive session.
+// and DynamicForward lines stay up without an interactive session. The process
+// has no owner: quitting Bast leaves it running, and every Bast window shares it.
 func (s *Supervisor) Config(alias string, configure func(*exec.Cmd)) (bool, error) {
 	if err := validateAlias(alias); err != nil {
 		return false, err
 	}
-	s.mu.Lock()
-	if existing := s.config[alias]; existing != nil && pidAlive(existing.pid) {
-		s.mu.Unlock()
-		return true, nil
-	} else if existing != nil {
-		s.stopLocked(existing)
-		delete(s.config, alias)
-	}
-	s.mu.Unlock()
-
-	args, err := ConfigForwardArgs(alias)
-	if err != nil {
-		return false, err
-	}
-	cmd := exec.Command(s.ssh, args...)
-	buf := &limitedWriter{max: 4096}
-	cmd.Stdout = io.Discard
-	cmd.Stderr = buf
-	detach(cmd)
-	if configure != nil {
-		configure(cmd)
-	}
-	if err := cmd.Start(); err != nil {
-		return false, err
-	}
-	fileID := configFileID(alias)
-	sess := &session{
-		key: alias, fileID: fileID, kind: "config", via: alias,
-		pid: cmd.Process.Pid, cmd: cmd, owned: true, stderr: buf,
-	}
-	if err := s.writeRecord(sess, os.Getpid()); err != nil {
-		killProcess(sess.pid)
-		_ = cmd.Wait()
-		return false, err
-	}
-	exited := make(chan struct{})
-	go func() {
-		_ = cmd.Wait()
-		close(exited)
+	var reused bool
+	err := s.withLock(func() error {
 		s.mu.Lock()
-		defer s.mu.Unlock()
-		current := s.config[alias]
-		if current == nil || current.pid != sess.pid {
-			return
+		if err := s.syncFromDiskLocked(); err != nil {
+			s.mu.Unlock()
+			return err
 		}
-		delete(s.config, alias)
-		s.removeRecord(fileID)
-	}()
-	if err := waitAlive(exited, 2*time.Second); err != nil {
-		killProcess(sess.pid)
-		<-exited
-		s.removeRecord(fileID)
-		return false, errors.New(FailureMessage(alias, buf.string()))
-	}
-	s.mu.Lock()
-	s.config[alias] = sess
-	s.mu.Unlock()
-	return false, nil
+		if existing := s.config[alias]; existing != nil && pidAlive(existing.pid) {
+			s.mu.Unlock()
+			reused = true
+			return nil
+		}
+		s.mu.Unlock()
+
+		args, err := ConfigForwardArgs(alias)
+		if err != nil {
+			return err
+		}
+		fileID := configFileID(alias)
+		logFile, err := os.OpenFile(s.logPath(fileID), os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o600)
+		if err != nil {
+			return err
+		}
+		cmd := exec.Command(s.ssh, args...)
+		cmd.Stdin = nil
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+		detachBackground(cmd)
+		if configure != nil {
+			configure(cmd)
+		}
+		if err := cmd.Start(); err != nil {
+			logFile.Close()
+			return err
+		}
+		logFile.Close()
+		sess := &session{
+			key: alias, fileID: fileID, kind: "config", via: alias,
+			pid: cmd.Process.Pid, cmd: cmd, owned: false,
+		}
+		if err := s.writeRecord(sess, 0); err != nil {
+			killProcess(sess.pid)
+			_ = cmd.Wait()
+			s.removeLog(fileID)
+			return err
+		}
+		exited := make(chan struct{})
+		go func() {
+			_ = cmd.Wait()
+			close(exited)
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			current := s.config[alias]
+			if current == nil || current.pid != sess.pid {
+				return
+			}
+			delete(s.config, alias)
+			s.removeRecord(fileID)
+			s.removeLog(fileID)
+		}()
+		if err := waitAlive(exited, 2*time.Second); err != nil {
+			message := s.readLog(fileID)
+			killProcess(sess.pid)
+			<-exited
+			s.removeRecord(fileID)
+			s.removeLog(fileID)
+			return errors.New(FailureMessage(alias, message))
+		}
+		s.mu.Lock()
+		s.config[alias] = sess
+		s.mu.Unlock()
+		return nil
+	})
+	return reused, err
 }
 
 func (s *Supervisor) ConfigOpen(alias string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sess := s.config[alias]
-	return sess != nil && pidAlive(sess.pid)
+	var open bool
+	_ = s.withLock(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if err := s.syncFromDiskLocked(); err != nil {
+			sess := s.config[alias]
+			open = sess != nil && pidAlive(sess.pid)
+			return nil
+		}
+		sess := s.config[alias]
+		open = sess != nil && pidAlive(sess.pid)
+		return nil
+	})
+	return open
 }
 
 func (s *Supervisor) CloseConfig(alias string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.stopKeyLocked("config", alias)
+	_ = s.withLock(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		_ = s.syncFromDiskLocked()
+		s.stopKeyLocked("config", alias)
+		return nil
+	})
 }
 
 func (s *Supervisor) ConfigAliases() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	var out []string
+	err := s.withLock(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if err := s.syncFromDiskLocked(); err != nil {
+			return err
+		}
+		out = s.configAliasesLocked()
+		return nil
+	})
+	if err != nil {
+		s.mu.Lock()
+		out = s.configAliasesLocked()
+		s.mu.Unlock()
+	}
+	return out
+}
+
+func (s *Supervisor) configAliasesLocked() []string {
 	out := make([]string, 0, len(s.config))
 	for alias, sess := range s.config {
 		if pidAlive(sess.pid) {
@@ -211,7 +263,8 @@ func (s *Supervisor) ConfigAliases() []string {
 	return out
 }
 
-// CloseOwned stops forwards this process started. Detached CLI forwards stay up.
+// CloseOwned stops forwards this process started. Host port forwards and other
+// unowned forwards stay up.
 func (s *Supervisor) CloseOwned() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -232,6 +285,33 @@ func (s *Supervisor) CloseOwned() {
 			s.stopLocked(sess)
 			delete(s.config, alias)
 		}
+	}
+}
+
+// CloseAll stops every forward this supervisor knows about, including host
+// port forwards that have no owner.
+func (s *Supervisor) CloseAll() {
+	_ = s.withLock(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		_ = s.syncFromDiskLocked()
+		s.stopEveryLocked()
+		return nil
+	})
+}
+
+func (s *Supervisor) stopEveryLocked() {
+	for id, sess := range s.rdp {
+		s.stopLocked(sess)
+		delete(s.rdp, id)
+	}
+	for via, sess := range s.socks {
+		s.stopLocked(sess)
+		delete(s.socks, via)
+	}
+	for alias, sess := range s.config {
+		s.stopLocked(sess)
+		delete(s.config, alias)
 	}
 }
 
@@ -412,6 +492,7 @@ func (s *Supervisor) stopKeyLocked(kind, key string) {
 func (s *Supervisor) stopLocked(sess *session) {
 	killProcess(sess.pid)
 	s.removeRecord(sess.fileID)
+	s.removeLog(sess.fileID)
 }
 
 func forwardArgs(kind string, port int, target, alias string) ([]string, error) {
@@ -592,12 +673,13 @@ func configFileID(alias string) string {
 	return "cfg-" + hex.EncodeToString(sum[:8])
 }
 
-func (s *Supervisor) load() error {
+func (s *Supervisor) syncFromDiskLocked() error {
 	files, err := os.ReadDir(s.dir)
 	if err != nil {
 		return err
 	}
 	our := os.Getpid()
+	live := map[string]struct{}{}
 	for _, file := range files {
 		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
 			continue
@@ -614,33 +696,114 @@ func (s *Supervisor) load() error {
 		}
 		if !pidAlive(rec.PID) {
 			_ = os.Remove(path)
+			s.removeLog(rec.ID)
 			continue
 		}
-		if rec.Owner != 0 && rec.Owner != our && !pidAlive(rec.Owner) {
-			killProcess(rec.PID)
-			_ = os.Remove(path)
+		// Host port forwards stay up after every Bast window exits. Other
+		// tunnels still belong to the process that started them.
+		if rec.Kind != "config" && rec.Owner != 0 && rec.Owner != our {
+			if !pidAlive(rec.Owner) {
+				killProcess(rec.PID)
+				_ = os.Remove(path)
+				s.removeLog(rec.ID)
+			}
 			continue
 		}
-		if rec.Owner != 0 && rec.Owner != our {
-			continue
+		live[rec.ID] = struct{}{}
+		s.adoptLocked(rec)
+	}
+	s.forgetStaleLocked(live)
+	return nil
+}
+
+func (s *Supervisor) adoptLocked(rec record) {
+	current := s.lookupLocked(rec.Kind, adoptKey(rec))
+	if current != nil && current.pid == rec.PID {
+		return
+	}
+	if current != nil && current.cmd != nil && pidAlive(current.pid) {
+		return
+	}
+	sess := &session{
+		fileID: rec.ID, kind: rec.Kind, via: rec.Via,
+		pid: rec.PID, localPort: rec.LocalPort, owned: false,
+	}
+	switch rec.Kind {
+	case "socks":
+		sess.key = rec.Via
+	case "config":
+		sess.key = rec.Via
+	default:
+		sess.key = rec.ID
+	}
+	s.storeLocked(sess)
+}
+
+func adoptKey(rec record) string {
+	if rec.Kind == "socks" || rec.Kind == "config" {
+		return rec.Via
+	}
+	return rec.ID
+}
+
+func (s *Supervisor) forgetStaleLocked(live map[string]struct{}) {
+	drop := func(sess *session) bool {
+		if !pidAlive(sess.pid) {
+			return true
 		}
-		sess := &session{
-			fileID: rec.ID, kind: rec.Kind, via: rec.Via,
-			pid: rec.PID, localPort: rec.LocalPort, owned: false,
-		}
-		switch rec.Kind {
-		case "socks":
-			sess.key = rec.Via
-			s.socks[rec.Via] = sess
-		case "config":
-			sess.key = rec.Via
-			s.config[rec.Via] = sess
-		default:
-			sess.key = rec.ID
-			s.rdp[rec.ID] = sess
+		_, ok := live[sess.fileID]
+		return !ok && sess.cmd == nil
+	}
+	for id, sess := range s.rdp {
+		if drop(sess) {
+			delete(s.rdp, id)
 		}
 	}
-	return nil
+	for via, sess := range s.socks {
+		if drop(sess) {
+			delete(s.socks, via)
+		}
+	}
+	for alias, sess := range s.config {
+		if drop(sess) {
+			delete(s.config, alias)
+		}
+	}
+}
+
+func (s *Supervisor) withLock(fn func() error) error {
+	f, err := os.OpenFile(filepath.Join(s.dir, ".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := lockFile(f); err != nil {
+		return err
+	}
+	defer unlockFile(f)
+	return fn()
+}
+
+func (s *Supervisor) logPath(fileID string) string {
+	return filepath.Join(s.dir, fileID+".err")
+}
+
+func (s *Supervisor) readLog(fileID string) string {
+	body, err := os.ReadFile(s.logPath(fileID))
+	if err != nil || len(body) == 0 {
+		return ""
+	}
+	if len(body) > 4096 {
+		body = body[:4096]
+	}
+	return string(body)
+}
+
+func (s *Supervisor) removeLog(fileID string) {
+	if fileID == "" || strings.ContainsAny(fileID, `/\`) {
+		return
+	}
+	_ = os.Remove(s.logPath(fileID))
 }
 
 func (s *Supervisor) writeRecord(sess *session, owner int) error {

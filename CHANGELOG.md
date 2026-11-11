@@ -6,7 +6,7 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
-- A host with a local, remote, or dynamic forward can keep those ports up in the background. **Forward** starts `ssh -N` without taking the terminal. Active forwards are listed under a Forwards separator. **Close** or `c` stops them.
+- A host with a local, remote, or dynamic forward can keep those ports up in the background. **Forward** starts `ssh -N` as its own process, so the ports stay up after you quit Bast or open another window. Every window lists the same forwards under a Forwards separator. **Close** or `c` stops them.
 - Remote Desktop entries and internal web pages sit in the host list, separate from SSH hosts. `A` adds one. Enter or `Ctrl+O` opens it in the system client. A jump uses an OpenSSH local forward for Remote Desktop and one SOCKS proxy per jump for a page. The Open RDP checkbox on an SSH host is unchanged. `bast rdp` and `bast web` manage them, and Vault syncs them.
 - `BAST_NO_SYNC=1` hides Sync and rejects the cloud commands (`bast sync`, `bast boat`, and the other provider commands). `BAST_NO_VAULT=1` hides Vault and rejects `bast vault`. Tabs that remain are numbered from 1 with no gaps. Hosts already on the machine stay usable.
 - Files: Left and Right move to the parent directory and into the selected directory. Both panes open on the host picker, with Local at the top and the same groups as Hosts, so either pane can be this machine or any host. A pane shows `local` or the host name only after you choose it. Host, Sync, and Files rows leave one column before the icon. The host form is one scroll: Basics includes authentication, Customisation holds the label, icon, colour, and other metadata, and Advanced still opens on its own.
@@ -24,6 +24,7 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Fixed
 
+- A sync error on Railway, Fly, DigitalOcean, or boxd shows the warning on that provider's group, the same as the other providers.
 - Windows Terminal draws the Enter mark as one cell, so the return icon shows in full. Boat and boxd use one-cell icons there as well.
 - Long full-screen errors scroll with the keyboard and the mouse wheel. The actions stay visible at the bottom.
 

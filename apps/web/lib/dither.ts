@@ -130,6 +130,24 @@ export function bayerRamp(
   return ramp[index] ?? first;
 }
 
+/**
+ * Ordered dither without the hero's dark bias, so a low coverage stays a
+ * sparse field instead of snapping to the first ink.
+ */
+export function bayerCover(
+  coverage: number,
+  cellX: number,
+  cellY: number,
+  ramp: readonly RGB[],
+): RGB {
+  const first = ramp[0] ?? ([0, 0, 0] as const);
+  const steps = Math.max(ramp.length - 1, 1);
+  const matrix = BAYER_8[((cellY & 7) * 8 + (cellX & 7)) % BAYER_8.length] ?? 0;
+  const value = clamp01(coverage + (matrix / 64 - 0.5) / steps);
+  const index = Math.min(steps, Math.max(0, Math.round(value * steps)));
+  return ramp[index] ?? first;
+}
+
 function isBlossom(red: number, green: number, blue: number): boolean {
   const sample = hueSat(red, green, blue);
   return (

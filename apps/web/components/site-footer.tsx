@@ -136,7 +136,7 @@ async function FooterStatus() {
 }
 
 export function SiteFooter({
-  tone = "default",
+  tone = "night",
 }: {
   tone?: "default" | "night";
 } = {}) {

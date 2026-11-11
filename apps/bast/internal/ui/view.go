@@ -543,8 +543,9 @@ func (m *App) renderHosts(s styleSet) string {
 	var list strings.Builder
 	list.Grow(listHeight * (rowWidth + 8))
 	query := m.searchText()
+	syncErrors := m.syncGroupErrors()
 	for i := start; i < min(len(rowsData), start+listHeight); i++ {
-		list.WriteString(m.renderHostRowLine(s, rowsData[i], i == m.cursor, rowWidth, query) + "\n")
+		list.WriteString(m.renderHostRowLine(s, rowsData[i], i == m.cursor, rowWidth, query, syncErrors) + "\n")
 	}
 	listPanel := lipgloss.NewStyle().Width(rowWidth).Height(listHeight).Render(strings.TrimRight(list.String(), "\n"))
 	if layout.mobile && len(rowsData) > listHeight {
@@ -577,7 +578,7 @@ func (m *App) renderHosts(s styleSet) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, listPanel, divider, detail)
 }
 
-func (m *App) renderHostRowLine(s styleSet, row hostRow, selected bool, rowWidth int, query string) string {
+func (m *App) renderHostRowLine(s styleSet, row hostRow, selected bool, rowWidth int, query string, syncErrors map[cloud.Kind]bool) string {
 	selectedRow := s.selected.Width(rowWidth)
 	mutedRow := s.muted.Width(rowWidth)
 	activeRow := s.active.Width(rowWidth)
@@ -614,15 +615,7 @@ func (m *App) renderHostRowLine(s styleSet, row hostRow, selected bool, rowWidth
 				name = name[slash+1:]
 			}
 		}
-		gcpErr := m.providerShowsSyncError("gcp", notableSyncError(m.metadata.GCP().LastSyncError, m.syncStatus.GCP.GCloudError))
-		awsErr := m.providerShowsSyncError("aws", notableSyncError(m.metadata.AWS().LastSyncError, m.syncStatus.AWS.AWSCLIError))
-		azureErr := m.providerShowsSyncError("azure", notableSyncError(m.metadata.Azure().LastSyncError, m.syncStatus.Azure.AzureCLIError))
-		boatErr := m.providerShowsSyncError("boat", notableSyncError(m.metadata.Boat().LastSyncError, m.syncStatus.Boat.BoatCLIError))
-		upstashErr := m.providerShowsSyncError("upstash", notableSyncError(m.metadata.Upstash().LastSyncError, m.syncStatus.Upstash.Error))
-		vercelErr := m.providerShowsSyncError("vercel", notableSyncError(m.metadata.Vercel().LastSyncError, m.syncStatus.Vercel.Error))
-		hetznerErr := m.providerShowsSyncError("hetzner", notableSyncError(m.metadata.Hetzner().LastSyncError, m.syncStatus.Hetzner.Error))
-		bitqateErr := m.providerShowsSyncError("bitqate", notableSyncError(m.metadata.Bitqate().LastSyncError, m.syncStatus.Bitqate.Error))
-		showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr, bitqateErr)
+		showError := row.depth == 0 && syncGroupHasError(row.group, syncErrors)
 		rawPrefix := indent + indicator + " "
 		accent, branded := providerBrandStyle(row)
 		appearance := metadata.GroupAppearance{}
@@ -787,45 +780,29 @@ func (m *App) providerShowsSyncError(provider string, hasError bool) bool {
 	return hasError && !m.providerSyncing(provider)
 }
 
-func (m *App) cloudSyncGroupHasError(group string) bool {
-	return cloudSyncGroupHasErrorCached(
-		group,
-		m.providerShowsSyncError("gcp", notableSyncError(m.metadata.GCP().LastSyncError, m.syncStatus.GCP.GCloudError)),
-		m.providerShowsSyncError("aws", notableSyncError(m.metadata.AWS().LastSyncError, m.syncStatus.AWS.AWSCLIError)),
-		m.providerShowsSyncError("azure", notableSyncError(m.metadata.Azure().LastSyncError, m.syncStatus.Azure.AzureCLIError)),
-		m.providerShowsSyncError("boat", notableSyncError(m.metadata.Boat().LastSyncError, m.syncStatus.Boat.BoatCLIError)),
-		m.providerShowsSyncError("upstash", notableSyncError(m.metadata.Upstash().LastSyncError, m.syncStatus.Upstash.Error)),
-		m.providerShowsSyncError("vercel", notableSyncError(m.metadata.Vercel().LastSyncError, m.syncStatus.Vercel.Error)),
-		m.providerShowsSyncError("hetzner", notableSyncError(m.metadata.Hetzner().LastSyncError, m.syncStatus.Hetzner.Error)),
-		m.providerShowsSyncError("bitqate", notableSyncError(m.metadata.Bitqate().LastSyncError, m.syncStatus.Bitqate.Error)),
-	)
+func (m *App) syncGroupErrors() map[cloud.Kind]bool {
+	return map[cloud.Kind]bool{
+		cloud.GCP:          m.providerShowsSyncError("gcp", notableSyncError(m.metadata.GCP().LastSyncError, m.syncStatus.GCP.GCloudError)),
+		cloud.AWS:          m.providerShowsSyncError("aws", notableSyncError(m.metadata.AWS().LastSyncError, m.syncStatus.AWS.AWSCLIError)),
+		cloud.Azure:        m.providerShowsSyncError("azure", notableSyncError(m.metadata.Azure().LastSyncError, m.syncStatus.Azure.AzureCLIError)),
+		cloud.Boat:         m.providerShowsSyncError("boat", notableSyncError(m.metadata.Boat().LastSyncError, m.syncStatus.Boat.BoatCLIError)),
+		cloud.Upstash:      m.providerShowsSyncError("upstash", notableSyncError(m.metadata.Upstash().LastSyncError, m.syncStatus.Upstash.Error)),
+		cloud.Vercel:       m.providerShowsSyncError("vercel", notableSyncError(m.metadata.Vercel().LastSyncError, m.syncStatus.Vercel.Error)),
+		cloud.Hetzner:      m.providerShowsSyncError("hetzner", notableSyncError(m.metadata.Hetzner().LastSyncError, m.syncStatus.Hetzner.Error)),
+		cloud.Bitqate:      m.providerShowsSyncError("bitqate", notableSyncError(m.metadata.Bitqate().LastSyncError, m.syncStatus.Bitqate.Error)),
+		cloud.Railway:      m.providerShowsSyncError("railway", notableSyncError(m.metadata.Railway().LastSyncError, m.syncStatus.Railway.Error)),
+		cloud.Fly:          m.providerShowsSyncError("fly", notableSyncError(m.metadata.Fly().LastSyncError, m.syncStatus.Fly.FlyCLIError)),
+		cloud.DigitalOcean: m.providerShowsSyncError("digitalocean", notableSyncError(m.metadata.DigitalOcean().LastSyncError, m.syncStatus.DigitalOcean.DOCTLError)),
+		cloud.Boxd:         m.providerShowsSyncError("boxd", notableSyncError(m.metadata.Boxd().LastSyncError, m.syncStatus.Boxd.BoxdCLIError)),
+	}
 }
 
-func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr, bitqateErr bool) bool {
+func syncGroupHasError(group string, errors map[cloud.Kind]bool) bool {
 	kind, ok := cloud.KindForGroup(group)
 	if !ok {
 		return false
 	}
-	switch kind {
-	case cloud.GCP:
-		return gcpErr
-	case cloud.AWS:
-		return awsErr
-	case cloud.Azure:
-		return azureErr
-	case cloud.Boat:
-		return boatErr
-	case cloud.Upstash:
-		return upstashErr
-	case cloud.Vercel:
-		return vercelErr
-	case cloud.Hetzner:
-		return hetznerErr
-	case cloud.Bitqate:
-		return bitqateErr
-	default:
-		return false
-	}
+	return errors[kind]
 }
 
 func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {

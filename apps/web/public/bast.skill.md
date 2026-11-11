@@ -61,6 +61,26 @@ Windows 11 PowerShell:
 irm https://bast.sh/install.ps1 | iex
 ```
 
+## Update
+
+`bast update` only updates script installs (https://bast.sh/install, https://bast.sh/install-nightly, and the Windows PowerShell installers). It refuses package-manager copies and prints the command for that install.
+
+| Install | Command |
+| --- | --- |
+| Script, nightly script, Windows PowerShell | `bast update` |
+| Homebrew | `brew upgrade bast` |
+| Homebrew nightly | `brew upgrade bast-nightly` |
+| apt | `sudo apt upgrade bast` |
+| dnf | `sudo dnf upgrade bast` |
+| yum | `sudo yum update bast` |
+| zypper | `sudo zypper update bast` |
+| pacman | `sudo pacman -Syu bast` |
+| AUR (`bast-bin`) | `yay -Syu bast-bin`, or `paru -Syu bast-bin`, otherwise `sudo pacman -Syu bast-bin` |
+| apk | `sudo apk upgrade bast` |
+| WinGet | `winget upgrade --id EllipseSoftware.Bast --exact` |
+
+Stable builds check for a newer stable release. Nightly builds check the nightly channel. The idle status line shows `Update <version> · <command>`. Press `v` for the same suggestion. A source build shows `https://bast.sh`.
+
 ## Shell completions
 
 The script installers and Homebrew enable tab completion. Open a new terminal after install. Opt out with `BAST_NO_COMPLETIONS=1`.
@@ -295,7 +315,7 @@ Requires the `boxd` CLI on `PATH` and `boxd auth login`. Bast does not store a b
 
 TUI Files tab (`5`) is a dual-pane browser over OpenSSH SFTP. Both panes open on a host picker: Local first, then the same groups as Hosts. A pane shows `local` or the host name only after you choose it. Shift+D returns a pane to the picker from a local directory or a connected host. Enter toggles a group in the picker. Left and Right move to the parent directory and into the selected directory. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
 
-TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Boat/Upstash/Vercel/Hetzner/BitQate/Railway/Fly.io/DigitalOcean/boxd). `BAST_NO_VAULT=1` hides Vault and rejects `bast vault`. `BAST_NO_SYNC=1` hides Sync and rejects `bast sync` plus the provider commands (`bast boat`, `bast upstash`, `bast vercel`, `bast hetzner`, `bast bitqate`, `bast railway`, `bast fly`, `bast digitalocean`, `bast boxd`). Remaining tabs are numbered from 1 with no gaps. Hosts already imported stay usable. Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`. First TUI with no hosts shows a skippable start chooser (`esc` skips, `BAST_NO_ONBOARDING=1` disables).
+TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Boat/Upstash/Vercel/Hetzner/BitQate/Railway/Fly.io/DigitalOcean/boxd). `BAST_NO_VAULT=1` hides Vault and rejects `bast vault`. `BAST_NO_SYNC=1` hides Sync and rejects `bast sync` plus the provider commands (`bast boat`, `bast upstash`, `bast vercel`, `bast hetzner`, `bast bitqate`, `bast railway`, `bast fly`, `bast digitalocean`, `bast boxd`). Remaining tabs are numbered from 1 with no gaps. Hosts already imported stay usable. Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`. First TUI with no hosts shows the logo, the slogan, and a short welcome. Any key continues to Hosts, on a history suggestion when one is waiting. `Ctrl+C` quits without dismissing it. `BAST_NO_ONBOARDING=1` disables it. About (`v`) then `o` shows it again.
 
 ## File layout
 

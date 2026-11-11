@@ -3,6 +3,7 @@
 package tunnel
 
 import (
+	"os"
 	"os/exec"
 	"strconv"
 	"syscall"
@@ -12,6 +13,20 @@ import (
 
 func detach(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
+}
+
+func detachBackground(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS,
+	}
+}
+
+func lockFile(f *os.File) error {
+	return windows.LockFileEx(windows.Handle(f.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, &windows.Overlapped{})
+}
+
+func unlockFile(f *os.File) error {
+	return windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, &windows.Overlapped{})
 }
 
 func killProcess(pid int) {

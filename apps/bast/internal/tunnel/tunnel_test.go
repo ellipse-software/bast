@@ -104,7 +104,7 @@ func TestSupervisorReusesAndRejectsBeforeExec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(sup.CloseOwned)
+	t.Cleanup(sup.CloseAll)
 	if _, _, err := sup.RDP("entry", "bastion", "10.0.0.5;rm", nil); err == nil {
 		t.Fatal("hostile target started ssh")
 	}
@@ -162,6 +162,58 @@ func TestSupervisorReusesAndRejectsBeforeExec(t *testing.T) {
 	sup.CloseConfig("bastion")
 	if sup.ConfigOpen("bastion") {
 		t.Fatal("config forward stayed open")
+	}
+}
+
+func TestConfigForwardSurvivesQuitAndIsShared(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture")
+	}
+	dir := t.TempDir()
+	count := filepath.Join(dir, "count")
+	script := filepath.Join(dir, "ssh")
+	body := "#!/bin/sh\nexec " + shellQuote(os.Args[0]) + " -test.run=^TestTunnelFixture$ -- \"$@\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tunnels := filepath.Join(dir, "tunnels")
+	first, err := Open(tunnels, script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Open(tunnels, script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(first.CloseAll)
+	t.Cleanup(second.CloseAll)
+	t.Setenv("BAST_TUNNEL_FIXTURE", "1")
+	t.Setenv("BAST_TUNNEL_COUNT", count)
+
+	if _, err := first.Config("bastion", nil); err != nil {
+		t.Fatal(err)
+	}
+	first.CloseOwned()
+	if !first.ConfigOpen("bastion") {
+		t.Fatal("quit stopped the port forward")
+	}
+	if aliases := second.ConfigAliases(); len(aliases) != 1 || aliases[0] != "bastion" {
+		t.Fatalf("second window aliases = %v", aliases)
+	}
+	reused, err := second.Config("bastion", nil)
+	if err != nil || !reused {
+		t.Fatalf("reused=%v err=%v", reused, err)
+	}
+	got, err := os.ReadFile(count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "1" {
+		t.Fatalf("ssh starts = %q", got)
+	}
+	second.CloseConfig("bastion")
+	if first.ConfigOpen("bastion") {
+		t.Fatal("close from the other window left the forward running")
 	}
 }
 

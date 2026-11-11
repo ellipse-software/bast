@@ -52,7 +52,7 @@ const installTheme = {
 	"--accent": "#8b5cf6",
 } as CSSProperties;
 
-export async function PreFooter({ version, tone = "default" }: PreFooterProps) {
+export async function PreFooter({ version, tone = "night" }: PreFooterProps) {
 	const wingetAvailable = await winget();
 	const platforms = supportsWindowsRelease(version)
 		? "macOS, Linux, and Windows 11"

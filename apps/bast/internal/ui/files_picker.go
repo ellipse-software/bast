@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
+	"bast/internal/cloud"
 )
 
 type filesPickerRow struct {
@@ -33,7 +35,7 @@ func (m *App) filesPickerRowAt(pane *filesPane) (filesPickerRow, bool) {
 	return rows[pane.hostCursor], true
 }
 
-func (m *App) renderFilesPickerLine(s styleSet, row filesPickerRow, selected bool, width int, query string) string {
+func (m *App) renderFilesPickerLine(s styleSet, row filesPickerRow, selected bool, width int, query string, syncErrors map[cloud.Kind]bool) string {
 	if row.local {
 		line := "   Local"
 		if selected {
@@ -41,7 +43,7 @@ func (m *App) renderFilesPickerLine(s styleSet, row filesPickerRow, selected boo
 		}
 		return s.plain.Width(width).Render(line)
 	}
-	return m.renderHostRowLine(s, row.row, selected, width, query)
+	return m.renderHostRowLine(s, row.row, selected, width, query, syncErrors)
 }
 
 func (m *App) activateFilesPicker() (tea.Model, tea.Cmd) {

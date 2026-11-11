@@ -7,7 +7,7 @@ import { discordUrl } from "@/lib/site";
 export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
-      title: <WordmarkLogo />,
+      title: <WordmarkLogo color="white" />,
       url: "/",
     },
     themeSwitch: {

@@ -443,8 +443,9 @@ func (m *App) renderFilesHostPicker(s styleSet, pane *filesPane, focused bool, h
 	}
 	end := min(len(rows), offset+listHeight)
 	query := m.filesPickerQuery(pane)
+	syncErrors := m.syncGroupErrors()
 	for i := offset; i < end; i++ {
-		b.WriteString(m.renderFilesPickerLine(s, rows[i], focused && i == pane.hostCursor, width, query) + "\n")
+		b.WriteString(m.renderFilesPickerLine(s, rows[i], focused && i == pane.hostCursor, width, query, syncErrors) + "\n")
 	}
 	return b.String()
 }

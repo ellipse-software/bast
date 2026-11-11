@@ -69,8 +69,8 @@ export default async function ChangelogPage() {
           .
         </p>
       ) : (
-        <div className="bg-border p-px">
-          <div className="divide-y divide-border bg-background">
+        <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0c0f14]">
+          <div className="divide-y divide-white/15">
             {releases.map((release) => (
               <article key={release.tag} className="px-4 py-5 sm:px-5 sm:py-6">
                 <header className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">

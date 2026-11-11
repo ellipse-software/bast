@@ -35,7 +35,7 @@ Startup command maps to `RemoteCommand`. Request TTY maps to `RequestTTY force` 
 
 These values map to `ForwardAgent`, `LocalForward`, `RemoteForward`, `DynamicForward`, `Compression`, and `ServerAliveInterval`.
 
-On a host that has a local, remote, or dynamic forward, the detail panel shows **Forward**. `Ctrl+P` starts `ssh -N` in the background, so the ports stay up after you return to Bast. Active forwards are listed under a **Forwards** separator at the top of the host list. **Close** or `c` stops that background session. Connecting with Enter still opens a shell, and that shell keeps its own copies of the same forwards until you exit it.
+On a host that has a local, remote, or dynamic forward, the detail panel shows **Forward**. `Ctrl+P` starts `ssh -N` as its own process. The ports stay up after you return to the host list, quit Bast, or open another window. Every window lists the same forwards under a **Forwards** separator at the top of the host list. **Close** or `c` in any window stops that process. Connecting with Enter still opens a shell, and that shell keeps its own copies of the same forwards until you exit it.
 
 Agent forwarding gives the remote host access to your agent while the session is open. It does not copy private-key files to the server, but a compromised server could use the forwarded agent during that session.
 

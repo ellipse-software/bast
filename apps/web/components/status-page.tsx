@@ -138,7 +138,7 @@ function IncidentsList({ incidents }: { incidents: StatusIncident[] }) {
   }
 
   return (
-    <ul className="divide-y divide-border border border-border">
+    <ul className="divide-y divide-white/15 overflow-hidden rounded-xl border border-white/15">
       {incidents.map((incident) => (
         <li key={incident.id} className="px-4 py-4 sm:px-5">
           <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -175,7 +175,7 @@ export function StatusPageView({ data }: { data: StatusPageData }) {
   return (
     <div className="w-full">
       <div
-        className={`mb-10 border px-5 py-6 sm:px-6 sm:py-7 ${aggregateTone(data.aggregate)}`}
+        className={`mb-10 rounded-xl border px-5 py-6 sm:px-6 sm:py-7 ${aggregateTone(data.aggregate)}`}
       >
         <p className="text-xl font-medium tracking-tight sm:text-2xl">
           {aggregateLabel(data.aggregate)}
@@ -191,7 +191,7 @@ export function StatusPageView({ data }: { data: StatusPageData }) {
         <h2 className="mb-4 text-sm font-medium tracking-tight text-foreground">
           Services
         </h2>
-        <div className="divide-y divide-border border border-border bg-background">
+        <div className="divide-y divide-white/15 overflow-hidden rounded-xl border border-white/15 bg-[#0c0f14]">
           {data.services.map((service) => (
             <ServiceRow key={service.key} service={service} />
           ))}

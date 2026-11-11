@@ -3,13 +3,14 @@ title: Keyboard shortcuts
 description: Every keybinding in the Bast TUI, from navigation to host and key actions.
 ---
 
-Press `/` or `?` for the actions that work on the current row. The sheet sits at the bottom and lists only those. Press one of the keys to run it, or `Esc` to close the sheet. While a text field is focused, `/` types a slash and `?` opens the sheet. Press `v` for version info, credits, and update hints. A first TUI with no hosts is a skippable start chooser; see [First launch](/docs/features/onboarding).
+Press `/` or `?` for the actions that work on the current row. The sheet sits at the bottom and lists only those. Press one of the keys to run it, or `Esc` to close the sheet. While a text field is focused, `/` types a slash and `?` opens the sheet. Press `v` for version info, credits, and update hints. A first TUI with no hosts shows a short welcome; any key continues. See [First launch](/docs/features/onboarding).
 
 ## Navigation
 
 | Key | Action |
 | --- | --- |
 | `↑` / `↓` or `j` / `k` | Move selection |
+| `g` / `G` | Top / bottom of the list |
 | Click / tap list row | Select item ([mobile layout](/docs/features/mobile-view)) |
 | `1` | Switch to hosts tab |
 | `2` | Switch to keys tab |
@@ -44,7 +45,7 @@ Press `/` or `?` for the actions that work on the current row. The sheet sits at
 | `→` | Expand the focused group |
 | `←` | Collapse the focused group, or move to its parent |
 | `Ctrl+O` | Open Remote Desktop for the selected host, or open the selected Remote Desktop or web entry |
-| `Ctrl+P` | Start a background forward for a host that has local, remote, or dynamic forwards |
+| `Ctrl+P` | Start a port forward that keeps running after Bast quits |
 | `s` | Cycle sort mode, or sync the selected provider group |
 | `n` | New on a provider group that can create, or fork a Boat, Upstash, Vercel, Fly.io, DigitalOcean, or boxd host |
 | `o` | Stop or pause a Boat, Upstash, Vercel, Hetzner, BitQate, Railway, Fly.io, DigitalOcean, or boxd host |

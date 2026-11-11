@@ -80,11 +80,15 @@ export default async function CliPage() {
             </li>
           ))}
         </ul>
-        <InstallCommand
-          version={version}
-          wingetAvailable={wingetAvailable}
-          className="w-full"
-        />
+        <div className="pt-8">
+          <InstallCommand
+            version={version}
+            wingetAvailable={wingetAvailable}
+            platformIcons
+            controlsPlacement="above"
+            className="w-full"
+          />
+        </div>
       </section>
 
       <section className="mb-12 max-w-2xl space-y-4 text-sm leading-relaxed text-muted sm:text-[15px]">
@@ -101,7 +105,7 @@ export default async function CliPage() {
           </code>
           .
         </p>
-        <pre className="overflow-x-auto border border-border bg-surface px-4 py-3 font-mono text-xs text-foreground">
+        <pre className="overflow-x-auto rounded-xl border border-white/15 bg-[#0c0f14] px-4 py-3 font-mono text-xs text-foreground">
           {`bast hosts list --json
 bast keys list --json
 bast doctor --json

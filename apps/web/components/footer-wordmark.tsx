@@ -2,7 +2,7 @@
 
 import { type CSSProperties, useLayoutEffect, useRef } from "react";
 
-import { bayerRamp, type RGB } from "@/lib/dither";
+import { bayerCover, type RGB } from "@/lib/dither";
 
 type ChamberPalette = {
 	wash: string;
@@ -57,35 +57,15 @@ const NIGHT_WASH_RAMP = [
 	[136, 96, 208],
 ] as const satisfies readonly RGB[];
 
-const WASH_PLATE: RGB = [5, 8, 15];
-const WASH_LIFT: RGB = [139, 92, 246];
-
-function washAlpha(fromBottom: number): number {
-	const stops = [
-		[0, 0.55],
-		[0.55, 0.32],
-		[0.78, 0.14],
-		[0.96, 0],
-	] as const;
-	if (fromBottom >= 0.96) return 0;
-	for (let index = 0; index < stops.length - 1; index += 1) {
-		const [start, startAlpha] = stops[index] ?? [0, 0];
-		const [end, endAlpha] = stops[index + 1] ?? [1, 0];
-		if (fromBottom < start || fromBottom > end) continue;
-		const span = end - start;
-		const t = span === 0 ? 0 : (fromBottom - start) / span;
-		return startAlpha + (endAlpha - startAlpha) * t;
-	}
-	return 0;
+/** Rises slowly, so the top stays a sparse field instead of a hard edge. */
+function washCoverage(fromBottom: number): number {
+	const rise = fromBottom < 0 ? 1 : fromBottom > 1 ? 0 : 1 - fromBottom;
+	return rise ** 1.2 * 0.36;
 }
 
-function washSample(fromBottom: number): RGB {
-	const alpha = washAlpha(fromBottom);
-	return [
-		Math.round(WASH_PLATE[0] + (WASH_LIFT[0] - WASH_PLATE[0]) * alpha),
-		Math.round(WASH_PLATE[1] + (WASH_LIFT[1] - WASH_PLATE[1]) * alpha),
-		Math.round(WASH_PLATE[2] + (WASH_LIFT[2] - WASH_PLATE[2]) * alpha),
-	];
+function washJitter(x: number, y: number): number {
+	const hash = Math.imul(x, 374761393) ^ Math.imul(y, 668265263);
+	return ((hash >>> 0) % 1024) / 1024;
 }
 
 /** Bayer screen of a lighter violet wash. Same 3px cell as the night hero. */
@@ -124,12 +104,10 @@ function DitherWash() {
 			const pixels = image.data;
 			for (let y = 0; y < rows; y += 1) {
 				const fromBottom = 1 - y / Math.max(rows - 1, 1);
-				const sample = washSample(fromBottom);
 				for (let x = 0; x < cols; x += 1) {
-					const [red, green, blue] = bayerRamp(
-						sample[0],
-						sample[1],
-						sample[2],
+					const shifted = fromBottom + (washJitter(x, y) - 0.5) * 0.1;
+					const [red, green, blue] = bayerCover(
+						washCoverage(shifted),
 						x,
 						y,
 						NIGHT_WASH_RAMP,
@@ -523,7 +501,7 @@ function glyphStyles(palette: ChamberPalette): {
 
 /** Full-bleed `bast.sh` mark. */
 export function FooterWordmark({
-	tone = "default",
+	tone = "night",
 }: {
 	tone?: "default" | "night";
 } = {}) {
