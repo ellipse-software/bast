@@ -93,6 +93,10 @@ export function BeachDither() {
       }
     };
 
+    // Safari on iPad grows the visual viewport as the toolbar hides. A cover
+    // resample of that change reads as a zoom, and the dither blocks the scroll.
+    const toolbarSlack = 180;
+
     const capture = () => {
       if (cancelled || !image.complete || image.naturalWidth === 0) return;
 
@@ -106,13 +110,9 @@ export function BeachDither() {
       const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
       const cell = Math.max(1, Math.round(cssCell * pixelRatio));
       const current = plateRef.current;
-      if (
-        current &&
-        current.cols === cols &&
-        current.rows === rows &&
-        current.cell === cell
-      ) {
-        return;
+      if (current && current.cols === cols && current.cell === cell) {
+        const heightChange = Math.abs(current.rows - rows) * cssCell;
+        if (current.rows === rows || heightChange <= toolbarSlack) return;
       }
 
       const sample = document.createElement("canvas");
@@ -133,7 +133,7 @@ export function BeachDither() {
       sampleContext.imageSmoothingEnabled = true;
       sampleContext.drawImage(
         image,
-        (cols - drawnWidth) / 2,
+        0,
         (rows - drawnHeight) / 2,
         drawnWidth,
         drawnHeight,
@@ -144,9 +144,15 @@ export function BeachDither() {
       draw(phaseRef.current);
     };
 
+    let scrolling = false;
+    let scrollTimer = 0;
+    let visible = true;
+
     const scheduleCapture = () => {
+      if (scrolling) return;
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
+        if (cancelled || scrolling) return;
         cancelAnimationFrame(frame);
         frame = window.requestAnimationFrame(capture);
       }, 80);
@@ -161,12 +167,27 @@ export function BeachDither() {
 
     const startDrift = () => {
       stopDrift();
-      if (motion.matches) return;
+      if (motion.matches || !visible || scrolling) return;
       driftTimer = window.setInterval(() => {
+        if (!visible || scrolling) return;
         phaseRef.current = (phaseRef.current + 1) % 64;
         cancelAnimationFrame(frame);
         frame = window.requestAnimationFrame(() => draw(phaseRef.current));
       }, driftMs);
+    };
+
+    const onScroll = () => {
+      if (!scrolling) {
+        scrolling = true;
+        stopDrift();
+        window.clearTimeout(resizeTimer);
+        cancelAnimationFrame(frame);
+      }
+      window.clearTimeout(scrollTimer);
+      scrollTimer = window.setTimeout(() => {
+        scrolling = false;
+        if (visible) startDrift();
+      }, 180);
     };
 
     const onMotion = () => {
@@ -184,16 +205,26 @@ export function BeachDither() {
 
     const observer = new ResizeObserver(scheduleCapture);
     observer.observe(root);
+    const intersection = new IntersectionObserver(([entry]) => {
+      visible = entry?.isIntersecting ?? false;
+      if (visible && !scrolling) startDrift();
+      else stopDrift();
+    });
+    intersection.observe(root);
     window.addEventListener("resize", scheduleCapture);
+    window.addEventListener("scroll", onScroll, { passive: true });
     motion.addEventListener("change", onMotion);
 
     return () => {
       cancelled = true;
       window.clearTimeout(resizeTimer);
+      window.clearTimeout(scrollTimer);
       stopDrift();
       cancelAnimationFrame(frame);
       observer.disconnect();
+      intersection.disconnect();
       window.removeEventListener("resize", scheduleCapture);
+      window.removeEventListener("scroll", onScroll);
       motion.removeEventListener("change", onMotion);
     };
   }, []);

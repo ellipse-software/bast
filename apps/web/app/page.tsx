@@ -63,7 +63,7 @@ export default async function Home() {
 
   return (
     <>
-    <section className="relative flex min-h-dvh flex-col bg-[#020814] text-[#e8eef6] selection:bg-[#24345f] selection:text-white">
+    <section className="relative flex min-h-lvh flex-col bg-[#020814] text-[#e8eef6] selection:bg-[#24345f] selection:text-white">
       <BeachDither />
       <div
         aria-hidden
@@ -85,7 +85,7 @@ export default async function Home() {
         @media (min-width: 80rem) {
           .new-demo-frame.new-demo-frame {
             width: 72rem;
-            height: min(680px, calc(100dvh - 11rem));
+            height: min(680px, calc(100lvh - 11rem));
             transform: translate3d(33rem, -50%, 0);
           }
         }
@@ -122,11 +122,11 @@ export default async function Home() {
         </div>
       </div>
 
-      <div className="pointer-events-none relative z-10 mx-auto flex min-h-dvh w-full max-w-[90rem] flex-col">
+      <div className="pointer-events-none relative z-10 mx-auto flex min-h-lvh w-full max-w-[90rem] flex-col">
         <div className="pointer-events-auto">
           <SiteHeader wide tone="night" />
         </div>
-        <div className="pointer-events-auto mt-auto w-fit max-w-full px-4 pb-20 pt-4 sm:px-6 xl:px-10">
+        <div className="pointer-events-auto mt-auto w-full px-4 pb-20 pt-4 sm:px-6 xl:px-10">
           <h1 className="text-[2.05rem] font-medium leading-[1.05] tracking-[-0.03em] text-[#e8eef6] sm:text-[2.5rem] xl:text-[2.85rem]">
             <span className="block">{titleFirst}</span>
             {titleSecond ? <span className="block">{titleSecond}</span> : null}
@@ -135,14 +135,14 @@ export default async function Home() {
             <span className="block">{leadFirst}</span>
             {leadSecond ? <span className="block">{leadSecond}</span> : null}
           </p>
-          <div className="mt-8 max-w-[32rem]" style={installTheme}>
+          <div className="mt-8 w-full xl:max-w-[32rem]" style={installTheme}>
             <InstallCommand
               version={version}
               wingetAvailable={wingetAvailable}
               showVersion={false}
               platformIcons
               controlsPlacement="above"
-              className="w-full max-w-[32rem]"
+              className="w-full"
             />
           </div>
         </div>
