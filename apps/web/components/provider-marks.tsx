@@ -111,6 +111,10 @@ function ProviderMark({ id }: { id: (typeof providers)[number]["id"] }) {
 }
 
 const pageSize = 6;
+// Six marks: two columns on a narrow phone, three once the row can hold them,
+// and one row of six from the sm breakpoint up.
+const reelLayout =
+  "mx-auto grid w-full max-w-[72rem] grid-cols-2 justify-items-center gap-x-6 gap-y-5 min-[400px]:grid-cols-3 sm:flex sm:items-center sm:justify-between sm:gap-0";
 const pageCount = Math.ceil(providers.length / pageSize);
 const lifts = [6, 11, 15, 15, 11, 6];
 
@@ -204,7 +208,7 @@ function ProviderReel() {
 
   if (reduce) {
     return (
-      <ul className="grid grid-cols-3 items-center gap-x-8 gap-y-8 sm:grid-cols-6">
+      <ul className="grid grid-cols-2 items-center justify-items-center gap-x-6 gap-y-6 min-[400px]:grid-cols-3 min-[400px]:gap-x-8 sm:grid-cols-6 sm:gap-x-8 sm:gap-y-8">
         {providers.map((provider) => (
           <li key={provider.id} className="flex justify-center">
             <Link
@@ -224,7 +228,7 @@ function ProviderReel() {
 
   return (
     <ul
-      className="mx-auto flex w-full max-w-[72rem] items-center justify-between"
+      className={reelLayout}
       onMouseEnter={() => {
         paused.current = true;
       }}
