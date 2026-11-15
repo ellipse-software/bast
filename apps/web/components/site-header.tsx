@@ -141,10 +141,11 @@ export function SiteHeader({
       </div>
 
       {open ? (
+        // Out of flow: an in-flow panel grows the hero, and the dither recaptures.
         <nav
           id={panelId}
           aria-label="Mobile"
-          className="max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain border-t border-border bg-background md:hidden"
+          className="absolute inset-x-0 top-full z-40 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain border-t border-border bg-background md:hidden"
         >
           <div className={`mx-auto ${pageMaxWidthClass} pb-8`}>
             <p className={mobileSectionLabelClass}>Features</p>

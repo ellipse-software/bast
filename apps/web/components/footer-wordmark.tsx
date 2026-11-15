@@ -155,6 +155,19 @@ function DitherWash() {
 const wordmarkTextClass =
 	"whitespace-nowrap font-medium leading-none tracking-[-0.045em]";
 
+/**
+ * Phone label vs tablet-and-up label. Tailwind `md` is 48rem here (no custom
+ * screens). `hidden` removes the inactive string from the accessibility tree.
+ */
+function WordmarkLabel() {
+	return (
+		<>
+			<span className="md:hidden">bast</span>
+			<span className="hidden md:inline">bast.sh</span>
+		</>
+	);
+}
+
 /** Cap at Tailwind `text-8xl` (6rem) so zoomed-out / ultra-wide doesn't inflate forever. */
 const WORDMARK_MAX_REM = 28;
 
@@ -499,7 +512,7 @@ function glyphStyles(palette: ChamberPalette): {
 	};
 }
 
-/** Full-bleed `bast.sh` mark. */
+/** Full-bleed mark: `bast` below `md`, `bast.sh` from `md` up. */
 export function FooterWordmark({
 	tone = "night",
 }: {
@@ -557,9 +570,18 @@ export function FooterWordmark({
 		const observer = new ResizeObserver(fit);
 		observer.observe(mask);
 		window.addEventListener("resize", fit);
+
+		// Refit when CSS swaps the label. The string itself is chosen in CSS.
+		const mdBreakpoint =
+			getComputedStyle(document.documentElement)
+				.getPropertyValue("--breakpoint-md")
+				.trim() || "48rem";
+		const desktop = window.matchMedia(`(min-width: ${mdBreakpoint})`);
+		desktop.addEventListener("change", fit);
 		return () => {
 			observer.disconnect();
 			window.removeEventListener("resize", fit);
+			desktop.removeEventListener("change", fit);
 		};
 	}, []);
 
@@ -582,16 +604,16 @@ export function FooterWordmark({
 				ref={maskRef}
 				className={`relative flex h-[0.78em] w-full justify-center overflow-hidden border-b border-b-[1px] sm:border-b-0 ${palette.ruleClass}`}
 			>
-				<div className="relative w-max max-w-none max-sm:-translate-x-[3px]">
+				<div className="relative w-max max-w-none">
 					<p
 						data-wordmark-probe
 						className={`pointer-events-none absolute left-0 top-0 ${wordmarkTextClass}`}
 						style={outline}
 					>
-						bast.sh
+						<WordmarkLabel />
 					</p>
 					<p className={`relative ${wordmarkTextClass}`} style={fill}>
-						bast.sh
+						<WordmarkLabel />
 					</p>
 				</div>
 			</div>
