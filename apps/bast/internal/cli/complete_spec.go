@@ -26,6 +26,8 @@ const (
 	valueEnum
 	valueProvider
 	valueShell
+	valueTunnel
+	valueTunnelGroup
 )
 
 type directive int
@@ -94,6 +96,7 @@ func completionRoot() specNode {
 		hostsSpec(),
 		entrySpec("rdp", "open Remote Desktop entries"),
 		entrySpec("web", "open internal web pages"),
+		tunnelSpec(),
 		keysSpec(),
 	}
 	if !feature.SyncDisabled() {
@@ -617,4 +620,30 @@ func fileFlag(name, desc string) flagSpec {
 
 func dirFlag(name, desc string) flagSpec {
 	return flagSpec{name: name, desc: desc, kind: valueDir}
+}
+
+func tunnelSpec() specNode {
+	name := argSpec{kind: valueTunnel, desc: "tunnel", optional: true}
+	sel := []flagSpec{boolFlag("all", "every tunnel"), {name: "group", desc: "tunnels in a group", kind: valueTunnelGroup}}
+	save := []flagSpec{
+		{name: "host", desc: "SSH config host", kind: valueHost},
+		enumFlag("mode", "forward mode", "local", "remote", "socks", "socks-remote"),
+		{name: "local", desc: "local endpoint"},
+		{name: "remote", desc: "remote endpoint"},
+		{name: "group", desc: "group name", kind: valueTunnelGroup},
+		{name: "keep-alive", desc: "keep-alive seconds"},
+	}
+	return specNode{
+		name: "tunnel",
+		desc: "run SSH tunnels in the background",
+		children: []specNode{
+			{name: "list", aliases: []string{"l"}, desc: "list tunnels", flags: []flagSpec{{name: "group", desc: "only this group", kind: valueTunnelGroup}}},
+			{name: "open", desc: "open tunnels", flags: sel, args: []argSpec{name}},
+			{name: "close", desc: "close tunnels", flags: sel, args: []argSpec{name}},
+			{name: "add", desc: "add a tunnel", flags: save, args: []argSpec{{desc: "name"}}},
+			{name: "edit", desc: "edit a tunnel", flags: save, args: []argSpec{{kind: valueTunnel, desc: "tunnel"}}},
+			{name: "remove", desc: "remove a tunnel", args: []argSpec{{kind: valueTunnel, desc: "tunnel"}}},
+			{name: "logs", desc: "show a tunnel's log", args: []argSpec{{kind: valueTunnel, desc: "tunnel"}}},
+		},
+	}
 }

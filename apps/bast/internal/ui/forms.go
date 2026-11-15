@@ -508,6 +508,10 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			err = m.metadata.DeleteHostWithTombstone(alias, host.ManagedID)
 		}
 		return m.finishMutation(err, "Host deleted")
+	case "tunnel_save":
+		return m.submitTunnelSave(values)
+	case "tunnel_delete":
+		return m.submitTunnelDelete(values)
 	case "entry_kind":
 		return m.submitEntryKind(values)
 	case "entry_save":
@@ -722,7 +726,7 @@ func destructiveConfirmationTarget(f *form) string {
 	switch f.action {
 	case "key_delete":
 		label = "Key"
-	case "host_delete", "known_delete", "vault_reset_passphrase", "files_delete", "entry_delete":
+	case "host_delete", "known_delete", "vault_reset_passphrase", "files_delete", "entry_delete", "tunnel_delete":
 		// keep Confirmation
 	default:
 		return ""

@@ -9,6 +9,7 @@
     "ssh-config",
     "connections",
     "desktops-and-pages",
+    "tunnels",
     "files"
   ]
 }

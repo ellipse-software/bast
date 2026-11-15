@@ -133,6 +133,8 @@ func (m *App) switchToSection(sec section) tea.Cmd {
 		return m.enterSyncSection()
 	case filesSection:
 		return m.enterFilesSection()
+	case tunnelsSection:
+		return m.enterTunnelsSection()
 	}
 	return nil
 }

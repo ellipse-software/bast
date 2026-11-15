@@ -41,6 +41,7 @@ Usage:
   bast hosts <command>         Manage SSH hosts
   bast rdp <command>           Open Remote Desktop entries
   bast web <command>           Open internal web pages
+  bast tunnel <command>        Run SSH tunnels in the background
   bast keys <command>          Manage SSH keys
   bast sync <command>          Sync cloud VMs into Bast
   bast boat <command>          Create and manage Boat sandboxes
@@ -175,7 +176,7 @@ func New(p paths.Paths, client openssh.Client, in io.Reader, out, errOut io.Writ
 
 func IsCommand(arg string) bool {
 	switch arg {
-	case "tui", "update", "doctor", "connect", "hosts", "rdp", "web", "keys", "sync", "boat", "box", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "do", "boxd", "vault", "completion", "__complete":
+	case "tui", "update", "doctor", "connect", "hosts", "rdp", "web", "tunnel", "keys", "sync", "boat", "box", "upstash", "vercel", "hetzner", "bitqate", "railway", "fly", "digitalocean", "do", "boxd", "vault", "completion", "__complete":
 		return true
 	}
 	return false
@@ -249,6 +250,8 @@ func (r *Runner) Run(args []string) error {
 				err = r.rdp(args[1:])
 			case "web":
 				err = r.web(args[1:])
+			case "tunnel":
+				err = r.tunnels(args[1:])
 			case "keys":
 				err = r.keys(args[1:])
 			case "sync":
@@ -349,13 +352,26 @@ option to restore a default or remove values.`,
 		"rdp delete":    "Usage: bast rdp delete <label> [--yes]",
 		"rdp open":      "Usage: bast rdp open <label>",
 		"rdp close":     "Usage: bast rdp close <label>",
-		"web --help":    "Usage: bast web <list|add|edit|delete|open|close>",
-		"web list":      "Usage: bast web list [--search text] [--all]",
-		"web add":       "Usage: bast web add [label] --url https://host/ [--via host]",
-		"web edit":      "Usage: bast web edit <label> [options]",
-		"web delete":    "Usage: bast web delete <label> [--yes]",
-		"web open":      "Usage: bast web open <label>",
-		"web close":     "Usage: bast web close <label>",
+		"tunnel --help": `Usage: bast tunnel <command>
+
+Commands: list (l), open, close, add, edit, remove, logs
+  bast tunnel list [--group name]
+  bast tunnel open <name|glob>... | --all | --group name
+  bast tunnel close <name|glob>... | --all | --group name
+  bast tunnel add <name> --host alias --mode local|remote|socks|socks-remote
+                  [--local [addr:]port|socket] [--remote host:port|socket]
+                  [--group name] [--keep-alive seconds]
+  bast tunnel edit <name> [same options]
+Ports accept lists and ranges, such as --local 8000-8002 --remote db:5432-5434.
+The host's user, port, and key come from its OpenSSH config. Tunnels reconnect
+on their own until closed. Set BAST_DEBUG=1 for verbose ssh logs.`,
+		"web --help": "Usage: bast web <list|add|edit|delete|open|close>",
+		"web list":   "Usage: bast web list [--search text] [--all]",
+		"web add":    "Usage: bast web add [label] --url https://host/ [--via host]",
+		"web edit":   "Usage: bast web edit <label> [options]",
+		"web delete": "Usage: bast web delete <label> [--yes]",
+		"web open":   "Usage: bast web open <label>",
+		"web close":  "Usage: bast web close <label>",
 		"keys --help": `Usage: bast keys <command>
 
 Commands: list, show, generate, import, promote, comment, export, install,

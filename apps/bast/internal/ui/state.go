@@ -649,6 +649,8 @@ func (m *App) itemCount() int {
 		return len(m.filteredKeys())
 	case filesSection:
 		return 0
+	case tunnelsSection:
+		return len(m.tunnelList())
 	default:
 		return len(m.syncMenuItems())
 	}
