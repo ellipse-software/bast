@@ -36,11 +36,14 @@ func Merge(local, remote Document, mode MergeMode) MergeResult {
 	tombHosts := mergeTombstones(local.Tombstones.Hosts, remote.Tombstones.Hosts)
 	tombKeys := mergeTombstones(local.Tombstones.Keys, remote.Tombstones.Keys)
 
+	tombEntries := mergeTombstones(local.Tombstones.Entries, remote.Tombstones.Entries)
 	hosts, hostConflicts := mergeHosts(local.Hosts, remote.Hosts, tombHosts)
 	keys, keyConflicts := mergeKeys(local.Keys, remote.Keys, tombKeys)
+	entries := mergeDesktopEntries(local.Entries, remote.Entries, tombEntries)
 	conflicts := append(hostConflicts, keyConflicts...)
 
 	meta := mergeMetadata(local.Metadata, remote.Metadata, hosts)
+	groups := mergeGroupAppearances(local.Groups, remote.Groups)
 	prefs := local.Preferences
 	if remote.Preferences.Sort != "" && (local.Preferences.Sort == "" || remote.UpdatedAt >= local.UpdatedAt) {
 		prefs = remote.Preferences
@@ -59,11 +62,14 @@ func Merge(local, remote Document, mode MergeMode) MergeResult {
 		Hosts:        hosts,
 		Keys:         keys,
 		Metadata:     meta,
+		Groups:       groups,
 		Preferences:  prefs,
 		Integrations: integrations,
+		Entries:      entries,
 		Tombstones: Tombstones{
-			Hosts: tombHosts,
-			Keys:  tombKeys,
+			Hosts:   tombHosts,
+			Keys:    tombKeys,
+			Entries: tombEntries,
 		},
 	}
 	summary.Conflicts = len(conflicts)
@@ -198,6 +204,75 @@ func mergeKeys(local, remote []KeyEntry, tombs map[string]int64) ([]KeyEntry, []
 		out = append(out, k)
 	}
 	return out, conflicts
+}
+
+func mergeDesktopEntries(local, remote []DesktopEntry, tombs map[string]int64) []DesktopEntry {
+	byID := map[string]DesktopEntry{}
+	for _, entry := range local {
+		if strings.TrimSpace(entry.ID) == "" {
+			continue
+		}
+		byID[entry.ID] = entry
+	}
+	for _, entry := range remote {
+		if strings.TrimSpace(entry.ID) == "" {
+			continue
+		}
+		current, ok := byID[entry.ID]
+		if !ok || entry.UpdatedAt >= current.UpdatedAt {
+			byID[entry.ID] = entry
+		}
+	}
+	ids := make([]string, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := make([]DesktopEntry, 0, len(ids))
+	for _, id := range ids {
+		entry := byID[id]
+		if deletedAt, ok := tombs[id]; ok && deletedAt >= entry.UpdatedAt {
+			continue
+		}
+		if entry.DeletedAt != 0 {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func mergeGroupAppearances(local, remote *map[string]metadata.GroupAppearance) *map[string]metadata.GroupAppearance {
+	if local == nil && remote == nil {
+		return nil
+	}
+	if local == nil {
+		return cloneGroupAppearances(remote)
+	}
+	if remote == nil {
+		return cloneGroupAppearances(local)
+	}
+	out := make(map[string]metadata.GroupAppearance, len(*local)+len(*remote))
+	for path, appearance := range *local {
+		out[path] = appearance
+	}
+	for path, appearance := range *remote {
+		if _, ok := out[path]; !ok {
+			out[path] = appearance
+		}
+	}
+	return &out
+}
+
+func cloneGroupAppearances(groups *map[string]metadata.GroupAppearance) *map[string]metadata.GroupAppearance {
+	if groups == nil {
+		return nil
+	}
+	out := make(map[string]metadata.GroupAppearance, len(*groups))
+	for path, appearance := range *groups {
+		out[path] = appearance
+	}
+	return &out
 }
 
 func mergeMetadata(local, remote map[string]metadata.Host, hosts []HostEntry) map[string]metadata.Host {

@@ -1,6 +1,9 @@
 const VERSION_PATTERN =
   /^(dev|v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|nightly\.[0-9]{8}\.[0-9a-fA-F]+)$/;
 
+/** Closed set. The CLI sends runtime.GOOS, including windows. */
+export const OS_PATTERN = /^(darwin|linux|windows)$/;
+
 export const MAX_VERSION = 128;
 
 const CONTEXTS = ["tui", "cli", "panic", "connect_prepare"] as const;
@@ -53,7 +56,7 @@ export function parseErrorReportPayload(body: unknown): ErrorReportPayload | nul
     version.length > MAX_VERSION ||
     !VERSION_PATTERN.test(version) ||
     typeof os !== "string" ||
-    !/^(darwin|linux)$/.test(os) ||
+    !OS_PATTERN.test(os) ||
     typeof arch !== "string" ||
     !/^(arm64|amd64)$/.test(arch) ||
     source !== "cli"

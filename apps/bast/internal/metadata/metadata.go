@@ -15,7 +15,7 @@ import (
 	"bast/internal/platform"
 )
 
-const CurrentVersion = 8
+const CurrentVersion = 10
 
 type Host struct {
 	Label           string     `json:"label,omitempty"`
@@ -27,6 +27,7 @@ type Host struct {
 	Tags            []string   `json:"tags,omitempty"`
 	Environment     string     `json:"environment,omitempty"`
 	Color           string     `json:"color,omitempty"`
+	Icon            string     `json:"icon,omitempty"`
 	Notes           string     `json:"notes,omitempty"`
 	RDP             bool       `json:"rdp,omitempty"`
 }
@@ -255,18 +256,21 @@ func (i *Integrations) UnmarshalJSON(data []byte) error {
 // VaultTombstones records Bast-managed hosts and keys that were deleted locally
 // so a later vault pack/merge can drop the remote copies instead of restoring them.
 type VaultTombstones struct {
-	Hosts map[string]int64 `json:"hosts,omitempty"` // managedId -> deletedAt
-	Keys  map[string]int64 `json:"keys,omitempty"`  // fingerprint or name:name -> deletedAt
+	Hosts   map[string]int64 `json:"hosts,omitempty"`   // managedId -> deletedAt
+	Keys    map[string]int64 `json:"keys,omitempty"`    // fingerprint or name:name -> deletedAt
+	Entries map[string]int64 `json:"entries,omitempty"` // entry id -> deletedAt
 }
 
 type State struct {
-	Version         int             `json:"version"`
-	Hosts           map[string]Host `json:"hosts"`
-	Preferences     Preferences     `json:"preferences,omitempty"`
-	Integrations    Integrations    `json:"integrations,omitempty"`
-	History         HistoryImport   `json:"history,omitempty"`
-	Onboarding      Onboarding      `json:"onboarding,omitempty"`
-	VaultTombstones VaultTombstones `json:"vaultTombstones,omitempty"`
+	Version         int                        `json:"version"`
+	Hosts           map[string]Host            `json:"hosts"`
+	Entries         map[string]Entry           `json:"entries,omitempty"`
+	Groups          map[string]GroupAppearance `json:"groups,omitempty"`
+	Preferences     Preferences                `json:"preferences,omitempty"`
+	Integrations    Integrations               `json:"integrations,omitempty"`
+	History         HistoryImport              `json:"history,omitempty"`
+	Onboarding      Onboarding                 `json:"onboarding,omitempty"`
+	VaultTombstones VaultTombstones            `json:"vaultTombstones,omitempty"`
 }
 
 type Store struct {
@@ -296,6 +300,9 @@ func Open(path string) (*Store, error) {
 	}
 	if s.state.Hosts == nil {
 		s.state.Hosts = map[string]Host{}
+	}
+	if s.state.Entries == nil {
+		s.state.Entries = map[string]Entry{}
 	}
 	for alias, host := range s.state.Hosts {
 		if host.Group == "GCP" {
@@ -387,6 +394,93 @@ func (s *Store) MoveHost(alias, group string, collapsedGroups []string) error {
 		} else {
 			delete(s.state.Hosts, alias)
 		}
+		s.state.Preferences = previousPreferences
+		return err
+	}
+	s.hostRevision.Add(1)
+	return nil
+}
+
+func (s *Store) Groups() map[string]GroupAppearance {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneGroupAppearances(s.state.Groups)
+}
+
+// SetGroups replaces group icons and colours. A nil or empty map clears them.
+// Icon and colour values are normalized. An invalid value returns an error
+// and leaves the stored map unchanged.
+func (s *Store) SetGroups(groups map[string]GroupAppearance) error {
+	normalized, err := normalizeStoredGroups(groups)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := cloneGroupAppearances(s.state.Groups)
+	s.state.Groups = normalized
+	if err := s.save(); err != nil {
+		s.state.Groups = previous
+		return err
+	}
+	s.hostRevision.Add(1)
+	return nil
+}
+
+// SaveGroupEdit renames a group path and stores its icon and colour in one
+// state-file write. aliases limits which hosts move. When updateCollapsed is
+// false, collapsed groups are left unchanged. Icon and colour are normalized
+// before anything is written.
+func (s *Store) SaveGroupEdit(oldPath, newPath string, aliases map[string]bool, collapsed []string, updateCollapsed bool, appearance GroupAppearance) error {
+	icon, err := NormalizeIcon(appearance.Icon)
+	if err != nil {
+		return err
+	}
+	color, err := NormalizeColor(appearance.Color)
+	if err != nil {
+		return err
+	}
+	appearance = GroupAppearance{Icon: icon, Color: color}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	previousHosts := cloneHosts(s.state.Hosts)
+	previousEntries := cloneEntryMap(s.state.Entries)
+	previousGroups := cloneGroupAppearances(s.state.Groups)
+	previousPreferences := s.state.Preferences
+
+	if oldPath != newPath {
+		for alias, meta := range s.state.Hosts {
+			if aliases != nil && !aliases[alias] {
+				continue
+			}
+			existing, err := NormalizeGroupPath(meta.Group)
+			if err != nil || existing == "" || (existing != oldPath && !strings.HasPrefix(existing, oldPath+"/")) {
+				continue
+			}
+			meta.Group = replaceGroupPathPrefix(existing, oldPath, newPath)
+			s.state.Hosts[alias] = meta
+		}
+		s.state.Groups = moveGroupAppearances(s.state.Groups, oldPath, newPath)
+		s.rewriteEntryGroupsLocked(oldPath, newPath)
+	}
+	if appearance.empty() {
+		delete(s.state.Groups, newPath)
+	} else {
+		if s.state.Groups == nil {
+			s.state.Groups = map[string]GroupAppearance{}
+		}
+		s.state.Groups[newPath] = appearance
+	}
+	s.state.Groups = cleanGroupAppearances(s.state.Groups)
+	if updateCollapsed {
+		s.state.Preferences.CollapsedGroups = cleanCollapsedGroups(collapsed)
+	}
+	if err := s.save(); err != nil {
+		s.state.Hosts = previousHosts
+		s.state.Entries = previousEntries
+		s.state.Groups = previousGroups
 		s.state.Preferences = previousPreferences
 		return err
 	}
@@ -984,6 +1078,91 @@ func cloneHosts(hosts map[string]Host) map[string]Host {
 	return out
 }
 
+func cloneGroupAppearances(groups map[string]GroupAppearance) map[string]GroupAppearance {
+	if len(groups) == 0 {
+		return nil
+	}
+	out := make(map[string]GroupAppearance, len(groups))
+	for path, appearance := range groups {
+		out[path] = appearance
+	}
+	return out
+}
+
+func normalizeStoredGroups(groups map[string]GroupAppearance) (map[string]GroupAppearance, error) {
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]GroupAppearance, len(groups))
+	for path, appearance := range groups {
+		normalizedPath, err := NormalizeGroupPath(path)
+		if err != nil {
+			return nil, err
+		}
+		if normalizedPath == "" {
+			continue
+		}
+		icon, err := NormalizeIcon(appearance.Icon)
+		if err != nil {
+			return nil, fmt.Errorf("group %s: %w", normalizedPath, err)
+		}
+		color, err := NormalizeColor(appearance.Color)
+		if err != nil {
+			return nil, fmt.Errorf("group %s: %w", normalizedPath, err)
+		}
+		appearance = GroupAppearance{Icon: icon, Color: color}
+		if appearance.empty() {
+			continue
+		}
+		out[normalizedPath] = appearance
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+func cleanGroupAppearances(groups map[string]GroupAppearance) map[string]GroupAppearance {
+	if len(groups) == 0 {
+		return nil
+	}
+	out := make(map[string]GroupAppearance, len(groups))
+	for path, appearance := range groups {
+		if path == "" || appearance.empty() {
+			continue
+		}
+		out[path] = appearance
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func moveGroupAppearances(groups map[string]GroupAppearance, oldPath, newPath string) map[string]GroupAppearance {
+	if len(groups) == 0 || oldPath == newPath {
+		return groups
+	}
+	out := make(map[string]GroupAppearance, len(groups))
+	for path, appearance := range groups {
+		if path == oldPath || strings.HasPrefix(path, oldPath+"/") {
+			path = replaceGroupPathPrefix(path, oldPath, newPath)
+		}
+		out[path] = appearance
+	}
+	return out
+}
+
+func replaceGroupPathPrefix(group, oldPrefix, newPrefix string) string {
+	if group == oldPrefix {
+		return newPrefix
+	}
+	if strings.HasPrefix(group, oldPrefix+"/") {
+		return newPrefix + group[len(oldPrefix):]
+	}
+	return group
+}
+
 func cloneInt64Map(in map[string]int64) map[string]int64 {
 	if len(in) == 0 {
 		return nil
@@ -997,8 +1176,9 @@ func cloneInt64Map(in map[string]int64) map[string]int64 {
 
 func cloneVaultTombstones(in VaultTombstones) VaultTombstones {
 	return VaultTombstones{
-		Hosts: cloneInt64Map(in.Hosts),
-		Keys:  cloneInt64Map(in.Keys),
+		Hosts:   cloneInt64Map(in.Hosts),
+		Keys:    cloneInt64Map(in.Keys),
+		Entries: cloneInt64Map(in.Entries),
 	}
 }
 

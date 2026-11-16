@@ -237,6 +237,62 @@ func canonicalPort(port string) (string, error) {
 	return port, nil
 }
 
+// DialTarget is the remote side of an SSH local forward, host:port.
+// An empty port means 3389. An address that already has a different port is rejected.
+func DialTarget(address, port string) (string, error) {
+	address = strings.TrimSpace(address)
+	port = strings.TrimSpace(port)
+	if address == "" {
+		return "", errAddressEmpty
+	}
+	host, hostPort, err := splitAddress(address)
+	if err != nil {
+		return "", err
+	}
+	if port != "" && hostPort != "" && port != hostPort {
+		return "", errors.New("that address already includes a different port")
+	}
+	if port == "" {
+		port = hostPort
+	}
+	if port == "" {
+		port = "3389"
+	}
+	raw := host
+	if strings.Contains(host, ":") {
+		raw = "[" + host + "]"
+	}
+	return canonicalAddress(raw + ":" + port)
+}
+
+// SplitSignIn accepts a separate domain or a DOMAIN\user username.
+// user@domain is left as the username and the domain stays empty when it was empty.
+func SplitSignIn(user, domain string) (string, string, error) {
+	user = strings.TrimSpace(user)
+	domain = strings.TrimSpace(domain)
+	if i := strings.IndexByte(user, '\\'); i >= 0 {
+		left, right := user[:i], user[i+1:]
+		if left == "" || right == "" || strings.Contains(right, `\`) {
+			return "", "", errCredentialInvalid
+		}
+		if domain != "" && !strings.EqualFold(domain, left) {
+			return "", "", errors.New("that domain does not match the username")
+		}
+		domain = left
+		user = right
+	}
+	var err error
+	user, err = canonicalCredential(user)
+	if err != nil {
+		return "", "", err
+	}
+	domain, err = canonicalCredential(domain)
+	if err != nil {
+		return "", "", err
+	}
+	return user, domain, nil
+}
+
 func canonicalCredential(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {

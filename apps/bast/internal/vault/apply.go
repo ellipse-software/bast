@@ -120,10 +120,22 @@ func (a Applier) Apply(doc Document) error {
 	if err := a.Store.SetCollapsedGroups(doc.Preferences.CollapsedGroups); err != nil {
 		return err
 	}
+	if doc.Groups != nil {
+		if err := a.Store.SetGroups(*doc.Groups); err != nil {
+			return err
+		}
+	}
 	if err := applyIntegrations(a.Store, doc.Integrations); err != nil {
 		return err
 	}
-	if err := a.Store.SetVaultTombstones(persistableTombstones(doc)); err != nil {
+	entries := make([]metadata.Entry, 0, len(doc.Entries))
+	for _, entry := range doc.Entries {
+		if entry.DeletedAt != 0 {
+			continue
+		}
+		entries = append(entries, entry.Entry)
+	}
+	if err := a.Store.ReplaceEntries(entries, persistableTombstones(doc)); err != nil {
 		return err
 	}
 	return a.RestoreEnabledSyncIncludes()
@@ -143,6 +155,15 @@ func persistableTombstones(doc Document) metadata.VaultTombstones {
 			delete(hosts, host.ManagedID)
 		}
 	}
+	entryTombs := map[string]int64{}
+	for id, at := range doc.Tombstones.Entries {
+		entryTombs[id] = at
+	}
+	for _, entry := range doc.Entries {
+		if entry.DeletedAt == 0 && entry.ID != "" {
+			delete(entryTombs, entry.ID)
+		}
+	}
 	for _, key := range doc.Keys {
 		if key.DeletedAt != 0 {
 			continue
@@ -158,6 +179,9 @@ func persistableTombstones(doc Document) metadata.VaultTombstones {
 	}
 	if len(keys) > 0 {
 		out.Keys = keys
+	}
+	if len(entryTombs) > 0 {
+		out.Entries = entryTombs
 	}
 	return out
 }

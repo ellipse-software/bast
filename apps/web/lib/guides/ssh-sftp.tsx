@@ -30,9 +30,10 @@ export const sshSftpGuide: GuidePage = {
   solutionTitle: "One config, two panes",
   solution: [
     <>
-      Bast Files opens a local and remote browser in the TUI. Copy and move
-      files with the same OpenSSH settings Connect already uses, including
-      ProxyJump and cloud ProxyCommand tunnels.
+      Bast Files is two panes. Each one starts on the host picker, and either
+      pane can be this machine or any host. Copy and move files with the same
+      OpenSSH settings Connect already uses, including ProxyJump and cloud
+      ProxyCommand tunnels.
     </>,
     <>
       You stay in the terminal. You do not maintain a parallel file-transfer

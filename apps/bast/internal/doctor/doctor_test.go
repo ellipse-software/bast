@@ -9,9 +9,12 @@ import (
 	"testing"
 
 	boatcloud "bast/internal/cloud/boat"
+	"bast/internal/feature"
 	"bast/internal/metadata"
 	"bast/internal/openssh"
 	"bast/internal/paths"
+	"bast/internal/platform"
+	"bast/internal/vault"
 )
 
 func testEngine(t *testing.T) (Engine, paths.Paths) {
@@ -238,6 +241,31 @@ func TestBoatCLIMissingWhenEnabled(t *testing.T) {
 	r := e.Run(context.Background(), Options{Categories: []string{"sync"}})
 	if !hasID(r, "sync.cli_missing") {
 		t.Fatalf("expected boat CLI missing, got %v", findingIDs(r))
+	}
+}
+
+func TestDisabledFeaturesSkipSyncAndVaultFindings(t *testing.T) {
+	if !platform.SupportsPOSIXPermissions() {
+		t.Skip("vault passphrase mode is a POSIX check")
+	}
+	e, p := testEngine(t)
+	write(t, vault.PassphrasePath(p.StateFile), "secret", 0644)
+	t.Setenv(feature.EnvNoVault, "")
+	t.Setenv(feature.EnvNoSync, "")
+	open := e.Run(context.Background(), Options{})
+	if !hasID(open, "vault.passphrase_mode") {
+		t.Fatalf("expected passphrase mode finding, got %v", findingIDs(open))
+	}
+	t.Setenv(feature.EnvNoVault, "1")
+	t.Setenv(feature.EnvNoSync, "1")
+	closed := e.Run(context.Background(), Options{})
+	for _, f := range closed.Findings {
+		if f.Category == CatVault || f.Category == CatSync {
+			t.Fatalf("disabled feature still reported: %+v", f)
+		}
+	}
+	if hasID(closed, "vault.passphrase_mode") {
+		t.Fatal("vault finding remained while BAST_NO_VAULT is set")
 	}
 }
 

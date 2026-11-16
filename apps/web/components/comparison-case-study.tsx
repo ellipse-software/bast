@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import { BackgroundGrid } from "@/components/background-grid";
 import { InstallCommand } from "@/components/install-command";
 import { PreFooter } from "@/components/pre-footer";
 import { SiteFooter } from "@/components/site-footer";
@@ -56,9 +55,8 @@ export async function ComparisonCaseStudyPage({
   };
 
   return (
-    <div className="relative flex min-h-full flex-col">
-      <BackgroundGrid />
-      <SiteHeader />
+    <div className="relative flex min-h-full flex-col bg-[#05080f] text-[#e8eef6]">
+      <SiteHeader tone="night" />
 
       <script
         type="application/ld+json"
@@ -93,47 +91,57 @@ export async function ComparisonCaseStudyPage({
           </p>
 
           <section className="mb-14">
-            <div className="overflow-x-auto bg-border p-px">
+            <div className="overflow-x-auto rounded-xl border border-white/15">
               <table className="w-full min-w-[28rem] border-collapse text-left text-sm">
                 <thead>
                   <tr>
                     <th
                       scope="col"
-                      className="w-28 border-b border-border bg-background px-4 py-3 font-medium text-muted"
+                      className="w-28 border-b border-white/15 bg-[#05080f] px-4 py-3 font-medium text-[#9aa8bc]"
                     >
                       <span className="sr-only">Topic</span>
                     </th>
                     <th
                       scope="col"
-                      className="border-b border-border bg-surface px-4 py-3 font-medium text-foreground"
+                      className="border-b border-white/15 bg-[color-mix(in_srgb,#c6b6f2_8%,#05080f)] px-4 py-3 font-medium text-[#e8eef6]"
                     >
                       Bast
                     </th>
                     <th
                       scope="col"
-                      className="border-b border-border bg-background px-4 py-3 font-medium text-muted"
+                      className="border-b border-white/15 bg-[#05080f] px-4 py-3 font-medium text-[#e8eef6]"
                     >
                       {content.competitorName}
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {content.diffRows.map((row) => (
-                    <tr key={row.topic}>
-                      <th
-                        scope="row"
-                        className="border-b border-border bg-background px-4 py-3.5 align-top font-medium text-foreground"
-                      >
-                        {row.topic}
-                      </th>
-                      <td className="border-b border-border bg-surface px-4 py-3.5 align-top leading-relaxed text-foreground">
-                        {row.bast}
-                      </td>
-                      <td className="border-b border-border bg-background px-4 py-3.5 align-top leading-relaxed text-muted">
-                        {row.competitor}
-                      </td>
-                    </tr>
-                  ))}
+                  {content.diffRows.map((row, index) => {
+                    const edge =
+                      index === content.diffRows.length - 1
+                        ? ""
+                        : "border-b border-white/15";
+                    return (
+                      <tr key={row.topic}>
+                        <th
+                          scope="row"
+                          className={`${edge} bg-[#05080f] px-4 py-3.5 align-top font-medium text-[#e8eef6]`}
+                        >
+                          {row.topic}
+                        </th>
+                        <td
+                          className={`${edge} bg-[color-mix(in_srgb,#c6b6f2_8%,#05080f)] px-4 py-3.5 align-top leading-relaxed text-[#e8eef6]`}
+                        >
+                          {row.bast}
+                        </td>
+                        <td
+                          className={`${edge} bg-[#05080f] px-4 py-3.5 align-top leading-relaxed text-[#c9d5e6]`}
+                        >
+                          {row.competitor}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -178,18 +186,19 @@ export async function ComparisonCaseStudyPage({
           </section>
 
           <section className="mb-6">
-            <div className="bg-border p-px">
-              <div className="bg-background px-4 py-5 sm:px-6 sm:py-6">
+            <div className="rounded-xl border border-white/15 bg-[#0c0f14] px-4 py-5 sm:px-6 sm:py-6">
                 <h2 className="mb-2 text-lg font-medium tracking-tight text-foreground">
                   Install Bast
                 </h2>
-                <p className="mb-5 text-sm leading-relaxed text-muted">
+                <p className="mb-8 text-sm leading-relaxed text-muted">
                   One command. Then run <Code>bast</Code> and connect with the
                   OpenSSH you already trust.
                 </p>
                 <InstallCommand
                   version={version}
                   wingetAvailable={wingetAvailable}
+                  platformIcons
+                  controlsPlacement="above"
                   className="w-full"
                 />
                 <p className="mt-5 text-sm text-muted">
@@ -197,7 +206,6 @@ export async function ComparisonCaseStudyPage({
                   <DocLink href="/">Bast homepage</DocLink> or read the{" "}
                   <DocLink href="/docs">docs</DocLink>.
                 </p>
-              </div>
             </div>
           </section>
 
@@ -222,8 +230,8 @@ export async function ComparisonCaseStudyPage({
           ) : null}
 
           <section className="mb-4">
-            <div className="bg-border p-px">
-              <div className="divide-y divide-border bg-background">
+            <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0c0f14]">
+              <div className="divide-y divide-white/15">
                 {content.faqs.map((item) => (
                   <details key={item.q} className="group">
                     <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 text-sm font-medium tracking-tight marker:content-none [&::-webkit-details-marker]:hidden">
@@ -246,7 +254,7 @@ export async function ComparisonCaseStudyPage({
         </article>
       </main>
 
-      <PreFooter version={version} />
+      <PreFooter version={version} tone="night" />
       <SiteFooter />
     </div>
   );

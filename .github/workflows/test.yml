@@ -104,7 +104,12 @@ jobs:
         run: bash .github/scripts/discord-release.test.sh
       - name: Test Linux packager
         run: bash .github/scripts/package-linux.test.sh
+      # Bun 1.3.14 extracts tarballs over 2 MiB while they download, and a
+      # body that ends early is extracted instead of retried (oven-sh/bun#34821).
+      # next and @img/sharp-libvips-linuxmusl-x64 are both over that size.
       - run: bun install --frozen-lockfile
+        env:
+          BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
       - run: bun test apps/web
       - run: bun run lint:web
       - run: bun run build:web

@@ -6,8 +6,31 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+## v0.12.0 - 2026-11-11
+
+### Added
+
+- A host with a local, remote, or dynamic forward can keep those ports up in the background. **Forward** starts `ssh -N` as its own process, so the ports stay up after you quit Bast or open another window. Every window lists the same forwards under a Forwards separator. **Close** or `c` stops them.
+- Remote Desktop entries and internal web pages sit in the host list, separate from SSH hosts. `A` adds one. Enter or `Ctrl+O` opens it in the system client. A jump uses an OpenSSH local forward for Remote Desktop and one SOCKS proxy per jump for a page. The Open RDP checkbox on an SSH host is unchanged. `bast rdp` and `bast web` manage them, and Vault syncs them.
+- `BAST_NO_SYNC=1` hides Sync and rejects the cloud commands (`bast sync`, `bast boat`, and the other provider commands). `BAST_NO_VAULT=1` hides Vault and rejects `bast vault`. Tabs that remain are numbered from 1 with no gaps. Hosts already on the machine stay usable.
+- Files: Left and Right move to the parent directory and into the selected directory. Both panes open on the host picker, with Local at the top and the same groups as Hosts, so either pane can be this machine or any host. A pane shows `local` or the host name only after you choose it. Host, Sync, and Files rows leave one column before the icon. The host form is one scroll: Basics includes authentication, Customisation holds the label, icon, colour, and other metadata, and Advanced still opens on its own.
+- Host and group list rows can show an emoji or flag, and a theme ANSI colour or custom hex. `e` on a local group edits the name, icon, and colour. `bast hosts add` and `bast hosts edit` take `--icon` and accept colour names (`red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`) or hex.
 - About lists the community Discord at discord.gg/bast.
 - boxd sync through the `boxd` CLI: import computers from every region of the active org (or an org filter), then create, stop, start, restart, fork, and delete them from the TUI and CLI. Create only targets an org already in that sync. SSH uses the port and key from the entries the boxd CLI keeps in `~/.ssh/config`, so `boxd auth login` must have run. Bast does not store a boxd token. Standby and hibernated computers wake on connect. Fork copies the disk, memory, and running processes.
+
+### Changed
+
+- First launch shows the Bast logo, the slogan, and a short welcome. Any key continues to Hosts, on a history suggestion when one is waiting to import.
+- The version screen lists Sponsor, Discord, and Website as buttons. Sponsor starts selected. Left and right move the selection. Enter opens the selected page. `o` on that screen still replays the first-launch chooser.
+- The TUI no longer keeps a one-line key footer or a full-screen `?` page. `/` or `?` opens a sheet at the bottom that lists only the actions that apply to the current row, field, or overlay. The status line stays one row. When it is idle, the left side reads “/ for shortcuts”. `Ctrl+F` filters Hosts and Keys, and jumps to a path or searches hosts in Files. On Keys, `n` generates a key and `g` jumps to the top. `Esc` and Backspace no longer quit from the host, key, or vault list. `q` and `Ctrl+C` still quit. A background port forward is `Ctrl+P`.
+- Files: Shift+D returns the focused pane to the host picker from a local directory or a connected host. Enter on a group in that picker collapses it when it is open, and expands it when it is closed.
+- Colour: Esc leaves a custom hex value and returns to the theme colours. Backspace does the same once the hex field is empty. The picker is a grid of swatches. Arrows move the highlight.
+
+### Fixed
+
+- A sync error on Railway, Fly, DigitalOcean, or boxd shows the warning on that provider's group, the same as the other providers.
+- Windows Terminal draws the Enter mark as one cell, so the return icon shows in full. Boat and boxd use one-cell icons there as well.
+- Long full-screen errors scroll with the keyboard and the mouse wheel. The actions stay visible at the bottom.
 
 ## v0.11.0 - 2026-10-27
 

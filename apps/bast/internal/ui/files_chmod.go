@@ -450,11 +450,3 @@ func (m *App) renderFilesChmod(s styleSet, width int) string {
 
 	return b.String()
 }
-
-func (m *App) filesChmodHint() string {
-	c := m.files.chmod
-	if c.octalEdit {
-		return "type octal · 󰌑 apply · esc back"
-	}
-	return "␣ toggle · 0-7 set · 󰌑 apply · esc"
-}

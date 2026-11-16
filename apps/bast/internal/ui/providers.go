@@ -88,6 +88,9 @@ func (m *App) providerGroupStats(group string) (running, stopped int) {
 }
 
 func (m *App) providerGroupPrimaryAction(kind cloud.Kind) string {
+	if m.noSync {
+		return ""
+	}
 	if cloud.CapabilitiesFor(kind).Create {
 		if svc, ok := m.providerService(kind); ok {
 			if label := svc.CreateLabel(); label != "" {
@@ -156,6 +159,9 @@ func (m *App) stopSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 func (m *App) restartSyncedHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	if !m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Restart }) {
 		return m, nil
+	}
+	if m.noSync {
+		return m, m.syncOffNotice()
 	}
 	if m.syncingProviders[host.SyncSource] {
 		return m, m.setNotice("Operation already in progress")
@@ -254,6 +260,9 @@ func (m *App) resumeSyncedHost(host sshconfig.Host, thenConnect bool) tea.Cmd {
 }
 
 func (m *App) runProviderGroupPrimary(kind cloud.Kind) (tea.Model, tea.Cmd) {
+	if m.noSync {
+		return m, m.syncOffNotice()
+	}
 	if cloud.CapabilitiesFor(kind).Create {
 		return m.runProviderGroupCreate(kind)
 	}

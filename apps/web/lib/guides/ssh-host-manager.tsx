@@ -39,7 +39,9 @@ export const sshHostManagerGuide: GuidePage = {
     <>
       Pick a host in the TUI or run <Code>bast &quot;Production web&quot;</Code>{" "}
       from the shell. Bast launches your system <Code>ssh</Code> binary. No
-      proprietary protocol, no parallel host store.
+      proprietary protocol, and SSH settings stay in OpenSSH. Remote Desktop
+      targets and internal web pages can sit in the same list. Those are not
+      written into <Code>~/.ssh/config</Code>.
     </>,
   ],
   stepsTitle: "Get a clean host list in minutes",

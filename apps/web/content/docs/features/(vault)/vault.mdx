@@ -20,7 +20,7 @@ External hosts and keys stay local until you [promote](#promote) them into Bast-
 
 ## Link a machine
 
-Open the **Vault** tab (`3`), or use the CLI:
+Open the **Vault** tab (`3`), or use the CLI. `BAST_NO_VAULT=1` hides that tab and rejects `bast vault`. Hosts and keys already on this machine stay.
 
 ```bash
 bast vault login --email you@example.com --accept-terms

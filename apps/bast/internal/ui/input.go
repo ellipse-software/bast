@@ -74,6 +74,19 @@ func (c *connectionProcess) SetStderr(output io.Writer) {
 	}
 }
 
+func (m *App) creditsClick(x, y int) (tea.Model, tea.Cmd) {
+	links := creditLinks()
+	for i, link := range links {
+		chipX, chipY, width, ok := m.creditChipBounds(i)
+		if !ok || y != chipY || x < chipX || x >= chipX+width {
+			continue
+		}
+		m.creditsChoice = i
+		return m.openURL(link.url)
+	}
+	return m, nil
+}
+
 func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
 	if mouse.Button != tea.MouseLeft {
@@ -81,7 +94,7 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.onboarding {
 		if mouse.Y == 0 {
-			if sec, ok := tabAtX(mouse.X); ok {
+			if sec, ok := m.tabAtX(mouse.X); ok {
 				event := "onboarding_skip"
 				switch sec {
 				case hostsSection:
@@ -99,13 +112,9 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.credits {
-		x, y, width := m.creditsSponsorBounds()
-		if width > 0 && mouse.Y == y && mouse.X >= x && mouse.X < x+width {
-			return m.openSponsor()
-		}
-		return m, nil
+		return m.creditsClick(mouse.X, mouse.Y)
 	}
-	if m.help || m.doctor || (m.statusError && m.status != "") {
+	if m.palette || m.doctor || (m.statusError && m.status != "") {
 		return m, nil
 	}
 	m.scrollbarDragging = false
@@ -121,7 +130,7 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if mouse.Y == 0 {
-		if sec, ok := tabAtX(mouse.X); ok {
+		if sec, ok := m.tabAtX(mouse.X); ok {
 			return m, m.switchToSection(sec)
 		}
 		return m, nil
@@ -141,6 +150,30 @@ func (m *App) updateMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.section == hostsSection {
+		if x, y, width, ok := m.forwardCloseBounds(layout); ok {
+			inDetail := layout.mobile || mouse.X > listWidth
+			if inDetail && mouse.Y == y && mouse.X >= x && mouse.X < x+width {
+				return m.closeSelectedForward()
+			}
+		}
+		if x, y, width, ok := m.forwardButtonBounds(layout); ok {
+			inDetail := layout.mobile || mouse.X > listWidth
+			if inDetail && mouse.Y == y && mouse.X >= x && mouse.X < x+width {
+				return m.startSelectedForward()
+			}
+		}
+		if x, y, width, ok := m.entryCloseBounds(layout); ok {
+			inDetail := layout.mobile || mouse.X > listWidth
+			if inDetail && mouse.Y == y && mouse.X >= x && mouse.X < x+width {
+				return m.closeSelectedTunnel()
+			}
+		}
+		if x, y, width, ok := m.entryOpenBounds(layout); ok {
+			inDetail := layout.mobile || mouse.X > listWidth
+			if inDetail && mouse.Y == y && mouse.X >= x && mouse.X < x+width {
+				return m.openSelectedEntry()
+			}
+		}
 		if x, y, width, ok := m.rdpButtonBounds(layout); ok {
 			inDetail := layout.mobile || mouse.X > listWidth
 			if inDetail && mouse.Y == y && mouse.X >= x && mouse.X < x+width {
@@ -239,6 +272,15 @@ func (m *App) updateMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	if m.statusError && m.status != "" {
+		switch msg.Mouse().Button {
+		case tea.MouseWheelUp:
+			m.scrollError(-3)
+		case tea.MouseWheelDown:
+			m.scrollError(3)
+		}
+		return m, nil
+	}
 	if m.credits || m.onboarding || m.form != nil {
 		return m, nil
 	}
@@ -251,12 +293,12 @@ func (m *App) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.help {
+	if m.palette && m.paletteOverflow() {
 		switch msg.Mouse().Button {
 		case tea.MouseWheelUp:
-			m.scrollHelp(-3)
+			m.scrollPalette(-3)
 		case tea.MouseWheelDown:
-			m.scrollHelp(3)
+			m.scrollPalette(3)
 		}
 		return m, nil
 	}
@@ -397,43 +439,16 @@ func (m *App) connectHost(host sshconfig.Host) (tea.Model, tea.Cmd) {
 	if host.Synced && host.SyncSource == "boxd" && m.hostLooksStopped(host) {
 		return m, m.startSelectedBoxd(host, true)
 	}
-	if host.Synced && host.SyncID != "" && m.syncer != nil {
-		var ensure func(context.Context, sshconfig.Host, func(string)) error
-		switch host.SyncSource {
-		case "gcp":
-			ensure = m.syncer.EnsureGCPAccess
-		case "aws":
-			ensure = m.syncer.EnsureAWSAccess
-		case "azure":
-			ensure = m.syncer.EnsureAzureAccess
-		case "boat":
-			ensure = m.syncer.EnsureBoatAccess
-		case "upstash":
-			ensure = m.syncer.EnsureUpstashAccess
-		case "hetzner":
-			ensure = m.syncer.EnsureHetznerAccess
-		case "bitqate":
-			ensure = m.syncer.EnsureBitqateAccess
-		case "railway":
-			ensure = m.syncer.EnsureRailwayAccess
-		case "fly":
-			ensure = m.syncer.EnsureFlyAccess
-		case "digitalocean":
-			ensure = m.syncer.EnsureDigitalOceanAccess
-		case "boxd":
-			ensure = m.syncer.EnsureBoxdAccess
-		}
-		if ensure != nil {
-			timeout := prepareTimeoutForHost(host)
-			return m.startSSH(host, func(status func(string)) error {
-				ctx, cancel := context.WithTimeout(context.Background(), timeout)
-				defer cancel()
-				if err := ensure(ctx, host, status); err != nil {
-					return err
-				}
-				return m.metadata.RecordUse(host.Alias)
-			})
-		}
+	if host.Synced && host.SyncID != "" && m.syncer != nil && host.SyncSource != "vercel" {
+		timeout := prepareTimeoutForHost(host)
+		return m.startSSH(host, func(status func(string)) error {
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			if err := m.ensureSyncedAccess(ctx, host, status); err != nil {
+				return err
+			}
+			return m.metadata.RecordUse(host.Alias)
+		})
 	}
 	return m.startSSH(host, nil)
 }
@@ -471,7 +486,7 @@ func (m *App) startSSH(host sshconfig.Host, prepare func(func(string)) error) (t
 		}
 	}
 	telemetry.Track("connect", m.version)
-	m.status = "Connected to " + m.hostLabel(host) + "; exit returns to Bast; 󰌑 then ~. force-closes SSH"
+	m.status = "Connected to " + m.hostLabel(host) + "; exit returns to Bast; " + enterGlyph(m.windowsTerminal) + " then ~. force-closes SSH"
 	return m, tea.Exec(&connectionProcess{cmd: cmd, prepare: prepare, version: m.version}, func(err error) tea.Msg {
 		return processDoneMsg{name: "SSH session", err: err, sshSession: true}
 	})

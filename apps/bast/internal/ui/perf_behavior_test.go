@@ -41,15 +41,16 @@ func TestEnterSyncSectionSkipsFreshStatusProbe(t *testing.T) {
 	}
 }
 
-func TestEnterFilesSectionSkipsRepeatRefresh(t *testing.T) {
+func TestEnterFilesSectionDoesNotListUntilAPaneIsChosen(t *testing.T) {
 	m := testApp(t)
-	first := m.enterFilesSection()
-	if first == nil {
-		t.Fatal("first Files visit should refresh local pane")
+	if cmd := m.enterFilesSection(); cmd != nil {
+		t.Fatal("opening Files should not list a directory before a pane is chosen")
+	}
+	if !m.files.panes[0].pickingHost() || !m.files.panes[1].pickingHost() {
+		t.Fatal("both panes should open on the host picker")
 	}
 	m.section = hostsSection
-	second := m.enterFilesSection()
-	if second != nil {
-		t.Fatal("returning to Files should not re-list local files")
+	if cmd := m.enterFilesSection(); cmd != nil {
+		t.Fatal("returning to Files should not list a directory")
 	}
 }

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { BackgroundGrid } from "@/components/background-grid";
 import { PreFooter } from "@/components/pre-footer";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -19,15 +18,14 @@ export function MarketingShell({
   preFooter = true,
 }: MarketingShellProps) {
   return (
-    <div className="relative flex min-h-full flex-col">
-      <BackgroundGrid />
-      <SiteHeader />
+    <div className="relative flex min-h-full flex-col bg-[#05080f] text-[#e8eef6]">
+      <SiteHeader tone="night" />
       <main
         className={`mx-auto flex w-full ${pageMaxWidthClass} flex-1 flex-col px-4 pb-16 pt-10 sm:px-6 sm:pb-16 sm:pt-12 md:pt-14`}
       >
         <div className="w-full">{children}</div>
       </main>
-      {preFooter ? <PreFooter version={version} /> : null}
+      {preFooter ? <PreFooter version={version} tone="night" /> : null}
       <SiteFooter />
     </div>
   );

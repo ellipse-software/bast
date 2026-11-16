@@ -6,15 +6,17 @@ const DocumentVersion = 1
 
 // Document is the plaintext vault payload before encryption.
 type Document struct {
-	Version      int                      `json:"version"`
-	Revision     string                   `json:"revision,omitempty"`
-	UpdatedAt    int64                    `json:"updatedAt"`
-	Hosts        []HostEntry              `json:"hosts"`
-	Keys         []KeyEntry               `json:"keys"`
-	Metadata     map[string]metadata.Host `json:"metadata,omitempty"`
-	Preferences  metadata.Preferences     `json:"preferences,omitempty"`
-	Integrations VaultIntegrations        `json:"integrations,omitempty"`
-	Tombstones   Tombstones               `json:"tombstones,omitempty"`
+	Version      int                                  `json:"version"`
+	Revision     string                               `json:"revision,omitempty"`
+	UpdatedAt    int64                                `json:"updatedAt"`
+	Hosts        []HostEntry                          `json:"hosts"`
+	Keys         []KeyEntry                           `json:"keys"`
+	Metadata     map[string]metadata.Host             `json:"metadata,omitempty"`
+	Groups       *map[string]metadata.GroupAppearance `json:"groups,omitempty"`
+	Preferences  metadata.Preferences                 `json:"preferences,omitempty"`
+	Integrations VaultIntegrations                    `json:"integrations,omitempty"`
+	Entries      []DesktopEntry                       `json:"entries,omitempty"`
+	Tombstones   Tombstones                           `json:"tombstones,omitempty"`
 }
 
 type HostEntry struct {
@@ -42,9 +44,16 @@ type KeyEntry struct {
 	DeletedAt     int64  `json:"deletedAt,omitempty"`
 }
 
+// DesktopEntry is a Remote Desktop or web entry stored in the vault.
+type DesktopEntry struct {
+	metadata.Entry
+	DeletedAt int64 `json:"deletedAt,omitempty"`
+}
+
 type Tombstones struct {
-	Hosts map[string]int64 `json:"hosts,omitempty"` // managedId -> deletedAt
-	Keys  map[string]int64 `json:"keys,omitempty"`  // fingerprint or name -> deletedAt
+	Hosts   map[string]int64 `json:"hosts,omitempty"`   // managedId -> deletedAt
+	Keys    map[string]int64 `json:"keys,omitempty"`    // fingerprint or name -> deletedAt
+	Entries map[string]int64 `json:"entries,omitempty"` // entry id -> deletedAt
 }
 
 // VaultIntegrations stores sync settings without credentials or last-sync telemetry.

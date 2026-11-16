@@ -111,7 +111,7 @@ const changelogComponents = {
   pre: (props: ComponentProps<"pre">) => (
     <pre
       {...props}
-      className="my-3 overflow-x-auto bg-surface p-3 font-mono text-xs text-foreground first:mt-0 last:mb-0"
+      className="my-3 overflow-x-auto rounded-xl border border-white/15 bg-[#0c0f14] p-3 font-mono text-xs text-foreground first:mt-0 last:mb-0"
     />
   ),
   blockquote: (props: ComponentProps<"blockquote">) => (

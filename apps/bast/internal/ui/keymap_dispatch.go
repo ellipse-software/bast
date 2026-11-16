@@ -11,41 +11,31 @@ import (
 func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 	switch id {
 	case ActionQuit:
+		m.closeOwnedTunnels()
 		return m, tea.Quit
 	case ActionHelpToggle:
 		m.closeDoctor()
 		m.onboarding = false
-		m.help, m.credits, m.helpOffset = true, false, 0
+		m.credits = false
+		m.openPalette()
 		return m, nil
 	case ActionHelpClose:
-		m.help, m.helpOffset = false, 0
-		return m, nil
-	case ActionHelpScrollUp:
-		m.scrollHelp(-1)
-		return m, nil
-	case ActionHelpScrollDown:
-		m.scrollHelp(1)
-		return m, nil
-	case ActionHelpPageUp:
-		m.scrollHelp(-m.helpBodyHeight())
-		return m, nil
-	case ActionHelpPageDown:
-		m.scrollHelp(m.helpBodyHeight())
-		return m, nil
-	case ActionHelpTop:
-		m.helpOffset = 0
-		return m, nil
-	case ActionHelpBottom:
-		m.helpOffset = m.maxHelpOffset()
+		m.closePalette()
 		return m, nil
 	case ActionCreditsOpen:
-		m.closeDoctor()
-		m.onboarding = false
-		m.credits, m.help, m.helpOffset = true, false, 0
+		m.openCredits()
 		return m, nil
 	case ActionCreditsClose:
 		m.credits = false
 		return m, nil
+	case ActionCreditsLeft:
+		m.moveCreditChoice(-1)
+		return m, nil
+	case ActionCreditsRight:
+		m.moveCreditChoice(1)
+		return m, nil
+	case ActionCreditsActivate:
+		return m.openCreditChoice()
 	case ActionOnboardingReplay:
 		m.replayOnboarding()
 		return m, nil
@@ -63,10 +53,10 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 		m.scrollDoctor(1)
 		return m, nil
 	case ActionDoctorPageUp:
-		m.scrollDoctor(-m.helpBodyHeight())
+		m.scrollDoctor(-m.bodyHeight())
 		return m, nil
 	case ActionDoctorPageDown:
-		m.scrollDoctor(m.helpBodyHeight())
+		m.scrollDoctor(m.bodyHeight())
 		return m, nil
 	case ActionDoctorTop:
 		m.doctorOffset = 0
@@ -119,10 +109,32 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 	case ActionAddHost:
 		m.openAddHostForm()
 		return m, nil
+	case ActionAddEntry:
+		if m.section == hostsSection {
+			m.openAddEntryChooser()
+		}
+		return m, nil
+	case ActionCloseTunnel:
+		if m.section == hostsSection {
+			if hostsFooterForwardOpen(m) {
+				return m.closeSelectedForward()
+			}
+			return m.closeSelectedTunnel()
+		}
+		return m, nil
+	case ActionStartForward:
+		if m.section == hostsSection {
+			return m.startSelectedForward()
+		}
+		return m, nil
 	case ActionEdit:
 		return m.actionEdit()
 	case ActionAssignGroup:
 		if m.section == hostsSection {
+			if _, ok := m.selectedEntry(); ok {
+				m.openEntryGroupForm()
+				return m, nil
+			}
 			m.openGroupAssignmentForm()
 		}
 		return m, nil
@@ -165,6 +177,9 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 		return m, nil
 	case ActionOpenRDP:
 		if m.section == hostsSection {
+			if _, ok := m.selectedEntry(); ok {
+				return m.openSelectedEntry()
+			}
 			return m.openSelectedRDP()
 		}
 		return m, nil
@@ -214,7 +229,7 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 	case ActionFilesParent:
 		m.initFilesState()
 		if m.filesFocusedPane().pickingHost() {
-			return m, nil
+			return m.filesPickerLeft()
 		}
 		return m.filesParent()
 	case ActionFilesEnter:
@@ -240,6 +255,9 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 		return m.beginFilesPathEdit()
 	case ActionFilesMark:
 		m.initFilesState()
+		if m.filesFocusedPane().pickingHost() {
+			return m.filesPickerToggle()
+		}
 		return m.toggleFilesMark()
 	case ActionFilesRange:
 		m.initFilesState()
@@ -278,10 +296,7 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 		return m, m.refreshFilesPane(m.files.focus)
 	case ActionFilesDisconnect:
 		m.initFilesState()
-		if m.filesFocusedPane().kind == filesPaneRemote {
-			return m, m.disconnectFilesPane(m.files.focus)
-		}
-		return m, nil
+		return m, m.returnFilesPaneToPicker(m.files.focus)
 	case ActionFilesEscape:
 		return m.actionFilesEscape()
 	default:
@@ -383,13 +398,16 @@ func (m *App) actionJumpBottom() (tea.Model, tea.Cmd) {
 
 func (m *App) actionReload() (tea.Model, tea.Cmd) {
 	if m.section == syncSection {
+		if m.noSync {
+			return m, m.syncOffNotice()
+		}
 		return m.updateSyncKeys("r")
 	}
 	if m.section == vaultSection {
 		return m.updateVaultKeys("r")
 	}
 	if m.section == hostsSection {
-		if host, ok := m.selectedHost(); ok {
+		if host, ok := m.selectedHost(); ok && !m.noSync {
 			if cmd := m.resumeSyncedHost(host, false); cmd != nil {
 				return m, cmd
 			}
@@ -428,6 +446,10 @@ func (m *App) actionToggleGroup() (tea.Model, tea.Cmd) {
 
 func (m *App) actionEdit() (tea.Model, tea.Cmd) {
 	if m.section == hostsSection {
+		if _, ok := m.selectedEntry(); ok {
+			m.openEditEntryForm()
+			return m, nil
+		}
 		if _, ok := m.selectedHistorySuggestion(); ok {
 			m.openHistoryHostForm()
 		} else if _, ok := m.selectedGroupHeader(); ok {
@@ -448,11 +470,23 @@ func (m *App) actionEdit() (tea.Model, tea.Cmd) {
 
 func (m *App) actionDelete() (tea.Model, tea.Cmd) {
 	if m.section == syncSection {
+		if m.noSync {
+			return m, m.syncOffNotice()
+		}
 		return m.updateSyncKeys("d")
 	}
 	if m.section == hostsSection {
-		if host, ok := m.selectedHost(); ok && m.deleteSyncedHost(host) {
+		if _, ok := m.selectedEntry(); ok {
+			m.openDeleteEntryForm()
 			return m, nil
+		}
+		if host, ok := m.selectedHost(); ok {
+			if m.noSync && m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Delete }) {
+				return m, m.syncOffNotice()
+			}
+			if m.deleteSyncedHost(host) {
+				return m, nil
+			}
 		}
 		m.openDeleteHostForm()
 		return m, nil
@@ -469,10 +503,16 @@ func (m *App) actionDelete() (tea.Model, tea.Cmd) {
 
 func (m *App) actionStopSandbox() (tea.Model, tea.Cmd) {
 	if m.section == syncSection {
+		if m.noSync {
+			return m, m.syncOffNotice()
+		}
 		return m.updateSyncKeys("o")
 	}
 	if m.section == hostsSection {
 		if host, ok := m.selectedHost(); ok {
+			if m.noSync && m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Stop }) {
+				return m, m.syncOffNotice()
+			}
 			return m.stopSyncedHost(host)
 		}
 	}
@@ -481,13 +521,22 @@ func (m *App) actionStopSandbox() (tea.Model, tea.Cmd) {
 
 func (m *App) actionNewOrFork() (tea.Model, tea.Cmd) {
 	if m.section == syncSection {
+		if m.noSync {
+			return m, m.syncOffNotice()
+		}
 		return m.updateSyncKeys("n")
 	}
 	if m.section == hostsSection {
 		if kind, ok := m.selectedProviderRoot(); ok && cloud.CapabilitiesFor(kind).Create {
+			if m.noSync {
+				return m, m.syncOffNotice()
+			}
 			return m.runProviderGroupCreate(kind)
 		}
 		if host, ok := m.selectedHost(); ok {
+			if m.noSync && m.hostHasCapability(host, func(c cloud.Capabilities) bool { return c.Fork }) {
+				return m, m.syncOffNotice()
+			}
 			return m.forkSyncedHost(host)
 		}
 	}
@@ -496,6 +545,14 @@ func (m *App) actionNewOrFork() (tea.Model, tea.Cmd) {
 
 func (m *App) actionFavorite() (tea.Model, tea.Cmd) {
 	if m.section != hostsSection {
+		return m, nil
+	}
+	if entry, ok := m.selectedEntry(); ok {
+		_, err := m.metadata.ToggleEntryFavorite(entry.ID)
+		if err != nil {
+			m.setError(err)
+			return m, nil
+		}
 		return m, nil
 	}
 	host, ok := m.selectedHost()
@@ -518,6 +575,19 @@ func (m *App) actionFavorite() (tea.Model, tea.Cmd) {
 func (m *App) actionHideHost() (tea.Model, tea.Cmd) {
 	if m.section != hostsSection {
 		return m, nil
+	}
+	if entry, ok := m.selectedEntry(); ok {
+		hidden, err := m.metadata.ToggleEntryHidden(entry.ID)
+		if err != nil {
+			m.setError(err)
+			return m, nil
+		}
+		notice := "Entry hidden"
+		if !hidden {
+			notice = "Entry shown"
+		}
+		m.clampCursor()
+		return m, m.setNotice(notice)
 	}
 	host, ok := m.selectedHost()
 	if !ok {
@@ -550,17 +620,29 @@ func (m *App) actionHostsEnter() (tea.Model, tea.Cmd) {
 	if _, groupSelected := m.selectedGroupHeader(); groupSelected {
 		return m, m.toggleSelectedGroup()
 	}
+	if _, ok := m.selectedEntry(); ok {
+		return m.openSelectedEntry()
+	}
+	if _, ok := m.selectedForward(); ok || m.forwardHeaderSelected() {
+		return m, nil
+	}
 	return m.connectSelected()
 }
 
 func (m *App) actionSortOrSync() (tea.Model, tea.Cmd) {
 	if m.section == syncSection {
+		if m.noSync {
+			return m, m.syncOffNotice()
+		}
 		return m.updateSyncKeys("s")
 	}
 	if m.section != hostsSection {
 		return m, nil
 	}
 	if kind, ok := m.selectedProviderRoot(); ok {
+		if m.noSync {
+			return m, m.syncOffNotice()
+		}
 		return m.syncProviderFromHosts(kind)
 	}
 	return m, m.cycleSort()

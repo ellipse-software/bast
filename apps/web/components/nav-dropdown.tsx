@@ -4,6 +4,8 @@ import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 
+import { nightMenuClass } from "@/lib/night";
+
 export type NavDropdownItem = {
   href: string;
   label: string;
@@ -18,6 +20,7 @@ type NavDropdownProps = {
   overview: NavDropdownItem;
   items: readonly NavDropdownItem[];
   align?: "left" | "right";
+  tone?: "default" | "night";
 };
 
 export function NavDropdown({
@@ -28,7 +31,9 @@ export function NavDropdown({
   overview,
   items,
   align = "left",
+  tone = "default",
 }: NavDropdownProps) {
+  const night = tone === "night";
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
@@ -95,13 +100,26 @@ export function NavDropdown({
             align === "right" ? "right-0" : "left-0"
           }`}
         >
-          <ul className="min-w-[14rem] border border-border bg-background py-1 shadow-lg">
+          <ul
+            className={
+              night
+                ? `night-menu min-w-[16rem] py-1.5 ${nightMenuClass}`
+                : "min-w-[14rem] border border-border bg-background py-1 shadow-lg"
+            }
+            style={
+              night
+                ? { transformOrigin: align === "right" ? "top right" : "top left" }
+                : undefined
+            }
+          >
             <li role="none">
               <Link
                 href={overview.href}
                 role="menuitem"
                 onClick={() => setOpen(false)}
-                className="block px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface"
+                className={`block px-3 py-2 text-sm text-foreground transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#c6b6f2] ${
+                  night ? "hover:bg-white/5" : "hover:bg-surface"
+                }`}
               >
                 {overview.label}
                 {overview.blurb ? (
@@ -118,7 +136,9 @@ export function NavDropdown({
                   href={item.href}
                   role="menuitem"
                   onClick={() => setOpen(false)}
-                  className="block px-3 py-2 text-sm text-foreground/90 transition-colors hover:bg-surface hover:text-foreground"
+                  className={`block px-3 py-2 text-sm text-foreground/90 transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#c6b6f2] ${
+                    night ? "hover:bg-white/5" : "hover:bg-surface"
+                  }`}
                 >
                   {item.label}
                   {item.blurb ? (

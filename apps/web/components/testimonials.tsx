@@ -84,16 +84,22 @@ function XMark() {
 function TestimonialCard({
   testimonial,
   interactive,
+  night = false,
 }: {
   testimonial: ResolvedTestimonial;
   interactive: boolean;
+  night?: boolean;
 }) {
   const handle = handleOf(testimonial.username);
 
   return (
     <a
       href={testimonial.href}
-      className="flex h-[9rem] w-[22rem] shrink-0 gap-3 border border-border bg-background px-4 py-3 text-left outline-none transition-[background-color,border-color] duration-150 hover:border-accent hover:bg-[color-mix(in_srgb,var(--accent)_9%,var(--background))] focus-visible:border-accent focus-visible:bg-[color-mix(in_srgb,var(--accent)_9%,var(--background))]"
+      className={
+        night
+          ? "flex h-[9rem] w-[22rem] shrink-0 gap-3 rounded-xl border border-white/15 bg-[#0c0f14] px-4 py-3 text-left text-[#e8eef6] outline-none transition-[background-color,border-color] duration-150 hover:border-[#c6b6f2] hover:bg-[#141820] focus-visible:border-[#c6b6f2] focus-visible:bg-[#141820]"
+          : "flex h-[9rem] w-[22rem] shrink-0 gap-3 border border-border bg-background px-4 py-3 text-left outline-none transition-[background-color,border-color] duration-150 hover:border-accent hover:bg-[color-mix(in_srgb,var(--accent)_9%,var(--background))] focus-visible:border-accent focus-visible:bg-[color-mix(in_srgb,var(--accent)_9%,var(--background))]"
+      }
       target="_blank"
       rel="noopener noreferrer"
       tabIndex={interactive ? undefined : -1}
@@ -136,11 +142,13 @@ function TestimonialTrack({
   duration,
   delay,
   reverse,
+  night = false,
 }: {
   items: ResolvedTestimonial[];
   duration: string;
   delay: string;
   reverse: boolean;
+  night?: boolean;
 }) {
   const filled = fillRow(items);
   const motionStyle: CSSProperties = {
@@ -160,6 +168,7 @@ function TestimonialTrack({
             key={`a-${testimonial.username}-${index}`}
             testimonial={testimonial}
             interactive
+            night={night}
           />
         ))}
       </div>
@@ -169,6 +178,7 @@ function TestimonialTrack({
             key={`b-${testimonial.username}-${index}`}
             testimonial={testimonial}
             interactive={false}
+            night={night}
           />
         ))}
       </div>
@@ -176,7 +186,12 @@ function TestimonialTrack({
   );
 }
 
-export async function Testimonials() {
+export async function Testimonials({
+  tone = "default",
+}: {
+  tone?: "default" | "night";
+} = {}) {
+  const night = tone === "night";
   if (testimonials.length === 0) return null;
 
   await connection();
@@ -200,13 +215,14 @@ export async function Testimonials() {
               duration={motion.duration}
               delay={motion.delay}
               reverse={motion.reverse}
+              night={night}
             />
           );
         })}
       </div>
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-0 z-10 bg-gradient-to-r from-background from-40% via-background/70 to-transparent"
+        className={`pointer-events-none absolute inset-y-0 left-0 z-10 bg-gradient-to-r to-transparent ${night ? "from-[#05080f] from-40% via-[#05080f]/70" : "from-background from-40% via-background/70"}`}
         style={{
           width:
             "min(16rem, max(5rem, calc((100% - 64rem) / 2 + 3.5rem)))",
@@ -214,7 +230,7 @@ export async function Testimonials() {
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 right-0 z-10 bg-gradient-to-l from-background from-40% via-background/70 to-transparent"
+        className={`pointer-events-none absolute inset-y-0 right-0 z-10 bg-gradient-to-l to-transparent ${night ? "from-[#05080f] from-40% via-[#05080f]/70" : "from-background from-40% via-background/70"}`}
         style={{
           width:
             "min(16rem, max(5rem, calc((100% - 64rem) / 2 + 3.5rem)))",

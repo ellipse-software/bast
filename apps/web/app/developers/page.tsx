@@ -86,8 +86,8 @@ export default async function DevelopersPage() {
         automation uses the CLI. The hosted HTTP API is Vault, health, docs
         search, and telemetry.
       </p>
-      <div className="bg-border p-px">
-        <div className="divide-y divide-border bg-background">
+      <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0c0f14]">
+        <div className="divide-y divide-white/15">
           {resources.map((item) => {
             const className =
               "block px-4 py-4 transition-colors hover:bg-surface sm:px-5";

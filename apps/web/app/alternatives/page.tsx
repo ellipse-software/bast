@@ -41,13 +41,13 @@ export default async function AlternativesPage() {
       </p>
 
       <section className="mb-14">
-        <div className="bg-border p-px">
-          <div className="grid gap-px bg-border sm:grid-cols-2">
+        <div className="overflow-hidden rounded-xl border border-white/15">
+          <div className="grid gap-px bg-white/15 sm:grid-cols-2">
             {comparisonNavItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="bg-background p-5 transition-colors hover:bg-surface sm:p-6"
+                className="bg-[#05080f] p-5 transition-colors hover:bg-[#0c0f14] sm:p-6"
               >
                 <h2 className="mb-1 text-base font-medium tracking-tight text-foreground">
                   Bast vs {item.label}
@@ -69,7 +69,7 @@ export default async function AlternativesPage() {
         <p className="mb-5 text-sm leading-relaxed text-muted">
           Looking for a job-to-be-done instead of a brand comparison?
         </p>
-        <ul className="divide-y divide-border border border-border bg-background">
+        <ul className="divide-y divide-white/15 overflow-hidden rounded-xl border border-white/15 bg-[#0c0f14]">
           {guideNavItems.map((item) => (
             <li key={item.href}>
               <Link

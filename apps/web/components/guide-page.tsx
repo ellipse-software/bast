@@ -100,21 +100,21 @@ export async function GuidePageView({ content, version }: GuidePageViewProps) {
       ))}
 
       <section className="mb-4">
-        <div className="bg-border p-px">
-          <div className="bg-background px-4 py-5 sm:px-6 sm:py-6">
+        <div className="rounded-xl border border-white/15 bg-[#0c0f14] px-4 py-5 sm:px-6 sm:py-6">
             <h2 className="mb-2 text-lg font-medium tracking-tight text-foreground">
               Install Bast
             </h2>
-            <p className="mb-5 text-sm leading-relaxed text-muted">
+            <p className="mb-8 text-sm leading-relaxed text-muted">
               {platforms}. Then run <Code>bast</Code> and work from your existing
               OpenSSH setup.
             </p>
             <InstallCommand
               version={version}
               wingetAvailable={wingetAvailable}
+              platformIcons
+              controlsPlacement="above"
               className="w-full"
             />
-          </div>
         </div>
       </section>
     </MarketingShell>

@@ -122,12 +122,36 @@ func hostHubIndex(t *testing.T, m *App, id string) int {
 	return -1
 }
 
-func enterHostFormSection(t *testing.T, m *App, section string) {
+func focusHostFormField(t *testing.T, m *App, label string) {
 	t.Helper()
 	for i, item := range hostHubItems(m.form) {
-		if item.section == section {
+		if item.title == label {
+			m.form.screen = "hub"
 			m.form.hubIndex = i
-			m.enterHostSection(section)
+			m.form.selecting = false
+			m.focusHostHubItem()
+			return
+		}
+	}
+	t.Fatalf("field %q not on the host form", label)
+}
+
+func enterHostFormSection(t *testing.T, m *App, section string) {
+	t.Helper()
+	if section == formSectionAuth {
+		focusHostFormField(t, m, methodFieldLabel)
+		return
+	}
+	if section == formSectionMetadata {
+		section = formSectionCustomisation
+	}
+	if section == formSectionAdvanced {
+		m.enterHostSection(section)
+		return
+	}
+	for _, item := range hostHubItems(m.form) {
+		if item.section == section && item.id != "advanced" {
+			focusHostFormField(t, m, item.title)
 			return
 		}
 	}
@@ -229,7 +253,7 @@ func TestNumberedNavigationAndSearch(t *testing.T) {
 		t.Fatal("2 did not open keys")
 	}
 	m.Update(press("1"))
-	m.Update(press("/"))
+	m.Update(press("ctrl+f"))
 	m.Update(press("b"))
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if got := m.filteredHosts(); len(got) != 1 || got[0].Alias != "beta" {
@@ -240,7 +264,7 @@ func TestNumberedNavigationAndSearch(t *testing.T) {
 func TestCtrlCQuitsFromEveryBastContext(t *testing.T) {
 	contexts := map[string]func(*App){
 		"root":       func(*App) {},
-		"help":       func(m *App) { m.help = true },
+		"sheet":      func(m *App) { m.palette = true },
 		"about":      func(m *App) { m.credits = true },
 		"onboarding": func(m *App) { m.onboarding = true },
 		"doctor":     func(m *App) { m.doctor = true },
@@ -264,12 +288,11 @@ func TestCtrlCQuitsFromEveryBastContext(t *testing.T) {
 }
 
 func TestQQuitsOutsideTextInput(t *testing.T) {
-	for _, context := range []string{"root", "help", "about", "onboarding", "doctor"} {
+	for _, context := range []string{"root", "sheet", "about", "doctor"} {
 		t.Run(context, func(t *testing.T) {
 			m := testApp(t)
-			m.help = context == "help"
+			m.palette = context == "sheet"
 			m.credits = context == "about"
-			m.onboarding = context == "onboarding"
 			m.doctor = context == "doctor"
 			_, cmd := m.Update(press("q"))
 			requireQuit(t, cmd)
@@ -302,13 +325,17 @@ func TestQQuitsOutsideTextInput(t *testing.T) {
 	requireQuit(t, cmd)
 }
 
-func TestEscapeReturnsToParentThenQuitsAtRoot(t *testing.T) {
+func TestEscapeReturnsToParentAndDoesNotQuitAtRoot(t *testing.T) {
 	for _, section := range []section{hostsSection, keysSection, syncSection} {
 		t.Run(fmt.Sprint(section), func(t *testing.T) {
 			m := testApp(t)
 			m.section = section
 			_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
-			requireQuit(t, cmd)
+			if cmd != nil {
+				if _, ok := cmd().(tea.QuitMsg); ok {
+					t.Fatal("esc quit from the root list")
+				}
+			}
 		})
 	}
 
@@ -320,10 +347,10 @@ func TestEscapeReturnsToParentThenQuitsAtRoot(t *testing.T) {
 	}
 
 	m = testApp(t)
-	m.help = true
+	m.palette = true
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
-	if m.help {
-		t.Fatal("Esc did not close help")
+	if m.palette {
+		t.Fatal("Esc did not close the action sheet")
 	}
 
 	m = testApp(t)
@@ -341,7 +368,7 @@ func TestEscapeReturnsToParentThenQuitsAtRoot(t *testing.T) {
 	}
 }
 
-func TestBackspaceQuitsAtRootAndReturnsFromSyncProvider(t *testing.T) {
+func TestBackspaceDoesNotQuitAtRootAndReturnsFromSyncProvider(t *testing.T) {
 	for _, key := range []tea.KeyPressMsg{
 		tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}),
 		tea.KeyPressMsg(tea.Key{Code: 'h', Mod: tea.ModCtrl}),
@@ -350,7 +377,11 @@ func TestBackspaceQuitsAtRootAndReturnsFromSyncProvider(t *testing.T) {
 			m := testApp(t)
 			m.section = section
 			_, cmd := m.Update(key)
-			requireQuit(t, cmd)
+			if cmd != nil {
+				if _, ok := cmd().(tea.QuitMsg); ok {
+					t.Fatal("backspace quit from the root list")
+				}
+			}
 		}
 
 		m := testApp(t)
@@ -492,6 +523,43 @@ func TestVercelAndHetznerSyncErrorsShowIcon(t *testing.T) {
 	}
 }
 
+func TestLaterProviderSyncErrorsShowIcon(t *testing.T) {
+	cases := []struct {
+		alias string
+		group string
+		set   func(*App) error
+	}{
+		{"rail", "Railway", func(m *App) error {
+			return m.metadata.SetRailway(metadata.RailwayIntegration{Enabled: true, LastSyncError: "unauthorized"})
+		}},
+		{"machine", "Fly.io", func(m *App) error {
+			return m.metadata.SetFly(metadata.FlyIntegration{Enabled: true, LastSyncError: "flyctl"})
+		}},
+		{"drop", "DigitalOcean", func(m *App) error {
+			return m.metadata.SetDigitalOcean(metadata.DigitalOceanIntegration{Enabled: true, LastSyncError: "doctl"})
+		}},
+		{"computer", "boxd", func(m *App) error {
+			return m.metadata.SetBoxd(metadata.BoxdIntegration{Enabled: true, LastSyncError: "boxd"})
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.group, func(t *testing.T) {
+			m := testApp(t)
+			m.hosts = []sshconfig.Host{{Alias: tc.alias}}
+			if err := m.metadata.SetHost(tc.alias, metadata.Host{Group: tc.group}); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.set(m); err != nil {
+				t.Fatal(err)
+			}
+			m.sortHosts()
+			if rendered := m.renderHosts(m.styles()); strings.Count(rendered, "⚠") != 1 {
+				t.Fatalf("expected %s error icon:\n%s", tc.group, rendered)
+			}
+		})
+	}
+}
+
 func TestProviderConnectClearsStaleSyncErrorImmediately(t *testing.T) {
 	m := testApp(t)
 	m.syncProvider = "vercel"
@@ -542,21 +610,18 @@ func TestFooterHidesConnectWhenGroupSelected(t *testing.T) {
 	m.sortHosts()
 	m.cursor = 0
 
-	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "␣") || !strings.Contains(footer, "?") {
-		t.Fatalf("group footer should show collapse: %q", footer)
+	footer := sheet(m)
+	if !strings.Contains(footer, "␣") || !strings.Contains(footer, "collapse") && !strings.Contains(footer, "expand") {
+		t.Fatalf("group sheet should show collapse: %q", footer)
 	}
-	if strings.Contains(footer, "enter") || strings.Contains(footer, "Connect") {
-		t.Fatalf("group footer should not advertise connect: %q", footer)
+	if strings.Contains(footer, "connect") {
+		t.Fatalf("group sheet should not advertise connect: %q", footer)
 	}
 
 	m.cursor = 1
-	footer = m.renderFooter(m.styles())
-	if !strings.Contains(footer, "enter") || !strings.Contains(footer, "e edit") || !strings.Contains(footer, "F files") {
-		t.Fatalf("host footer = %q", footer)
-	}
-	if strings.Contains(footer, "␣") {
-		t.Fatalf("host footer should not show collapse: %q", footer)
+	footer = sheet(m)
+	if !strings.Contains(footer, "connect") || !strings.Contains(footer, "edit") || !strings.Contains(footer, "files") {
+		t.Fatalf("host sheet = %q", footer)
 	}
 }
 
@@ -596,6 +661,124 @@ func TestRenameGroupCascadesToHosts(t *testing.T) {
 	}
 	if got := m.metadata.Host("gamma").Group; got != "Work/Staging" {
 		t.Fatalf("gamma group = %q", got)
+	}
+}
+
+func TestGroupAndHostAppearance(t *testing.T) {
+	m := testApp(t)
+	m.hosts = []sshconfig.Host{
+		{Alias: "alpha", Managed: true},
+		{
+			Alias: "gcp_demo_web", Synced: true, SyncSource: "gcp",
+			Resolved: sshconfig.Resolved{HostName: "web", User: "ubuntu"},
+		},
+	}
+	if err := m.metadata.SetHost("alpha", metadata.Host{Group: "Work", Icon: "🇩🇪", Color: "red"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetHost("gcp_demo_web", metadata.Host{Label: "web", Group: "Google Cloud/Demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.metadata.SetGroups(map[string]metadata.GroupAppearance{
+		"Work":         {Icon: "🇩🇪", Color: "red"},
+		"Google Cloud": {Icon: "🇩🇪", Color: "red"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshHostMetadata()
+	m.sortHosts()
+	m.cursor = len(m.hostListRows()) - 1
+
+	body := m.renderHosts(m.styles())
+	groupName := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1")).Render("Work")
+	if !strings.Contains(body, groupName) {
+		t.Fatalf("group name missing ANSI red:\n%s", body)
+	}
+	if strings.Contains(groupName, "38;2;") || strings.Contains(groupName, "38;5;") {
+		t.Fatalf("theme colour rendered as truecolor or indexed: %q", groupName)
+	}
+	if !strings.Contains(groupName, "31") {
+		t.Fatalf("theme colour missing SGR 31: %q", groupName)
+	}
+	hostName := lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("alpha")
+	if !strings.Contains(body, hostName) || !strings.Contains(body, "🇩🇪") {
+		t.Fatalf("host row missing icon or ANSI colour:\n%s", body)
+	}
+	blue := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
+	if !strings.Contains(body, blue.Render("▾ ")) {
+		t.Fatalf("provider row should keep its brand colour:\n%s", body)
+	}
+	if strings.Contains(body, "🇩🇪 ▾") || strings.Count(body, "🇩🇪") < 2 {
+		t.Fatalf("provider row should not gain a user icon, and both user rows should:\n%s", body)
+	}
+	for i, row := range m.hostRows() {
+		if row.header && row.group == "Work" {
+			m.cursor = i
+			break
+		}
+	}
+	selected := m.renderHosts(m.styles())
+	selectedName := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1")).Background(lipgloss.Color("#1F2937")).Render("Work")
+	selectedIcon := lipgloss.NewStyle().Background(lipgloss.Color("#1F2937")).Render("🇩🇪 ")
+	if !strings.Contains(selected, selectedName) || !strings.Contains(selected, selectedIcon) || !strings.Contains(selected, m.styles().selected.Render("▾ ")) {
+		t.Fatalf("selected group should keep the ANSI name, an uncoloured icon, and a theme chevron:\n%s", selected)
+	}
+
+	if err := m.metadata.SetGroups(map[string]metadata.GroupAppearance{
+		"Work": {Color: "#abc"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshHostMetadata()
+	body = m.renderHosts(m.styles())
+	hexName := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#AABBCC")).Render("Work")
+	if !strings.Contains(body, hexName) || !strings.Contains(hexName, "38;2;") {
+		t.Fatalf("hex group name missing truecolor:\n%s\nname=%q", body, hexName)
+	}
+
+	for i, row := range m.hostRows() {
+		if row.header && row.group == "Work" {
+			m.cursor = i
+			break
+		}
+	}
+	detail := m.renderGroupDetail(m.styles(), m.hostListRows()[m.cursor], 60)
+	if !strings.Contains(detail, hexName) || !strings.Contains(detail, "e edit") {
+		t.Fatalf("group detail = %q", detail)
+	}
+	hostDetail := m.renderHostDetail(m.styles(), m.hosts[0], 60)
+	hostTitle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1")).Render("alpha")
+	if !strings.Contains(hostDetail, "🇩🇪") || !strings.Contains(hostDetail, hostTitle) || strings.Contains(hostTitle, "48;") {
+		t.Fatalf("host detail should prefix the icon and colour the name:\n%s", hostDetail)
+	}
+
+	m.openEditGroupForm()
+	if m.form == nil || m.form.title != "Edit group: Work" || m.form.revealed != len(m.form.fields)-1 {
+		t.Fatalf("group form = %+v", m.form)
+	}
+	color := formFieldByLabel(m, "Color")
+	labels := make([]string, 0, len(color.options))
+	for _, option := range color.options {
+		labels = append(labels, option.label)
+	}
+	if strings.Join(labels, ",") != "Default,Red,Green,Yellow,Blue,Magenta,Cyan,White,Gray,Custom hex" {
+		t.Fatalf("palette = %v", labels)
+	}
+	if !color.options[color.selected].custom || color.value != "#AABBCC" {
+		t.Fatalf("hex should open on custom: %+v", color)
+	}
+
+	for i, row := range m.hostRows() {
+		if row.header && row.group == "Google Cloud" {
+			m.cursor = i
+			break
+		}
+	}
+	m.form = nil
+	m.status, m.statusError = "", false
+	m.openEditGroupForm()
+	if m.form != nil || !strings.Contains(m.status, "cannot be edited") {
+		t.Fatalf("synced group status = %q form=%v", m.status, m.form != nil)
 	}
 }
 
@@ -1191,8 +1374,8 @@ func TestQuickGroupAssignmentRejectsSyncedHosts(t *testing.T) {
 	m.hosts = []sshconfig.Host{{Alias: "cloud", Synced: true}}
 	selectHostAlias(t, m, "cloud")
 	m.updateKeys(press("m"))
-	if m.form != nil || !m.statusError || !strings.Contains(m.status, "read-only") {
-		t.Fatalf("synced assignment: form=%#v status=%q", m.form, m.status)
+	if m.form != nil || m.statusError {
+		t.Fatalf("synced host should not offer move: form=%#v status=%q", m.form, m.status)
 	}
 }
 
@@ -1309,29 +1492,14 @@ func TestHostEditorSaveIsVisiblePortableAndClickable(t *testing.T) {
 	})
 }
 
-func TestHostEditorSaveHintAlternatesWithoutStaleTicks(t *testing.T) {
+func TestHostEditorSheetOffersSave(t *testing.T) {
 	m := testApp(t)
-	_, cmd := m.Update(press("a"))
-	if cmd == nil {
-		t.Fatal("opening the host editor did not schedule the save hint")
+	m.Update(press("a"))
+	if m.form == nil || !isHostForm(m.form) {
+		t.Fatal("a should open the host editor")
 	}
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, hostFormSaveHint(false)) || strings.Contains(footer, "Ctrl+↵ save") || strings.Contains(footer, "Ctrl+J") {
-		t.Fatalf("initial save hint = %q", footer)
-	}
-
-	hintID := m.hostSaveHintID
-	_, cmd = m.Update(hostSaveHintTickMsg(hintID))
-	if cmd == nil {
-		t.Fatal("active host editor did not schedule the next save hint")
-	}
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+↵ save") || strings.Contains(footer, hostFormSaveHint(false)) {
-		t.Fatalf("alternate save hint = %q", footer)
-	}
-
-	m.form = nil
-	_, cmd = m.Update(hostSaveHintTickMsg(hintID))
-	if cmd != nil {
-		t.Fatal("closed host editor kept the save hint timer alive")
+	if got := sheet(m); !strings.Contains(got, "save") || strings.Contains(got, "Ctrl+J") || strings.Contains(got, "connect") {
+		t.Fatalf("host editor sheet = %q", got)
 	}
 }
 
@@ -1367,7 +1535,7 @@ func TestExternalHostEditOnlyOffersMetadataAndIsFullyRevealed(t *testing.T) {
 		t.Fatalf("form = %+v", m.form)
 	}
 	rendered := m.renderForm(m.styles())
-	if !strings.Contains(rendered, "Label") || !strings.Contains(rendered, "Metadata") || strings.Contains(rendered, "Authentication") || strings.Contains(rendered, "Hostname") {
+	if !strings.Contains(rendered, "Label") || !strings.Contains(rendered, "Customisation") || strings.Contains(rendered, "Authentication") || strings.Contains(rendered, "Hostname") {
 		t.Fatalf("metadata editor layout is incorrect:\n%s", rendered)
 	}
 	enterHostFormSection(t, m, formSectionMetadata)
@@ -1375,46 +1543,46 @@ func TestExternalHostEditOnlyOffersMetadataAndIsFullyRevealed(t *testing.T) {
 	if strings.Contains(rendered, "Group") || !strings.Contains(rendered, "Tags") {
 		t.Fatalf("metadata section was not opened:\n%s", rendered)
 	}
-	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, hostFormSaveHint(false)) || strings.Contains(footer, "Ctrl+J") || strings.Contains(footer, "connect") {
-		t.Fatalf("metadata editor footer is incorrect: %q", footer)
+	footer := sheet(m)
+	if !strings.Contains(footer, "save") || strings.Contains(footer, "Ctrl+J") || strings.Contains(footer, "connect") {
+		t.Fatalf("metadata editor sheet is incorrect: %q", footer)
 	}
 }
 
 func TestFooterShowsControlsForTheActiveFormState(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Enter next") || !strings.Contains(footer, hostFormSaveHint(false)) || strings.Contains(footer, "Ctrl+J") || !strings.Contains(footer, "Esc cancel") || strings.Contains(footer, "connect") {
-		t.Fatalf("create footer = %q", footer)
+	if footer := sheet(m); !strings.Contains(footer, "next") || !strings.Contains(footer, "save") || strings.Contains(footer, "Ctrl+J") || !strings.Contains(footer, "cancel") || strings.Contains(footer, "connect") {
+		t.Fatalf("create sheet = %q", footer)
 	}
 
 	m.openEditHostForm()
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, hostFormSaveHint(false)) || strings.Contains(footer, "Ctrl+J") || !strings.Contains(footer, "Tab move") || strings.Contains(footer, "connect") {
-		t.Fatalf("edit footer = %q", footer)
+	if footer := sheet(m); !strings.Contains(footer, "save") || strings.Contains(footer, "Ctrl+J") || strings.Contains(footer, "connect") {
+		t.Fatalf("edit sheet = %q", footer)
 	}
 	enterHostFormSection(t, m, formSectionMetadata)
-	if footer := m.renderFooter(m.styles()); strings.Contains(footer, "q quit") {
-		t.Fatalf("plain-text host field advertises q as quit: %q", footer)
+	if footer := sheet(m); strings.Contains(footer, "quit") {
+		t.Fatalf("plain-text host field advertises quit: %q", footer)
 	}
 
 	m.hosts[0].Managed = true
 	m.openEditHostForm()
 	enterHostFormSection(t, m, formSectionAuth)
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "q quit") {
-		t.Fatalf("selectable host field does not advertise q as quit: %q", footer)
+	if footer := sheet(m); !strings.Contains(footer, "quit") {
+		t.Fatalf("selectable host field does not advertise quit: %q", footer)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Text: " "}))
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "choose") || !strings.Contains(footer, "Enter select") || !strings.Contains(footer, "Esc back") {
-		t.Fatalf("choice footer = %q", footer)
+	if footer := sheet(m); !strings.Contains(footer, "choose") || !strings.Contains(footer, "select") || !strings.Contains(footer, "cancel") {
+		t.Fatalf("choice sheet = %q", footer)
 	}
 }
 
 func TestEditFormUsesArrowsToMoveAndEnterToSave(t *testing.T) {
 	m := testApp(t)
 	m.openEditHostForm()
-	enterHostFormSection(t, m, formSectionMetadata)
+	focusHostFormField(t, m, "Tags")
 	if m.form == nil || m.form.fields[m.form.index].label != "Tags" {
-		t.Fatal("metadata section did not open on the tags field")
+		t.Fatal("tags field was not focused")
 	}
 	m.form.input.SetValue("api")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
@@ -1457,7 +1625,7 @@ func TestEditFormUsesSpaceToChangeAChoice(t *testing.T) {
 func TestHostFormQuitKeysWorkFromMenus(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
-	m.form.hubIndex = hostHubIndex(t, m, "auth")
+	m.form.hubIndex = hostHubIndex(t, m, "advanced")
 	m.focusHostHubItem()
 	_, cmd := m.updateForm(press("q"))
 	if cmd == nil {
@@ -1487,41 +1655,134 @@ func TestHostFormQuitKeysWorkFromMenus(t *testing.T) {
 	}
 }
 
+func TestColorGridMovesAndRendersSwatches(t *testing.T) {
+	if got, _ := moveColorGrid(0, 10, 5, "right"); got != 1 {
+		t.Fatalf("right = %d", got)
+	}
+	if got, _ := moveColorGrid(0, 10, 5, "left"); got != 0 {
+		t.Fatalf("left edge = %d", got)
+	}
+	if got, _ := moveColorGrid(1, 10, 5, "down"); got != 6 {
+		t.Fatalf("down = %d", got)
+	}
+	if got, _ := moveColorGrid(6, 10, 5, "up"); got != 1 {
+		t.Fatalf("up = %d", got)
+	}
+	if got, _ := moveColorGrid(4, 10, 5, "right"); got != 4 {
+		t.Fatalf("right edge = %d", got)
+	}
+	if got, _ := moveColorGrid(9, 10, 5, "down"); got != 9 {
+		t.Fatalf("down edge = %d", got)
+	}
+
+	m := testApp(t)
+	m.openAddHostForm()
+	focusHostFormField(t, m, "Color")
+	m.form.selecting = true
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	item := m.form.fields[m.form.index]
+	if item.options[item.selected].value != "red" {
+		t.Fatalf("highlight = %q", item.options[item.selected].value)
+	}
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	item = m.form.fields[m.form.index]
+	if item.options[item.selected].value != "cyan" {
+		t.Fatalf("down highlight = %q", item.options[item.selected].value)
+	}
+	body := m.renderHostForm(m.styles())
+	red := lipgloss.NewStyle().Background(lipgloss.Color("1")).Render(strings.Repeat(" ", colorSwatchInner))
+	if !strings.Contains(body, red) || !strings.Contains(body, "Default") || !strings.Contains(body, "Cyan") {
+		t.Fatalf("colour grid:\n%s", body)
+	}
+	footer := sheet(m)
+	if !strings.Contains(footer, "highlight") {
+		t.Fatalf("sheet = %q", footer)
+	}
+}
+
+func TestEmptyColorHexReturnsToPalette(t *testing.T) {
+	m := testApp(t)
+	m.openAddHostForm()
+	focusHostFormField(t, m, "Color")
+	item := &m.form.fields[m.form.index]
+	for i, option := range item.options {
+		if option.custom {
+			item.selected = i
+			break
+		}
+	}
+	item.customValue = "#AABBCC"
+	m.form.selecting = false
+	m.focusFormField()
+
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if m.form.selecting || m.form.input.Value() == "" {
+		t.Fatal("backspace should delete a hex character before leaving the field")
+	}
+
+	m.form.input.SetValue("")
+	body := m.renderHostForm(m.styles())
+	if !strings.Contains(body, "⌫/Esc colours") {
+		t.Fatalf("empty hex field should show how to return:\n%s", body)
+	}
+	footer := sheet(m)
+	if !strings.Contains(footer, "colours") {
+		t.Fatalf("sheet = %q", footer)
+	}
+
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if !m.form.selecting {
+		t.Fatal("backspace on an empty hex field should reopen the colours")
+	}
+	body = m.renderHostForm(m.styles())
+	if !strings.Contains(body, "Gray") || !strings.Contains(body, "Custom") {
+		t.Fatalf("palette should be visible:\n%s", body)
+	}
+
+	m = testApp(t)
+	m.openForm("Edit group: Work", "group_edit", []field{colorFormField("#ABC", "")})
+	m.form.selecting = false
+	m.focusFormField()
+	m.form.input.SetValue("")
+	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
+	if m.form == nil || !m.form.selecting {
+		t.Fatal("group colour hex should return to the palette")
+	}
+}
+
 func TestHostFormBackspaceNavigatesSubmenus(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
-	enterHostFormSection(t, m, formSectionMetadata)
+	focusHostFormField(t, m, "Tags")
 	m.form.input.SetValue("")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
-	if m.form.screen != formSectionMetadata {
-		t.Fatalf("backspace in an empty text field navigated away: screen=%q", m.form.screen)
+	if m.form == nil || m.form.fields[m.form.index].label != "Tags" {
+		t.Fatal("backspace in an empty text field navigated away")
 	}
 
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
-	m.form.hubIndex = 1
-	m.focusHostHubItem()
+	focusHostFormField(t, m, "Hostname")
 	m.form.input.SetValue("prod")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
-	if m.form.hubIndex != 1 || m.form.input.Value() != "pro" {
-		t.Fatalf("backspace should edit text before navigating: hubIndex=%d value=%q", m.form.hubIndex, m.form.input.Value())
+	if m.form.fields[m.form.index].label != "Hostname" || m.form.input.Value() != "pro" {
+		t.Fatalf("backspace should edit text before navigating: label=%q value=%q", m.form.fields[m.form.index].label, m.form.input.Value())
 	}
 	m.form.input.SetValue("")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
-	if m.form == nil || m.form.hubIndex != 1 {
+	if m.form == nil || m.form.fields[m.form.index].label != "Hostname" {
 		t.Fatal("backspace in an empty hostname field should remain in the field")
 	}
 
-	m.form.hubIndex = hostHubIndex(t, m, "auth")
+	m.form.hubIndex = hostHubIndex(t, m, "advanced")
 	m.focusHostHubItem()
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
 	if m.form != nil {
-		t.Fatal("backspace on a host hub menu should close the form")
+		t.Fatal("backspace on Advanced should close the form")
 	}
 
 	m.openAddHostForm()
 	enterHostFormSection(t, m, formSectionAdvanced)
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Enter open section") || !strings.Contains(footer, "⌫/Esc back") {
-		t.Fatalf("advanced hub footer = %q", footer)
+	if footer := sheet(m); !strings.Contains(footer, "open") || !strings.Contains(footer, "back") {
+		t.Fatalf("advanced hub sheet = %q", footer)
 	}
 	m.form.hubIndex = 3
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
@@ -1640,41 +1901,52 @@ func TestAdvancedHostFormSavesEverySection(t *testing.T) {
 	}
 }
 
+func TestHostFormScrollKeepsTheFocusedFieldVisible(t *testing.T) {
+	m := testApp(t)
+	m.height = 14
+	m.openAddHostForm()
+	focusHostFormField(t, m, "Notes")
+	rendered := m.renderForm(m.styles())
+	if !strings.Contains(rendered, "› Notes") {
+		t.Fatalf("focused Notes field is not in the form window:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "Hostname") {
+		t.Fatalf("scroll window still includes Hostname:\n%s", rendered)
+	}
+}
+
 func TestFormRevealsFieldsProgressivelyAndRevisitsThem(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
 	initial := m.renderForm(m.styles())
-	if !strings.Contains(initial, "Label") || !strings.Contains(initial, "Authentication") || !strings.Contains(initial, "User") {
+	if !strings.Contains(initial, "Basics") || !strings.Contains(initial, "Hostname") || !strings.Contains(initial, "Customisation") || !strings.Contains(initial, "Advanced") || strings.Contains(initial, "Authentication") {
 		t.Fatalf("initial hub form layout is incorrect:\n%s", initial)
 	}
-	m.form.input.SetValue("prod")
+	m.form.input.SetValue("prod.example")
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	second := m.renderForm(m.styles())
-	if !strings.Contains(second, "Label  prod") || !strings.Contains(second, "› Hostname") {
-		t.Fatalf("Enter did not advance to hostname:\n%s", second)
+	if !strings.Contains(second, "Hostname  prod.example") || !strings.Contains(second, "› User") {
+		t.Fatalf("Enter did not advance to user:\n%s", second)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
-	if m.form.hubIndex != 0 {
-		t.Fatalf("up did not revisit label: hubIndex=%d", m.form.hubIndex)
+	if m.form.hubIndex != 0 || m.form.fields[m.form.index].label != "Hostname" {
+		t.Fatalf("up did not revisit hostname: hubIndex=%d", m.form.hubIndex)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.form.hubIndex != 1 {
-		t.Fatalf("down did not return to hostname: hubIndex=%d", m.form.hubIndex)
-	}
-	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.form.hubIndex != hostHubIndex(t, m, "user") {
-		t.Fatalf("down did not move to user: hubIndex=%d", m.form.hubIndex)
+	if m.form.fields[m.form.index].label != "User" {
+		t.Fatalf("down did not return to user: %q", m.form.fields[m.form.index].label)
 	}
 	m.updateForm(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
 	third := m.renderForm(m.styles())
-	if !strings.Contains(third, "› Authentication") {
-		t.Fatal("down did not move to authentication menu")
+	if m.form.fields[m.form.index].label != methodFieldLabel || !strings.Contains(third, "› Method") {
+		t.Fatal("down did not move to method")
 	}
 }
 
 func TestHostFormExplainsOptionalConnectionFields(t *testing.T) {
 	m := testApp(t)
 	m.openAddHostForm()
+	focusHostFormField(t, m, "Label")
 
 	initial := m.renderForm(m.styles())
 	if !strings.Contains(initial, "use / for groups") {
@@ -1730,29 +2002,6 @@ func TestHostLabelsKeepSpacesWhileSSHNamesUseUnderscores(t *testing.T) {
 	m.openDeleteHostForm()
 	if m.form.input.Placeholder != "Production web" {
 		t.Fatalf("delete placeholder = %q", m.form.input.Placeholder)
-	}
-}
-
-func TestContrastingTextColor(t *testing.T) {
-	tests := []struct {
-		background string
-		want       string
-		valid      bool
-	}{
-		{background: "#000000", want: "#FFFFFF", valid: true},
-		{background: "#fff", want: "#111827", valid: true},
-		{background: "#7C3AED", want: "#FFFFFF", valid: true},
-		{background: "#FFFF00", want: "#111827", valid: true},
-		{background: "ffffff", valid: false},
-		{background: "purple", valid: false},
-	}
-	for _, test := range tests {
-		t.Run(test.background, func(t *testing.T) {
-			got, ok := contrastingTextColor(test.background)
-			if ok != test.valid || got != test.want {
-				t.Fatalf("contrastingTextColor(%q) = %q, %v; want %q, %v", test.background, got, ok, test.want, test.valid)
-			}
-		})
 	}
 }
 
@@ -1978,7 +2227,7 @@ func TestKeysDoNotPresentAgentLoadingAsAPrimaryAction(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("Enter unexpectedly created an ssh-agent command")
 	}
-	help := m.renderHelp(m.styles())
+	help := strings.Join(m.paletteContent(m.styles(), 80), "\n")
 	if strings.Contains(help, "load/unload") || strings.Contains(help, "l load") {
 		t.Fatal("agent loading is still presented as a key action")
 	}
@@ -2114,9 +2363,17 @@ func TestManagedKeyCommentCanBeEditedAfterImport(t *testing.T) {
 	if !strings.Contains(deleteForm, "Type the name to confirm") {
 		t.Fatalf("delete confirmation copy is incorrect:\n%s", deleteForm)
 	}
-	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "󰌑 delete") || strings.Contains(footer, "󰌑 save") {
-		t.Fatalf("delete footer is incorrect: %q", footer)
+	footer := sheet(m)
+	if !strings.Contains(footer, "delete") || strings.Contains(footer, "save") {
+		t.Fatalf("delete sheet is incorrect: %q", footer)
+	}
+	m.windowsTerminal = true
+	footer = sheet(m)
+	if !strings.Contains(footer, "delete") || strings.Contains(footer, nerdEnterGlyph) {
+		t.Fatalf("Windows Terminal delete sheet is incorrect: %q", footer)
+	}
+	if chord := formatChord(Binding{Chord: nerdEnterGlyph + " then ~."}, true, true); chord != "↵ then ~." {
+		t.Fatalf("Windows Terminal chord = %q", chord)
 	}
 	if m.form.input.Placeholder != "work" || !strings.Contains(deleteForm, "work") {
 		t.Fatalf("delete confirmation does not show the required name as a placeholder:\n%s", deleteForm)
@@ -2176,8 +2433,11 @@ func TestDeletionConfirmationNameCanBeCopied(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("copying the confirmation name returned no command")
 	}
-	if rendered := m.render(); !strings.Contains(rendered, "Name to type") || !strings.Contains(rendered, "Ctrl+Y copy name") {
+	if rendered := m.render(); !strings.Contains(rendered, "Name to type") {
 		t.Fatalf("copy affordance is not visible:\n%s", rendered)
+	}
+	if !strings.Contains(sheet(m), "copy name") {
+		t.Fatalf("sheet = %q", sheet(m))
 	}
 
 	m.form = nil
@@ -2286,15 +2546,18 @@ func TestSyncListHasNoTiles(t *testing.T) {
 	}
 }
 
-func TestHelpUsesTerminalWidthWithoutWrapping(t *testing.T) {
+func TestPaletteUsesTerminalWidthWithoutWrapping(t *testing.T) {
 	m := testApp(t)
 	m.width = 100
-	if got := m.helpContentWidth(); got < 80 {
-		t.Fatalf("helpContentWidth = %d", got)
+	if got := m.contentWidth(); got < 80 {
+		t.Fatalf("contentWidth = %d", got)
 	}
-	for _, line := range m.helpLines(m.styles()) {
+	for _, line := range m.paletteContent(m.styles(), m.terminalWidth()) {
 		if strings.Contains(line, "\n") {
-			t.Fatalf("help line wrapped internally: %q", line)
+			t.Fatalf("sheet line wrapped internally: %q", line)
+		}
+		if lipgloss.Width(line) > m.terminalWidth() {
+			t.Fatalf("sheet line wider than the terminal: %q", line)
 		}
 	}
 }
@@ -2505,11 +2768,11 @@ func TestMobileLayoutStacksPanelsVertically(t *testing.T) {
 	if !strings.Contains(body, connectAction) {
 		t.Fatalf("mobile host details are missing the connect button:\n%s", body)
 	}
-	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "enter connect") || !strings.Contains(footer, "?") {
-		t.Fatalf("mobile footer = %q", footer)
+	footer := stripANSI(m.renderFooter(m.styles()))
+	if strings.Contains(footer, "connect") || !strings.HasPrefix(strings.TrimLeft(footer, " "), "/ for shortcuts") {
+		t.Fatalf("mobile status row = %q", footer)
 	}
-	if strings.Contains(footer, "enter/click Connect") || strings.Contains(footer, "F files") {
+	if strings.Contains(sheet(m), "enter/click Connect") {
 		t.Fatalf("mobile footer should stay compact: %q", footer)
 	}
 }
@@ -2632,6 +2895,10 @@ func TestOpenRDPUsesTheHostAddress(t *testing.T) {
 	t.Cleanup(func() { launchRDP = prev })
 
 	selectHostAlias(t, m, "alpha")
+	if err := m.metadata.SetHost("alpha", metadata.Host{RDP: true}); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshHostMetadata()
 	m.Update(ctrlO())
 	if calls != 1 || got.Address != "rdp.example" || got.User != "" || got.Domain != "" {
 		t.Fatalf("session = %+v calls=%d", got, calls)
@@ -2639,8 +2906,8 @@ func TestOpenRDPUsesTheHostAddress(t *testing.T) {
 	if m.statusError || !strings.Contains(m.status, "rdp.example") {
 		t.Fatalf("status = %q error=%v", m.status, m.statusError)
 	}
-	if strings.Contains(m.renderFooter(m.styles()), "Ctrl+O") {
-		t.Fatal("RDP footer is visible before the host enables it")
+	if !strings.Contains(strings.Join(m.paletteContent(m.styles(), 120), "\n"), "rdp") {
+		t.Fatal("sheet should list Remote Desktop once the host enables it")
 	}
 
 	m.hosts[0].Resolved.HostName = ""
@@ -2665,20 +2932,9 @@ func TestOpenRDPUsesTheHostAddress(t *testing.T) {
 	if !strings.Contains(body, rdpAction) || !strings.Contains(body, connectAction) {
 		t.Fatalf("detail is missing the RDP chip:\n%s", body)
 	}
-	if footer := m.renderFooter(m.styles()); !strings.Contains(footer, "Ctrl+O") || !strings.Contains(footer, "rdp") {
-		t.Fatalf("footer = %q", footer)
-	}
-	help := m.helpGroups()
-	foundHelp := false
-	for _, group := range help {
-		for _, row := range group.rows {
-			if strings.Contains(row.name, "Remote Desktop") {
-				foundHelp = true
-			}
-		}
-	}
-	if !foundHelp {
-		t.Fatal("help does not list Open Remote Desktop")
+	sheet := strings.Join(m.paletteContent(m.styles(), 120), "\n")
+	if !strings.Contains(sheet, "Ctrl+O") || !strings.Contains(sheet, "rdp") {
+		t.Fatalf("sheet = %q", sheet)
 	}
 
 	calls = 0
@@ -2756,7 +3012,7 @@ func TestMainLayoutKeepsDetailsRightAndFooterAtBottom(t *testing.T) {
 		t.Fatalf("render height = %d, want %d", lipgloss.Height(rendered), m.height)
 	}
 	lines := strings.Split(rendered, "\n")
-	if !strings.Contains(lines[len(lines)-1], "?") {
+	if !strings.Contains(lines[len(lines)-1], "/") {
 		t.Fatalf("footer was not on the bottom row: %q", lines[len(lines)-1])
 	}
 }
@@ -2847,9 +3103,6 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 		"MIT License",
 		"v1.2.3",
 		"Sponsor",
-		"s sponsor",
-		"o intro",
-		"v / Esc / ⌫ close",
 	} {
 		if !strings.Contains(rendered, text) {
 			t.Fatalf("credits screen does not contain %q:\n%s", text, rendered)
@@ -2857,6 +3110,9 @@ func TestCreditsScreenShowsAttributionAndBuildDetails(t *testing.T) {
 	}
 	for _, label := range []string{"Created by", "Website", "Discord", "Repository", "License", "Version"} {
 		for _, line := range strings.Split(rendered, "\n") {
+			if strings.Contains(line, "Sponsor") {
+				continue
+			}
 			if strings.Contains(line, label) && lipgloss.Width(strings.TrimSpace(line)) != 52 {
 				t.Fatalf("%s row is not fixed width:\n%s", label, line)
 			}
@@ -2895,6 +3151,26 @@ func TestCreditsSponsorOpensBastSponsorPage(t *testing.T) {
 	}
 
 	opened = ""
+	m.Update(press("l"))
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if opened != discordURL {
+		t.Fatalf("enter on Discord should open %s, opened=%q", discordURL, opened)
+	}
+	m.Update(press("l"))
+	opened = ""
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if opened != websiteURL {
+		t.Fatalf("enter on Website should open %s, opened=%q", websiteURL, opened)
+	}
+	m.Update(press("h"))
+	m.Update(press("h"))
+	opened = ""
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if opened != sponsorURL || m.creditsChoice != 0 {
+		t.Fatalf("h should return to Sponsor, choice=%d opened=%q", m.creditsChoice, opened)
+	}
+
+	opened = ""
 	x, y, width := m.creditsSponsorBounds()
 	if width == 0 {
 		t.Fatal("sponsor chip bounds missing")
@@ -2905,56 +3181,46 @@ func TestCreditsSponsorOpensBastSponsorPage(t *testing.T) {
 	}
 }
 
-func TestHelpScreenIsSpacedAndScrollable(t *testing.T) {
+func TestActionSheetOpensAndCloses(t *testing.T) {
 	m := testApp(t)
-	m.width, m.height = 80, 18
+	m.width, m.height = 80, 24
 	m.Update(press("?"))
-	if !m.help {
-		t.Fatal("? did not open help")
+	if !m.palette {
+		t.Fatal("? did not open the action sheet")
 	}
-	rendered := m.render()
-	for _, text := range []string{
-		"Hosts",
-		"Add host",
-		"Move",
-		"↑/↓ scroll",
-		"? / Esc / ⌫ close",
-	} {
+	rendered := stripANSI(m.render())
+	for _, text := range []string{"Selection", "Move", "add", "connect"} {
 		if !strings.Contains(rendered, text) {
-			t.Fatalf("help screen does not contain %q:\n%s", text, rendered)
+			t.Fatalf("sheet does not contain %q:\n%s", text, rendered)
 		}
 	}
-	if strings.Contains(rendered, "Files") && strings.Contains(rendered, "Fuzzy jump") {
-		t.Fatalf("hosts help should not include Files section:\n%s", rendered)
+	if strings.Contains(rendered, "jump") && strings.Contains(rendered, "directory") {
+		t.Fatalf("hosts sheet should not include Files actions:\n%s", rendered)
 	}
-	if !m.helpCanScroll() {
-		t.Fatal("expected help content to require scrolling")
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != m.height {
+		t.Fatalf("render height = %d, want %d", len(lines), m.height)
+	}
+	if strings.Contains(lines[len(lines)-1], "/ for shortcuts") {
+		t.Fatalf("open sheet should hide the shortcut prompt: %q", lines[len(lines)-1])
 	}
 
 	m.Update(press("j"))
-	if m.helpOffset != 1 {
-		t.Fatalf("j should scroll help down: offset=%d", m.helpOffset)
-	}
-	m.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown}))
-	if m.helpOffset != 4 {
-		t.Fatalf("mouse wheel should scroll help: offset=%d", m.helpOffset)
-	}
-	m.Update(press("G"))
-	if m.helpOffset != m.maxHelpOffset() {
-		t.Fatalf("G should jump to end: offset=%d want=%d", m.helpOffset, m.maxHelpOffset())
-	}
-	bottom := m.render()
-	if !strings.Contains(bottom, "During SSH") || !strings.Contains(bottom, "Force-close a stuck session") {
-		t.Fatalf("scrolled help is missing the SSH section:\n%s", bottom)
-	}
-	m.Update(press("g"))
-	if m.helpOffset != 0 {
-		t.Fatalf("g should jump to top: offset=%d", m.helpOffset)
+	if m.palette {
+		t.Fatal("a listed key should run and close the sheet")
 	}
 
+	m.Update(press("/"))
+	if !m.palette {
+		t.Fatal("/ did not open the action sheet")
+	}
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
-	if m.help || m.helpOffset != 0 {
-		t.Fatalf("Esc should close help and reset scroll: help=%v offset=%d", m.help, m.helpOffset)
+	if m.palette || m.paletteOffset != 0 {
+		t.Fatalf("Esc should close the sheet: palette=%v offset=%d", m.palette, m.paletteOffset)
+	}
+	closed := stripANSI(strings.Split(m.render(), "\n")[m.height-1])
+	if !strings.HasPrefix(strings.TrimLeft(closed, " "), "/ for shortcuts") {
+		t.Fatalf("status row = %q", closed)
 	}
 }
 
@@ -2962,8 +3228,8 @@ func TestDoctorOpensOutsideFilesAndCloses(t *testing.T) {
 	m := testApp(t)
 	m.width, m.height = 80, 24
 	_, cmd := m.Update(press("D"))
-	if !m.doctor || m.help || cmd == nil {
-		t.Fatalf("D should open doctor: doctor=%v help=%v cmd=%v", m.doctor, m.help, cmd)
+	if !m.doctor || m.palette || cmd == nil {
+		t.Fatalf("D should open doctor: doctor=%v palette=%v cmd=%v", m.doctor, m.palette, cmd)
 	}
 	m.Update(doctorDoneMsg{report: doctor.Report{
 		Healthy: true,
@@ -3026,7 +3292,7 @@ func TestEmptyHostListInvitesFirstHost(t *testing.T) {
 	m := testApp(t)
 	m.hosts = nil
 	view := m.renderHosts(m.styles())
-	if !strings.Contains(view, "No hosts yet") || !strings.Contains(view, "Your SSH map is empty.") || !strings.Contains(view, "[a] Add host") {
+	if !strings.Contains(view, "No hosts yet") || !strings.Contains(view, "Your SSH map is empty.") {
 		t.Fatalf("empty host state is not helpful:\n%s", view)
 	}
 	if strings.Contains(view, "Press") {
@@ -3043,7 +3309,7 @@ func TestDetailsAreCompactAndOmitEmptyMetadata(t *testing.T) {
 	if !strings.Contains(host, "Access") || !strings.Contains(host, "Auth") {
 		t.Fatalf("host details missing Access section:\n%s", host)
 	}
-	if !strings.Contains(host, "[p] Promote to Bast managed") {
+	if !strings.Contains(host, "Promote to Bast managed") {
 		t.Fatalf("external host details missing promote action:\n%s", host)
 	}
 	if lipgloss.Height(host) > 13 {
@@ -3182,7 +3448,7 @@ func TestSyncedGroupRenameBlocked(t *testing.T) {
 		}
 	}
 	m.openEditGroupForm()
-	if m.form != nil || !strings.Contains(m.status, "cannot be renamed") {
+	if m.form != nil || !strings.Contains(m.status, "cannot be edited") {
 		t.Fatalf("status = %q form=%v", m.status, m.form != nil)
 	}
 }
@@ -3213,14 +3479,14 @@ func TestEnterTogglesSelectedGroup(t *testing.T) {
 		t.Fatal("Enter did not expand the selected group")
 	}
 
-	footer := m.renderFooter(m.styles())
-	if !strings.Contains(footer, "␣ collapse") || !strings.Contains(footer, "?") {
-		t.Fatalf("footer = %q", footer)
+	footer := sheet(m)
+	if !strings.Contains(footer, "␣") || !strings.Contains(footer, "collapse") {
+		t.Fatalf("sheet = %q", footer)
 	}
 	m.updateKeys(enter)
-	footer = m.renderFooter(m.styles())
-	if !strings.Contains(footer, "␣ expand") {
-		t.Fatalf("collapsed footer = %q", footer)
+	footer = sheet(m)
+	if !strings.Contains(footer, "expand") {
+		t.Fatalf("collapsed sheet = %q", footer)
 	}
 }
 
@@ -3300,7 +3566,7 @@ func TestCollapseAndExpandAllGroups(t *testing.T) {
 }
 
 func TestGoogleCloudGroupNameUsesGoogleColors(t *testing.T) {
-	rendered := renderManagedGroupName("Google Cloud", lipgloss.NewStyle(), false)
+	rendered := renderManagedGroupName("Google Cloud", lipgloss.NewStyle(), false, false)
 	if !strings.Contains(rendered, "\x1b[") {
 		t.Fatalf("expected ANSI colours: %q", rendered)
 	}
@@ -3311,14 +3577,14 @@ func TestGoogleCloudGroupNameUsesGoogleColors(t *testing.T) {
 	if width := lipgloss.Width(rendered); width != len("Google Cloud") {
 		t.Fatalf("width = %d", width)
 	}
-	if got := renderManagedGroupName("Work", lipgloss.NewStyle(), false); got != "Work" {
+	if got := renderManagedGroupName("Work", lipgloss.NewStyle(), false, false); got != "Work" {
 		t.Fatalf("ordinary group changed: %q", got)
 	}
 }
 
 func TestAmazonEC2GroupNameUsesOneBrandColor(t *testing.T) {
 	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5CF6"))
-	rendered := renderManagedGroupName("Amazon EC2/default/eu-west-2", restStyle, false)
+	rendered := renderManagedGroupName("Amazon EC2/default/eu-west-2", restStyle, false, false)
 	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF9900")).Render("Amazon EC2")
 	if !strings.HasPrefix(rendered, provider) {
 		t.Fatalf("Amazon EC2 brand colour was not applied uniformly: %q", rendered)
@@ -3330,7 +3596,7 @@ func TestAmazonEC2GroupNameUsesOneBrandColor(t *testing.T) {
 
 func TestMicrosoftAzureGroupNameUsesOneBrandColor(t *testing.T) {
 	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	rendered := renderManagedGroupName("Microsoft Azure/Production/apps", restStyle, false)
+	rendered := renderManagedGroupName("Microsoft Azure/Production/apps", restStyle, false, false)
 	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0078D4")).Render("Microsoft Azure")
 	if !strings.HasPrefix(rendered, provider) {
 		t.Fatalf("Microsoft Azure brand colour was not applied uniformly: %q", rendered)
@@ -3341,7 +3607,7 @@ func TestMicrosoftAzureGroupNameUsesOneBrandColor(t *testing.T) {
 }
 
 func TestBoatGroupNameUsesBrandColor(t *testing.T) {
-	rendered := renderManagedGroupName("Boat", lipgloss.NewStyle(), false)
+	rendered := renderManagedGroupName("Boat", lipgloss.NewStyle(), false, false)
 	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#263FA9")).Render("Boat")
 	if rendered != provider {
 		t.Fatalf("Boat brand colour was not applied: %q", rendered)
@@ -3349,12 +3615,12 @@ func TestBoatGroupNameUsesBrandColor(t *testing.T) {
 }
 
 func TestVercelGroupNameIsWhiteTriangle(t *testing.T) {
-	rendered := renderManagedGroupName("Vercel", lipgloss.NewStyle(), false)
+	rendered := renderManagedGroupName("Vercel", lipgloss.NewStyle(), false, false)
 	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Render("Vercel")
 	if rendered != provider {
 		t.Fatalf("Vercel brand colour was not applied: %q", rendered)
 	}
-	withIcon := renderManagedGroupName("Vercel", lipgloss.NewStyle(), true)
+	withIcon := renderManagedGroupName("Vercel", lipgloss.NewStyle(), true, false)
 	if !strings.Contains(withIcon, "\u25b2") {
 		t.Fatalf("Vercel triangle icon missing: %q", withIcon)
 	}
@@ -3362,7 +3628,7 @@ func TestVercelGroupNameIsWhiteTriangle(t *testing.T) {
 
 func TestUpstashGroupNameUsesBrandColor(t *testing.T) {
 	restStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	rendered := renderManagedGroupName("Upstash/dev", restStyle, false)
+	rendered := renderManagedGroupName("Upstash/dev", restStyle, false, false)
 	provider := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00E9A3")).Render("Upstash")
 	if !strings.HasPrefix(rendered, provider) {
 		t.Fatalf("Upstash brand colour was not applied uniformly: %q", rendered)
@@ -3374,7 +3640,7 @@ func TestUpstashGroupNameUsesBrandColor(t *testing.T) {
 
 func TestManagedGroupNameCopiesRestBackground(t *testing.T) {
 	rest := lipgloss.NewStyle().Background(lipgloss.Color("#1F2937"))
-	rendered := renderManagedGroupName("Upstash", rest, false)
+	rendered := renderManagedGroupName("Upstash", rest, false, false)
 	want := brandText("#00E9A3", "Upstash", rest)
 	if rendered != want {
 		t.Fatalf("got %q want %q", rendered, want)
@@ -3382,8 +3648,8 @@ func TestManagedGroupNameCopiesRestBackground(t *testing.T) {
 	if !strings.Contains(rendered, "48;2;31;41;55") {
 		t.Fatalf("expected rest background under Upstash brand text: %q", rendered)
 	}
-	icon := managedGroupIcon("Upstash", true)
-	withIcon := renderManagedGroupName("Upstash", rest, true)
+	icon := managedGroupIcon("Upstash", true, false)
+	withIcon := renderManagedGroupName("Upstash", rest, true, false)
 	if !strings.Contains(withIcon, brandText("#00E9A3", icon+"Upstash", rest)) {
 		t.Fatalf("expected rest background under Upstash icon: %q", withIcon)
 	}
@@ -3409,7 +3675,7 @@ func TestSelectedProviderGroupKeepsBackgroundUnderBrand(t *testing.T) {
 
 	m.nerdFont = true
 	body = m.renderHosts(s)
-	icon := managedGroupIcon("Upstash", true)
+	icon := managedGroupIcon("Upstash", true, m.windowsTerminal)
 	want = brandText("#00E9A3", icon+"Upstash", s.selected)
 	if !strings.Contains(body, want) {
 		t.Fatalf("selected Upstash icon missing selected background:\nwant %q\n%s", want, body)
@@ -3727,9 +3993,9 @@ func TestBoatResumeActionsAreStateAware(t *testing.T) {
 	}
 
 	selectHost("boat_live")
-	footer := m.browseFooterHint(80)
-	if strings.Contains(footer, "resume") || !strings.Contains(footer, "o stop") {
-		t.Fatalf("running footer = %q", footer)
+	footer := sheet(m)
+	if strings.Contains(footer, "resume") || !strings.Contains(footer, "stop") {
+		t.Fatalf("running sheet = %q", footer)
 	}
 	if m.hostPrimaryAction(running) != connectAction {
 		t.Fatalf("running primary action = %q", m.hostPrimaryAction(running))
@@ -3745,9 +4011,9 @@ func TestBoatResumeActionsAreStateAware(t *testing.T) {
 	}
 
 	selectHost("boat_idle")
-	footer = m.browseFooterHint(80)
-	if !strings.Contains(footer, "enter connect") || !strings.Contains(footer, "r resume") || strings.Contains(footer, "o stop") {
-		t.Fatalf("stopped footer = %q", footer)
+	footer = sheet(m)
+	if !strings.Contains(footer, "connect") || !strings.Contains(footer, "resume") || strings.Contains(footer, "stop") {
+		t.Fatalf("stopped sheet = %q", footer)
 	}
 	if m.hostPrimaryAction(stopped) != resumeAction {
 		t.Fatalf("stopped primary action = %q", m.hostPrimaryAction(stopped))
@@ -4200,9 +4466,9 @@ func TestProviderInventorySandboxLifecycle(t *testing.T) {
 
 	m.form = nil
 	selectHostAlias(t, m, "boat_stop")
-	footer := m.browseFooterHint(80)
-	if !strings.Contains(footer, "r resume") || strings.Contains(footer, "o stop") {
-		t.Fatalf("stopped boat footer = %q", footer)
+	footer := sheet(m)
+	if !strings.Contains(footer, "resume") || strings.Contains(footer, "stop") {
+		t.Fatalf("stopped boat sheet = %q", footer)
 	}
 	_, cmd := m.updateKeys(press("r"))
 	if cmd == nil {
@@ -4866,16 +5132,16 @@ func TestFavoriteAndHiddenAllowedForNonBoatSyncedHosts(t *testing.T) {
 	if m.metadata.Host("boat_sunny").Favorite {
 		t.Fatal("Boat host should not toggle favorite")
 	}
-	if !strings.Contains(m.status, "Synced sandbox hosts are read-only") {
-		t.Fatalf("boat favorite status = %q", m.status)
+	if strings.Contains(sheet(m), "favorite") {
+		t.Fatal("boat sheet should not list favorite")
 	}
 	m.status = ""
 	m.updateKeys(press("h"))
 	if m.metadata.Host("boat_sunny").Hidden {
 		t.Fatal("Boat host should not toggle hidden")
 	}
-	if !strings.Contains(m.status, "Synced sandbox hosts are read-only") {
-		t.Fatalf("boat hidden status = %q", m.status)
+	if strings.Contains(sheet(m), "h  hide") {
+		t.Fatal("boat sheet should not list hide")
 	}
 }
 
@@ -5051,4 +5317,114 @@ func TestBitqateSyncActionsStayOnBitqate(t *testing.T) {
 	if m.metadata.GCP().DefaultSSHUser != "gcp-user" {
 		t.Fatalf("GCP SSH user changed: %q", m.metadata.GCP().DefaultSSHUser)
 	}
+}
+
+func TestLongErrorScrollsAndKeepsActions(t *testing.T) {
+	m := testApp(t)
+	m.width, m.height = 80, 16
+	var body strings.Builder
+	body.WriteString("ERROR_START\n")
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&body, "detail line %02d\n", i)
+	}
+	body.WriteString("ERROR_END")
+	m.showError(body.String())
+
+	view := m.render()
+	if h := lipgloss.Height(view); h > m.height {
+		t.Fatalf("error view height %d exceeds terminal %d", h, m.height)
+	}
+	if !strings.Contains(view, "ERROR_START") || strings.Contains(view, "ERROR_END") || strings.Contains(view, "ERROR_START detail") {
+		t.Fatalf("expected the start of a long error on its own line:\n%s", view)
+	}
+	for _, text := range []string{"Action failed", "Enter/Esc return", "↑/↓ scroll"} {
+		if !strings.Contains(view, text) {
+			t.Fatalf("error overlay missing %q:\n%s", text, view)
+		}
+	}
+	if end, action := errorLine(view, "ERROR_START"), errorLine(view, "Enter/Esc return"); end < 0 || action <= end {
+		t.Fatalf("actions should sit under the message: message=%d action=%d", end, action)
+	}
+
+	m.Update(press("j"))
+	if m.errorOffset != 1 {
+		t.Fatalf("j offset = %d", m.errorOffset)
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if m.errorOffset != 2 {
+		t.Fatalf("down offset = %d", m.errorOffset)
+	}
+	m.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown}))
+	if m.errorOffset != 5 {
+		t.Fatalf("wheel offset = %d", m.errorOffset)
+	}
+	m.form = &form{title: "Add host"}
+	m.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
+	m.form = nil
+	if m.errorOffset != 2 {
+		t.Fatalf("wheel over a form offset = %d", m.errorOffset)
+	}
+
+	page := m.errorPage()
+	m.Update(press("g"))
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyPgDown}))
+	if m.errorOffset != page {
+		t.Fatalf("pgdown offset = %d want %d", m.errorOffset, page)
+	}
+
+	m.Update(press("G"))
+	if m.errorOffset != m.maxErrorOffset() {
+		t.Fatalf("G offset = %d want %d", m.errorOffset, m.maxErrorOffset())
+	}
+	bottom := m.render()
+	if h := lipgloss.Height(bottom); h > m.height {
+		t.Fatalf("scrolled error height %d exceeds terminal %d", h, m.height)
+	}
+	if !strings.Contains(bottom, "ERROR_END") || strings.Contains(bottom, "ERROR_START") {
+		t.Fatalf("expected the end of a long error:\n%s", bottom)
+	}
+	if !strings.Contains(bottom, "Enter/Esc return") {
+		t.Fatalf("actions missing after scrolling:\n%s", bottom)
+	}
+	if end, action := errorLine(bottom, "ERROR_END"), errorLine(bottom, "Enter/Esc return"); end < 0 || action <= end {
+		t.Fatalf("actions should stay under the scrolled message: message=%d action=%d", end, action)
+	}
+
+	m.Update(press("g"))
+	if m.errorOffset != 0 {
+		t.Fatalf("g offset = %d", m.errorOffset)
+	}
+	top := m.render()
+	if !strings.Contains(top, "ERROR_START") || strings.Contains(top, "ERROR_END") {
+		t.Fatalf("g should return to the start:\n%s", top)
+	}
+
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.statusError || m.status != "" || m.errorOffset != 0 {
+		t.Fatalf("enter should dismiss, status=%q error=%v offset=%d", m.status, m.statusError, m.errorOffset)
+	}
+
+	m.showError("failed")
+	short := m.render()
+	if !strings.Contains(short, "Action failed") || !strings.Contains(short, "Enter/Esc return") {
+		t.Fatalf("short error:\n%s", short)
+	}
+	if strings.Contains(short, "↑/↓ scroll") {
+		t.Fatalf("short error offered scrolling:\n%s", short)
+	}
+
+	m.errorOffset = 12
+	m.setError(errors.New("next failure"))
+	if m.errorOffset != 0 || m.status != "next failure" {
+		t.Fatalf("new error did not reset scroll: offset=%d status=%q", m.errorOffset, m.status)
+	}
+}
+
+func errorLine(view, needle string) int {
+	for i, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, needle) {
+			return i
+		}
+	}
+	return -1
 }

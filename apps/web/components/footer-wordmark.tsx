@@ -2,29 +2,171 @@
 
 import { type CSSProperties, useLayoutEffect, useRef } from "react";
 
-const washStyle: CSSProperties = {
-	backgroundImage:
-		"linear-gradient(to top, rgb(76 29 149 / 0.4) 0%, rgb(76 29 149 / 0.14) 34%, rgb(76 29 149 / 0.04) 58%, transparent 82%)",
+import { bayerCover, type RGB } from "@/lib/dither";
+
+type ChamberPalette = {
+	wash: string;
+	outline: string;
+	fill: string;
+	ruleClass: string;
+	cipher: string;
+	spark: string;
+	trail: readonly [
+		readonly [string, number],
+		readonly [string, number],
+		readonly [string, number],
+		readonly [string, number],
+	];
 };
 
-const OUTLINE = "#5b21b6";
-
-/**
- * Stroke is centered on the glyph edge; the fill layer covers the inner half.
- * Visible rim ≈ half the stroke width. Use 2× so the rim matches the 1px rule.
- */
-const outlineStyle: CSSProperties = {
-	color: "transparent",
-	WebkitTextStrokeColor: OUTLINE,
-	WebkitTextStrokeWidth: "0.012em",
+const defaultPalette: ChamberPalette = {
+	wash: "linear-gradient(to top, rgb(76 29 149 / 0.4) 0%, rgb(76 29 149 / 0.14) 34%, rgb(76 29 149 / 0.04) 58%, transparent 82%)",
+	outline: "#5b21b6",
+	fill: "#0a0a0a",
+	ruleClass: "border-[#5b21b6]",
+	cipher: "196, 181, 253",
+	spark: "124, 58, 237",
+	trail: [
+		["216, 180, 254", 0.72],
+		["167, 139, 250", 0.55],
+		["139, 92, 246", 0.28],
+		["91, 33, 182", 0],
+	],
 };
 
-const fillStyle: CSSProperties = {
-	color: "#0a0a0a",
+const nightPalette: ChamberPalette = {
+	wash: "#05080f",
+	outline: "#7c3aed",
+	fill: "#05080f",
+	ruleClass: "border-[#7c3aed]",
+	cipher: "216, 180, 254",
+	spark: "167, 139, 250",
+	trail: [
+		["216, 180, 254", 0.72],
+		["196, 181, 253", 0.55],
+		["167, 139, 250", 0.28],
+		["124, 58, 237", 0],
+	],
 };
+
+const NIGHT_WASH_RAMP = [
+	[5, 8, 15],
+	[36, 18, 64],
+	[64, 34, 116],
+	[98, 58, 166],
+	[136, 96, 208],
+] as const satisfies readonly RGB[];
+
+/** Rises slowly, so the top stays a sparse field instead of a hard edge. */
+function washCoverage(fromBottom: number): number {
+	const rise = fromBottom < 0 ? 1 : fromBottom > 1 ? 0 : 1 - fromBottom;
+	return rise ** 1.2 * 0.36;
+}
+
+function washJitter(x: number, y: number): number {
+	const hash = Math.imul(x, 374761393) ^ Math.imul(y, 668265263);
+	return ((hash >>> 0) % 1024) / 1024;
+}
+
+/** Bayer screen of a lighter violet wash. Same 3px cell as the night hero. */
+function DitherWash() {
+	const canvasRef = useRef<HTMLCanvasElement>(null);
+
+	useLayoutEffect(() => {
+		const canvas = canvasRef.current;
+		const parent = canvas?.parentElement ?? null;
+		if (!canvas || !parent) return;
+		const context = canvas.getContext("2d", { alpha: false });
+		if (!context) return;
+
+		const ink = document.createElement("canvas");
+		const inkContext = ink.getContext("2d", { alpha: false });
+		if (!inkContext) return;
+
+		let frame = 0;
+
+		function paint() {
+			const width = parent?.clientWidth ?? 0;
+			const height = parent?.clientHeight ?? 0;
+			if (!context || !inkContext || width < 2 || height < 2) return;
+
+			const cssCell = 3;
+			const cols = Math.max(1, Math.ceil(width / cssCell));
+			const rows = Math.max(1, Math.ceil(height / cssCell));
+			const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+			const cell = Math.max(1, Math.round(cssCell * pixelRatio));
+			if (ink.width !== cols || ink.height !== rows) {
+				ink.width = cols;
+				ink.height = rows;
+			}
+
+			const image = inkContext.createImageData(cols, rows);
+			const pixels = image.data;
+			for (let y = 0; y < rows; y += 1) {
+				const fromBottom = 1 - y / Math.max(rows - 1, 1);
+				for (let x = 0; x < cols; x += 1) {
+					const shifted = fromBottom + (washJitter(x, y) - 0.5) * 0.1;
+					const [red, green, blue] = bayerCover(
+						washCoverage(shifted),
+						x,
+						y,
+						NIGHT_WASH_RAMP,
+					);
+					const index = (y * cols + x) * 4;
+					pixels[index] = red;
+					pixels[index + 1] = green;
+					pixels[index + 2] = blue;
+					pixels[index + 3] = 255;
+				}
+			}
+
+			inkContext.putImageData(image, 0, 0);
+			const outWidth = cols * cell;
+			const outHeight = rows * cell;
+			if (canvas && (canvas.width !== outWidth || canvas.height !== outHeight)) {
+				canvas.width = outWidth;
+				canvas.height = outHeight;
+			}
+			context.imageSmoothingEnabled = false;
+			context.drawImage(ink, 0, 0, outWidth, outHeight);
+		}
+
+		paint();
+		const observer = new ResizeObserver(() => {
+			cancelAnimationFrame(frame);
+			frame = requestAnimationFrame(paint);
+		});
+		observer.observe(parent);
+		return () => {
+			cancelAnimationFrame(frame);
+			observer.disconnect();
+		};
+	}, []);
+
+	return (
+		<canvas
+			ref={canvasRef}
+			aria-hidden
+			className="pointer-events-none absolute inset-0 h-full w-full [image-rendering:pixelated]"
+		/>
+	);
+}
 
 const wordmarkTextClass =
 	"whitespace-nowrap font-medium leading-none tracking-[-0.045em]";
+
+/**
+ * Phone label vs tablet-and-up label. Tailwind `md` is 48rem here (no custom
+ * screens). `hidden` removes the inactive string from the accessibility tree.
+ */
+function WordmarkLabel() {
+	return (
+		<>
+			<span className="md:hidden">bast</span>
+			<span className="hidden md:inline">bast.sh</span>
+		</>
+	);
+}
 
 /** Cap at Tailwind `text-8xl` (6rem) so zoomed-out / ultra-wide doesn't inflate forever. */
 const WORDMARK_MAX_REM = 28;
@@ -143,8 +285,8 @@ function buildCipherField(width: number, height: number): CipherGlyph[] {
 	return glyphs;
 }
 
-/** Cloud-chamber ionization streaks rising through the purple wash. */
-function ChamberField() {
+/** Cloud-chamber ionization streaks rising through the wash. */
+function ChamberField({ palette }: { palette: ChamberPalette }) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 
 	useLayoutEffect(() => {
@@ -204,10 +346,9 @@ function ChamberField() {
 
 				if (g.spark > 0) {
 					const s = g.spark * g.spark;
-					// Brand violet flash.
-					ctx.fillStyle = `rgba(124, 58, 237, ${Math.min(0.95, g.alpha + 0.55 * s)})`;
+					ctx.fillStyle = `rgba(${palette.spark}, ${Math.min(0.95, g.alpha + 0.55 * s)})`;
 				} else {
-					ctx.fillStyle = `rgba(196, 181, 253, ${g.alpha})`;
+					ctx.fillStyle = `rgba(${palette.cipher}, ${g.alpha})`;
 				}
 				ctx.fillText(g.ch, g.x, g.y);
 			}
@@ -245,10 +386,11 @@ function ChamberField() {
 
 			const grad = ctx.createLinearGradient(x0, y0, x1, y1);
 			// Soft tip dissolve — never a hard stop against the chamber ceiling.
-			grad.addColorStop(0, `rgba(216, 180, 254, ${0.72 * alpha})`);
-			grad.addColorStop(0.5, `rgba(167, 139, 250, ${0.55 * alpha})`);
-			grad.addColorStop(0.78, `rgba(139, 92, 246, ${0.28 * alpha})`);
-			grad.addColorStop(1, `rgba(91, 33, 182, 0)`);
+			const [tip, mid, fade, end] = palette.trail;
+			grad.addColorStop(0, `rgba(${tip[0]}, ${tip[1] * alpha})`);
+			grad.addColorStop(0.5, `rgba(${mid[0]}, ${mid[1] * alpha})`);
+			grad.addColorStop(0.78, `rgba(${fade[0]}, ${fade[1] * alpha})`);
+			grad.addColorStop(1, `rgba(${end[0]}, ${end[1]})`);
 
 			ctx.strokeStyle = grad;
 			ctx.lineWidth = width;
@@ -341,7 +483,7 @@ function ChamberField() {
 			ro.disconnect();
 			document.removeEventListener("visibilitychange", onVisibility);
 		};
-	}, []);
+	}, [palette]);
 
 	return (
 		<canvas
@@ -352,8 +494,33 @@ function ChamberField() {
 	);
 }
 
-/** Full-bleed `bast.sh` mark. */
-export function FooterWordmark() {
+/**
+ * Stroke is centered on the glyph edge; the fill layer covers the inner half.
+ * Visible rim ≈ half the stroke width. Use 2× so the rim matches the 1px rule.
+ */
+function glyphStyles(palette: ChamberPalette): {
+	outline: CSSProperties;
+	fill: CSSProperties;
+} {
+	return {
+		outline: {
+			color: "transparent",
+			WebkitTextStrokeColor: palette.outline,
+			WebkitTextStrokeWidth: "0.012em",
+		},
+		fill: { color: palette.fill },
+	};
+}
+
+/** Full-bleed mark: `bast` below `md`, `bast.sh` from `md` up. */
+export function FooterWordmark({
+	tone = "night",
+}: {
+	tone?: "default" | "night";
+} = {}) {
+	const night = tone === "night";
+	const palette = night ? nightPalette : defaultPalette;
+	const { outline, fill } = glyphStyles(palette);
 	const maskRef = useRef<HTMLDivElement>(null);
 
 	useLayoutEffect(() => {
@@ -403,9 +570,18 @@ export function FooterWordmark() {
 		const observer = new ResizeObserver(fit);
 		observer.observe(mask);
 		window.addEventListener("resize", fit);
+
+		// Refit when CSS swaps the label. The string itself is chosen in CSS.
+		const mdBreakpoint =
+			getComputedStyle(document.documentElement)
+				.getPropertyValue("--breakpoint-md")
+				.trim() || "48rem";
+		const desktop = window.matchMedia(`(min-width: ${mdBreakpoint})`);
+		desktop.addEventListener("change", fit);
 		return () => {
 			observer.disconnect();
 			window.removeEventListener("resize", fit);
+			desktop.removeEventListener("change", fit);
 		};
 	}, []);
 
@@ -414,26 +590,30 @@ export function FooterWordmark() {
 			aria-hidden
 			className="pointer-events-none relative mt-4 w-full overflow-hidden select-none pt-28 max-sm:pt-36"
 		>
-			<div
-				aria-hidden
-				className="absolute inset-x-0 bottom-0 top-0"
-				style={washStyle}
-			/>
-			<ChamberField />
+			{night ? (
+				<DitherWash />
+			) : (
+				<div
+					aria-hidden
+					className="absolute inset-x-0 bottom-0 top-0"
+					style={{ backgroundImage: palette.wash }}
+				/>
+			)}
+			<ChamberField palette={palette} />
 			<div
 				ref={maskRef}
-				className="relative flex h-[0.78em] w-full justify-center overflow-hidden border-b border-b-[1px] border-[#5b21b6] sm:border-b-0"
+				className={`relative flex h-[0.78em] w-full justify-center overflow-hidden border-b border-b-[1px] sm:border-b-0 ${palette.ruleClass}`}
 			>
-				<div className="relative w-max max-w-none max-sm:-translate-x-[3px]">
+				<div className="relative w-max max-w-none">
 					<p
 						data-wordmark-probe
 						className={`pointer-events-none absolute left-0 top-0 ${wordmarkTextClass}`}
-						style={outlineStyle}
+						style={outline}
 					>
-						bast.sh
+						<WordmarkLabel />
 					</p>
-					<p className={`relative ${wordmarkTextClass}`} style={fillStyle}>
-						bast.sh
+					<p className={`relative ${wordmarkTextClass}`} style={fill}>
+						<WordmarkLabel />
 					</p>
 				</div>
 			</div>

@@ -95,6 +95,8 @@ bast sync disable digitalocean
 bast sync disable boxd
 ```
 
+`BAST_NO_SYNC=1` hides Sync and rejects `bast sync` and the provider commands (`bast boat`, `bast upstash`, and the rest). Hosts already imported stay in the list. `BAST_NO_VAULT=1` does the same for Vault and `bast vault`.
+
 Sync imports cloud hosts as read-only. Cloud connections through `bast connect` or `bast <label>` use the same banner and access-preparation flow as the TUI. See [GCP](/docs/features/gcp), [AWS](/docs/features/aws), [Azure](/docs/features/azure), [Boat](/docs/features/boat), [Upstash Box](/docs/features/upstash), [Vercel Sandbox](/docs/features/vercel), [Hetzner Cloud](/docs/features/hetzner), [BitQate](/docs/features/bitqate), [Railway](/docs/features/railway), [Fly.io](/docs/features/fly), [DigitalOcean](/docs/features/digitalocean), or [boxd](/docs/features/boxd) for provider setup.
 
 ```bash

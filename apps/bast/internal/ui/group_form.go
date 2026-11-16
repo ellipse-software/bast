@@ -19,7 +19,7 @@ type groupPickerChoice struct {
 }
 
 func isGroupAssignmentForm(f *form) bool {
-	return f != nil && f.action == "group_assign"
+	return f != nil && (f.action == "group_assign" || f.action == "entry_group")
 }
 
 func (m *App) updateGroupAssignmentForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -265,8 +265,4 @@ func (m *App) renderGroupAssignmentForm(s styleSet) string {
 		b.WriteString("\n    " + s.error.Render("✕ "+f.validationError) + "\n")
 	}
 	return b.String()
-}
-
-func groupAssignmentHint() string {
-	return "Type to filter • ↑/↓ choose • Enter assign/create • Esc cancel"
 }

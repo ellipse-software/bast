@@ -35,7 +35,8 @@ const (
 	descHostSSHFlags       = "Optional - Any other OpenSSH options, separated by ;"
 	descHostTags           = "Optional - Comma-separated tags included in search"
 	descHostEnvironment    = "Optional - Environment name like production or staging"
-	descHostColor          = "Optional - Hex colour for the host label"
+	descHostIcon           = "Optional - One emoji shown before the name"
+	descHostColor          = "Optional - Theme colour or hex for the name"
 	descHostNotes          = "Optional - Short note in details and search"
 	descHostRDP            = "Optional - Show a Remote Desktop action for this host"
 	descKeyName            = "Required - Short name for this keypair"
@@ -69,18 +70,23 @@ func (m *App) formTextInputActive() bool {
 		if f.selecting {
 			return false
 		}
+		if f.screen == formScreenAdvancedHub {
+			return false
+		}
 		if f.screen != "" && f.screen != "hub" {
-			if f.screen == formScreenAdvancedHub {
-				return false
-			}
 			item := &f.fields[f.index]
 			return len(item.options) == 0 || item.options[item.selected].custom
 		}
 		items := hostHubItems(f)
-		if f.hubIndex >= 0 && f.hubIndex < len(items) {
-			return hostHubInline(items[f.hubIndex].id)
+		if f.hubIndex < 0 || f.hubIndex >= len(items) || !hostHubInline(items[f.hubIndex].id) {
+			return false
 		}
-		return false
+		idx := f.fieldIndex(items[f.hubIndex].title)
+		if idx < 0 {
+			return false
+		}
+		item := &f.fields[idx]
+		return len(item.options) == 0 || item.options[item.selected].custom
 	}
 	item := &f.fields[f.index]
 	if f.selecting {
@@ -92,9 +98,11 @@ func (m *App) formTextInputActive() bool {
 func (m *App) updateFormQuit(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	key := msg.String()
 	if key == "ctrl+c" {
+		m.closeOwnedTunnels()
 		return m, tea.Quit, true
 	}
 	if key == "q" && !m.formTextInputActive() {
+		m.closeOwnedTunnels()
 		return m, tea.Quit, true
 	}
 	return m, nil, false
@@ -181,6 +189,16 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	key := msg.String()
 	f := m.form
+	if f.action == "entry_save" && (key == "ctrl+s" || key == "super+s" || key == "meta+s" || key == "cmd+s") {
+		if viaPickerField(f, &f.fields[f.index]) {
+			m.commitViaSelection()
+		}
+		m.commitFormField()
+		return m.submitForm()
+	}
+	if f.index >= 0 && f.index < len(f.fields) && viaPickerField(f, &f.fields[f.index]) {
+		return m.updateViaPicker(msg)
+	}
 	if key == "ctrl+y" {
 		if target := destructiveConfirmationTarget(f); target != "" {
 			return m, tea.Batch(tea.SetClipboard(target), m.setNotice("Confirmation name copied"))
@@ -192,13 +210,8 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "esc", "backspace", "ctrl+h":
 			f.selecting = false
 			m.focusFormField()
-		case "up", "down", "j", "k":
-			direction := 1
-			if key == "up" || key == "k" {
-				direction = -1
-			}
-			item.selected = (item.selected + direction + len(item.options)) % len(item.options)
-			m.focusFormField()
+		case "up", "down", "j", "k", "left", "right", "h", "l":
+			m.applyChoiceMove(item, key)
 		case "shift+tab":
 			f.selecting = false
 			m.commitFormField()
@@ -225,6 +238,9 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.commitFormField()
 		f.selecting = true
 		m.focusFormField()
+		return m, nil
+	}
+	if m.backspaceOpensChoices(item, key) {
 		return m, nil
 	}
 	if key == "esc" {
@@ -368,7 +384,11 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			input.ExtraOptions = append([]string{"IdentitiesOnly yes"}, input.ExtraOptions...)
 		}
 		oldAlias := values["Original label"]
-		meta := metadata.Host{Label: label, Group: group, Tags: splitCSV(values["Tags"]), Environment: values["Environment"], Color: values["Color"], Notes: values["Notes"], RDP: values[rdpFieldLabel] == rdpOnValue}
+		icon, color, appearanceErr := normalizeAppearance(values["Icon"], values["Color"])
+		if appearanceErr != nil {
+			return m.formError(appearanceErr.Error())
+		}
+		meta := metadata.Host{Label: label, Group: group, Tags: splitCSV(values["Tags"]), Environment: values["Environment"], Color: color, Icon: icon, Notes: values["Notes"], RDP: values[rdpFieldLabel] == rdpOnValue}
 		if meta.Label == input.Alias {
 			meta.Label = ""
 		}
@@ -421,11 +441,15 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		return m.finishMutation(err, "Host saved")
 	case "group_edit":
 		oldPath := values["Original path"]
-		newPath, err := m.renameGroup(oldPath, values["Name"])
+		icon, color, appearanceErr := normalizeAppearance(values["Icon"], values["Color"])
+		if appearanceErr != nil {
+			return m.formValidationError(appearanceErr.Error())
+		}
+		newPath, err := m.saveGroupEdit(oldPath, values["Name"], icon, color)
 		if err == nil {
 			m.selectAfterLoadSection, m.selectAfterLoadName, m.selectAfterLoadGroup = hostsSection, newPath, true
 		}
-		return m.finishMutation(err, "Group renamed")
+		return m.finishMutation(err, "Group saved")
 	case "metadata_edit":
 		alias := values["Alias"]
 		old := m.metadata.Host(alias)
@@ -433,8 +457,12 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		if err != nil {
 			return m.formError(err.Error())
 		}
+		icon, color, appearanceErr := normalizeAppearance(values["Icon"], values["Color"])
+		if appearanceErr != nil {
+			return m.formError(appearanceErr.Error())
+		}
 		groupCreated := group != "" && !m.groupExists(group)
-		old.Label, old.Group, old.Tags, old.Environment, old.Color, old.Notes = label, group, splitCSV(values["Tags"]), values["Environment"], values["Color"], values["Notes"]
+		old.Label, old.Group, old.Tags, old.Environment, old.Color, old.Icon, old.Notes = label, group, splitCSV(values["Tags"]), values["Environment"], color, icon, values["Notes"]
 		old.RDP = values[rdpFieldLabel] == rdpOnValue
 		if old.Label == alias {
 			old.Label = ""
@@ -480,6 +508,14 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 			err = m.metadata.DeleteHostWithTombstone(alias, host.ManagedID)
 		}
 		return m.finishMutation(err, "Host deleted")
+	case "entry_kind":
+		return m.submitEntryKind(values)
+	case "entry_save":
+		return m.submitEntrySave(values)
+	case "entry_delete":
+		return m.submitEntryDelete(values)
+	case "entry_group":
+		return m.submitEntryGroup(values)
 	case "key_generate":
 		cmd, _, err := m.keyring.GenerateCommand(values["Name"], strings.ToLower(values["Algorithm"]))
 		if err != nil {
@@ -650,12 +686,23 @@ func (m *App) finishMutation(err error, success string) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func normalizeAppearance(icon, color string) (string, string, error) {
+	icon, err := metadata.NormalizeIcon(icon)
+	if err != nil {
+		return "", "", err
+	}
+	color, err = metadata.NormalizeColor(color)
+	if err != nil {
+		return "", "", err
+	}
+	return icon, color, nil
+}
+
 func (m *App) formError(message string) (tea.Model, tea.Cmd) {
 	if m.form != nil {
 		message = m.form.title + " failed: " + message
 	}
-	m.statusID++
-	m.status, m.statusError = message, true
+	m.showError(message)
 	return m, nil
 }
 
@@ -675,7 +722,7 @@ func destructiveConfirmationTarget(f *form) string {
 	switch f.action {
 	case "key_delete":
 		label = "Key"
-	case "host_delete", "known_delete", "vault_reset_passphrase", "files_delete":
+	case "host_delete", "known_delete", "vault_reset_passphrase", "files_delete", "entry_delete":
 		// keep Confirmation
 	default:
 		return ""
@@ -701,13 +748,17 @@ func (m *App) openEditGroupForm() {
 		return
 	}
 	if sync.IsSyncedGroup(group) {
-		m.status, m.statusError = "Cloud sync groups cannot be renamed", true
+		m.showError("Cloud sync groups cannot be edited")
 		return
 	}
-	m.openForm("Rename group: "+groupShortName(group), "group_edit", []field{
+	appearance := m.appearanceForGroup(group)
+	m.openForm("Edit group: "+groupShortName(group), "group_edit", []field{
 		{label: "Original path", value: group, hidden: true},
 		{label: "Name", description: "Renames this group for every host inside it", value: groupShortName(group)},
+		{label: "Icon", description: descHostIcon, value: appearance.Icon, placeholder: "🇩🇪", optional: true},
+		colorFormField(appearance.Color, ""),
 	})
+	m.form.revealed = len(m.form.fields) - 1
 }
 
 func (m *App) openEditHostForm() {
@@ -716,7 +767,7 @@ func (m *App) openEditHostForm() {
 		return
 	}
 	if host.Synced {
-		m.status, m.statusError = "Synced hosts are read-only; manage them in the Sync tab", true
+		m.showError("Synced hosts are read-only; manage them in the Sync tab")
 		return
 	}
 	meta := m.metadata.Host(host.Alias)
@@ -724,7 +775,7 @@ func (m *App) openEditHostForm() {
 	if !host.Managed {
 		m.openHostForm("Edit metadata: "+m.hostLabel(host), "metadata_edit", hostFormFields(m, metadataHostValues{
 			label: labelPath, tags: strings.Join(meta.Tags, ", "),
-			environment: meta.Environment, color: meta.Color, notes: meta.Notes, rdp: meta.RDP,
+			environment: meta.Environment, color: meta.Color, icon: meta.Icon, notes: meta.Notes, rdp: meta.RDP,
 			labelDesc: "Optional - Display name; use / for groups; SSH alias stays " + host.Alias,
 		}, hostConnectionValues{}, []field{{label: "Alias", value: host.Alias, hidden: true}}))
 		return
@@ -739,7 +790,7 @@ func (m *App) openEditHostForm() {
 	passwordStored := hostpass.Exists(m.paths.PasswordsDir, host.ManagedID)
 	m.openHostForm("Edit host: "+m.hostLabel(host), "host_edit", hostFormFields(m, metadataHostValues{
 		label: labelPath, tags: strings.Join(meta.Tags, ", "),
-		environment: meta.Environment, color: meta.Color, notes: meta.Notes, rdp: meta.RDP,
+		environment: meta.Environment, color: meta.Color, icon: meta.Icon, notes: meta.Notes, rdp: meta.RDP,
 	}, hostConnectionValues{
 		includeConnection: true,
 		hostname:          host.Resolved.HostName,
@@ -758,7 +809,7 @@ func (m *App) openGroupAssignmentForm() {
 		return
 	}
 	if host.Synced {
-		m.status, m.statusError = "Synced hosts are read-only; manage them in the Sync tab", true
+		m.showError("Synced hosts are read-only; manage them in the Sync tab")
 		return
 	}
 	meta := m.metadata.Host(host.Alias)
@@ -778,6 +829,20 @@ func (m *App) groupAssignmentField(current string) field {
 	metadataByHost := m.hostMetadata()
 	for _, host := range m.hosts {
 		parts := groupPathParts(metadataByHost[host.Alias].Group)
+		path := ""
+		for _, part := range parts {
+			if path == "" {
+				path = part
+			} else {
+				path += "/" + part
+			}
+			if !sync.IsSyncedGroup(path) {
+				paths[path] = true
+			}
+		}
+	}
+	for _, entry := range m.metadata.Entries() {
+		parts := groupPathParts(entry.Group)
 		path := ""
 		for _, part := range parts {
 			if path == "" {
@@ -823,11 +888,11 @@ func (m *App) openDeleteHostForm() {
 		return
 	}
 	if host.Synced {
-		m.status, m.statusError = "Synced hosts cannot be deleted; disconnect the provider in Sync", true
+		m.showError("Synced hosts cannot be deleted; disconnect the provider in Sync")
 		return
 	}
 	if !host.Managed {
-		m.status, m.statusError = "External hosts cannot be deleted by Bast", true
+		m.showError("External hosts cannot be deleted by Bast")
 		return
 	}
 	label := m.hostLabel(host)
@@ -854,7 +919,7 @@ func (m *App) openEditKeyForm() {
 		return
 	}
 	if !key.Managed {
-		m.status, m.statusError = "External keys cannot be edited by Bast", true
+		m.showError("External keys cannot be edited by Bast")
 		return
 	}
 	m.openForm("Edit key comment: "+key.Name, "key_comment", []field{
@@ -877,7 +942,7 @@ func (m *App) openInstallKeyForm() {
 		return
 	}
 	if len(m.hosts) == 0 {
-		m.status, m.statusError = "Add a server before installing a public key", true
+		m.showError("Add a server before installing a public key")
 		return
 	}
 	server := field{
@@ -952,7 +1017,7 @@ func (m *App) methodField(current string, passwordOnly bool) field {
 func (m *App) passwordField(stored bool) field {
 	item := field{
 		label:       passwordFieldLabel,
-		section:     formSectionAuth,
+		section:     formSectionBasics,
 		description: descHostPassword,
 		optional:    true,
 		secret:      true,
@@ -1005,6 +1070,7 @@ func (m *App) syncHostPasswordField() {
 			f.index = idx
 			f.selecting = false
 			m.focusFormField()
+			m.syncHostHubIndex()
 		}
 	}
 }
@@ -1042,6 +1108,12 @@ func (m *App) focusFormField() {
 		f.input.EchoMode = textinput.EchoNormal
 		f.input.EchoCharacter = '*'
 	}
+	if viaPickerField(f, item) {
+		f.input.SetValue("")
+		f.input.Placeholder = "Filter hosts"
+		f.input.Focus()
+		return
+	}
 	if len(item.options) > 0 {
 		option := item.options[item.selected]
 		if option.custom {
@@ -1065,6 +1137,66 @@ func (m *App) focusFormField() {
 	f.input.Placeholder = item.placeholder
 	f.input.SetCursor(len([]rune(item.value)))
 	f.input.Focus()
+}
+
+func (m *App) applyChoiceMove(item *field, key string) bool {
+	if item == nil || len(item.options) == 0 {
+		return false
+	}
+	if item.label == "Color" {
+		next, ok := moveColorGrid(item.selected, len(item.options), colorGridColumns(m.terminalWidth()), key)
+		if !ok {
+			return false
+		}
+		item.selected = next
+		m.focusFormField()
+		return true
+	}
+	switch key {
+	case "up", "k", "down", "j":
+		direction := 1
+		if key == "up" || key == "k" {
+			direction = -1
+		}
+		item.selected = (item.selected + direction + len(item.options)) % len(item.options)
+		m.focusFormField()
+		return true
+	default:
+		return false
+	}
+}
+
+func customOptionSelected(item field) bool {
+	return len(item.options) > 0 && item.selected >= 0 && item.selected < len(item.options) && item.options[item.selected].custom
+}
+
+func customChoiceEscapeHint(item field, input string) string {
+	if !customOptionSelected(item) {
+		return ""
+	}
+	label := "choices"
+	if item.label == "Color" {
+		label = "colours"
+	}
+	if strings.TrimSpace(input) == "" {
+		return "⌫/Esc " + label
+	}
+	return "Esc " + label
+}
+
+// backspaceOpensChoices returns to the preset list after the custom value has
+// been deleted. A non-empty value still deletes one character.
+func (m *App) backspaceOpensChoices(item *field, key string) bool {
+	if m.form == nil || item == nil || (key != "backspace" && key != "ctrl+h") {
+		return false
+	}
+	if !customOptionSelected(*item) || m.form.input.Value() != "" {
+		return false
+	}
+	m.commitFormField()
+	m.form.selecting = true
+	m.focusFormField()
+	return true
 }
 
 func (m *App) commitFormField() {

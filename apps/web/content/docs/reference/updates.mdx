@@ -3,7 +3,7 @@ title: Updates
 description: How Bast checks for new releases and how to update your install.
 ---
 
-Tagged builds check GitHub for a newer stable release in the background when you launch Bast. If one exists, a reminder appears in the footer without slowing startup. Network failures are ignored quietly.
+Stable builds check GitHub for a newer stable release in the background when you launch Bast. Nightly builds check the nightly channel. If one exists, the idle status line shows the version and the update command. Network failures are ignored quietly.
 
 ## Update suggestions
 
@@ -16,15 +16,16 @@ The reminder depends on how you installed Bast:
 | Homebrew | `brew upgrade bast` |
 | Homebrew nightly | `brew upgrade bast-nightly` |
 | apt | `sudo apt upgrade bast` |
-| dnf / yum | `sudo dnf upgrade bast` |
+| dnf | `sudo dnf upgrade bast` |
+| yum | `sudo yum update bast` |
 | zypper | `sudo zypper update bast` |
 | pacman | `sudo pacman -Syu bast` |
-| AUR (`bast-bin`) | `yay -Syu bast-bin` |
+| AUR (`bast-bin`) | `yay -Syu bast-bin`, or `paru -Syu bast-bin` when paru is the helper on `PATH`. Otherwise `sudo pacman -Syu bast-bin` |
 | apk | `sudo apk upgrade bast` |
 | Windows PowerShell installer | `bast update` |
 | Windows PowerShell nightly | `bast update` |
 | WinGet | `winget upgrade --id EllipseSoftware.Bast --exact` |
-| Source build | Link back to bast.sh |
+| Source build | `https://bast.sh` |
 
 Press `v` in the TUI to see version info and the update suggestion.
 
@@ -36,7 +37,7 @@ WinGet releases require review in the community repository. Bast may report a ne
 bast update
 ```
 
-This only runs when the bast.sh installer receipt is present beside the executable. It works for both stable and nightly script installs, and will not overwrite Homebrew, WinGet, apt, dnf, pacman, apk, or source-built copies.
+This only runs when the bast.sh installer receipt is present beside the executable. It works for both stable and nightly script installs, and will not overwrite Homebrew, WinGet, apt, dnf, yum, zypper, pacman, AUR, apk, or source-built copies.
 
 The installer downloads the latest release and verifies its checksum. Windows also verifies the Authenticode publisher, then uses a helper process to replace `bast.exe` after the running command exits.
 

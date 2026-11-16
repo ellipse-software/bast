@@ -63,8 +63,8 @@ func TestCloudGroupNamesUseNerdFontIconsWhenEnabled(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			withIcon := renderManagedGroupName(test.group, lipgloss.NewStyle(), true)
-			withoutIcon := renderManagedGroupName(test.group, lipgloss.NewStyle(), false)
+			withIcon := renderManagedGroupName(test.group, lipgloss.NewStyle(), true, false)
+			withoutIcon := renderManagedGroupName(test.group, lipgloss.NewStyle(), false, false)
 			if !strings.Contains(withIcon, test.icon) {
 				t.Fatalf("Nerd Font icon missing from %q", withIcon)
 			}
@@ -72,5 +72,58 @@ func TestCloudGroupNamesUseNerdFontIconsWhenEnabled(t *testing.T) {
 				t.Fatalf("Nerd Font icon rendered while disabled: %q", withoutIcon)
 			}
 		})
+	}
+}
+
+func TestWindowsTerminalSession(t *testing.T) {
+	getenv := func(key string) string {
+		if key == "WT_SESSION" {
+			return "  abc  "
+		}
+		return ""
+	}
+	if !windowsTerminalSession(getenv) {
+		t.Fatal("WT_SESSION should select Windows Terminal")
+	}
+	if windowsTerminalSession(func(string) string { return "" }) {
+		t.Fatal("empty session should not select Windows Terminal")
+	}
+}
+
+func TestWindowsTerminalUsesSingleCellIcons(t *testing.T) {
+	if got := enterGlyph(false); got != nerdEnterGlyph {
+		t.Fatalf("enter glyph = %q", got)
+	}
+	enter := enterGlyph(true)
+	if enter != "↵" {
+		t.Fatalf("Windows Terminal enter glyph = %q", enter)
+	}
+	boat := managedGroupIcon("Boat", true, true)
+	boxd := managedGroupIcon("boxd", true, true)
+	for name, icon := range map[string]string{
+		"enter": enter,
+		"boat":  strings.TrimSpace(boat),
+		"boxd":  strings.TrimSpace(boxd),
+	} {
+		if lipgloss.Width(icon) != 1 {
+			t.Fatalf("%s width = %d (%q)", name, lipgloss.Width(icon), icon)
+		}
+		for _, r := range icon {
+			if r > 0xFFFF {
+				t.Fatalf("%s still uses a supplementary rune %U", name, r)
+			}
+		}
+	}
+	if !strings.Contains(boat, "\uf21a") || strings.Contains(boat, "\U000f0ec8") {
+		t.Fatalf("Boat icon = %q", boat)
+	}
+	if !strings.Contains(boxd, "\ued75") || strings.Contains(boxd, "\U000f01a7") {
+		t.Fatalf("boxd icon = %q", boxd)
+	}
+	if got := managedGroupIcon("Google Cloud", true, true); !strings.Contains(got, "\ue7f1") {
+		t.Fatalf("Google Cloud icon changed: %q", got)
+	}
+	if got := managedGroupIcon("Boat", true, false); !strings.Contains(got, "\U000f0ec8") {
+		t.Fatalf("Boat icon outside Windows Terminal = %q", got)
 	}
 }

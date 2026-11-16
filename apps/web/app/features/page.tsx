@@ -41,8 +41,8 @@ export default async function FeaturesPage() {
       </p>
 
       <section className="mb-10">
-        <div className="bg-border p-px">
-          <div className="divide-y divide-border bg-background">
+        <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0c0f14]">
+          <div className="divide-y divide-white/15">
             {guideNavItems.map((item) => (
               <Link
                 key={item.href}

@@ -172,6 +172,70 @@ func TestMergeReplaceModes(t *testing.T) {
 	}
 }
 
+func TestGroupAppearanceApplyAndMerge(t *testing.T) {
+	home := t.TempDir()
+	p := paths.ForHome(home)
+	cfg := sshconfig.Manager{
+		Home: p.Home, MainConfig: p.MainConfig, ManagedDir: p.ManagedDir,
+		ManagedConfig: p.ManagedConfig, ManagedKeys: p.ManagedKeys,
+	}
+	if err := cfg.EnsureManaged(); err != nil {
+		t.Fatal(err)
+	}
+	store, err := metadata.Open(p.StateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetGroups(map[string]metadata.GroupAppearance{"Local": {Color: "red"}}); err != nil {
+		t.Fatal(err)
+	}
+	applier := Applier{Paths: p, Config: cfg, Store: store}
+	doc := Document{Hosts: []HostEntry{{
+		ManagedID: "abc123", Alias: "prod", HostName: "prod.example", UpdatedAt: 1,
+	}}}
+	if err := applier.Apply(doc); err != nil {
+		t.Fatal(err)
+	}
+	if store.Groups()["Local"].Color != "red" {
+		t.Fatalf("document without groups cleared local styles: %#v", store.Groups())
+	}
+	remote := map[string]metadata.GroupAppearance{"Remote": {Icon: "🇩🇪", Color: "blue"}}
+	doc.Groups = &remote
+	if err := applier.Apply(doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.Groups()["Local"]; ok || store.Groups()["Remote"].Icon != "🇩🇪" || store.Groups()["Remote"].Color != "blue" {
+		t.Fatalf("apply did not replace groups: %#v", store.Groups())
+	}
+
+	localGroups := map[string]metadata.GroupAppearance{
+		"Work":  {Color: "red"},
+		"Local": {Color: "green"},
+	}
+	remoteGroups := map[string]metadata.GroupAppearance{
+		"Work":   {Color: "blue"},
+		"Remote": {Color: "cyan"},
+	}
+	merged := Merge(Document{
+		Hosts:  []HostEntry{{ManagedID: "a", Alias: "a", HostName: "a.example"}},
+		Groups: &localGroups,
+	}, Document{
+		Hosts:  []HostEntry{{ManagedID: "a", Alias: "a", HostName: "a.example"}},
+		Groups: &remoteGroups,
+	}, MergeModeMerge)
+	if merged.Document.Groups == nil {
+		t.Fatal("merge dropped groups")
+	}
+	groups := *merged.Document.Groups
+	if groups["Work"].Color != "red" || groups["Local"].Color != "green" || groups["Remote"].Color != "cyan" {
+		t.Fatalf("merge = %#v", groups)
+	}
+	kept := Merge(Document{Groups: &localGroups}, Document{}, MergeModeMerge)
+	if kept.Document.Groups == nil || (*kept.Document.Groups)["Work"].Color != "red" {
+		t.Fatalf("nil remote groups = %#v", kept.Document.Groups)
+	}
+}
+
 func TestApplyKeepsCloudSyncIncludes(t *testing.T) {
 	home := t.TempDir()
 	p := paths.ForHome(home)

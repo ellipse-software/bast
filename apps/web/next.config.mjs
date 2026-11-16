@@ -36,6 +36,13 @@ const config = {
 						value:
 							"Accept, Accept-Encoding, rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
 					},
+					{ key: "X-Content-Type-Options", value: "nosniff" },
+					{ key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+					{ key: "X-Frame-Options", value: "DENY" },
+					{
+						key: "Permissions-Policy",
+						value: "camera=(), microphone=(), geolocation=()",
+					},
 				],
 			},
 			{
@@ -73,6 +80,11 @@ const config = {
 			{
 				source: "/sponser",
 				destination: "/sponsor",
+				permanent: true,
+			},
+			{
+				source: "/new",
+				destination: "/",
 				permanent: true,
 			},
 		];

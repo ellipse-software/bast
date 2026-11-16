@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"bast/internal/cloud/sync"
 	"bast/internal/doctor"
+	"bast/internal/feature"
 	"bast/internal/history"
 	"bast/internal/keys"
 	"bast/internal/metadata"
@@ -19,6 +21,7 @@ import (
 	"bast/internal/paths"
 	"bast/internal/sshconfig"
 	"bast/internal/telemetry"
+	"bast/internal/tunnel"
 	"bast/internal/vault"
 )
 
@@ -108,8 +111,6 @@ type processDoneMsg struct {
 
 type clearStatusMsg uint64
 
-type hostSaveHintTickMsg uint64
-
 type reportResultMsg struct {
 	err error
 }
@@ -150,6 +151,8 @@ type hostListRowsCache struct {
 	hostSignature      uint64
 	historyCollapsed   bool
 	suggestionSig      uint64
+	entrySignature     uint64
+	forwardSig         string
 	rows               []hostRow
 }
 
@@ -168,6 +171,7 @@ type App struct {
 	metadata                    *metadata.Store
 	syncer                      *sync.Engine
 	hostMeta                    map[string]metadata.Host
+	groupAppearance             map[string]metadata.GroupAppearance
 	hostMetaRevision            uint64
 	hostGeneration              uint64
 	collapseRevision            uint64
@@ -185,9 +189,10 @@ type App struct {
 	cursor              int
 	search              string
 	form                *form
-	help                bool
-	helpOffset          int
+	palette             bool
+	paletteOffset       int
 	credits             bool
+	creditsChoice       int
 	onboarding          bool
 	onboardingTracked   bool
 	onboardingReplay    bool
@@ -205,12 +210,14 @@ type App struct {
 	status              string
 	statusError         bool
 	statusID            uint64
-	hostSaveHintID      uint64
-	hostSaveHintEnter   bool
+	errorOffset         int
 	width               int
 	height              int
 	dark                bool
 	nerdFont            bool
+	windowsTerminal     bool
+	noSync              bool
+	noVault             bool
 	version             string
 	latestVersion       string
 	updateSuggestion    string
@@ -245,6 +252,8 @@ type App struct {
 
 	selectAfterLoadSection section
 	selectAfterLoadName    string
+	selectAfterLoadEntry   string
+	tunnelSup              *tunnel.Supervisor
 	selectAfterLoadGroup   bool
 }
 
@@ -267,6 +276,9 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		loading:          true,
 		dark:             true,
 		nerdFont:         detectNerdFont(os.Getenv),
+		windowsTerminal:  windowsTerminalSession(os.Getenv),
+		noSync:           feature.SyncDisabled(),
+		noVault:          feature.VaultDisabled(),
 		version:          version,
 		collapsedGroups:  collapsedGroupsFromPrefs(store.Preferences().CollapsedGroups),
 		syncingProviders: map[string]bool{},
@@ -276,12 +288,18 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		return nil, err
 	}
 	app.hostMeta, app.hostMetaRevision = store.HostsSnapshot()
+	app.groupAppearance = store.Groups()
 	app.historySuggestions = store.HistoryImport().Pending
 	app.onboardingPending = store.ShouldOnboard()
 	if pass, err := vault.LoadPassphrase(vault.PassphrasePath(p.StateFile)); err == nil && pass != "" {
 		app.vaultPassphrase = pass
 	}
 	app.refreshVaultSessionCache()
+	sup, err := tunnel.Open(filepath.Join(tunnel.CacheDir(p.Home), "tunnels"), client.SSH)
+	if err != nil {
+		return nil, err
+	}
+	app.tunnelSup = sup
 	return app, nil
 }
 
@@ -412,6 +430,12 @@ func (m *App) autoSyncCmds() tea.Cmd {
 	if m.syncingProviders == nil {
 		m.syncingProviders = map[string]bool{}
 	}
+	if m.noSync {
+		if m.noVault {
+			return nil
+		}
+		return m.vaultPullCmd(false)
+	}
 	var autoSyncCmds []tea.Cmd
 	if m.metadata.GCP().Enabled && m.metadata.GCP().AutoSync && !m.syncingProviders["gcp"] {
 		m.beginProviderOp("gcp")
@@ -525,8 +549,8 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		if m.help {
-			m.clampHelpOffset()
+		if m.palette {
+			m.clampPaletteOffset()
 		}
 		if m.doctor {
 			m.clampDoctorOffset()
@@ -904,17 +928,32 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.vaultPushCmd()
+	case entryStatusMsg:
+		m.status, m.statusError = msg.text, false
+		return m, msg.next
+	case entryOpenedMsg:
+		if msg.err != nil {
+			m.setError(msg.err)
+			return m, nil
+		}
+		if msg.id != "" {
+			if err := m.metadata.RecordEntryUse(msg.id); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+		}
+		return m, m.setNotice(msg.notice)
 	case processDoneMsg:
 		m.loading = true
 		m.enriching = false
 		if msg.sshSession {
 			m.statusID++
 			m.status, m.statusError = "", false
+			m.errorOffset = 0
 			return m, m.loadCmd()
 		}
 		if msg.err != nil {
-			m.statusID++
-			m.status, m.statusError = msg.name+": "+openssh.FormatError(msg.err), true
+			m.showError(msg.name + ": " + openssh.FormatError(msg.err))
 			return m, m.loadCmd()
 		}
 		return m, tea.Batch(m.loadCmd(), m.setNotice(msg.name+" completed"))
@@ -935,12 +974,6 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = ""
 		}
 		return m, nil
-	case hostSaveHintTickMsg:
-		if uint64(msg) != m.hostSaveHintID || m.form == nil || !isHostForm(m.form) {
-			return m, nil
-		}
-		m.hostSaveHintEnter = !m.hostSaveHintEnter
-		return m, m.hostSaveHintTickCmd()
 	case updateAvailableMsg:
 		m.latestVersion, m.updateSuggestion = msg.version, msg.suggestion
 		return m, nil
@@ -967,51 +1000,98 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
+			m.closeOwnedTunnels()
 			return m, tea.Quit
-		}
-		if m.statusError && m.status != "" {
-			switch msg.String() {
-			case "q":
-				return m, tea.Quit
-			case "space":
-				if telemetry.Enabled() {
-					report := telemetry.Report{
-						Message: m.status,
-						Version: m.version,
-						Context: "tui",
-					}
-					m.statusID++
-					m.status, m.statusError = "Sending report…", false
-					return m, func() tea.Msg {
-						return reportResultMsg{err: telemetry.ReportError(report)}
-					}
-				}
-				m.statusID++
-				m.status, m.statusError = "", false
-				return m, nil
-			case "enter", "esc", "backspace", "ctrl+h":
-				m.statusID++
-				m.status, m.statusError = "", false
-			}
-			return m, nil
-		}
-		if msg.String() == "esc" && m.vaultBusy != "" && m.form == nil {
-			m.cancelVaultOp()
-			return m, m.setNotice("Vault cancelled")
-		}
-		if m.form != nil {
-			return m.updateForm(msg)
 		}
 		if m.onboarding {
 			return m.updateOnboarding(msg.String())
 		}
-		model, cmd := m.updateKeys(msg)
-		if m.form != nil && isHostForm(m.form) {
-			cmd = tea.Batch(cmd, m.hostSaveHintTickCmd())
+		if m.palette {
+			return m.updatePalette(msg)
 		}
-		return model, cmd
+		if msg.String() == "?" || (msg.String() == "/" && m.slashOpensSheet()) {
+			m.openPalette()
+			return m, nil
+		}
+		return m.routeKey(msg)
 	}
 	return m, nil
+}
+
+func (m *App) updatePalette(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "/", "?", "esc":
+		m.closePalette()
+		return m, nil
+	case "pgup":
+		if m.paletteOverflow() {
+			m.scrollPalette(-m.paletteVisibleRows())
+			return m, nil
+		}
+	case "pgdown":
+		if m.paletteOverflow() {
+			m.scrollPalette(m.paletteVisibleRows())
+			return m, nil
+		}
+	}
+	if !m.paletteHasKey(key) {
+		return m, nil
+	}
+	m.closePalette()
+	return m.routeKey(msg)
+}
+
+func (m *App) routeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.statusError && m.status != "" {
+		switch msg.String() {
+		case "q":
+			m.closeOwnedTunnels()
+			return m, tea.Quit
+		case "space":
+			if telemetry.Enabled() {
+				report := telemetry.Report{
+					Message: m.status,
+					Version: m.version,
+					Context: "tui",
+				}
+				m.statusID++
+				m.status, m.statusError = "Sending report…", false
+				m.errorOffset = 0
+				return m, func() tea.Msg {
+					return reportResultMsg{err: telemetry.ReportError(report)}
+				}
+			}
+			m.dismissError()
+			return m, nil
+		case "enter", "esc", "backspace", "ctrl+h":
+			m.dismissError()
+		case "up", "k":
+			m.scrollError(-1)
+		case "down", "j":
+			m.scrollError(1)
+		case "pgup":
+			m.scrollError(-m.errorPage())
+		case "pgdown":
+			m.scrollError(m.errorPage())
+		case "g", "home":
+			m.errorOffset = 0
+		case "G", "end":
+			m.errorOffset = m.maxErrorOffset()
+		}
+		return m, nil
+	}
+	if msg.String() == "esc" && m.vaultBusy != "" && m.form == nil {
+		m.cancelVaultOp()
+		return m, m.setNotice("Vault cancelled")
+	}
+	if m.form != nil {
+		return m.updateForm(msg)
+	}
+	if m.onboarding {
+		return m.updateOnboarding(msg.String())
+	}
+	return m.updateKeys(msg)
 }
 
 func (m *App) View() tea.View {

@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"sort"
 	"strings"
 	"sync"
 )
@@ -23,6 +22,9 @@ const (
 	ActionCreditsClose
 	ActionOnboardingReplay
 	ActionSponsorOpen
+	ActionCreditsLeft
+	ActionCreditsRight
+	ActionCreditsActivate
 	ActionDoctorOpen
 	ActionDoctorClose
 	ActionDoctorScrollUp
@@ -49,6 +51,9 @@ const (
 	ActionCollapseAll
 	ActionExpandAll
 	ActionAddHost
+	ActionAddEntry
+	ActionStartForward
+	ActionCloseTunnel
 	ActionEdit
 	ActionAssignGroup
 	ActionDelete
@@ -105,7 +110,6 @@ type Scope int
 
 const (
 	ScopeGlobal Scope = iota
-	ScopeHelp
 	ScopeCredits
 	ScopeDoctor
 	ScopeHosts
@@ -113,7 +117,15 @@ const (
 	ScopeVault
 	ScopeSync
 	ScopeFiles
-	ScopeDuringSSH
+)
+
+// paletteGroup is where a binding sits in the action sheet.
+type paletteGroup int
+
+const (
+	groupSelection paletteGroup = iota
+	groupNavigate
+	groupApp
 )
 
 type Binding struct {
@@ -124,30 +136,34 @@ type Binding struct {
 	Hint      string
 	HintOf    func(*App) string
 	Chord     string
-	Footer    int
-	Help      bool
-	HelpOnly  bool
-	SkipMatch bool
-	When      func(*App) bool
+	Group     paletteGroup
+	Available func(*App) bool
+	// Show is false for aliases that should match but stay off the sheet.
+	Show bool
 }
 
-func (b Binding) withFooter(n int) Binding {
-	b.Footer = n
+func (b Binding) nav() Binding {
+	b.Group = groupNavigate
 	return b
 }
 
-func (b Binding) when(fn func(*App) bool) Binding {
-	b.When = fn
+func (b Binding) app() Binding {
+	b.Group = groupApp
+	return b
+}
+
+func (b Binding) available(fn func(*App) bool) Binding {
+	b.Available = fn
+	return b
+}
+
+func (b Binding) quiet() Binding {
+	b.Show = false
 	return b
 }
 
 func (b Binding) chord(s string) Binding {
 	b.Chord = s
-	return b
-}
-
-func (b Binding) noHelp() Binding {
-	b.Help = false
 	return b
 }
 
@@ -161,19 +177,8 @@ func (b Binding) hintOf(fn func(*App) string) Binding {
 	return b
 }
 
-func (b Binding) helpOnly() Binding {
-	b.HelpOnly = true
-	b.Help = true
-	return b
-}
-
-func (b Binding) skip() Binding {
-	b.SkipMatch = true
-	return b
-}
-
 func bind(id Action, keys []string, scope Scope, name, hint string) Binding {
-	return Binding{ID: id, Keys: keys, Scope: scope, Name: name, Hint: hint, Help: true}
+	return Binding{ID: id, Keys: keys, Scope: scope, Name: name, Hint: hint, Show: true, Group: groupSelection}
 }
 
 var (
@@ -187,15 +192,24 @@ func catalog() []Binding {
 }
 
 func (m *App) matchBinding(key string) (Binding, bool) {
+	// Tab numbers follow the tabs that are actually shown. The catalog keys are
+	// the full set, so a hidden Vault would otherwise leave "3" opening Vault.
+	if m.scopeActive(ScopeGlobal) && len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+		sec, ok := m.sectionForDigit(key)
+		if !ok {
+			return Binding{}, false
+		}
+		return Binding{ID: tabAction(sec), Keys: []string{key}, Scope: ScopeGlobal, Name: sectionTitle(sec)}, true
+	}
 	for _, scope := range m.matchScopes() {
 		for _, b := range catalog() {
-			if b.HelpOnly || b.SkipMatch || b.Scope != scope {
+			if b.Scope != scope {
 				continue
 			}
 			if !keyIn(b.Keys, key) {
 				continue
 			}
-			if b.When != nil && !b.When(m) {
+			if b.Available != nil && !b.Available(m) {
 				continue
 			}
 			return b, true
@@ -204,10 +218,16 @@ func (m *App) matchBinding(key string) (Binding, bool) {
 	return Binding{}, false
 }
 
-func (m *App) matchScopes() []Scope {
-	if m.help {
-		return []Scope{ScopeHelp}
+func (m *App) scopeActive(scope Scope) bool {
+	for _, item := range m.matchScopes() {
+		if item == scope {
+			return true
+		}
 	}
+	return false
+}
+
+func (m *App) matchScopes() []Scope {
 	if m.credits {
 		return []Scope{ScopeCredits}
 	}
@@ -256,11 +276,11 @@ func keyIn(keys []string, key string) bool {
 	return false
 }
 
-func formatKey(key string, nerd bool) string {
+func formatKey(key string, nerd, windowsTerminal bool) string {
 	switch key {
 	case "enter":
 		if nerd {
-			return "󰌑"
+			return enterGlyph(windowsTerminal)
 		}
 		return "enter"
 	case "space":
@@ -302,27 +322,15 @@ func formatKey(key string, nerd bool) string {
 	}
 }
 
-func formatChord(b Binding, nerd bool) string {
+func formatChord(b Binding, nerd, windowsTerminal bool) string {
 	if b.Chord != "" {
-		return b.Chord
+		return strings.ReplaceAll(b.Chord, nerdEnterGlyph, enterGlyph(windowsTerminal))
 	}
 	parts := make([]string, 0, len(b.Keys))
 	for _, key := range b.Keys {
-		parts = append(parts, formatKey(key, nerd))
+		parts = append(parts, formatKey(key, nerd, windowsTerminal))
 	}
 	return strings.Join(parts, " ")
-}
-
-func formatHint(b Binding, m *App) string {
-	hint := b.Hint
-	if b.HintOf != nil {
-		hint = b.HintOf(m)
-	}
-	chord := formatChord(b, m.nerdFont)
-	if hint == "" {
-		return chord
-	}
-	return chord + " " + hint
 }
 
 func formatChip(b Binding) string {
@@ -332,184 +340,31 @@ func formatChip(b Binding) string {
 	return "[" + b.Keys[0] + "] " + b.Name
 }
 
-func firstBinding(id Action) (Binding, bool) {
-	for _, b := range catalog() {
-		if b.ID == id && !b.HelpOnly {
-			return b, true
-		}
-	}
-	return Binding{}, false
-}
-
 func (m *App) keyInstallChip() string {
-	b, ok := firstBinding(ActionInstallKey)
-	if !ok {
-		return "[a] Add to server"
-	}
-	return formatChip(b)
+	return "Add to server"
 }
 
 func (m *App) keyPromoteChip() string {
-	b, ok := firstBinding(ActionPromote)
-	if !ok {
-		return "[p] Promote to Bast managed"
-	}
-	b.Name = "Promote to Bast managed"
-	return formatChip(b)
+	return "Promote to Bast managed"
 }
 
 func (m *App) tabChip(sec section) string {
-	id := ActionTabHosts
-	name := "Hosts"
-	switch sec {
-	case keysSection:
-		id, name = ActionTabKeys, "Keys"
-	case vaultSection:
-		id, name = ActionTabVault, "Vault"
-	case syncSection:
-		id, name = ActionTabSync, "Sync"
-	case filesSection:
-		id, name = ActionTabFiles, "Files"
-	}
-	b, ok := firstBinding(id)
+	name := sectionTitle(sec)
+	key, ok := m.tabDigit(sec)
 	if !ok {
-		return formatChip(Binding{Keys: []string{"?"}, Name: name})
+		return name
 	}
-	b.Name = name
-	return formatChip(b)
+	return formatChip(Binding{Keys: []string{key}, Name: name})
 }
 
-func (m *App) catalogFooterParts() []string {
-	return m.footerPartsFor(m.tabScope(), ScopeGlobal)
-}
-
-func (m *App) overlayFooterParts(scope Scope) []string {
-	return m.footerPartsFor(scope)
-}
-
-func (m *App) footerPartsFor(scopes ...Scope) []string {
-	active := map[Scope]bool{}
-	for _, scope := range scopes {
-		active[scope] = true
-	}
-	type ranked struct {
-		rank int
-		text string
-		idx  int
-	}
-	var items []ranked
-	for i, b := range catalog() {
-		if b.Footer <= 0 || b.HelpOnly || b.ID == ActionNone || !active[b.Scope] {
-			continue
-		}
-		if b.When != nil && !b.When(m) {
-			continue
-		}
-		items = append(items, ranked{rank: b.Footer, text: formatHint(b, m), idx: i})
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].rank != items[j].rank {
-			return items[i].rank < items[j].rank
-		}
-		return items[i].idx < items[j].idx
-	})
-	parts := make([]string, 0, len(items)+1)
-	for _, item := range items {
-		if item.text != "" {
-			parts = append(parts, item.text)
+func bindingLabel(b Binding, m *App) string {
+	if b.HintOf != nil {
+		if hint := b.HintOf(m); hint != "" {
+			return hint
 		}
 	}
-	return parts
-}
-
-type helpRow struct {
-	chord   string
-	name    string
-	enabled bool
-}
-
-type helpGroup struct {
-	title string
-	rows  []helpRow
-}
-
-func (m *App) helpGroups() []helpGroup {
-	tab := m.tabScope()
-	shadowed := map[string]bool{}
-	var tabBindings []Binding
-	for _, b := range catalog() {
-		if b.Scope != tab || !b.Help {
-			continue
-		}
-		tabBindings = append(tabBindings, b)
-		for _, key := range b.Keys {
-			shadowed[key] = true
-		}
+	if b.Hint != "" {
+		return b.Hint
 	}
-	tabGroup := helpGroup{rows: m.helpRows(tabBindings, nil)}
-	appBindings := make([]Binding, 0)
-	for _, b := range catalog() {
-		if b.Scope != ScopeGlobal || !b.Help {
-			continue
-		}
-		appBindings = append(appBindings, b)
-	}
-	appGroup := helpGroup{rows: m.helpRows(appBindings, shadowed)}
-	groups := []helpGroup{tabGroup, appGroup}
-	if tab == ScopeHosts {
-		var ssh []Binding
-		for _, b := range catalog() {
-			if b.Scope == ScopeDuringSSH && b.Help {
-				ssh = append(ssh, b)
-			}
-		}
-		groups = append(groups, helpGroup{title: "During SSH", rows: m.helpRows(ssh, nil)})
-	}
-	return groups
-}
-
-func (m *App) helpRows(bindings []Binding, shadowed map[string]bool) []helpRow {
-	var enabled, disabled []helpRow
-	seen := map[Action]bool{}
-	for _, b := range bindings {
-		if !b.HelpOnly && b.ID != ActionNone && seen[b.ID] {
-			continue
-		}
-		if !b.HelpOnly {
-			seen[b.ID] = true
-		}
-		keys := b.Keys
-		if len(shadowed) > 0 && !b.HelpOnly {
-			keys = nil
-			for _, key := range b.Keys {
-				if !shadowed[key] {
-					keys = append(keys, key)
-				}
-			}
-			if len(keys) == 0 && b.Chord == "" {
-				continue
-			}
-		}
-		display := b
-		if len(shadowed) > 0 && !b.HelpOnly {
-			display.Keys = keys
-			if b.Chord != "" && len(keys) < len(b.Keys) {
-				display.Chord = ""
-			}
-		}
-		row := helpRow{
-			chord:   formatChord(display, m.nerdFont),
-			name:    b.Name,
-			enabled: b.HelpOnly || b.When == nil || b.When(m),
-		}
-		if row.chord == "" {
-			continue
-		}
-		if row.enabled {
-			enabled = append(enabled, row)
-		} else {
-			disabled = append(disabled, row)
-		}
-	}
-	return append(enabled, disabled...)
+	return b.Name
 }

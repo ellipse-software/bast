@@ -61,6 +61,26 @@ Windows 11 PowerShell:
 irm https://bast.sh/install.ps1 | iex
 ```
 
+## Update
+
+`bast update` only updates script installs (https://bast.sh/install, https://bast.sh/install-nightly, and the Windows PowerShell installers). It refuses package-manager copies and prints the command for that install.
+
+| Install | Command |
+| --- | --- |
+| Script, nightly script, Windows PowerShell | `bast update` |
+| Homebrew | `brew upgrade bast` |
+| Homebrew nightly | `brew upgrade bast-nightly` |
+| apt | `sudo apt upgrade bast` |
+| dnf | `sudo dnf upgrade bast` |
+| yum | `sudo yum update bast` |
+| zypper | `sudo zypper update bast` |
+| pacman | `sudo pacman -Syu bast` |
+| AUR (`bast-bin`) | `yay -Syu bast-bin`, or `paru -Syu bast-bin`, otherwise `sudo pacman -Syu bast-bin` |
+| apk | `sudo apk upgrade bast` |
+| WinGet | `winget upgrade --id EllipseSoftware.Bast --exact` |
+
+Stable builds check for a newer stable release. Nightly builds check the nightly channel. The idle status line shows `Update <version> · <command>`. Press `v` for the same suggestion. A source build shows `https://bast.sh`.
+
 ## Shell completions
 
 The script installers and Homebrew enable tab completion. Open a new terminal after install. Opt out with `BAST_NO_COMPLETIONS=1`.
@@ -98,7 +118,7 @@ bast doctor [--fix] [--probe] [--category name] [--json]
 ```sh
 bast hosts list [--search text] [--sort smart|label|recent|group] [--all] [--json]
 bast hosts show <host> [--json]
-bast hosts add [label] --hostname host [--user u] [--password | --password-only] [--group g] [--tag t] [--json]
+bast hosts add [label] --hostname host [--user u] [--password | --password-only] [--group g] [--tag t] [--icon emoji] [--color name|hex] [--json]
 bast hosts edit <host> [patch flags] [--password] [--clear-password] [--json]
 bast hosts delete <host> [--yes] [--json]
 bast hosts favorite <host> [--json]
@@ -106,9 +126,30 @@ bast hosts hide <host> [--json]
 bast hosts known-host remove <host> [--yes] [--json]
 ```
 
-Host edits are **patches**: omitted flags leave values unchanged. Use `--clear-group`, `--clear-notes`, `--clear-identity`, etc. to remove values.
+Host edits are **patches**: omitted flags leave values unchanged. Use `--clear-group`, `--clear-icon`, `--clear-color`, `--clear-notes`, `--clear-identity`, etc. to remove values. Colour names are `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, and `gray`. Hex is also accepted. `--icon` is one emoji or flag.
 
 Labels with spaces work: `bast "Production web"`. Aliases are normalized (e.g. `Production_web`).
+
+## Remote Desktop and web entries
+
+Entries are not SSH hosts and are not written to `~/.ssh/config`. `a` still adds an SSH host. In the TUI, `A` adds a Remote Desktop entry or a web page. Enter opens it. `Ctrl+O` on an SSH host still opens that host's address when Open RDP is on.
+
+```sh
+bast rdp list [--search text] [--all] [--json]
+bast rdp add [label] --address host [--port n] [--via alias] [--user name] [--domain name] [--fullscreen] [--admin] [--json]
+bast rdp edit <label> [patch flags] [--json]
+bast rdp delete <label> [--yes] [--json]
+bast rdp open <label>
+bast rdp close <label>
+bast web list [--search text] [--all] [--json]
+bast web add [label] --url https://host/ [--via alias] [--json]
+bast web edit <label> [patch flags] [--json]
+bast web delete <label> [--yes] [--json]
+bast web open <label>
+bast web close <label>
+```
+
+`--via` is the alias of an existing SSH host. Bast starts `ssh -N -L` for Remote Desktop and `ssh -N -D` for a page. The page opens in a separate Chrome, Edge, Brave, Chromium, or Firefox profile. Bast does not store an RDP password. A URL with a username or password is rejected. `bast <label>` opens an entry only when no SSH host has that name.
 
 ## Key commands
 
@@ -272,9 +313,9 @@ Requires the `boxd` CLI on `PATH` and `boxd auth login`. Bast does not store a b
 
 ## Files (SFTP)
 
-TUI Files tab (`5`) is a dual-pane local/remote browser over OpenSSH SFTP. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
+TUI Files tab (`5`) is a dual-pane browser over OpenSSH SFTP. Both panes open on a host picker: Local first, then the same groups as Hosts. A pane shows `local` or the host name only after you choose it. Shift+D returns a pane to the picker from a local directory or a connected host. Enter toggles a group in the picker. Left and Right move to the parent directory and into the selected directory. Prefer the TUI for interactive transfers; use OpenSSH/`scp`/`sftp` directly when scripting file copies.
 
-TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Boat/Upstash/Vercel/Hetzner/BitQate/Railway/Fly.io/DigitalOcean/boxd). Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`. First TUI with no hosts shows a skippable start chooser (`esc` skips, `BAST_NO_ONBOARDING=1` disables).
+TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is encrypted Bast-managed host/key sync. Sync is cloud VM import (GCP/AWS/Azure/Boat/Upstash/Vercel/Hetzner/BitQate/Railway/Fly.io/DigitalOcean/boxd). `BAST_NO_VAULT=1` hides Vault and rejects `bast vault`. `BAST_NO_SYNC=1` hides Sync and rejects `bast sync` plus the provider commands (`bast boat`, `bast upstash`, `bast vercel`, `bast hetzner`, `bast bitqate`, `bast railway`, `bast fly`, `bast digitalocean`, `bast boxd`). Remaining tabs are numbered from 1 with no gaps. Hosts already imported stay usable. Hosted `bast vault login` requires `--accept-terms` under `--json` / `--no-input`. First TUI with no hosts shows the logo, the slogan, and a short welcome. Any key continues to Hosts, on a history suggestion when one is waiting. `Ctrl+C` quits without dismissing it. `BAST_NO_ONBOARDING=1` disables it. About (`v`) then `o` shows it again.
 
 ## File layout
 
@@ -284,7 +325,7 @@ TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is en
 | `~/.ssh/bast/sync/<provider>/config` | Cloud-synced host blocks (while sync is enabled) |
 | `~/.ssh/bast/keys/` | Generated/imported keys (private keys mode 0600) |
 | `~/.ssh/google_compute_engine` | Fallback GCP identity (created on demand) |
-| `~/.config/bast/state.json` | Metadata: groups, tags, colors, notes, favorites, usage stats, sync settings |
+| `~/.config/bast/state.json` | Metadata: groups, icons, colors, tags, notes, favorites, usage stats, sync settings |
 | `~/.config/bast/upstash-box-api-key` | Upstash Box API key (mode 0600; not vaulted) |
 | `~/.config/bast/passwords/<managed-id>` | Optional host SSH password (mode 0600; not vaulted) |
 | `~/.config/bast/vercel-token` | Vercel access token (mode 0600; not vaulted) |
@@ -293,7 +334,7 @@ TUI tabs: `[1] Hosts` `[2] Keys` `[3] Vault` `[4] Sync` `[5] Files`. Vault is en
 | `~/.ssh/bast/keys/railway` | Railway SSH key registered with the account |
 | `~/.ssh/config` | Gets `Include ~/.ssh/bast/config` on first run |
 
-Connection settings (hostname, user, port, identity files, password-only flags) live in SSH config. Bast metadata (groups, tags, notes) lives in `state.json`. Host passwords stay in `~/.config/bast/passwords/` and are fed to `ssh` via askpass. They do not sync through Vault.
+Connection settings (hostname, user, port, identity files, password-only flags) live in SSH config. Bast metadata (groups, icons, colours, tags, notes) lives in `state.json`. Host passwords stay in `~/.config/bast/passwords/` and are fed to `ssh` via askpass. They do not sync through Vault.
 
 ## Safety
 

@@ -2,8 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"math"
-	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -66,6 +64,11 @@ func (m *App) renderHostDetailActions(s styleSet, host sshconfig.Host, primary s
 	if m.hostMetadata()[host.Alias].RDP {
 		line += " " + s.title.Render(rdpAction)
 	}
+	if m.forwardOpen(host.Alias) {
+		line += " " + s.title.Render(closeTunnelAction)
+	} else if m.hostHasForwards(host) {
+		line += " " + s.title.Render(forwardAction)
+	}
 	return line + "\n\n"
 }
 
@@ -82,7 +85,7 @@ func (m *App) rdpButtonBounds(layout panelLayout) (x, y, width int, ok bool) {
 func (m *App) render() string {
 	styles := m.styles()
 	width := m.terminalWidth()
-	bodyHeight := max(1, m.terminalHeight()-3)
+	bodyHeight := m.bodyHeight()
 	header := m.renderHeader(styles)
 	var body string
 	if m.statusError && m.status != "" {
@@ -93,8 +96,6 @@ func (m *App) render() string {
 		body = m.renderCredits(styles)
 	} else if m.doctor {
 		body = m.renderDoctor(styles)
-	} else if m.help {
-		body = m.renderHelp(styles)
 	} else if m.form != nil {
 		body = m.renderForm(styles)
 	} else if m.vaultBusyBlocksBody() {
@@ -103,17 +104,41 @@ func (m *App) render() string {
 		body = m.renderHosts(styles)
 	} else if m.section == keysSection {
 		body = m.renderKeys(styles)
-	} else if m.section == vaultSection {
+	} else if m.section == vaultSection && m.sectionEnabled(vaultSection) {
 		body = m.renderVault(styles)
 	} else if m.section == filesSection {
 		body = m.renderFiles(styles)
-	} else {
+	} else if m.section == syncSection && m.sectionEnabled(syncSection) {
 		body = m.renderSync(styles)
+	} else {
+		body = m.renderHosts(styles)
 	}
-	bodyStyle, frameStyle := m.frameStyles(width, bodyHeight)
-	body = bodyStyle.Render(body)
-	footer := m.renderFooter(styles)
-	return frameStyle.Render(header + "\n" + m.renderHeaderRule(styles) + "\n" + body + "\n" + footer)
+	_, frameStyle := m.frameStyles(width, bodyHeight)
+	frame := header + "\n" + m.renderHeaderRule(styles) + "\n" + clipLines(body, bodyHeight, width)
+	if m.palette {
+		frame += "\n" + clipLines(m.renderPalette(styles), m.sheetRows(), width)
+	}
+	frame += "\n" + clipLines(m.renderFooter(styles), 1, width)
+	return strings.TrimRight(frameStyle.Render(frame), "\n")
+}
+
+func clipLines(text string, rows, width int) string {
+	if rows < 1 {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	if len(lines) > rows {
+		lines = lines[:rows]
+	}
+	for len(lines) < rows {
+		lines = append(lines, "")
+	}
+	for i, line := range lines {
+		if lipgloss.Width(line) > width {
+			lines[i] = truncate(line, width)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *App) renderHeader(s styleSet) string {
@@ -127,30 +152,238 @@ func (m *App) renderHeader(s styleSet) string {
 	return header
 }
 
-func (m *App) renderError(s styleSet) string {
-	contentWidth := max(16, min(66, m.terminalWidth()-10))
+type errorBox struct {
+	border bool
+	pad    bool
+	gap    bool
+	view   int
+}
+
+func (b errorBox) rows() int {
+	n := b.view + 1
+	if b.border {
+		n += 2
+	}
+	if b.pad {
+		n += 2
+	}
+	if b.gap {
+		n++
+	}
+	return n
+}
+
+func layoutError(bodyHeight, contentLines int) errorBox {
+	if bodyHeight < 1 {
+		bodyHeight = 1
+	}
+	if contentLines < 0 {
+		contentLines = 0
+	}
+	options := []errorBox{
+		{border: true, pad: true, gap: true},
+		{border: true},
+		{},
+	}
+	for _, opt := range options {
+		opt.view = contentLines
+		if opt.rows() <= bodyHeight {
+			return opt
+		}
+	}
+	// Drop padding, then the border, so a short terminal still has a line of the message to scroll.
+	for _, opt := range options {
+		frameRows := opt.rows() // action, plus border and padding; the message view is still 0
+		view := bodyHeight - frameRows
+		if view >= 1 {
+			opt.view = view
+			return opt
+		}
+	}
+	return errorBox{}
+}
+
+func errorBoxMetrics(termWidth int) (pad, contentWidth int) {
+	if termWidth < 1 {
+		termWidth = 1
+	}
+	pad = 2
+	contentWidth = min(66, termWidth-2-pad*2)
+	if contentWidth >= 8 {
+		return pad, contentWidth
+	}
+	pad = 0
+	contentWidth = min(66, max(1, termWidth-2))
+	if contentWidth < 1 {
+		return 0, 1
+	}
+	return pad, contentWidth
+}
+
+func wrapKeptLines(text string, width int) []string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	parts := strings.Split(text, "\n")
+	lines := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			lines = append(lines, "")
+			continue
+		}
+		lines = append(lines, wrapWords(part, width)...)
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
+}
+
+func fitPlain(text string, width int) string {
+	if width < 1 {
+		return ""
+	}
+	if lipgloss.Width(text) <= width {
+		return text
+	}
+	return truncate(text, width)
+}
+
+func errorActionLabel(report, scroll bool) string {
+	label := "Enter/Esc return"
+	if report {
+		label = "Space send report · Enter/Esc return"
+	}
+	if scroll {
+		label += " · ↑/↓ scroll"
+	}
+	return label
+}
+
+func (m *App) errorScrollLines(s styleSet, width int) []string {
 	explanation := "The action did not complete."
 	if m.form != nil {
 		explanation += " Your entries are still available when you return."
 	} else {
 		explanation += " Run bast doctor for a full diagnosis."
 	}
-	footer := "Enter/Esc return"
-	if telemetry.Enabled() {
-		footer = "Space send report · Enter/Esc return"
+	lines := []string{
+		s.error.Bold(true).Render(fitPlain("✕  Action failed", width)),
+		"",
+		s.muted.Render(fitPlain("What happened", width)),
 	}
-	content := s.error.Bold(true).Render("✕  Action failed") +
-		"\n\n" + s.muted.Render("What happened") +
-		"\n" + s.value.Width(contentWidth).Render(m.status) +
-		"\n\n" + s.muted.Width(contentWidth).Render(explanation) +
-		"\n\n" + s.muted.Render(footer)
-	panel := lipgloss.NewStyle().
-		Width(contentWidth).
-		Padding(1, 2).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#EF4444")).
-		Render(content)
-	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, panel)
+	for _, line := range wrapKeptLines(m.status, width) {
+		if line == "" {
+			lines = append(lines, "")
+			continue
+		}
+		lines = append(lines, s.value.Render(line))
+	}
+	lines = append(lines, "")
+	for _, line := range wrapWords(explanation, width) {
+		if line == "" {
+			lines = append(lines, "")
+			continue
+		}
+		lines = append(lines, s.muted.Render(line))
+	}
+	return lines
+}
+
+func (m *App) errorLayout(s styleSet) (pad, contentWidth int, lines []string, box errorBox) {
+	bodyHeight := m.bodyHeight()
+	pad, contentWidth = errorBoxMetrics(m.terminalWidth())
+	lines = m.errorScrollLines(s, contentWidth)
+	box = layoutError(bodyHeight, len(lines))
+	return pad, contentWidth, lines, box
+}
+
+func (m *App) maxErrorOffset() int {
+	_, _, lines, box := m.errorLayout(m.styles())
+	return max(0, len(lines)-box.view)
+}
+
+func (m *App) clampErrorOffset() {
+	if m.errorOffset < 0 {
+		m.errorOffset = 0
+	}
+	if maxOffset := m.maxErrorOffset(); m.errorOffset > maxOffset {
+		m.errorOffset = maxOffset
+	}
+}
+
+func (m *App) scrollError(delta int) {
+	m.errorOffset += delta
+	m.clampErrorOffset()
+}
+
+func (m *App) errorPage() int {
+	_, _, _, box := m.errorLayout(m.styles())
+	if box.view < 1 {
+		return 1
+	}
+	return box.view
+}
+
+func renderErrorBox(border lipgloss.Style, pad, contentWidth int, box errorBox, visible []string, action string) string {
+	if !box.border {
+		var b strings.Builder
+		for i, line := range visible {
+			if i > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(padVisual(line, contentWidth))
+		}
+		if len(visible) > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(padVisual(action, contentWidth))
+		return b.String()
+	}
+	inner := contentWidth + pad*2
+	top := border.Render("╭" + strings.Repeat("─", inner) + "╮")
+	bot := border.Render("╰" + strings.Repeat("─", inner) + "╯")
+	side := border.Render("│")
+	row := func(line string) string {
+		gap := strings.Repeat(" ", pad)
+		return side + gap + padVisual(line, contentWidth) + gap + side
+	}
+	var b strings.Builder
+	b.WriteString(top)
+	writeRow := func(line string) {
+		b.WriteByte('\n')
+		b.WriteString(row(line))
+	}
+	if box.pad {
+		writeRow("")
+	}
+	for _, line := range visible {
+		writeRow(line)
+	}
+	if box.gap {
+		writeRow("")
+	}
+	writeRow(action)
+	if box.pad {
+		writeRow("")
+	}
+	b.WriteByte('\n')
+	b.WriteString(bot)
+	return b.String()
+}
+
+func (m *App) renderError(s styleSet) string {
+	bodyHeight := m.bodyHeight()
+	pad, contentWidth, lines, box := m.errorLayout(s)
+	m.clampErrorOffset()
+	start := m.errorOffset
+	end := min(len(lines), start+box.view)
+	if start > end {
+		start = end
+	}
+	action := s.muted.Render(fitPlain(errorActionLabel(telemetry.Enabled(), box.view < len(lines)), contentWidth))
+	border := lipgloss.NewStyle().Foreground(lipgloss.Color("#EF4444"))
+	panel := renderErrorBox(border, pad, contentWidth, box, lines[start:end], action)
+	return lipgloss.Place(m.terminalWidth(), bodyHeight, lipgloss.Center, lipgloss.Center, panel)
 }
 
 const (
@@ -254,8 +487,9 @@ func (m *App) frameStyles(width, bodyHeight int) (body, frame lipgloss.Style) {
 }
 
 func (m *App) renderTabs(s styleSet) string {
-	parts := make([]string, 0, len(headerTabSections))
-	for _, sec := range headerTabSections {
+	sections := m.visibleSections()
+	parts := make([]string, 0, len(sections))
+	for _, sec := range sections {
 		label := m.tabChip(sec)
 		if m.section == sec {
 			parts = append(parts, s.active.Render(label))
@@ -266,12 +500,11 @@ func (m *App) renderTabs(s styleSet) string {
 	return strings.Join(parts, headerTabSpacing)
 }
 
-func tabAtX(x int) (section, bool) {
+func (m *App) tabAtX(x int) (section, bool) {
 	cursor := lipgloss.Width(headerTitle) + 2
 	gap := lipgloss.Width(headerTabSpacing)
-	dummy := &App{}
-	for _, sec := range headerTabSections {
-		label := dummy.tabChip(sec)
+	for _, sec := range m.visibleSections() {
+		label := m.tabChip(sec)
 		width := lipgloss.Width(label)
 		if x >= cursor && x < cursor+width {
 			return sec, true
@@ -291,17 +524,12 @@ func (m *App) renderHosts(s styleSet) string {
 			return "\n  " + s.muted.Render("No hosts match “"+m.searchText()+"”")
 		}
 		if m.hasHiddenHosts() && !m.showHidden {
-			return "\n  " + s.muted.Render("No visible hosts. Press . to show hidden and stopped hosts.")
-		}
-		add, ok := firstBinding(ActionAddHost)
-		var extras []string
-		if ok {
-			extras = append(extras, s.title.Render(" "+formatChip(add)+" "))
+			return "\n  " + s.muted.Render("No visible hosts.")
 		}
 		return m.renderSeal(s, "◇  No hosts yet", []string{
 			"Your SSH map is empty.",
 			opensshConfigTrust,
-		}, extras)
+		}, nil)
 	}
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
 	layout := m.panelLayout()
@@ -311,142 +539,13 @@ func (m *App) renderHosts(s styleSet) string {
 	if layout.mobile && len(rowsData) > listHeight {
 		rowWidth -= mobileScrollbarWidth
 	}
-	selectedRow := s.selected.Width(rowWidth)
-	mutedRow := s.muted.Width(rowWidth)
-	activeRow := s.active.Width(rowWidth)
-	plainRow := s.plain.Width(rowWidth)
-	hostMeta := m.hostMetadata()
-	gcpErr := m.providerShowsSyncError("gcp", notableSyncError(m.metadata.GCP().LastSyncError, m.syncStatus.GCP.GCloudError))
-	awsErr := m.providerShowsSyncError("aws", notableSyncError(m.metadata.AWS().LastSyncError, m.syncStatus.AWS.AWSCLIError))
-	azureErr := m.providerShowsSyncError("azure", notableSyncError(m.metadata.Azure().LastSyncError, m.syncStatus.Azure.AzureCLIError))
-	boatErr := m.providerShowsSyncError("boat", notableSyncError(m.metadata.Boat().LastSyncError, m.syncStatus.Boat.BoatCLIError))
-	upstashErr := m.providerShowsSyncError("upstash", notableSyncError(m.metadata.Upstash().LastSyncError, m.syncStatus.Upstash.Error))
-	vercelErr := m.providerShowsSyncError("vercel", notableSyncError(m.metadata.Vercel().LastSyncError, m.syncStatus.Vercel.Error))
-	hetznerErr := m.providerShowsSyncError("hetzner", notableSyncError(m.metadata.Hetzner().LastSyncError, m.syncStatus.Hetzner.Error))
-	bitqateErr := m.providerShowsSyncError("bitqate", notableSyncError(m.metadata.Bitqate().LastSyncError, m.syncStatus.Bitqate.Error))
 	start := scrollStart(m.cursor, len(rowsData), listHeight)
 	var list strings.Builder
 	list.Grow(listHeight * (rowWidth + 8))
+	query := m.searchText()
+	syncErrors := m.syncGroupErrors()
 	for i := start; i < min(len(rowsData), start+listHeight); i++ {
-		row := rowsData[i]
-		if row.historyHeader {
-			indicator := "▾"
-			if m.historySuggestionsCollapsed && m.searchText() == "" {
-				indicator = "▸"
-			}
-			line := indicator + " " + row.label + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
-			if i == m.cursor {
-				line = selectedRow.Render(line)
-			} else {
-				line = mutedRow.Render(line)
-			}
-			list.WriteString(line + "\n")
-			continue
-		}
-		if row.suggestion != nil {
-			indent := strings.Repeat("  ", row.depth)
-			line := indent + "＋ " + truncate(row.suggestion.Alias, max(2, rowWidth-lipgloss.Width(indent)-4))
-			if i == m.cursor {
-				line = selectedRow.Render(line)
-			} else {
-				line = mutedRow.Render(line)
-			}
-			list.WriteString(line + "\n")
-			continue
-		}
-		if row.header {
-			indent := strings.Repeat("  ", row.depth)
-			indicator := "▾"
-			if m.collapsedGroups[row.group] && m.searchText() == "" {
-				indicator = "▸"
-			}
-			name := row.label
-			if name == "" {
-				name = row.group
-				if slash := strings.LastIndex(name, "/"); row.depth > 0 && slash >= 0 {
-					name = name[slash+1:]
-				}
-			}
-			showError := row.depth == 0 && cloudSyncGroupHasErrorCached(row.group, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr, bitqateErr)
-			rawPrefix := indent + indicator + " "
-			reservedWidth := lipgloss.Width(rawPrefix) + 1 + lipgloss.Width(fmt.Sprintf("(%d)", row.count)) + lipgloss.Width(managedGroupIcon(name, m.nerdFont))
-			if showError {
-				reservedWidth += 1 + lipgloss.Width("⚠")
-			}
-			name = truncate(name, max(2, rowWidth-reservedWidth))
-			accent, branded := providerBrandStyle(row)
-			nameStyle := s.active
-			if branded {
-				nameStyle = accent
-			}
-			selected := i == m.cursor
-			selectedBg := s.selected.GetBackground()
-			if selected {
-				nameStyle = nameStyle.Background(selectedBg)
-			}
-			prefix := rawPrefix
-			if branded {
-				prefix = nameStyle.Render(rawPrefix)
-			}
-			namePart := renderManagedGroupName(name, nameStyle, m.nerdFont)
-			if branded && !cloud.IsProviderRoot(row.group) {
-				namePart = nameStyle.Render(name)
-			}
-			countStyle := s.muted
-			if selected {
-				countStyle = s.muted.Background(selectedBg)
-			}
-			count := countStyle.Render(fmt.Sprintf("(%d)", row.count))
-			gap := " "
-			if selected {
-				gap = lipgloss.NewStyle().Background(selectedBg).Render(" ")
-			}
-			line := prefix + namePart + gap + count
-			if showError {
-				warnPad := strings.Repeat(" ", max(1, rowWidth-lipgloss.Width(line)-lipgloss.Width("⚠")))
-				warn := "⚠"
-				if selected {
-					warnPad = lipgloss.NewStyle().Background(selectedBg).Render(warnPad)
-					warn = s.error.Background(selectedBg).Render("⚠")
-				} else {
-					warn = s.error.Render("⚠")
-				}
-				line += warnPad + warn
-			}
-			switch {
-			case selected && branded:
-				pad := max(0, rowWidth-lipgloss.Width(line))
-				if pad > 0 {
-					line += lipgloss.NewStyle().Background(selectedBg).Render(strings.Repeat(" ", pad))
-				}
-			case selected:
-				line = selectedRow.Render(line)
-			case branded:
-				line = plainRow.Render(line)
-			default:
-				line = activeRow.Render(line)
-			}
-			list.WriteString(line + "\n")
-			continue
-		}
-		host := row.host
-		meta := hostMeta[host.Alias]
-		prefix := "  "
-		if meta.Hidden {
-			prefix = "◌ "
-		} else if meta.Favorite {
-			prefix = "◆ "
-		}
-		indent := strings.Repeat("  ", row.depth)
-		line := indent + prefix + truncate(hostLabel(host, meta), max(2, rowWidth-lipgloss.Width(indent+prefix)-2))
-		if i == m.cursor {
-			line = selectedRow.Render(line)
-		} else if hostLooksStopped(host, meta) {
-			line = mutedRow.Render(line)
-		} else {
-			line = plainRow.Render(line)
-		}
-		list.WriteString(line + "\n")
+		list.WriteString(m.renderHostRowLine(s, rowsData[i], i == m.cursor, rowWidth, query, syncErrors) + "\n")
 	}
 	listPanel := lipgloss.NewStyle().Width(rowWidth).Height(listHeight).Render(strings.TrimRight(list.String(), "\n"))
 	if layout.mobile && len(rowsData) > listHeight {
@@ -460,6 +559,12 @@ func (m *App) renderHosts(s styleSet) string {
 			detailContent = m.renderHistorySuggestionDetail(s, *rowsData[m.cursor].suggestion, detailWidth)
 		} else if rowsData[m.cursor].header {
 			detailContent = m.renderGroupDetail(s, rowsData[m.cursor], detailWidth)
+		} else if rowsData[m.cursor].forwardHeader {
+			detailContent = ""
+		} else if rowsData[m.cursor].forwardAlias != "" {
+			detailContent = m.renderForwardDetail(s, rowsData[m.cursor].forwardAlias, detailWidth)
+		} else if rowsData[m.cursor].entry != nil {
+			detailContent = m.renderEntryDetail(s, *rowsData[m.cursor].entry, detailWidth)
 		} else {
 			detailContent = m.renderHostDetail(s, rowsData[m.cursor].host, detailWidth)
 		}
@@ -471,6 +576,156 @@ func (m *App) renderHosts(s styleSet) string {
 	}
 	divider := s.rule.Render(strings.TrimSuffix(strings.Repeat("│\n", bodyHeight), "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, listPanel, divider, detail)
+}
+
+func (m *App) renderHostRowLine(s styleSet, row hostRow, selected bool, rowWidth int, query string, syncErrors map[cloud.Kind]bool) string {
+	selectedRow := s.selected.Width(rowWidth)
+	mutedRow := s.muted.Width(rowWidth)
+	activeRow := s.active.Width(rowWidth)
+	plainRow := s.plain.Width(rowWidth)
+	if row.historyHeader {
+		indicator := "▾"
+		if m.historySuggestionsCollapsed && query == "" {
+			indicator = "▸"
+		}
+		line := " " + indicator + " " + row.label + " " + s.muted.Render(fmt.Sprintf("(%d)", row.count))
+		if selected {
+			return selectedRow.Render(line)
+		}
+		return mutedRow.Render(line)
+	}
+	if row.suggestion != nil {
+		indent := strings.Repeat("  ", row.depth)
+		line := " " + indent + "＋ " + truncate(row.suggestion.Alias, max(2, rowWidth-lipgloss.Width(indent)-5))
+		if selected {
+			return selectedRow.Render(line)
+		}
+		return mutedRow.Render(line)
+	}
+	if row.header {
+		indent := strings.Repeat("  ", row.depth)
+		indicator := "▾"
+		if m.collapsedGroups[row.group] && query == "" {
+			indicator = "▸"
+		}
+		name := row.label
+		if name == "" {
+			name = row.group
+			if slash := strings.LastIndex(name, "/"); row.depth > 0 && slash >= 0 {
+				name = name[slash+1:]
+			}
+		}
+		showError := row.depth == 0 && syncGroupHasError(row.group, syncErrors)
+		rawPrefix := indent + indicator + " "
+		accent, branded := providerBrandStyle(row)
+		appearance := metadata.GroupAppearance{}
+		if !branded {
+			appearance = m.appearanceForGroup(row.group)
+		}
+		userIcon := ""
+		if appearance.Icon != "" {
+			userIcon = appearance.Icon + " "
+		}
+		reservedWidth := 1 + lipgloss.Width(rawPrefix) + 1 + lipgloss.Width(fmt.Sprintf("(%d)", row.count)) + lipgloss.Width(managedGroupIcon(name, m.nerdFont, m.windowsTerminal)) + lipgloss.Width(userIcon)
+		if showError {
+			reservedWidth += 1 + lipgloss.Width("⚠")
+		}
+		name = truncate(name, max(2, rowWidth-reservedWidth))
+		if line, ok := renderUserGroupRow(s, appearance, userIcon, rawPrefix, name, row.count, selected, rowWidth); ok {
+			return line
+		}
+		nameStyle := s.active
+		if branded {
+			nameStyle = accent
+		}
+		selectedBg := s.selected.GetBackground()
+		if selected {
+			nameStyle = nameStyle.Background(selectedBg)
+		}
+		prefix := rawPrefix
+		if branded {
+			prefix = nameStyle.Render(rawPrefix)
+		}
+		namePart := renderManagedGroupName(name, nameStyle, m.nerdFont, m.windowsTerminal)
+		if branded && !cloud.IsProviderRoot(row.group) {
+			namePart = nameStyle.Render(name)
+		}
+		countStyle := s.muted
+		if selected {
+			countStyle = s.muted.Background(selectedBg)
+		}
+		count := countStyle.Render(fmt.Sprintf("(%d)", row.count))
+		gap := " "
+		if selected {
+			gap = lipgloss.NewStyle().Background(selectedBg).Render(" ")
+		}
+		line := prefix + namePart + gap + count
+		if showError {
+			warnPad := strings.Repeat(" ", max(1, rowWidth-1-lipgloss.Width(line)-lipgloss.Width("⚠")))
+			warn := "⚠"
+			if selected {
+				warnPad = lipgloss.NewStyle().Background(selectedBg).Render(warnPad)
+				warn = s.error.Background(selectedBg).Render("⚠")
+			} else {
+				warn = s.error.Render("⚠")
+			}
+			line += warnPad + warn
+		}
+		switch {
+		case selected && branded:
+			line = listGutter(true, selectedBg) + line
+			pad := max(0, rowWidth-lipgloss.Width(line))
+			if pad > 0 {
+				line += lipgloss.NewStyle().Background(selectedBg).Render(strings.Repeat(" ", pad))
+			}
+			return line
+		case selected:
+			return selectedRow.Render(" " + line)
+		case branded:
+			return plainRow.Render(" " + line)
+		default:
+			return activeRow.Render(" " + line)
+		}
+	}
+	if row.forwardHeader {
+		return m.renderForwardHeader(s, rowWidth, selected)
+	}
+	if row.forwardAlias != "" {
+		return m.renderForwardRow(s, row, selected, rowWidth)
+	}
+	if row.entry != nil {
+		return m.renderEntryRow(s, row, selected, rowWidth)
+	}
+	host := row.host
+	meta := m.hostMetadata()[host.Alias]
+	mark := "  "
+	if meta.Hidden {
+		mark = "◌ "
+	} else if meta.Favorite {
+		mark = "◆ "
+	}
+	indent := strings.Repeat("  ", row.depth)
+	userIcon := ""
+	color := ""
+	if !host.Synced {
+		if meta.Icon != "" {
+			userIcon = meta.Icon + " "
+		}
+		color = meta.Color
+	}
+	fg, colored := colorForeground(color)
+	label := truncate(hostLabel(host, meta), max(2, rowWidth-lipgloss.Width(indent+mark+userIcon)-3))
+	if userIcon != "" || colored {
+		return renderUserHostRow(s, indent, mark, userIcon, label, colored, fg, selected, hostLooksStopped(host, meta), rowWidth)
+	}
+	line := " " + indent + mark + label
+	if selected {
+		return selectedRow.Render(line)
+	}
+	if hostLooksStopped(host, meta) {
+		return mutedRow.Render(line)
+	}
+	return plainRow.Render(line)
 }
 
 func (m *App) renderHistorySuggestionsDetail(s styleSet, count, width int) string {
@@ -525,45 +780,29 @@ func (m *App) providerShowsSyncError(provider string, hasError bool) bool {
 	return hasError && !m.providerSyncing(provider)
 }
 
-func (m *App) cloudSyncGroupHasError(group string) bool {
-	return cloudSyncGroupHasErrorCached(
-		group,
-		m.providerShowsSyncError("gcp", notableSyncError(m.metadata.GCP().LastSyncError, m.syncStatus.GCP.GCloudError)),
-		m.providerShowsSyncError("aws", notableSyncError(m.metadata.AWS().LastSyncError, m.syncStatus.AWS.AWSCLIError)),
-		m.providerShowsSyncError("azure", notableSyncError(m.metadata.Azure().LastSyncError, m.syncStatus.Azure.AzureCLIError)),
-		m.providerShowsSyncError("boat", notableSyncError(m.metadata.Boat().LastSyncError, m.syncStatus.Boat.BoatCLIError)),
-		m.providerShowsSyncError("upstash", notableSyncError(m.metadata.Upstash().LastSyncError, m.syncStatus.Upstash.Error)),
-		m.providerShowsSyncError("vercel", notableSyncError(m.metadata.Vercel().LastSyncError, m.syncStatus.Vercel.Error)),
-		m.providerShowsSyncError("hetzner", notableSyncError(m.metadata.Hetzner().LastSyncError, m.syncStatus.Hetzner.Error)),
-		m.providerShowsSyncError("bitqate", notableSyncError(m.metadata.Bitqate().LastSyncError, m.syncStatus.Bitqate.Error)),
-	)
+func (m *App) syncGroupErrors() map[cloud.Kind]bool {
+	return map[cloud.Kind]bool{
+		cloud.GCP:          m.providerShowsSyncError("gcp", notableSyncError(m.metadata.GCP().LastSyncError, m.syncStatus.GCP.GCloudError)),
+		cloud.AWS:          m.providerShowsSyncError("aws", notableSyncError(m.metadata.AWS().LastSyncError, m.syncStatus.AWS.AWSCLIError)),
+		cloud.Azure:        m.providerShowsSyncError("azure", notableSyncError(m.metadata.Azure().LastSyncError, m.syncStatus.Azure.AzureCLIError)),
+		cloud.Boat:         m.providerShowsSyncError("boat", notableSyncError(m.metadata.Boat().LastSyncError, m.syncStatus.Boat.BoatCLIError)),
+		cloud.Upstash:      m.providerShowsSyncError("upstash", notableSyncError(m.metadata.Upstash().LastSyncError, m.syncStatus.Upstash.Error)),
+		cloud.Vercel:       m.providerShowsSyncError("vercel", notableSyncError(m.metadata.Vercel().LastSyncError, m.syncStatus.Vercel.Error)),
+		cloud.Hetzner:      m.providerShowsSyncError("hetzner", notableSyncError(m.metadata.Hetzner().LastSyncError, m.syncStatus.Hetzner.Error)),
+		cloud.Bitqate:      m.providerShowsSyncError("bitqate", notableSyncError(m.metadata.Bitqate().LastSyncError, m.syncStatus.Bitqate.Error)),
+		cloud.Railway:      m.providerShowsSyncError("railway", notableSyncError(m.metadata.Railway().LastSyncError, m.syncStatus.Railway.Error)),
+		cloud.Fly:          m.providerShowsSyncError("fly", notableSyncError(m.metadata.Fly().LastSyncError, m.syncStatus.Fly.FlyCLIError)),
+		cloud.DigitalOcean: m.providerShowsSyncError("digitalocean", notableSyncError(m.metadata.DigitalOcean().LastSyncError, m.syncStatus.DigitalOcean.DOCTLError)),
+		cloud.Boxd:         m.providerShowsSyncError("boxd", notableSyncError(m.metadata.Boxd().LastSyncError, m.syncStatus.Boxd.BoxdCLIError)),
+	}
 }
 
-func cloudSyncGroupHasErrorCached(group string, gcpErr, awsErr, azureErr, boatErr, upstashErr, vercelErr, hetznerErr, bitqateErr bool) bool {
+func syncGroupHasError(group string, errors map[cloud.Kind]bool) bool {
 	kind, ok := cloud.KindForGroup(group)
 	if !ok {
 		return false
 	}
-	switch kind {
-	case cloud.GCP:
-		return gcpErr
-	case cloud.AWS:
-		return awsErr
-	case cloud.Azure:
-		return azureErr
-	case cloud.Boat:
-		return boatErr
-	case cloud.Upstash:
-		return upstashErr
-	case cloud.Vercel:
-		return vercelErr
-	case cloud.Hetzner:
-		return hetznerErr
-	case cloud.Bitqate:
-		return bitqateErr
-	default:
-		return false
-	}
+	return errors[kind]
 }
 
 func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
@@ -579,24 +818,35 @@ func (m *App) renderGroupDetail(s styleSet, row hostRow, width int) string {
 			state = "expanded for search"
 		}
 	}
-	hint := "→ expand · ← parent · ␣ " + m.collapseActionLabel() + " · e rename"
+	hint := "→ expand · ← parent · ␣ " + m.collapseActionLabel() + " · e edit"
 	if sync.IsSyncedGroup(row.group) {
 		hint = "→ expand · ← parent · ␣ " + m.collapseActionLabel() + " · cloud sync (read-only)"
 	}
-	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont))
+	appearance := m.appearanceForGroup(row.group)
+	userIcon := ""
+	if appearance.Icon != "" {
+		userIcon = appearance.Icon + " "
+	}
+	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont, m.windowsTerminal)) + lipgloss.Width(userIcon)
 	name := truncate(row.group, max(2, width-3-iconWidth))
-	return "  " + renderManagedGroupName(name, s.active, m.nerdFont) + "\n" +
+	title := renderManagedGroupName(name, s.active, m.nerdFont, m.windowsTerminal)
+	if fg, ok := colorForeground(appearance.Color); ok {
+		title = lipgloss.NewStyle().Bold(true).Foreground(fg).Render(name)
+	}
+	return "  " + userIcon + title + "\n" +
 		"  " + s.muted.Render(fmt.Sprintf("%d servers · %s", row.count, state)) + "\n\n" +
 		"  " + s.muted.Render(truncate(hint, max(4, width-3)))
 }
 
 func (m *App) renderProviderGroupDetail(s styleSet, row hostRow, kind cloud.Kind, width int) string {
 	var b strings.Builder
-	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont))
+	iconWidth := lipgloss.Width(managedGroupIcon(row.group, m.nerdFont, m.windowsTerminal))
 	name := truncate(row.group, max(2, width-3-iconWidth))
-	titlePart := renderManagedGroupName(name, s.active, m.nerdFont)
+	titlePart := renderManagedGroupName(name, s.active, m.nerdFont, m.windowsTerminal)
 	b.WriteString("  " + titlePart + "\n")
-	b.WriteString(m.renderDetailActionChip(s, m.providerGroupPrimaryAction(kind)))
+	if action := m.providerGroupPrimaryAction(kind); action != "" {
+		b.WriteString(m.renderDetailActionChip(s, action))
+	}
 
 	running, stopped := m.providerGroupStats(row.group)
 	summary := fmt.Sprintf("%d instances", running+stopped)
@@ -649,9 +899,9 @@ func brandText(fg, text string, rest lipgloss.Style) string {
 	return st.Render(text)
 }
 
-func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool) string {
+func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont, windowsTerminal bool) string {
 	icon := func(group string) string {
-		return managedGroupIcon(group, nerdFont)
+		return managedGroupIcon(group, nerdFont, windowsTerminal)
 	}
 	suffix := func(root, branded string) string {
 		rest := strings.TrimPrefix(name, root)
@@ -699,7 +949,7 @@ func renderManagedGroupName(name string, restStyle lipgloss.Style, nerdFont bool
 	}
 }
 
-func managedGroupIcon(name string, nerdFont bool) string {
+func managedGroupIcon(name string, nerdFont, windowsTerminal bool) string {
 	if !nerdFont {
 		return ""
 	}
@@ -711,7 +961,11 @@ func managedGroupIcon(name string, nerdFont bool) string {
 	if !ok || d.NerdIcon == "" {
 		return ""
 	}
-	return d.NerdIcon + " "
+	icon := d.NerdIcon
+	if windowsTerminal {
+		icon = windowsTerminalIcon(icon)
+	}
+	return icon + " "
 }
 
 func providerBrandColor(kind cloud.Kind) (string, bool) {
@@ -745,22 +999,22 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	if !hostLooksStopped(host, meta) {
 		primaryAction = connectAction
 	}
+	userIcon := ""
+	if !host.Synced && meta.Icon != "" {
+		userIcon = meta.Icon + " "
+	}
 	titleStyle := s.active
 	if kind, ok := cloud.KindForSource(host.SyncSource); ok {
 		if color, found := providerBrandColor(kind); found {
 			titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color))
 		}
 	}
-	titleMax := max(4, width-3)
-	title := truncate(label, titleMax)
-	if foreground, ok := contrastingTextColor(meta.Color); ok {
-		titleStyle = lipgloss.NewStyle().Bold(true).
-			Foreground(lipgloss.Color(foreground)).
-			Background(lipgloss.Color(meta.Color)).
-			Padding(0, 1)
-		titleMax = max(4, width-5)
-		title = truncate(label, titleMax)
+	fg, colored := colorForeground(meta.Color)
+	if colored && !host.Synced {
+		titleStyle = lipgloss.NewStyle().Bold(true).Foreground(fg)
 	}
+	titleMax := max(4, width-3-lipgloss.Width(userIcon))
+	title := truncate(label, titleMax)
 	dest := destination(host)
 	if dest == "" {
 		dest = host.Alias
@@ -769,12 +1023,11 @@ func (m *App) renderHostDetail(s styleSet, host sshconfig.Host, width int) strin
 	if hostLooksStopped(host, meta) {
 		dest = "stopped"
 		destStyle = s.muted
-		if _, ok := contrastingTextColor(meta.Color); !ok {
+		if !colored || host.Synced {
 			titleStyle = s.muted
 		}
 	}
-	titlePart := titleStyle.Render(title)
-	b.WriteString("  " + titlePart + "\n")
+	b.WriteString("  " + userIcon + titleStyle.Render(title) + "\n")
 	b.WriteString(m.renderHostDetailActions(s, host, primaryAction))
 	b.WriteString("  " + destStyle.Render(truncate(dest, max(4, width-3))) + "\n")
 	b.WriteString("  " + s.muted.Render(truncate(hostStatusLine(host, meta), max(4, width-3))) + "\n")
@@ -823,14 +1076,7 @@ func (m *App) renderKeys(s styleSet) string {
 		if m.loading || m.enriching {
 			return "\n  " + s.muted.Render("Loading OpenSSH keys and agent…")
 		}
-		var extras []string
-		if gen, ok := firstBinding(ActionGenerateKey); ok {
-			extras = append(extras, s.title.Render(" "+formatChip(gen)+" "))
-		}
-		if imp, ok := firstBinding(ActionImportKey); ok {
-			extras = append(extras, s.title.Render(" "+formatChip(imp)+" "))
-		}
-		return m.renderSeal(s, "◇  No keys yet", []string{opensshAgentTrust}, extras)
+		return m.renderSeal(s, "◇  No keys yet", []string{opensshAgentTrust}, nil)
 	}
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
 	layout := m.panelLayout()
@@ -952,8 +1198,35 @@ func (m *App) renderForm(s styleSet) string {
 	if target := destructiveConfirmationTarget(f); target != "" {
 		b.WriteString("  " + s.label.Render("Name to type") + s.value.Render(target) + "\n\n")
 	}
+	lastSection := ""
 	for i, item := range f.fields {
 		if item.hidden || i > f.revealed {
+			continue
+		}
+		if item.section != "" && item.section != lastSection {
+			b.WriteString("\n  " + s.muted.Render(item.section) + "\n")
+			lastSection = item.section
+		}
+		if i == f.index && viaPickerField(f, &item) {
+			b.WriteString("  " + s.active.Render("› "+item.label) + "\n")
+			if item.description != "" {
+				b.WriteString("    " + s.muted.Render(truncate(item.description, max(20, m.terminalWidth()-8))) + "\n")
+			}
+			b.WriteString("    " + f.input.View() + "\n")
+			choices := m.viaPickerChoices()
+			selected := item.selected
+			if selected < 0 || selected >= len(choices) {
+				selected = 0
+			}
+			rows := min(7, len(choices))
+			start := 0
+			if rows > 0 {
+				start = scrollStart(selected, len(choices), rows)
+			}
+			for choice := start; choice < min(len(choices), start+rows); choice++ {
+				option := choices[choice]
+				b.WriteString("    " + renderSelectOption(s, option.label, option.value, choice == selected) + "\n")
+			}
 			continue
 		}
 		if i == f.index {
@@ -963,22 +1236,25 @@ func (m *App) renderForm(s styleSet) string {
 				b.WriteString("    " + s.muted.Render(truncate(item.description, max(20, m.terminalWidth()-8))) + "\n")
 			}
 			if len(item.options) > 0 {
-				if f.selecting {
+				if f.selecting && item.label == "Color" {
+					for _, line := range renderColorGrid(s, item.options, item.selected, item.customValue, m.terminalWidth()) {
+						b.WriteString("    " + line + "\n")
+					}
+				} else if f.selecting {
 					rows := min(7, len(item.options))
 					start := scrollStart(item.selected, len(item.options), rows)
 					for optionIndex := start; optionIndex < min(len(item.options), start+rows); optionIndex++ {
-						option := "  " + item.options[optionIndex].label
-						if optionIndex == item.selected {
-							option = s.selected.Render("› " + item.options[optionIndex].label)
-						} else {
-							option = s.muted.Render(option)
-						}
-						b.WriteString("    " + option + "\n")
+						option := item.options[optionIndex]
+						b.WriteString("    " + renderSelectOption(s, option.label, option.value, optionIndex == item.selected) + "\n")
 					}
 				} else if item.options[item.selected].custom {
 					b.WriteString("    " + f.input.View() + "\n")
+					if hint := customColorReturnHint(s, item, f.input.Value()); hint != "" {
+						b.WriteString(hint + "\n")
+					}
 				} else {
-					b.WriteString("    " + s.value.Render(item.options[item.selected].label) + "\n")
+					option := item.options[item.selected]
+					b.WriteString("    " + renderClosedChoice(s, option.label, option.value) + "\n")
 				}
 			} else {
 				b.WriteString("    " + f.input.View() + "\n")
@@ -987,14 +1263,8 @@ func (m *App) renderForm(s styleSet) string {
 				b.WriteString("    " + s.error.Render("✕ "+f.validationError) + "\n")
 			}
 			if item.label == "Color" {
-				colour := strings.TrimSpace(f.input.Value())
-				if foreground, ok := contrastingTextColor(colour); ok {
-					preview := lipgloss.NewStyle().Bold(true).
-						Foreground(lipgloss.Color(foreground)).
-						Background(lipgloss.Color(colour)).
-						Padding(0, 1).
-						Render("Host label preview")
-					b.WriteString("    " + preview + "\n")
+				if preview := colorPreviewLine(s, formColorSample(f), focusedColorValue(item, f.input.Value())); preview != "" {
+					b.WriteString(preview)
 				}
 			}
 			continue
@@ -1015,179 +1285,20 @@ func (m *App) renderForm(s styleSet) string {
 	return b.String()
 }
 
-func (m *App) formHint() string {
-	if isGroupAssignmentForm(m.form) {
-		return groupAssignmentHint()
-	}
-	if isHostForm(m.form) {
-		return hostFormHint(m.form, m.formTextInputActive(), m.hostSaveHintEnter)
-	}
-	f := m.form
-	action := "󰌑 next"
-	if isEditForm(f) && !f.selecting {
-		action = "󰌑 save"
-		if len(f.fields[f.index].options) > 0 && !f.fields[f.index].options[f.fields[f.index].selected].custom {
-			action += " • ␣ change"
-		}
-	} else if f.selecting {
-		action = "↑/↓ or j/k choose • 󰌑 select"
-	} else if len(f.fields[f.index].options) > 0 && !f.fields[f.index].options[f.fields[f.index].selected].custom {
-		action = "󰌑 change"
-	}
-	if !isEditForm(f) && !hasNextFormField(f) {
-		action = "󰌑 save"
-		if f.action == "host_delete" || f.action == "key_delete" || f.action == "known_delete" || f.action == "files_delete" {
-			action = "󰌑 delete"
-		}
-		if f.action == "vault_reset_passphrase" {
-			action = "󰌑 reset"
-		}
-		if f.action == "vault_rotate_passphrase" {
-			action = "󰌑 rotate"
-		}
-	}
-	if destructiveConfirmationTarget(f) != "" {
-		action += " • Ctrl+Y copy name"
-	}
-	if f.selecting {
-		return action + " • Esc/⌫ close"
-	}
-	escape := "Esc cancel"
-	if !m.formTextInputActive() {
-		escape = "Esc/⌫ cancel"
-	}
-	if len(f.fields[f.index].options) > 0 && f.fields[f.index].options[f.fields[f.index].selected].custom {
-		escape = "Esc choices"
-	}
-	movement := "↑/↓ revisit"
-	if isEditForm(f) {
-		movement = "↑/↓ move"
-	}
-	return action + " • " + movement + " • " + escape
-}
-
-func contrastingTextColor(background string) (string, bool) {
-	background = strings.TrimSpace(background)
-	if !strings.HasPrefix(background, "#") {
-		return "", false
-	}
-	hex := strings.TrimPrefix(background, "#")
-	if len(hex) == 3 {
-		hex = string([]byte{hex[0], hex[0], hex[1], hex[1], hex[2], hex[2]})
-	}
-	if len(hex) != 6 {
-		return "", false
-	}
-	value, err := strconv.ParseUint(hex, 16, 24)
-	if err != nil {
-		return "", false
-	}
-	channel := func(v uint64) float64 {
-		srgb := float64(v) / 255
-		if srgb <= 0.04045 {
-			return srgb / 12.92
-		}
-		return math.Pow((srgb+0.055)/1.055, 2.4)
-	}
-	r := channel(value >> 16)
-	g := channel((value >> 8) & 0xff)
-	b := channel(value & 0xff)
-	if 0.2126*r+0.7152*g+0.0722*b > 0.2 {
-		return "#111827", true
-	}
-	return "#FFFFFF", true
-}
-
-func (m *App) helpContentWidth() int {
+func (m *App) contentWidth() int {
 	return max(36, m.terminalWidth()-6)
 }
 
-func (m *App) helpLines(s styleSet) []string {
-	groups := m.helpGroups()
-	keyCol := 8
-	for _, group := range groups {
-		for _, row := range group.rows {
-			keyCol = max(keyCol, min(12, lipgloss.Width(row.chord)))
-		}
-	}
-	width := m.helpContentWidth()
-	lines := []string{
-		"",
-		s.active.Render(m.tabTitle()),
-		"",
-	}
-	for i, group := range groups {
-		if len(group.rows) == 0 {
-			continue
-		}
-		if i > 0 {
-			lines = append(lines, "")
-		}
-		if group.title != "" {
-			lines = append(lines, s.muted.Render(group.title), "")
-		}
-		for _, row := range group.rows {
-			keyStyle, descStyle := s.value, s.muted
-			if !row.enabled {
-				keyStyle, descStyle = s.muted, s.muted
-			}
-			keys := keyStyle.Render(row.chord)
-			gap := max(1, keyCol-lipgloss.Width(row.chord))
-			descWidth := max(8, width-keyCol-2)
-			desc := descStyle.Render(truncate(row.name, descWidth))
-			lines = append(lines, keys+strings.Repeat(" ", gap)+desc)
-		}
-	}
-	return lines
-}
-
-func (m *App) helpBodyHeight() int {
-	return max(1, m.terminalHeight()-3)
-}
-
-func (m *App) maxHelpOffset() int {
-	return max(0, len(m.helpLines(m.styles()))-m.helpBodyHeight())
-}
-
-func (m *App) clampHelpOffset() {
-	if m.helpOffset < 0 {
-		m.helpOffset = 0
-	}
-	if maxOffset := m.maxHelpOffset(); m.helpOffset > maxOffset {
-		m.helpOffset = maxOffset
-	}
-}
-
-func (m *App) scrollHelp(delta int) {
-	m.helpOffset += delta
-	m.clampHelpOffset()
-}
-
-func (m *App) helpCanScroll() bool {
-	return m.maxHelpOffset() > 0
-}
-
-func (m *App) renderHelp(s styleSet) string {
-	lines := m.helpLines(s)
-	bodyHeight := m.helpBodyHeight()
-	offset := min(max(0, m.helpOffset), max(0, len(lines)-bodyHeight))
-	end := min(len(lines), offset+bodyHeight)
-	content := lipgloss.NewStyle().
-		MarginLeft(2).
-		Render(strings.Join(lines[offset:end], "\n"))
-	return lipgloss.Place(m.terminalWidth(), bodyHeight, lipgloss.Left, lipgloss.Top, content)
-}
+const bastLogo = "" +
+	"██████╗  █████╗ ███████╗████████╗\n" +
+	"██╔══██╗██╔══██╗██╔════╝╚══██╔══╝\n" +
+	"██████╔╝███████║███████╗   ██║   \n" +
+	"██╔══██╗██╔══██║╚════██║   ██║   \n" +
+	"██████╔╝██║  ██║███████║   ██║   \n" +
+	"╚═════╝ ╚═╝  ╚═╝╚══════╝   ╚═╝   "
 
 func (m *App) renderCredits(s styleSet) string {
 	const infoWidth = 52
-	banner := strings.Join([]string{
-		"██████╗  █████╗ ███████╗████████╗",
-		"██╔══██╗██╔══██╗██╔════╝╚══██╔══╝",
-		"██████╔╝███████║███████╗   ██║   ",
-		"██╔══██╗██╔══██║╚════██║   ██║   ",
-		"██████╔╝██║  ██║███████║   ██║   ",
-		"╚═════╝ ╚═╝  ╚═╝╚══════╝   ╚═╝   ",
-	}, "\n")
 	version := m.version
 	if version == "" {
 		version = "dev"
@@ -1196,8 +1307,8 @@ func (m *App) renderCredits(s styleSet) string {
 		gap := max(2, infoWidth-lipgloss.Width(label)-lipgloss.Width(value))
 		return s.label.Width(lipgloss.Width(label)).Render(label) + strings.Repeat(" ", gap) + s.value.Render(value)
 	}
-	content := s.active.Width(infoWidth).Align(lipgloss.Center).Render(banner) +
-		"\n\n" + s.muted.Width(infoWidth).Align(lipgloss.Center).Render("The fast way into the servers you use every day.") +
+	content := s.active.Width(infoWidth).Align(lipgloss.Center).Render(bastLogo) +
+		"\n\n" + s.muted.Width(infoWidth).Align(lipgloss.Center).Render(onboardingCopy) +
 		"\n\n" + row("Created by", "@tedbrine") +
 		"\n" + row("Website", "https://bast.sh") +
 		"\n" + row("Discord", "discord.gg/bast") +
@@ -1207,58 +1318,80 @@ func (m *App) renderCredits(s styleSet) string {
 	if m.latestVersion != "" {
 		content += "\n" + row("Update", m.latestVersion+" · "+m.updateSuggestion)
 	}
-	chip := s.title.Render(sponsorAction)
-	content += "\n\n" + lipgloss.NewStyle().Width(infoWidth).Align(lipgloss.Center).Render(chip)
-	return lipgloss.Place(m.terminalWidth(), max(1, m.terminalHeight()-3), lipgloss.Center, lipgloss.Center, content)
+	content += "\n\n" + lipgloss.NewStyle().Width(infoWidth).Align(lipgloss.Center).Render(m.renderCreditActions(s))
+	return lipgloss.Place(m.terminalWidth(), m.bodyHeight(), lipgloss.Center, lipgloss.Center, content)
+}
+
+func (m *App) creditChip(s styleSet, index int) string {
+	links := creditLinks()
+	if index < 0 || index >= len(links) {
+		return ""
+	}
+	label := " " + links[index].label + " "
+	if index == m.creditsChoice {
+		return s.title.Render(label)
+	}
+	return s.inactive.Render(label)
+}
+
+func (m *App) renderCreditActions(s styleSet) string {
+	links := creditLinks()
+	parts := make([]string, len(links))
+	for i := range links {
+		parts[i] = m.creditChip(s, i)
+	}
+	return strings.Join(parts, "  ")
 }
 
 func (m *App) creditsSponsorBounds() (x, y, width int) {
-	chip := m.styles().title.Render(sponsorAction)
+	x, y, width, ok := m.creditChipBounds(0)
+	if !ok {
+		return 0, 0, 0
+	}
+	return x, y, width
+}
+
+func (m *App) creditChipBounds(index int) (x, y, width int, ok bool) {
+	chip := m.creditChip(m.styles(), index)
+	if chip == "" {
+		return 0, 0, 0, false
+	}
 	width = lipgloss.Width(chip)
 	for i, line := range strings.Split(m.render(), "\n") {
 		idx := strings.Index(line, chip)
 		if idx < 0 {
 			continue
 		}
-		return lipgloss.Width(line[:idx]), i, width
+		return lipgloss.Width(line[:idx]), i, width, true
 	}
-	return 0, 0, 0
+	return 0, 0, 0, false
 }
 
 func (m *App) renderFooter(s styleSet) string {
-	if m.statusError && m.status != "" {
-		hint := "Enter / Esc / ⌫ return"
-		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
+	width := m.terminalWidth()
+	left := m.statusLine(s)
+	if left == "" && !m.palette {
+		left = s.value.Render("/") + s.muted.Render(" for shortcuts")
 	}
-	if m.onboarding {
-		return strings.Repeat(" ", max(1, m.terminalWidth()))
+	if lipgloss.Width(left) > width {
+		left = truncate(left, width)
 	}
-	if m.credits {
-		hint := strings.Join(m.overlayFooterParts(ScopeCredits), " · ")
-		if hint == "" {
-			hint = "v / Esc / ⌫ close"
-		}
-		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
+	gap := width - lipgloss.Width(left)
+	if gap > 0 {
+		left += strings.Repeat(" ", gap)
 	}
-	if m.doctor {
-		hint := strings.Join(m.overlayFooterParts(ScopeDoctor), " · ")
-		if hint == "" {
-			hint = "D / Esc / ⌫ close"
-		}
-		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
-	}
-	if m.help {
-		hint := strings.Join(m.overlayFooterParts(ScopeHelp), " · ")
-		if hint == "" {
-			hint = "? / Esc / ⌫ close"
-		}
-		return strings.Repeat(" ", max(1, m.terminalWidth()-lipgloss.Width(hint))) + s.muted.Render(hint)
+	return left
+}
+
+func (m *App) statusLine(s styleSet) string {
+	if m.onboarding || m.credits || m.doctor || (m.statusError && m.status != "") {
+		return ""
 	}
 	query := m.searchText()
 	left := ""
 	switch {
 	case m.vaultBusy != "":
-		left = s.muted.Render(m.vaultBusy + " · esc cancel")
+		left = s.muted.Render(m.vaultBusy)
 	case m.syncBusy != "":
 		left = s.muted.Render(m.syncBusy)
 	case m.syncActivity != "":
@@ -1267,12 +1400,14 @@ func (m *App) renderFooter(s styleSet) string {
 		left = s.muted.Render("syncing…")
 	case m.loading:
 		left = s.muted.Render("loading…")
+	case m.section == filesSection && m.filesActivity() != "":
+		left = s.muted.Render(m.filesActivity())
 	case strings.HasPrefix(m.search, "\x00"):
-		left = "/ " + query + "█"
+		left = "filter: " + query + "█"
 	case query != "":
 		left = "filter: " + query
 	}
-	if m.vaultBusy == "" && m.syncBusy == "" && m.syncActivity == "" && !m.anySyncing() && !m.loading && m.status != "" {
+	if m.vaultBusy == "" && m.syncBusy == "" && m.syncActivity == "" && !m.anySyncing() && !m.loading && m.status != "" && m.filesActivity() == "" {
 		if left != "" {
 			left += "  •  "
 		}
@@ -1284,24 +1419,12 @@ func (m *App) renderFooter(s styleSet) string {
 	} else if left == "" && m.latestVersion != "" {
 		left = s.active.Render("Update " + m.latestVersion + " · " + m.updateSuggestion)
 	}
-	hint := "?"
-	if m.form != nil {
-		hint = m.formHint()
-	} else if m.vaultBusy != "" {
-		hint = "esc"
-	} else if m.syncBusy != "" {
-		hint = ""
-	} else {
-		budget := max(8, m.terminalWidth()-lipgloss.Width(left)-1)
-		hint = m.browseFooterHint(budget)
-	}
-	space := max(1, m.terminalWidth()-lipgloss.Width(left)-lipgloss.Width(hint)-1)
-	return left + strings.Repeat(" ", space) + s.muted.Render(hint)
+	return left
 }
 
 func (m *App) renderHeaderRule(s styleSet) string {
 	width := m.terminalWidth()
-	if m.statusError || m.onboarding || m.credits || m.doctor || m.help || m.form != nil || m.loading || m.vaultBusyBlocksBody() || m.section == vaultSection || !m.hasListItems() {
+	if m.statusError || m.onboarding || m.credits || m.doctor || m.form != nil || m.loading || m.vaultBusyBlocksBody() || m.section == vaultSection || !m.hasListItems() {
 		return s.rule.Render(strings.Repeat("─", width))
 	}
 	if m.isMobileLayout() {
