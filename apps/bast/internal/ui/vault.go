@@ -376,7 +376,7 @@ func (m *App) vaultResolvePullCmd(pending *vaultConflictState, mode vault.MergeM
 		if err != nil {
 			return vaultPullMsg{err: err, interactive: interactive, thenPush: thenPush, opGen: opGen}
 		}
-		client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
+		client := vault.ClientForSession(session)
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 		remoteGet, err := client.GetVault(ctx, "")
@@ -420,7 +420,7 @@ func (m *App) vaultResolveLinkCmd(pending *vaultConflictState, mode vault.MergeM
 	}
 	opGen := m.vaultOpGen
 	return func() tea.Msg {
-		if strings.TrimSpace(session.Token) == "" {
+		if !session.Linked() {
 			return vaultPullMsg{err: fmt.Errorf("vault link missing token"), interactive: true, linked: true, opGen: opGen}
 		}
 		if strings.TrimSpace(session.APIBase) == "" {
@@ -444,7 +444,7 @@ func (m *App) vaultResolveLinkCmd(pending *vaultConflictState, mode vault.MergeM
 			return msg
 		}
 
-		client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
+		client := vault.ClientForSession(session)
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		remoteGet, err := client.GetVault(ctx, "")
@@ -514,7 +514,7 @@ func (m *App) refreshVaultSessionCache() {
 		return
 	}
 	m.vaultAPIBase = vault.NormalizeAPIBase(session.APIBase)
-	if session.Token == "" {
+	if !session.Linked() {
 		m.vaultSession = nil
 		return
 	}
@@ -523,13 +523,13 @@ func (m *App) refreshVaultSessionCache() {
 }
 
 func (m *App) vaultLinked() bool {
-	if m.vaultSession != nil && m.vaultSession.Token != "" {
+	if m.vaultSession != nil && m.vaultSession.Linked() {
 		return true
 	}
 	if !m.vaultSessionChecked {
 		m.refreshVaultSessionCache()
 	}
-	return m.vaultSession != nil && m.vaultSession.Token != ""
+	return m.vaultSession != nil && m.vaultSession.Linked()
 }
 
 func (m *App) vaultMenuItems() []syncMenuItem {
@@ -539,14 +539,19 @@ func (m *App) vaultMenuItems() []syncMenuItem {
 		description: "Vault server for this machine (self-hosted or bast.sh)",
 	}
 	if !m.vaultLinked() {
-		return []syncMenuItem{apiBaseItem}
+		return []syncMenuItem{
+			apiBaseItem,
+			{label: "Link WebDAV", action: "vault_webdav", description: "Sync an encrypted vault directly to your WebDAV server"},
+		}
 	}
-	return []syncMenuItem{
+	items := []syncMenuItem{
 		{label: "Rotate passphrase", action: "vault_rotate_passphrase", description: "Requires the current passphrase"},
 		{label: "Reset passphrase", action: "vault_reset_passphrase", description: "Overwrites the remote vault with this machine"},
-		apiBaseItem,
-		{label: "Log out", action: "vault_logout"},
 	}
+	if m.vaultSession.Backend != "webdav" {
+		items = append(items, apiBaseItem)
+	}
+	return append(items, syncMenuItem{label: "Log out", action: "vault_logout"})
 }
 
 func syncNowDescription(status string) string {
@@ -584,7 +589,11 @@ func (m *App) renderVaultStatus(s styleSet) string {
 	}
 	var b strings.Builder
 	session := m.vaultSession
-	b.WriteString("  " + s.value.Render(session.Email) + "\n")
+	label := session.Email
+	if session.Backend == "webdav" {
+		label = session.RemoteLabel()
+	}
+	b.WriteString("  " + s.value.Render(truncate(label, max(8, m.terminalWidth()-4))) + "\n")
 	state := "unlocked"
 	stateStyle := s.success
 	if m.vaultPassphrase == "" {
@@ -892,7 +901,7 @@ func (m *App) submitVaultAPIBase() tea.Cmd {
 		return nil
 	}
 	m.vaultAPIBase = base
-	if session.Token != "" {
+	if session.Linked() {
 		cp := session
 		m.setVaultSession(&cp)
 	} else {
@@ -997,10 +1006,10 @@ func (m *App) submitVaultRotatePassphrase() tea.Cmd {
 
 func (m *App) vaultForceResetPassphrase(passphrase string) vaultPushMsg {
 	session, err := vault.LoadSession(m.vaultSessionPath())
-	if err != nil || session.Token == "" {
+	if err != nil || !session.Linked() {
 		return vaultPushMsg{err: fmt.Errorf("vault is not linked")}
 	}
-	client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
+	client := vault.ClientForSession(session)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	remoteGet, err := client.GetVault(ctx, "")
@@ -1033,10 +1042,10 @@ func (m *App) vaultForceResetPassphrase(passphrase string) vaultPushMsg {
 
 func (m *App) vaultRotatePassphrase(oldPass, newPass string) vaultPushMsg {
 	session, err := vault.LoadSession(m.vaultSessionPath())
-	if err != nil || session.Token == "" {
+	if err != nil || !session.Linked() {
 		return vaultPushMsg{err: fmt.Errorf("vault is not linked")}
 	}
-	client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
+	client := vault.ClientForSession(session)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	remoteGet, err := client.GetVault(ctx, "")
@@ -1083,10 +1092,10 @@ type vaultUnlockedMsg struct {
 
 func (m *App) vaultVerifyUnlock(passphrase, next string) tea.Msg {
 	session, err := vault.LoadSession(m.vaultSessionPath())
-	if err != nil || session.Token == "" {
+	if err != nil || !session.Linked() {
 		return vaultUnlockedMsg{err: fmt.Errorf("vault is not linked")}
 	}
-	client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
+	client := vault.ClientForSession(session)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	remoteGet, err := client.GetVault(ctx, "")
@@ -1112,7 +1121,7 @@ func (m *App) formValue(label string) string {
 }
 
 func (m *App) vaultCompleteLink(session vault.Session, passphrase string) tea.Msg {
-	if strings.TrimSpace(session.Token) == "" {
+	if !session.Linked() {
 		return vaultPullMsg{err: fmt.Errorf("vault link missing token"), interactive: true, linked: true}
 	}
 	if strings.TrimSpace(session.APIBase) == "" {
@@ -1137,7 +1146,7 @@ func (m *App) vaultCompleteLink(session vault.Session, passphrase string) tea.Ms
 		return msg
 	}
 
-	client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
+	client := vault.ClientForSession(session)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	remoteGet, err := client.GetVault(ctx, "")
@@ -1229,7 +1238,7 @@ func (m *App) vaultPullCmdOpts(interactive, thenPush bool) tea.Cmd {
 		if err != nil {
 			return vaultPullMsg{err: err, interactive: interactive, thenPush: thenPush, opGen: opGen}
 		}
-		client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
+		client := vault.ClientForSession(session)
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 		ifNoneMatch := session.Revision
@@ -1303,7 +1312,7 @@ func (m *App) vaultPushCmdOpts(synced bool) tea.Cmd {
 		if err != nil {
 			return vaultPushMsg{err: err, synced: synced, opGen: opGen}
 		}
-		client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
+		client := vault.ClientForSession(session)
 		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 		remoteGet, err := client.GetVault(ctx, "")
@@ -1403,6 +1412,8 @@ func (m *App) runVaultAction(action string) (tea.Model, tea.Cmd) {
 	switch action {
 	case "vault_login":
 		m.openVaultLoginForm()
+	case "vault_webdav":
+		m.openVaultWebDAVForm()
 	case "vault_unlock":
 		m.openVaultUnlockForm("")
 	case "vault_rotate_passphrase":
@@ -1427,8 +1438,8 @@ func (m *App) runVaultAction(action string) (tea.Model, tea.Cmd) {
 		apiBase := ""
 		if err == nil {
 			apiBase = vault.NormalizeAPIBase(session.APIBase)
-			if session.Token != "" {
-				client := &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
+			if session.Linked() {
+				client := vault.ClientForSession(session)
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				_ = client.Logout(ctx)
 				cancel()

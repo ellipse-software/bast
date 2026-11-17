@@ -539,6 +539,8 @@ func vaultSpec() specNode {
 				flags: []flagSpec{
 					{name: "email", desc: "account email"},
 					{name: "api", desc: "vault API base URL"},
+					{name: "webdav", desc: "WebDAV directory URL"},
+					{name: "username", desc: "WebDAV username"},
 					mode,
 					boolFlag("accept-terms", "accept Terms of Service and Privacy Policy"),
 				},

@@ -83,20 +83,31 @@ func (r *Runner) vaultSessionPath() string {
 }
 
 func (r *Runner) vaultClient(session vault.Session) *vault.Client {
-	return &vault.Client{BaseURL: vault.EffectiveAPIBase(session.APIBase), Token: session.Token}
+	return vault.ClientForSession(session)
 }
 
 func (r *Runner) vaultLogin(args []string) error {
 	fs := newFlagSet("vault login")
 	emailFlag := fs.String("email", "", "account email")
 	apiBase := fs.String("api", "", "vault API base URL")
+	webdav := fs.String("webdav", "", "WebDAV directory URL (instead of email/API login)")
+	username := fs.String("username", "", "WebDAV username")
 	mode := fs.String("mode", "merge", "first-link merge mode: merge|replace_local|replace_remote")
 	acceptTerms := fs.Bool("accept-terms", false, "accept the Terms of Service and Privacy Policy (required for bast.sh)")
 	if err := fs.Parse(args); err != nil {
 		return usagef("%v", err)
 	}
 	if fs.NArg() != 0 {
-		return usagef("usage: bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]")
+		return usagef("usage: bast vault login [--email address] [--api url] [--webdav url --username name] [--accept-terms] [--mode merge|replace_local|replace_remote]")
+	}
+	if *webdav != "" {
+		if *emailFlag != "" || *apiBase != "" || *acceptTerms {
+			return usagef("--webdav cannot be combined with --email, --api, or --accept-terms")
+		}
+		return r.vaultLoginWebDAV(*webdav, *username, *mode)
+	}
+	if *username != "" {
+		return usagef("--username requires --webdav")
 	}
 	email := strings.TrimSpace(*emailFlag)
 	var err error
@@ -166,9 +177,12 @@ func (r *Runner) vaultLogin(args []string) error {
 	if session.Email == "" {
 		session.Email = email
 	}
-	client.Token = session.Token
+	return r.vaultLink(session, passphrase, *mode)
+}
 
-	mergeMode := vault.MergeMode(strings.ToLower(strings.TrimSpace(*mode)))
+func (r *Runner) vaultLink(session vault.Session, passphrase, mode string) error {
+	client := r.vaultClient(session)
+	mergeMode := vault.MergeMode(strings.ToLower(strings.TrimSpace(mode)))
 	switch mergeMode {
 	case vault.MergeModeMerge, vault.MergeModeReplaceLocal, vault.MergeModeReplaceRemote:
 	default:
@@ -232,7 +246,8 @@ func (r *Runner) vaultLogin(args []string) error {
 	return r.success(map[string]any{
 		"email":    session.Email,
 		"revision": session.Revision,
-	}, "Vault linked: "+session.Email)
+		"backend":  session.Backend,
+	}, "Vault linked: "+session.RemoteLabel())
 }
 
 func (r *Runner) vaultStatus(args []string) error {
@@ -250,12 +265,17 @@ func (r *Runner) vaultStatus(args []string) error {
 		}
 		return err
 	}
+	if !session.Linked() {
+		return r.success(map[string]any{"linked": false}, "Vault not linked")
+	}
 	return r.success(map[string]any{
-		"linked":   true,
+		"linked":   session.Linked(),
 		"email":    session.Email,
 		"revision": session.Revision,
 		"apiBase":  vault.EffectiveAPIBase(session.APIBase),
-	}, fmt.Sprintf("Vault linked · %s · %s · revision %s", session.Email, vault.EffectiveAPIBase(session.APIBase), emptyDefault(session.Revision)))
+		"backend":  session.Backend,
+		"remote":   session.RemoteLabel(),
+	}, fmt.Sprintf("Vault linked · %s · revision %s", session.RemoteLabel(), emptyDefault(session.Revision)))
 }
 
 func (r *Runner) vaultPush(args []string) error {
@@ -407,7 +427,7 @@ func (r *Runner) vaultLogout(args []string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if err == nil && session.Token != "" {
+	if err == nil && session.Linked() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		_ = r.vaultClient(session).Logout(ctx)
 		cancel()
@@ -496,6 +516,9 @@ func (r *Runner) vaultPassphraseForce() error {
 		}
 		return err
 	}
+	if !session.Linked() {
+		return fail("not_linked", "vault not linked; run bast vault login")
+	}
 	if !r.JSON {
 		fmt.Fprintln(r.Err, "Force reset replaces the remote vault with this machine's managed hosts/keys.")
 		fmt.Fprintln(r.Err, "Anything only on other machines (or only in the old ciphertext) will be lost.")
@@ -548,6 +571,9 @@ func (r *Runner) vaultReady() (vault.Session, string, *vault.Client, error) {
 			return vault.Session{}, "", nil, fail("not_linked", "vault not linked; run bast vault login")
 		}
 		return vault.Session{}, "", nil, err
+	}
+	if !session.Linked() {
+		return vault.Session{}, "", nil, fail("not_linked", "vault not linked; run bast vault login")
 	}
 	passPath := vault.PassphrasePath(r.Paths.StateFile)
 	passphrase, err := vault.LoadPassphrase(passPath)

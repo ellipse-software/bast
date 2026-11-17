@@ -55,6 +55,7 @@ func EffectiveAPIBase(sessionBase string) string {
 }
 
 type Client struct {
+	WebDAV     *WebDAVConfig
 	BaseURL    string
 	HTTPClient *http.Client
 	Token      string
@@ -168,6 +169,9 @@ func NormalizeOTP(code string) string {
 }
 
 func (c *Client) GetVault(ctx context.Context, ifNoneMatch string) (VaultGetResult, error) {
+	if c.WebDAV != nil {
+		return c.webDAVGet(ctx, ifNoneMatch)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base()+"/api/vault", nil)
 	if err != nil {
 		return VaultGetResult{}, err
@@ -209,6 +213,9 @@ func (c *Client) GetVault(ctx context.Context, ifNoneMatch string) (VaultGetResu
 }
 
 func (c *Client) PutVault(ctx context.Context, ciphertext []byte, ifMatch string) (VaultMeta, error) {
+	if c.WebDAV != nil {
+		return c.webDAVPut(ctx, ciphertext, ifMatch)
+	}
 	if len(ciphertext) > MaxVaultBytes {
 		return VaultMeta{}, errors.New("vault payload exceeds 1 MiB limit")
 	}
@@ -241,6 +248,10 @@ func (c *Client) PutVault(ctx context.Context, ciphertext []byte, ifMatch string
 }
 
 func (c *Client) Logout(ctx context.Context) error {
+	if c.WebDAV != nil {
+		// Unlinking a WebDAV vault only removes this machine's credentials.
+		return nil
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base()+"/api/auth/logout", nil)
 	if err != nil {
 		return err
