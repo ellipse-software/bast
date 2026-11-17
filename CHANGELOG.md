@@ -6,6 +6,8 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- Vault can sync directly to a WebDAV directory using local encryption, without a Bast API account. Link from **Vault → Link WebDAV** or `bast vault login --webdav URL --username NAME`. Servers must support strong ETags and conditional uploads; setup checks these before linking.
+
 ## v0.12.0 - 2026-11-11
 
 ### Added
