@@ -63,7 +63,7 @@ export default async function Home() {
 
   return (
     <>
-    <section className="relative flex min-h-lvh flex-col bg-[#020814] text-[#e8eef6] selection:bg-[#24345f] selection:text-white">
+    <section className="relative flex min-h-svh flex-col bg-[#020814] text-[#e8eef6] selection:bg-[#24345f] selection:text-white">
       <BeachDither />
       <div
         aria-hidden
@@ -85,7 +85,9 @@ export default async function Home() {
         @media (min-width: 80rem) {
           .new-demo-frame.new-demo-frame {
             width: 72rem;
-            height: min(680px, calc(100lvh - 11rem));
+            /* Same small viewport as the hero, so the frame does not resize with browser chrome. vh is the fallback where svh is ignored. */
+            height: min(680px, calc(100vh - 11rem));
+            height: min(680px, calc(100svh - 11rem));
             transform: translate3d(33rem, -50%, 0);
           }
         }
@@ -122,7 +124,7 @@ export default async function Home() {
         </div>
       </div>
 
-      <div className="pointer-events-none relative z-10 mx-auto flex min-h-lvh w-full max-w-[90rem] flex-col">
+      <div className="pointer-events-none relative z-10 mx-auto flex min-h-svh w-full max-w-[90rem] flex-col">
         <div className="pointer-events-auto">
           <SiteHeader wide tone="night" />
         </div>
