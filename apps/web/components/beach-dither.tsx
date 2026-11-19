@@ -93,8 +93,9 @@ export function BeachDither() {
       }
     };
 
-    // Safari on iPad grows the visual viewport as the toolbar hides. A cover
-    // resample of that change reads as a zoom, and the dither blocks the scroll.
+    // The hero is 100svh, so its box stays put as Safari shows or hides
+    // toolbars. A leftover height change within one toolbar still must not
+    // recrop: resampling the cover reads as a zoom and blocks the scroll.
     const toolbarSlack = 180;
 
     const capture = () => {

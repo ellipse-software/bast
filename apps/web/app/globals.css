@@ -68,6 +68,26 @@
   }
 }
 
+/* Site header row is py-4 plus a size-10 menu button. */
+.max-h-svh-header {
+  max-height: calc(100svh - 4.5rem);
+}
+
+/*
+  Where svh is unsupported those declarations are invalid and dropped.
+  The 100vh stand-in has to live in this separate rule. A second line in the
+  same rule is removed by CSS minification.
+*/
+@supports not (height: 100svh) {
+  .min-h-svh {
+    min-height: 100vh;
+  }
+
+  .max-h-svh-header {
+    max-height: calc(100vh - 4.5rem);
+  }
+}
+
 html,
 body {
   overscroll-behavior: none;

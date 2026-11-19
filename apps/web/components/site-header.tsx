@@ -220,10 +220,11 @@ export function SiteHeader({
 
       {open ? (
         // Out of flow: an in-flow panel grows the hero, and the dither recaptures.
+        // svh keeps this cap inside the small viewport and stops it resizing with browser chrome.
         <nav
           id={panelId}
           aria-label="Mobile"
-          className="absolute inset-x-0 top-full z-40 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain border-t border-border bg-background md:hidden"
+          className="max-h-svh-header absolute inset-x-0 top-full z-40 overflow-y-auto overscroll-contain border-t border-border bg-background md:hidden"
         >
           <div className={`mx-auto ${pageMaxWidthClass} pb-8`}>
             <p className={mobileSectionLabelClass}>Features</p>
