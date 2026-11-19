@@ -74,6 +74,23 @@ func (m *App) dispatch(id Action) (tea.Model, tea.Cmd) {
 		return m, m.switchToSection(syncSection)
 	case ActionTabFiles:
 		return m, m.switchToSection(filesSection)
+	case ActionTabTunnels:
+		return m, m.switchToSection(tunnelsSection)
+	case ActionTunnelToggle:
+		return m, m.toggleSelectedTunnel()
+	case ActionTunnelAdd:
+		m.openAddTunnelForm()
+		return m, nil
+	case ActionTunnelEdit:
+		if t, ok := m.selectedTunnel(); ok {
+			m.openTunnelForm(t)
+		}
+		return m, nil
+	case ActionTunnelDelete:
+		m.openTunnelDeleteForm()
+		return m, nil
+	case ActionTunnelLogs:
+		return m, m.showTunnelLog()
 	case ActionMoveUp:
 		return m.actionMove(-1)
 	case ActionMoveDown:

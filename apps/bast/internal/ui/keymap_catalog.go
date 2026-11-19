@@ -39,6 +39,7 @@ func buildCatalog() []Binding {
 		bind(ActionTabVault, []string{"3"}, ScopeGlobal, "Vault", "").quiet(),
 		bind(ActionTabSync, []string{"4"}, ScopeGlobal, "Sync", "").quiet(),
 		bind(ActionTabFiles, []string{"5"}, ScopeGlobal, "Files", "").quiet(),
+		bind(ActionTabTunnels, []string{"6"}, ScopeGlobal, "Tunnels", "").quiet(),
 		bind(ActionMoveUp, []string{"up", "k"}, ScopeGlobal, "Move up", "up").nav(),
 		bind(ActionMoveDown, []string{"down", "j"}, ScopeGlobal, "Move down", "down").nav(),
 		bind(ActionJumpTop, []string{"g", "home"}, ScopeGlobal, "Top", "top").nav(),
@@ -111,6 +112,11 @@ func buildCatalog() []Binding {
 		bind(ActionReload, []string{"r"}, ScopeSync, "Refresh", "refresh").available(func(m *App) bool { return !m.noSync }),
 
 		// Files.
+		bind(ActionTunnelToggle, []string{"enter"}, ScopeTunnels, "Open or close", "").hintOf(tunnelToggleLabel).available(tunnelSelected),
+		bind(ActionTunnelAdd, []string{"a"}, ScopeTunnels, "Add tunnel", "add"),
+		bind(ActionTunnelEdit, []string{"e"}, ScopeTunnels, "Edit", "edit").available(tunnelSelected),
+		bind(ActionTunnelDelete, []string{"d"}, ScopeTunnels, "Delete", "delete").available(tunnelSelected),
+		bind(ActionTunnelLogs, []string{"l"}, ScopeTunnels, "Show log", "log").available(tunnelSelected),
 		bind(ActionFilesTab, []string{"tab"}, ScopeFiles, "Switch pane", "pane").nav(),
 		bind(ActionFilesSwap, []string{"w"}, ScopeFiles, "Swap panes", "swap").nav(),
 		bind(ActionFilesLocal, []string{"L"}, ScopeFiles, "Local pane", "local").nav(),

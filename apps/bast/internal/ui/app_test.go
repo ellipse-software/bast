@@ -3072,7 +3072,7 @@ func runeColumn(s string, r rune) int {
 
 func TestInjectedVersionAppearsAtTopRight(t *testing.T) {
 	m := testApp(t)
-	m.width, m.height = 80, 24
+	m.width, m.height = 100, 24
 	m.version = "v1.2.3"
 	header := strings.Split(m.render(), "\n")[0]
 	if !strings.Contains(header, "v1.2.3") || lipgloss.Width(header) != m.width {

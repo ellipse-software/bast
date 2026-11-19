@@ -16,7 +16,7 @@ func (m *App) visibleSections() []section {
 	if !m.noSync {
 		sections = append(sections, syncSection)
 	}
-	return append(sections, filesSection)
+	return append(sections, filesSection, tunnelsSection)
 }
 
 func (m *App) sectionEnabled(sec section) bool {
@@ -61,6 +61,8 @@ func sectionTitle(sec section) string {
 		return "Sync"
 	case filesSection:
 		return "Files"
+	case tunnelsSection:
+		return "Tunnels"
 	default:
 		return "Hosts"
 	}
@@ -76,6 +78,8 @@ func tabAction(sec section) Action {
 		return ActionTabSync
 	case filesSection:
 		return ActionTabFiles
+	case tunnelsSection:
+		return ActionTabTunnels
 	default:
 		return ActionTabHosts
 	}

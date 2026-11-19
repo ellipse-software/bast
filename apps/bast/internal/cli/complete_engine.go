@@ -3,6 +3,8 @@ package cli
 import (
 	"sort"
 	"strings"
+
+	"bast/internal/metadata"
 )
 
 type candidate struct {
@@ -164,6 +166,8 @@ func (r *Runner) completeKind(kind valueKind, enum []string, toComplete string, 
 		return finishComplete(r.hostCandidates("digitalocean", true, toComplete), directiveNoFiles)
 	case valueBoxdHost:
 		return finishComplete(r.hostCandidates("boxd", true, toComplete), directiveNoFiles)
+	case valueTunnel, valueTunnelGroup:
+		return finishComplete(r.tunnelCandidates(kind == valueTunnelGroup, toComplete), directiveNoFiles)
 	case valueKey:
 		return finishComplete(r.keyCandidates(toComplete), directiveNoFiles)
 	default:
@@ -286,4 +290,29 @@ func prefixMatch(prefix, value string) bool {
 		return true
 	}
 	return strings.HasPrefix(strings.ToLower(value), strings.ToLower(prefix))
+}
+
+func (r *Runner) tunnelCandidates(groups bool, toComplete string) []candidate {
+	store := r.store
+	if store == nil {
+		opened, err := metadata.Open(r.Paths.StateFile)
+		if err != nil {
+			return nil
+		}
+		store = opened
+	}
+	var cands []candidate
+	seen := map[string]bool{}
+	for _, t := range store.Tunnels() {
+		value, desc := t.Name, t.Mode+" via "+t.Host
+		if groups {
+			value, desc = t.Group, "group"
+		}
+		if value == "" || seen[value] || !prefixMatch(toComplete, value) {
+			continue
+		}
+		seen[value] = true
+		cands = append(cands, candidate{value: value, desc: desc})
+	}
+	return cands
 }

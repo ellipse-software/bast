@@ -27,7 +27,7 @@ const (
 	keyInstallActionRow = 4
 )
 
-var headerTabSections = [...]section{hostsSection, keysSection, vaultSection, syncSection, filesSection}
+var headerTabSections = [...]section{hostsSection, keysSection, vaultSection, syncSection, filesSection, tunnelsSection}
 
 func (m *App) connectButtonBounds(layout panelLayout) (x, y, width int) {
 	action := connectAction
@@ -108,6 +108,8 @@ func (m *App) render() string {
 		body = m.renderVault(styles)
 	} else if m.section == filesSection {
 		body = m.renderFiles(styles)
+	} else if m.section == tunnelsSection {
+		body = m.renderTunnels(styles)
 	} else if m.section == syncSection && m.sectionEnabled(syncSection) {
 		body = m.renderSync(styles)
 	} else {
@@ -1442,6 +1444,8 @@ func (m *App) hasListItems() bool {
 		return len(m.filteredKeys()) > 0
 	case filesSection:
 		return !m.files.preview.active
+	case tunnelsSection:
+		return len(m.tunnelList()) > 0
 	default:
 		return len(m.syncMenuItems()) > 0
 	}
