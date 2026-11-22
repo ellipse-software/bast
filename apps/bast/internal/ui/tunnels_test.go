@@ -62,3 +62,41 @@ func TestTunnelFormSaveValidatesAndStores(t *testing.T) {
 		t.Fatal("tunnel not deleted")
 	}
 }
+
+func TestTunnelEditKeepsHostMissingFromThePicker(t *testing.T) {
+	m := testApp(t)
+	kept := m.tunnelHostField("retired")
+	if kept.value != "retired" || kept.options[kept.selected].value != "retired" {
+		t.Fatalf("host field = %+v", kept)
+	}
+	if fresh := m.tunnelHostField(""); fresh.value != "alpha" {
+		t.Fatalf("new tunnel host = %q", fresh.value)
+	}
+}
+
+func TestTunnelActionReportsManagerInitError(t *testing.T) {
+	m := testApp(t)
+	m.section = tunnelsSection
+	m.tunnelMgr = nil
+	m.tunnelMgrErr = errTunnelRunner
+	if err := m.metadata.PutTunnel(metadata.Tunnel{Name: "pg", Host: "alpha", Mode: "socks", Local: "1080"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	cmd := m.toggleSelectedTunnel()
+	if cmd == nil {
+		t.Fatal("toggle did nothing")
+	}
+	msg, ok := cmd().(tunnelResultMsg)
+	if !ok || msg.err == nil || msg.err.Error() != errTunnelRunner.Error() {
+		t.Fatalf("toggle result = %#v", msg)
+	}
+	if !strings.Contains(stripANSI(m.render()), errTunnelRunner.Error()) {
+		t.Fatal("runner error not shown")
+	}
+}
+
+var errTunnelRunner = tunnelRunnerError("tunnels directory is a file")
+
+type tunnelRunnerError string
+
+func (e tunnelRunnerError) Error() string { return string(e) }

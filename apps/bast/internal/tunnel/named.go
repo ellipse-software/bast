@@ -392,8 +392,10 @@ func (m *Manager) lock(fn func() error) error {
 	return fn()
 }
 
-// Status reads name's state. A runner that died without cleaning up reads as
-// disconnected and its stale file is removed.
+// Status reads name's state. A runner that died without recording an error
+// reads as disconnected and its stale file is removed. A terminal error stays
+// on disk until the next start or an explicit close, so a later poll still
+// shows why the tunnel stopped.
 func (m *Manager) Status(name string) Status {
 	b, err := os.ReadFile(m.statePath(name))
 	if err != nil {
@@ -403,16 +405,14 @@ func (m *Manager) Status(name string) Status {
 	if json.Unmarshal(b, &st) != nil || st.Name != name {
 		return Status{Name: name, State: StateConfigured}
 	}
-	if !pidAlive(st.PID) {
-		last := st
-		_ = os.Remove(m.statePath(name))
-		out := Status{Name: name, State: StateDisconnected, Since: last.Since}
-		if last.State == StateError {
-			out.State, out.Kind, out.Error = StateError, last.Kind, last.Error
-		}
-		return out
+	if pidAlive(st.PID) {
+		return st
 	}
-	return st
+	if st.State == StateError {
+		return st
+	}
+	_ = os.Remove(m.statePath(name))
+	return Status{Name: name, State: StateDisconnected, Since: st.Since}
 }
 
 func (m *Manager) Running(name string) bool {
@@ -438,6 +438,8 @@ func (m *Manager) Start(spec Spec) error {
 			}
 			_ = ln.Close()
 		}
+		// A previous terminal error must not be reported as the result of this attempt.
+		_ = os.Remove(m.statePath(spec.Name))
 		cmd := exec.Command(m.Exe, "tunnel", "run", spec.Name)
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 		detachBackground(cmd)
@@ -447,7 +449,11 @@ func (m *Manager) Start(spec Spec) error {
 		go func() { _ = cmd.Wait() }()
 		deadline := time.Now().Add(5 * time.Second)
 		for time.Now().Before(deadline) {
-			if st := m.Status(spec.Name); st.State != StateConfigured && st.State != StateDisconnected {
+			st := m.Status(spec.Name)
+			if st.State == StateError {
+				return runnerFailure(spec.Name, st)
+			}
+			if st.State != StateConfigured && st.State != StateDisconnected && pidAlive(st.PID) {
 				return nil
 			}
 			time.Sleep(25 * time.Millisecond)
@@ -466,9 +472,24 @@ func (m *Manager) Stop(name string) {
 	_ = m.lock(func() error {
 		st := m.Status(name)
 		_ = os.Remove(m.statePath(name))
-		killProcess(st.PID)
+		// A recorded terminal error keeps the exited runner's pid. Signalling
+		// that pid can hit an unrelated process that reused it.
+		if pidAlive(st.PID) {
+			killProcess(st.PID)
+		}
 		return nil
 	})
+}
+
+func runnerFailure(name string, st Status) error {
+	msg := st.Error
+	if msg == "" {
+		msg = string(st.Kind)
+	}
+	if msg == "" {
+		msg = "runner stopped"
+	}
+	return fmt.Errorf("tunnel %q: %s", name, msg)
 }
 
 // Run is the runner body: keep ssh up until ctx ends, reconnecting with

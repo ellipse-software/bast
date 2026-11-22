@@ -97,6 +97,10 @@ func TestTunnelOpenReportsPortConflict(t *testing.T) {
 	if err == nil || !strings.Contains(errOut, "not in your SSH config") {
 		t.Fatalf("missing host: %q err=%v", errOut, err)
 	}
+	out, errOut, err := runTestCLI(t, home, client, "--json", "tunnel", "open", "ghost")
+	if err == nil || strings.Contains(out, `"ok":true`) || !strings.Contains(errOut, `"ok":false`) || !strings.Contains(errOut, "not in your SSH config") {
+		t.Fatalf("json open out=%q errOut=%q err=%v", out, errOut, err)
+	}
 }
 
 func TestTunnelCompletion(t *testing.T) {
@@ -112,6 +116,14 @@ func TestTunnelCompletion(t *testing.T) {
 	values, _ = runComplete(t, home, "tunnel", "open", "--group", "")
 	if !contains(values, "prod") {
 		t.Fatalf("groups = %v", values)
+	}
+	values, _ = runComplete(t, home, "tunnel", "open", "prod-db", "")
+	if !contains(values, "prod-db") {
+		t.Fatalf("second name = %v", values)
+	}
+	values, _ = runComplete(t, home, "tunnel", "close", "prod-db", "prod-")
+	if !contains(values, "prod-db") {
+		t.Fatalf("close names = %v", values)
 	}
 	values, _ = runComplete(t, home, "tunnel", "")
 	if !contains(values, "open") || !contains(values, "l") {

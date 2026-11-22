@@ -148,6 +148,7 @@ type commandError struct {
 	code    string
 	message string
 	exit    int
+	data    any
 }
 
 func (e *commandError) Error() string { return e.message }
@@ -298,7 +299,11 @@ func (r *Runner) report(err error) error {
 		ce = typed
 	}
 	if r.JSON {
-		_ = json.NewEncoder(r.Err).Encode(map[string]any{"ok": false, "error": map[string]string{"code": ce.code, "message": ce.message}})
+		payload := map[string]any{"ok": false, "error": map[string]string{"code": ce.code, "message": ce.message}}
+		if ce.data != nil {
+			payload["data"] = ce.data
+		}
+		_ = json.NewEncoder(r.Err).Encode(payload)
 	} else {
 		fmt.Fprintln(r.Err, "bast:", ce.message)
 		if ce.code != "feature_disabled" && !r.NoInput && telemetry.Enabled() {

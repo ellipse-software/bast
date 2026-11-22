@@ -52,6 +52,7 @@ type argSpec struct {
 	desc          string
 	optional      bool
 	includeHidden bool
+	repeatable    bool
 	enum          []string
 }
 
@@ -623,7 +624,7 @@ func dirFlag(name, desc string) flagSpec {
 }
 
 func tunnelSpec() specNode {
-	name := argSpec{kind: valueTunnel, desc: "tunnel", optional: true}
+	name := argSpec{kind: valueTunnel, desc: "tunnel", optional: true, repeatable: true}
 	sel := []flagSpec{boolFlag("all", "every tunnel"), {name: "group", desc: "tunnels in a group", kind: valueTunnelGroup}}
 	save := []flagSpec{
 		{name: "host", desc: "SSH config host", kind: valueHost},
@@ -642,7 +643,7 @@ func tunnelSpec() specNode {
 			{name: "close", desc: "close tunnels", flags: sel, args: []argSpec{name}},
 			{name: "add", desc: "add a tunnel", flags: save, args: []argSpec{{desc: "name"}}},
 			{name: "edit", desc: "edit a tunnel", flags: save, args: []argSpec{{kind: valueTunnel, desc: "tunnel"}}},
-			{name: "remove", desc: "remove a tunnel", args: []argSpec{{kind: valueTunnel, desc: "tunnel"}}},
+			{name: "remove", desc: "remove a tunnel", args: []argSpec{{kind: valueTunnel, desc: "tunnel", repeatable: true}}},
 			{name: "logs", desc: "show a tunnel's log", args: []argSpec{{kind: valueTunnel, desc: "tunnel"}}},
 		},
 	}

@@ -103,13 +103,19 @@ func (r *Runner) completeTokens(tokens []string) completeResult {
 			}
 		}
 	}
-	if idx := len(positionals); idx < len(cur.args) {
-		arg := cur.args[idx]
-		more := r.completeKind(arg.kind, arg.enum, toComplete, arg.includeHidden)
-		if more.directive != directiveNoFiles && len(cands) == 0 {
-			return more
+	if len(cur.args) > 0 {
+		idx := len(positionals)
+		if idx >= len(cur.args) && cur.args[len(cur.args)-1].repeatable {
+			idx = len(cur.args) - 1
 		}
-		cands = append(cands, more.candidates...)
+		if idx < len(cur.args) {
+			arg := cur.args[idx]
+			more := r.completeKind(arg.kind, arg.enum, toComplete, arg.includeHidden)
+			if more.directive != directiveNoFiles && len(cands) == 0 {
+				return more
+			}
+			cands = append(cands, more.candidates...)
+		}
 	}
 	return finishComplete(cands, directiveNoFiles)
 }

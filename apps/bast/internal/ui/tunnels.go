@@ -80,8 +80,15 @@ func tunnelSpec(t metadata.Tunnel) tunnel.Spec {
 
 func (m *App) toggleSelectedTunnel() tea.Cmd {
 	t, ok := m.selectedTunnel()
-	if !ok || m.tunnelMgr == nil {
+	if !ok {
 		return nil
+	}
+	if m.tunnelMgr == nil {
+		err := m.tunnelMgrErr
+		if err == nil {
+			err = fmt.Errorf("tunnel runner is unavailable")
+		}
+		return func() tea.Msg { return tunnelResultMsg{err: err} }
 	}
 	mgr := m.tunnelMgr
 	return func() tea.Msg {
@@ -98,8 +105,15 @@ func (m *App) toggleSelectedTunnel() tea.Cmd {
 
 func (m *App) showTunnelLog() tea.Cmd {
 	t, ok := m.selectedTunnel()
-	if !ok || m.tunnelMgr == nil {
+	if !ok {
 		return nil
+	}
+	if m.tunnelMgr == nil {
+		msg := "tunnel runner is unavailable"
+		if m.tunnelMgrErr != nil {
+			msg = m.tunnelMgrErr.Error()
+		}
+		return m.setNotice(msg)
 	}
 	body, err := os.ReadFile(m.tunnelMgr.LogPath(t.Name))
 	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
@@ -125,7 +139,11 @@ func tunnelGlyph(state string) string {
 func (m *App) renderTunnels(s styleSet) string {
 	list := m.tunnelList()
 	if len(list) == 0 {
-		return m.renderSeal(s, "◇  No tunnels yet", []string{"Press a to add a local, remote, or SOCKS forward through a host."}, nil)
+		lines := []string{"Press a to add a local, remote, or SOCKS forward through a host."}
+		if m.tunnelMgrErr != nil {
+			lines = append(lines, m.tunnelMgrErr.Error())
+		}
+		return m.renderSeal(s, "◇  No tunnels yet", lines, nil)
 	}
 	m.cursor = min(m.cursor, len(list)-1)
 	listWidth, detailWidth, bodyHeight := m.columnDimensions()
@@ -166,6 +184,9 @@ func (m *App) renderTunnelDetail(s styleSet, t metadata.Tunnel, width int) strin
 		}
 	}
 	row("State", st.State)
+	if m.tunnelMgrErr != nil {
+		row("Runner", m.tunnelMgrErr.Error())
+	}
 	if st.State == tunnel.StateReconnecting || st.State == tunnel.StateError {
 		row("Problem", string(st.Kind)+": "+st.Error)
 	}
@@ -196,7 +217,12 @@ func (m *App) tunnelHostField(current string) field {
 			item.value = host.Alias
 		}
 	}
-	if item.value == "" && len(item.options) > 0 {
+	if current != "" && item.value == "" {
+		item.options = append(item.options, fieldOption{label: current, value: current})
+		item.selected = len(item.options) - 1
+		item.value = current
+	} else if item.value == "" && len(item.options) > 0 {
+		item.selected = 0
 		item.value = item.options[0].value
 	}
 	return item

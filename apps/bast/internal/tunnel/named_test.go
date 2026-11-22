@@ -193,6 +193,31 @@ func TestRunStopsOnAuthFailure(t *testing.T) {
 	if st.State != StateError || st.Kind != KindAuth {
 		t.Fatalf("status = %+v", st)
 	}
+	if again := m.Status("t2"); again.State != StateError || again.Error == "" {
+		t.Fatalf("error dropped on the next read: %+v", again)
+	}
+}
+
+func TestStartReturnsTerminalRunnerError(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Exe = fakeSSH(t, `echo '{"name":"bad","pid":'$$',"state":"error","kind":"auth","error":"permission denied","since":"2026-01-01T00:00:00Z"}' > "$STATE"
+exit 1
+`)
+	t.Setenv("STATE", m.statePath("bad"))
+	free, err := listenPort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = m.Start(Spec{Name: "bad", Host: "h", Mode: ModeSOCKS, Local: strconv.Itoa(free)})
+	if err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("err = %v", err)
+	}
+	if st := m.Status("bad"); st.State != StateError || st.Error != "permission denied" {
+		t.Fatalf("status = %+v", st)
+	}
 }
 
 func TestStartReportsPortConflict(t *testing.T) {

@@ -191,14 +191,23 @@ func (r *Runner) tunnelOpenClose(open bool, args []string) error {
 			results = append(results, result{t.Name, "opened"})
 		}
 	}
-	if r.JSON {
-		return r.success(results, "")
-	}
-	for _, res := range results {
-		fmt.Fprintf(r.Out, "%s: %s\n", res.Name, res.Result)
+	if !r.JSON {
+		for _, res := range results {
+			fmt.Fprintf(r.Out, "%s: %s\n", res.Name, res.Result)
+		}
 	}
 	if len(failed) > 0 {
-		return fail("tunnel", strings.Join(failed, "\n"))
+		msg := strings.Join(failed, "\n")
+		if r.JSON {
+			return &commandError{
+				code: "tunnel", message: msg, exit: 1,
+				data: map[string]any{"results": results, "failed": failed},
+			}
+		}
+		return fail("tunnel", msg)
+	}
+	if r.JSON {
+		return r.success(results, "")
 	}
 	return nil
 }

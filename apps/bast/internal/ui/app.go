@@ -256,6 +256,7 @@ type App struct {
 	selectAfterLoadEntry   string
 	tunnelSup              *tunnel.Supervisor
 	tunnelMgr              *tunnel.Manager
+	tunnelMgrErr           error
 	tunnelTicking          bool
 	selectAfterLoadGroup   bool
 }
@@ -303,10 +304,13 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		return nil, err
 	}
 	app.tunnelSup = sup
-	if exe, err := os.Executable(); err == nil {
-		if mgr, err := tunnel.NewManager(tunnel.CacheDir(p.Home), exe); err == nil {
-			app.tunnelMgr = mgr
-		}
+	exe, exeErr := os.Executable()
+	if exeErr != nil {
+		app.tunnelMgrErr = exeErr
+	} else if mgr, err := tunnel.NewManager(tunnel.CacheDir(p.Home), exe); err != nil {
+		app.tunnelMgrErr = err
+	} else {
+		app.tunnelMgr = mgr
 	}
 	return app, nil
 }
