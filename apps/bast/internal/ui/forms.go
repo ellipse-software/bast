@@ -629,6 +629,15 @@ func (m *App) submitForm() (tea.Model, tea.Cmd) {
 		m.form = nil
 		m.beginVaultBusy("Verifying code…")
 		return m, cmd
+	case "vault_webdav":
+		session, pass, err := m.webDAVSubmission()
+		if err != nil {
+			m.form.validationError = err.Error()
+			return m, nil
+		}
+		m.form = nil
+		m.beginVaultBusy("Checking and linking WebDAV…")
+		return m, m.linkVaultWebDAV(session, pass)
 	case "vault_passphrase":
 		cmd := m.submitVaultPassphrase()
 		if m.form != nil && m.form.validationError != "" {

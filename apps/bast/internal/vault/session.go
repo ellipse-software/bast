@@ -13,13 +13,60 @@ import (
 )
 
 type Session struct {
-	Email     string `json:"email"`
-	Token     string `json:"token"`
-	DeviceID  string `json:"deviceId,omitempty"`
-	UserID    string `json:"userId,omitempty"`
-	Revision  string `json:"revision,omitempty"`
-	APIBase   string `json:"apiBase,omitempty"`
-	UpdatedAt int64  `json:"updatedAt,omitempty"`
+	Backend   string        `json:"backend,omitempty"`
+	WebDAV    *WebDAVConfig `json:"webdav,omitempty"`
+	Email     string        `json:"email"`
+	Token     string        `json:"token"`
+	DeviceID  string        `json:"deviceId,omitempty"`
+	UserID    string        `json:"userId,omitempty"`
+	Revision  string        `json:"revision,omitempty"`
+	APIBase   string        `json:"apiBase,omitempty"`
+	UpdatedAt int64         `json:"updatedAt,omitempty"`
+}
+
+// Linked supports existing API sessions without a backend discriminator.
+func (s Session) Linked() bool {
+	switch s.Backend {
+	case "", "api":
+		return s.Token != ""
+	case "webdav":
+		return s.WebDAV != nil && s.WebDAV.Validate() == nil
+	default:
+		return false
+	}
+}
+
+func (s Session) RemoteLabel() string {
+	if s.Backend == "webdav" {
+		if s.WebDAV != nil {
+			return "WebDAV · " + s.WebDAV.URL
+		}
+		return "WebDAV"
+	}
+	return EffectiveAPIBase(s.APIBase)
+}
+
+// RememberedAPIBase keeps a custom API server on a WebDAV session so logout can
+// restore it. WebDAV requests do not use APIBase.
+func RememberedAPIBase(prev, next Session) Session {
+	if next.Backend != "webdav" || strings.TrimSpace(next.APIBase) != "" {
+		return next
+	}
+	next.APIBase = prev.APIBase
+	return next
+}
+
+// ClientForSession keeps credentials and remote selection out of vault documents.
+func ClientForSession(s Session) *Client {
+	c := &Client{BaseURL: EffectiveAPIBase(s.APIBase), Token: s.Token}
+	if s.Backend == "webdav" {
+		c.WebDAV = &WebDAVConfig{}
+		if s.WebDAV != nil {
+			cfg := *s.WebDAV
+			c.WebDAV = &cfg
+		}
+	}
+	return c
 }
 
 func SessionPath(stateFile string) string {
@@ -41,6 +88,9 @@ func LoadSession(path string) (Session, error) {
 	var s Session
 	if err := json.Unmarshal(b, &s); err != nil {
 		return Session{}, fmt.Errorf("parse vault session: %w", err)
+	}
+	if s.Backend != "" && s.Backend != "api" && s.Backend != "webdav" {
+		return Session{}, fmt.Errorf("unsupported vault backend %q", s.Backend)
 	}
 	return s, nil
 }

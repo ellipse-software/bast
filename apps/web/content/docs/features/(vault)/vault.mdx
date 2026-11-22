@@ -5,7 +5,7 @@ description: Sync Bast-managed hosts and keys between machines with end-to-end e
 
 Vault syncs **Bast-managed** hosts, keys, and metadata between your machines. It is separate from cloud provider sync (GCP, AWS, Azure, Boat, Upstash Box, Vercel Sandbox, Hetzner Cloud, BitQate, Railway, Fly.io, DigitalOcean, and boxd), which lives on the **Sync** tab (`4`).
 
-Ciphertext is stored by Bast. The encryption passphrase never leaves your machine. Bast keeps a local copy in `~/.config/bast/vault-passphrase` (mode `0600`) so linked machines stay unlocked across launches. That file is a local secret equivalent to an unlocked key: protect the account that can read `~/.config/bast`. Log out deletes it.
+Ciphertext is stored by the Bast API or a WebDAV server you choose. The encryption passphrase never leaves your machine. Bast keeps a local copy in `~/.config/bast/vault-passphrase` (mode `0600`) so linked machines stay unlocked across launches. That file is a local secret equivalent to an unlocked key: protect the account that can read `~/.config/bast`. Log out deletes it.
 
 ## What syncs
 
@@ -81,6 +81,26 @@ Other linked machines must unlock (or reset) with the new passphrase afterward.
 
 By default Bast talks to `https://bast.sh`. To keep vault storage on your own infrastructure, [self-host the web app](/docs/reference/self-hosting) and set the API base in Vault → **API base URL**, with `bast vault login --api https://your.origin`, or with `BAST_VAULT_API`. Custom API bases do not show Ellipse terms.
 
+### WebDAV
+
+Alternatively, sync directly to an existing WebDAV directory. This uses the same local encryption and merge rules, with no Bast API, email login, Cloudflare, or Upstash required.
+
+In the TUI, log out of an existing vault if needed, then choose **Vault → Link WebDAV**. Enter the directory URL, WebDAV username and password (or app password), and a separate vault encryption passphrase. From the CLI:
+
+```bash
+bast vault login --webdav https://dav.example.com/bast/ --username alice
+```
+
+The CLI prompts for the WebDAV password and the encryption passphrase. `BAST_WEBDAV_PASSWORD` can supply the WebDAV password during login; the encryption passphrase is still entered interactively. WebDAV login does not support `--json` or `--no-input`. Use the final directory URL, without embedded credentials, query parameters, or redirects. HTTPS is required, except for loopback HTTP used in local testing. This version supports HTTP Basic authentication, including app passwords; Digest and browser-based SSO are not supported.
+
+Bast writes `bast-vault.json` inside the directory. Create the directory first and grant read, create, update, and delete permissions. Linking briefly creates and deletes a random `.bast-probe-*` file to verify safe conditional writes, without touching an existing vault. The server must provide **strong ETags**, honor `If-Match` on updates, and honor `If-None-Match: *` on creation. A service which only supports unconditional file uploads cannot safely synchronize multiple machines and is rejected. If the server temporarily returns a weak ETag immediately after an upload, Bast waits briefly for a strong one; permanently weak or missing ETags are rejected.
+
+All machines sharing this vault use the same directory and encryption passphrase, with WebDAV accounts authorized to access that directory. WebDAV credentials stay in the local `vault-session.json`; they are not included in the encrypted vault. `BAST_VAULT_API` only affects API sessions and does not redirect a WebDAV session.
+
+**Sync**, background pulls, debounced pushes, conflict resolution, passphrase rotation, and reset work through the selected backend. Concurrent updates are rejected instead of overwriting newer data; the TUI retries one pull/merge/push cycle, while CLI users retry `bast vault push`. Keep using `bast vault status`, `pull`, `push`, and `logout` as above. Logout deletes this machine's saved credentials and encryption passphrase, leaving the shared remote file intact.
+
+Switching between API and WebDAV does not automatically migrate the remote data. Log out, link the new backend, and review the first-link merge choices; only data already present on the machine can be uploaded to an empty destination.
+
 ## Promote
 
 External hosts and keys cannot enter the vault until Bast owns them.
@@ -97,6 +117,6 @@ Promote copies into Bast-managed config/keys. The original external SSH config b
 
 - Passphrase → Argon2id → 256-bit key
 - Vault document sealed with XChaCha20-Poly1305
-- Server stores only the opaque envelope (plus revision metadata in Redis and the blob in object storage)
+- The remote stores only the opaque envelope. API deployments keep revision metadata in Redis and the blob in object storage; WebDAV uses the file's ETag as its revision.
 
-Session tokens live in `~/.config/bast/vault-session.json` (mode `0600`) and authorize upload/download of ciphertext only.
+API session tokens or WebDAV credentials live in `~/.config/bast/vault-session.json` (mode `0600`, with a restricted ACL on Windows). Treat WebDAV credentials as secrets with access to their configured directory.

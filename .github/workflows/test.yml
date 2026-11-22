@@ -36,6 +36,35 @@ jobs:
       - run: go vet ./...
       - run: go build -trimpath -o /tmp/bast .
 
+  # GitHub Actions service container. The Boat matrix does not run service jobs.
+  webdav:
+    name: WebDAV (Apache)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      webdav:
+        image: bytemark/webdav@sha256:21eed0df1238d17766080425f9ef46da2c1130e3e3aa9eaf36794d2a72e7c616
+        env:
+          AUTH_TYPE: Basic
+          USERNAME: bast-test
+          PASSWORD: bast-test-password
+        ports:
+          - 80/tcp
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: apps/bast/go.mod
+          cache: true
+          cache-dependency-path: apps/bast/go.sum
+      - name: Test two-device WebDAV sync
+        working-directory: apps/bast
+        run: go test ./internal/cli -run '^TestVaultWebDAVLiveLifecycle$' -count=1 -v
+        env:
+          BAST_WEBDAV_TEST_URL: http://127.0.0.1:${{ job.services.webdav.ports[80] }}/
+          BAST_WEBDAV_TEST_USERNAME: bast-test
+          BAST_WEBDAV_TEST_PASSWORD: bast-test-password
+
   bast-windows:
     name: Go (windows-latest)
     runs-on: blacksmith-4vcpu-windows-2025

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -242,6 +243,8 @@ type App struct {
 	vaultBusyHoldLoad   bool
 	vaultPushID         uint64
 	vaultOpGen          uint64
+	vaultOpCtx          context.Context
+	vaultOpCancel       context.CancelFunc
 	vaultRemoteRetry    bool // one-shot auto-recovery after ErrRemoteUpdated
 	vaultConflict       *vaultConflictState
 	syncBusy            string          // full-screen Sync overlay for long ops (e.g. boat create)
