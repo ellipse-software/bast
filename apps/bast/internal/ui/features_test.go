@@ -26,12 +26,12 @@ func TestDisabledFeaturesHideTabsAndRenumber(t *testing.T) {
 		t.Fatalf("3 should open Files, got %v", m.section)
 	}
 	m.Update(press("4"))
-	if m.section != filesSection {
-		t.Fatalf("4 should do nothing when Files is 3, got %v", m.section)
+	if m.section != tunnelsSection {
+		t.Fatalf("4 should open Tunnels when Files is 3, got %v", m.section)
 	}
 	m.Update(press("5"))
-	if m.section != filesSection {
-		t.Fatalf("5 should not open a hidden Sync, got %v", m.section)
+	if m.section != tunnelsSection {
+		t.Fatalf("5 should not open a hidden tab, got %v", m.section)
 	}
 
 	m = testApp(t)

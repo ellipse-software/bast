@@ -38,6 +38,12 @@ const (
 	ActionTabVault
 	ActionTabSync
 	ActionTabFiles
+	ActionTabTunnels
+	ActionTunnelToggle
+	ActionTunnelAdd
+	ActionTunnelEdit
+	ActionTunnelDelete
+	ActionTunnelLogs
 	ActionMoveUp
 	ActionMoveDown
 	ActionMoveLeft
@@ -117,6 +123,7 @@ const (
 	ScopeVault
 	ScopeSync
 	ScopeFiles
+	ScopeTunnels
 )
 
 // paletteGroup is where a binding sits in the action sheet.
@@ -247,6 +254,8 @@ func (m *App) tabScope() Scope {
 		return ScopeSync
 	case filesSection:
 		return ScopeFiles
+	case tunnelsSection:
+		return ScopeTunnels
 	default:
 		return ScopeHosts
 	}
@@ -262,6 +271,8 @@ func (m *App) tabTitle() string {
 		return "Sync"
 	case filesSection:
 		return "Files"
+	case tunnelsSection:
+		return "Tunnels"
 	default:
 		return "Hosts"
 	}

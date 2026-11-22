@@ -6,6 +6,8 @@ User-facing changes to Bast (CLI, installers, and behaviour). Website-only chang
 
 ### Added
 
+- A sixth **Tunnels** tab (`6`) creates, opens, and closes named SSH tunnels: local (`-L`), remote (`-R`), SOCKS (`-D`), and remote SOCKS, with Unix sockets, port lists, and port ranges. Tunnels are stored in Bast's metadata and run through a host from your SSH config, so user, port, and key still come from OpenSSH. Each runs as its own background process, reconnects with backoff after a drop, and stays up after you quit Bast. `bast tunnel list|open|close|add|edit|remove|logs` manage them by name, glob (`prod-*`), or `--group`, with shell completion for names and groups.
+
 ## v0.12.0 - 2026-11-11
 
 ### Added

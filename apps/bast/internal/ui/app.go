@@ -33,6 +33,7 @@ const (
 	vaultSection
 	syncSection
 	filesSection
+	tunnelsSection
 )
 
 type field struct {
@@ -254,6 +255,9 @@ type App struct {
 	selectAfterLoadName    string
 	selectAfterLoadEntry   string
 	tunnelSup              *tunnel.Supervisor
+	tunnelMgr              *tunnel.Manager
+	tunnelMgrErr           error
+	tunnelTicking          bool
 	selectAfterLoadGroup   bool
 }
 
@@ -300,6 +304,14 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 		return nil, err
 	}
 	app.tunnelSup = sup
+	exe, exeErr := os.Executable()
+	if exeErr != nil {
+		app.tunnelMgrErr = exeErr
+	} else if mgr, err := tunnel.NewManager(tunnel.CacheDir(p.Home), exe); err != nil {
+		app.tunnelMgrErr = err
+	} else {
+		app.tunnelMgr = mgr
+	}
 	return app, nil
 }
 
@@ -923,6 +935,14 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.loadCmd(), m.setNotice(notice))
 		}
 		return m, m.setNotice(notice)
+	case tunnelResultMsg:
+		if msg.err != nil {
+			m.setError(msg.err)
+			return m, nil
+		}
+		return m, m.setNotice(msg.notice)
+	case tunnelTickMsg:
+		return m, m.tunnelTick()
 	case vaultPushDebounceMsg:
 		if msg.id != m.vaultPushID || !m.vaultDirty {
 			return m, nil

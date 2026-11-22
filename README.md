@@ -117,6 +117,7 @@ bast hosts list         # list hosts
 bast keys list          # list keys
 bast rdp list           # Remote Desktop entries
 bast web list           # internal web pages
+bast tunnel list        # named SSH tunnels
 bast update             # script installs only
 ```
 

@@ -1,0 +1,31 @@
+---
+title: Tunnels
+description: Keep named local, remote, and SOCKS forwards running through your SSH hosts.
+---
+
+The Tunnels tab (`6`) lists named forwards. A tunnel runs through a host from your SSH config, so its user, port, and key come from OpenSSH. Bast stores only the tunnel itself.
+
+Press `a` to add one, `e` to edit, `d` to delete, and Enter to open or close. `l` shows the last log line.
+
+| Mode | Local | Remote | Runs |
+| --- | --- | --- | --- |
+| `local` | listen `[addr:]port` or socket | `host:port` or socket | `ssh -L` |
+| `remote` | target `[host:]port` or socket | server listen port or socket | `ssh -R` |
+| `socks` | listen `[addr:]port` | not used | `ssh -D` |
+| `socks-remote` | not used | server listen port | `ssh -R port` |
+
+Ports accept lists and ranges, such as `8000-8002,9000`. Both sides must expand to the same number of endpoints.
+
+Each tunnel is its own background `ssh -N`, so it stays up after you quit Bast. A dropped connection reconnects after 1s, 2s, 4s, up to 60s. A busy port, a rejected key, or a changed host key stops the tunnel and shows the reason. Network and DNS failures keep retrying. Closing a tunnel stops its retries.
+
+## Command line
+
+```sh
+bast tunnel add prod-db --host bastion --mode local --local 5432 --remote db:5432 --group prod
+bast tunnel open 'prod-*'
+bast tunnel list --group prod
+bast tunnel close --all
+bast tunnel logs prod-db
+```
+
+`BAST_DEBUG=1` adds `ssh -v` output to a tunnel's log. Logs never include keys or passwords.

@@ -15,7 +15,7 @@ import (
 	"bast/internal/platform"
 )
 
-const CurrentVersion = 10
+const CurrentVersion = 11
 
 type Host struct {
 	Label           string     `json:"label,omitempty"`
@@ -265,6 +265,7 @@ type State struct {
 	Version         int                        `json:"version"`
 	Hosts           map[string]Host            `json:"hosts"`
 	Entries         map[string]Entry           `json:"entries,omitempty"`
+	Tunnels         map[string]Tunnel          `json:"tunnels,omitempty"`
 	Groups          map[string]GroupAppearance `json:"groups,omitempty"`
 	Preferences     Preferences                `json:"preferences,omitempty"`
 	Integrations    Integrations               `json:"integrations,omitempty"`
@@ -280,6 +281,7 @@ type Store struct {
 	directorySecured bool
 	hostRevision     atomic.Uint64
 	historyRevision  atomic.Uint64
+	pendingTunnel    *tunnelEdit
 }
 
 func Open(path string) (*Store, error) {
@@ -1500,6 +1502,28 @@ func (s *Store) writeState(syncDisk bool) error {
 	if err := s.ensureDirectory(dir); err != nil {
 		return err
 	}
+	return s.withStateLock(func() error {
+		if err := s.mergeTunnelsFromDisk(); err != nil {
+			return err
+		}
+		return s.writeMergedState(dir, syncDisk)
+	})
+}
+
+func (s *Store) withStateLock(fn func() error) error {
+	f, err := os.OpenFile(filepath.Join(filepath.Dir(s.path), ".state.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := lockMetadataFile(f); err != nil {
+		return err
+	}
+	defer unlockMetadataFile(f)
+	return fn()
+}
+
+func (s *Store) writeMergedState(dir string, syncDisk bool) error {
 	b, err := json.MarshalIndent(s.state, "", "  ")
 	if err != nil {
 		return err

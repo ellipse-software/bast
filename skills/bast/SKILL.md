@@ -151,6 +151,22 @@ bast web close <label>
 
 `--via` is the alias of an existing SSH host. Bast starts `ssh -N -L` for Remote Desktop and `ssh -N -D` for a page. The page opens in a separate Chrome, Edge, Brave, Chromium, or Firefox profile. Bast does not store an RDP password. A URL with a username or password is rejected. `bast <label>` opens an entry only when no SSH host has that name.
 
+## Tunnels
+
+Named tunnels are stored in Bast metadata, not `~/.ssh/config`. They run through an existing SSH host, so user, port, and key come from OpenSSH. Each tunnel is a background `ssh -N` that reconnects with backoff and survives quitting Bast. The TUI has a Tunnels tab (`6`).
+
+```sh
+bast tunnel list [--group name] [--json]      # alias: bast tunnel l
+bast tunnel add <name> --host alias --mode local|remote|socks|socks-remote [--local ..] [--remote ..] [--group name] [--keep-alive seconds]
+bast tunnel edit <name> [patch flags]
+bast tunnel open <name|glob>... | --all | --group name
+bast tunnel close <name|glob>... | --all | --group name
+bast tunnel remove <name>...
+bast tunnel logs <name>
+```
+
+`local`: `--local [addr:]port|socket --remote host:port|socket`. `remote`: `--remote` is the server's listen port or socket, `--local` the target. `socks`: `--local` is the listen port. `socks-remote`: `--remote` is the server's listen port. Ports take lists and ranges (`8000-8002,9000`). Opening a running tunnel is a no-op. A busy local port, auth failure, or host-key failure is reported and stops that tunnel; network and DNS failures keep retrying. `BAST_DEBUG=1` adds `ssh -v` output to the log.
+
 ## Key commands
 
 ```sh

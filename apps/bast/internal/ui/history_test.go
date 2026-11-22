@@ -134,10 +134,8 @@ func TestHistoryImportRollsBackSSHBlockWhenStateWriteFails(t *testing.T) {
 	suggestion := testHistorySuggestion()
 	m := historyTestApp(t, suggestion)
 	stateDir := filepath.Dir(m.paths.StateFile)
-	if err := os.Remove(m.paths.StateFile); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(stateDir); err != nil {
+	// The directory also holds the metadata lock file, so remove the tree.
+	if err := os.RemoveAll(stateDir); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(stateDir, []byte("not a directory"), 0o600); err != nil {
