@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -20,28 +21,50 @@ func (m *App) openVaultWebDAVForm() {
 	})
 }
 
-func (m *App) submitVaultWebDAV() tea.Cmd {
+func (m *App) webDAVSubmission() (vault.Session, string, error) {
 	cfg := &vault.WebDAVConfig{
 		URL:      strings.TrimSpace(m.formValue("Directory URL")),
-		Username: m.formValue("Username"),
+		Username: strings.TrimSpace(m.formValue("Username")),
 		Password: m.formValue("Password"),
 	}
 	if err := cfg.Validate(); err != nil {
-		m.form.validationError = err.Error()
-		return nil
+		return vault.Session{}, "", err
 	}
 	pass := m.formValue("Passphrase")
 	if pass == "" || pass != m.formValue("Confirm") {
-		m.form.validationError = "Encryption passphrases must match and must not be empty"
-		return nil
+		return vault.Session{}, "", errors.New("Encryption passphrases must match and must not be empty")
 	}
-	session := vault.Session{Backend: "webdav", WebDAV: cfg}
+	return vault.Session{Backend: "webdav", WebDAV: cfg}, pass, nil
+}
+
+func (m *App) linkVaultWebDAV(session vault.Session, pass string) tea.Cmd {
+	opGen := m.vaultOpGen
+	parent := m.vaultOpCtx
+	if parent == nil {
+		parent = context.Background()
+	}
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 		defer cancel()
 		if err := vault.ClientForSession(session).CheckWebDAV(ctx); err != nil {
-			return vaultPullMsg{err: err, interactive: true, linked: true}
+			return vaultPullMsg{err: err, interactive: true, linked: true, opGen: opGen}
 		}
-		return m.vaultCompleteLink(session, pass)
+		if parent.Err() != nil {
+			return vaultPullMsg{opGen: opGen}
+		}
+		return withVaultOp(m.vaultCompleteLink(session, pass), opGen)
+	}
+}
+
+func withVaultOp(msg tea.Msg, opGen uint64) tea.Msg {
+	switch typed := msg.(type) {
+	case vaultPullMsg:
+		typed.opGen = opGen
+		return typed
+	case vaultConflictMsg:
+		typed.opGen = opGen
+		return typed
+	default:
+		return msg
 	}
 }

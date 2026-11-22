@@ -25,6 +25,7 @@ func (r *Runner) vaultLoginWebDAV(directory, username, mode string) error {
 			return err
 		}
 	}
+	username = strings.TrimSpace(username)
 	password := os.Getenv("BAST_WEBDAV_PASSWORD")
 	if password == "" {
 		password, err = r.readPassphrase("WebDAV password or app password")

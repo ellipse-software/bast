@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"bast/internal/metadata"
@@ -126,8 +127,12 @@ func testWebDAVLifecycle(t *testing.T, cfg *vault.WebDAVConfig) {
 	if err := b.vaultStatus(nil); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(outputB.String(), `"backend":"webdav"`) || strings.Contains(outputB.String(), cfg.Password) {
-		t.Fatal("status omitted backend or exposed credentials")
+	if !strings.Contains(outputB.String(), `"backend":"webdav"`) || strings.Contains(outputB.String(), cfg.Password) || strings.Contains(outputB.String(), `"apiBase"`) {
+		t.Fatal("status omitted backend, exposed credentials, or reported an API base")
+	}
+	beforeLogout, err := client.GetVault(context.Background(), "")
+	if err != nil || len(beforeLogout.Ciphertext) == 0 {
+		t.Fatalf("vault missing before logout: %+v, %v", beforeLogout.Meta, err)
 	}
 	if err := b.vaultLogout(nil); err != nil {
 		t.Fatal(err)
@@ -138,7 +143,8 @@ func testWebDAVLifecycle(t *testing.T, cfg *vault.WebDAVConfig) {
 	if _, err := os.Stat(vault.PassphrasePath(b.Paths.StateFile)); !os.IsNotExist(err) {
 		t.Fatalf("logout kept passphrase: %v", err)
 	}
-	if _, err := client.GetVault(context.Background(), ""); err != nil {
+	afterLogout, err := client.GetVault(context.Background(), "")
+	if err != nil || !bytes.Equal(afterLogout.Ciphertext, beforeLogout.Ciphertext) {
 		t.Fatalf("logout damaged shared vault: %v", err)
 	}
 	// A remote deletion must not silently recreate a vault on the next push.
@@ -178,6 +184,71 @@ func TestVaultWebDAVLiveLifecycle(t *testing.T) {
 	testWebDAVLifecycle(t, &vault.WebDAVConfig{
 		URL: directory, Username: os.Getenv("BAST_WEBDAV_TEST_USERNAME"), Password: os.Getenv("BAST_WEBDAV_TEST_PASSWORD"),
 	})
+}
+
+func TestVaultWebDAVLinkKeepsAPIPreference(t *testing.T) {
+	cfg := vaultDAVServer(t)
+	r, _ := webDAVRunner(t)
+	if err := vault.SaveSession(r.vaultSessionPath(), vault.Session{APIBase: "https://self.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.vaultLink(vault.Session{Backend: "webdav", WebDAV: cfg}, "encryption-secret", "merge"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := vault.LoadSession(r.vaultSessionPath())
+	if err != nil || loaded.Backend != "webdav" || loaded.APIBase != "https://self.example" || loaded.WebDAV == nil {
+		t.Fatalf("session = %+v, %v", loaded, err)
+	}
+}
+
+func TestVaultAPIStatusKeepsEmail(t *testing.T) {
+	r, out := webDAVRunner(t)
+	session := vault.Session{Email: "ada@example.com", Token: "tok", APIBase: "https://vault.example"}
+	if err := vault.SaveSession(r.vaultSessionPath(), session); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.vaultStatus(nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "ada@example.com") || !strings.Contains(out.String(), "https://vault.example") {
+		t.Fatalf("status = %s", out.String())
+	}
+}
+
+func TestVaultLinkUsesSessionAPIInsteadOfEnv(t *testing.T) {
+	var envHits, apiHits atomic.Int32
+	handler := func(hits *atomic.Int32) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits.Add(1)
+			if r.Header.Get("Authorization") != "Bearer tok" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			switch r.Method {
+			case http.MethodGet:
+				w.WriteHeader(http.StatusNotFound)
+			case http.MethodPut:
+				w.Header().Set("ETag", `"rev1"`)
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"revision":"rev1"}`))
+			default:
+				w.WriteHeader(http.StatusMethodNotAllowed)
+			}
+		})
+	}
+	envSrv := httptest.NewServer(handler(&envHits))
+	t.Cleanup(envSrv.Close)
+	apiSrv := httptest.NewServer(handler(&apiHits))
+	t.Cleanup(apiSrv.Close)
+	t.Setenv("BAST_VAULT_API", envSrv.URL)
+	r, _ := webDAVRunner(t)
+	session := vault.Session{Email: "ada@example.com", Token: "tok", APIBase: apiSrv.URL}
+	if err := r.vaultLink(session, "encryption-secret", "merge"); err != nil {
+		t.Fatal(err)
+	}
+	if envHits.Load() != 0 || apiHits.Load() == 0 {
+		t.Fatalf("env hits=%d api hits=%d", envHits.Load(), apiHits.Load())
+	}
 }
 
 func TestVaultWebDAVFlagsAndHelp(t *testing.T) {

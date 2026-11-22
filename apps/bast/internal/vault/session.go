@@ -46,6 +46,16 @@ func (s Session) RemoteLabel() string {
 	return EffectiveAPIBase(s.APIBase)
 }
 
+// RememberedAPIBase keeps a custom API server on a WebDAV session so logout can
+// restore it. WebDAV requests do not use APIBase.
+func RememberedAPIBase(prev, next Session) Session {
+	if next.Backend != "webdav" || strings.TrimSpace(next.APIBase) != "" {
+		return next
+	}
+	next.APIBase = prev.APIBase
+	return next
+}
+
 // ClientForSession keeps credentials and remote selection out of vault documents.
 func ClientForSession(s Session) *Client {
 	c := &Client{BaseURL: EffectiveAPIBase(s.APIBase), Token: s.Token}

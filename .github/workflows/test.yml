@@ -36,6 +36,7 @@ jobs:
       - run: go vet ./...
       - run: go build -trimpath -o /tmp/bast .
 
+  # GitHub Actions service container. The Boat matrix does not run service jobs.
   webdav:
     name: WebDAV (Apache)
     runs-on: ubuntu-latest

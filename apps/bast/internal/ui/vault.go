@@ -64,6 +64,9 @@ type vaultPushMsg struct {
 
 func (m *App) beginVaultBusy(label string) {
 	m.cancelVaultOp()
+	ctx, cancel := context.WithCancel(context.Background())
+	m.vaultOpCtx = ctx
+	m.vaultOpCancel = cancel
 	m.vaultBusy = label
 	m.vaultBusyHoldLoad = false
 }
@@ -81,6 +84,11 @@ func (m *App) clearVaultBusy() {
 }
 
 func (m *App) cancelVaultOp() {
+	if m.vaultOpCancel != nil {
+		m.vaultOpCancel()
+		m.vaultOpCancel = nil
+	}
+	m.vaultOpCtx = nil
 	m.vaultBusy = ""
 	m.vaultBusyHoldLoad = false
 	m.vaultRemoteRetry = false
@@ -423,7 +431,7 @@ func (m *App) vaultResolveLinkCmd(pending *vaultConflictState, mode vault.MergeM
 		if !session.Linked() {
 			return vaultPullMsg{err: fmt.Errorf("vault link missing token"), interactive: true, linked: true, opGen: opGen}
 		}
-		if strings.TrimSpace(session.APIBase) == "" {
+		if session.Backend != "webdav" && strings.TrimSpace(session.APIBase) == "" {
 			session.APIBase = vault.DefaultAPIBase
 		}
 		if err := vault.SaveSession(m.vaultSessionPath(), session); err != nil {
@@ -1124,7 +1132,10 @@ func (m *App) vaultCompleteLink(session vault.Session, passphrase string) tea.Ms
 	if !session.Linked() {
 		return vaultPullMsg{err: fmt.Errorf("vault link missing token"), interactive: true, linked: true}
 	}
-	if strings.TrimSpace(session.APIBase) == "" {
+	if prev, err := vault.LoadSession(m.vaultSessionPath()); err == nil {
+		session = vault.RememberedAPIBase(prev, session)
+	}
+	if session.Backend != "webdav" && strings.TrimSpace(session.APIBase) == "" {
 		session.APIBase = vault.DefaultAPIBase
 	}
 	// Persist auth before merge/apply/push so a later network error cannot leave

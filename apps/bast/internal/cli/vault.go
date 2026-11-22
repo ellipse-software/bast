@@ -181,7 +181,17 @@ func (r *Runner) vaultLogin(args []string) error {
 }
 
 func (r *Runner) vaultLink(session vault.Session, passphrase, mode string) error {
+	if prev, err := vault.LoadSession(r.vaultSessionPath()); err == nil {
+		session = vault.RememberedAPIBase(prev, session)
+	}
 	client := r.vaultClient(session)
+	// The OTP client already chose this base. EffectiveAPIBase would send that
+	// token to BAST_VAULT_API instead when both are set.
+	if session.Backend != "webdav" {
+		if base := vault.NormalizeAPIBase(session.APIBase); base != "" {
+			client.BaseURL = base
+		}
+	}
 	mergeMode := vault.MergeMode(strings.ToLower(strings.TrimSpace(mode)))
 	switch mergeMode {
 	case vault.MergeModeMerge, vault.MergeModeReplaceLocal, vault.MergeModeReplaceRemote:
@@ -243,11 +253,15 @@ func (r *Runner) vaultLink(session vault.Session, passphrase, mode string) error
 	if err := vault.SaveSession(r.vaultSessionPath(), session); err != nil {
 		return err
 	}
+	label := session.Email
+	if session.Backend == "webdav" {
+		label = session.RemoteLabel()
+	}
 	return r.success(map[string]any{
 		"email":    session.Email,
 		"revision": session.Revision,
 		"backend":  session.Backend,
-	}, "Vault linked: "+session.RemoteLabel())
+	}, "Vault linked: "+label)
 }
 
 func (r *Runner) vaultStatus(args []string) error {
@@ -268,14 +282,19 @@ func (r *Runner) vaultStatus(args []string) error {
 	if !session.Linked() {
 		return r.success(map[string]any{"linked": false}, "Vault not linked")
 	}
-	return r.success(map[string]any{
+	data := map[string]any{
 		"linked":   session.Linked(),
 		"email":    session.Email,
 		"revision": session.Revision,
-		"apiBase":  vault.EffectiveAPIBase(session.APIBase),
 		"backend":  session.Backend,
 		"remote":   session.RemoteLabel(),
-	}, fmt.Sprintf("Vault linked · %s · revision %s", session.RemoteLabel(), emptyDefault(session.Revision)))
+	}
+	if session.Backend == "webdav" {
+		return r.success(data, fmt.Sprintf("Vault linked · %s · revision %s", session.RemoteLabel(), emptyDefault(session.Revision)))
+	}
+	apiBase := vault.EffectiveAPIBase(session.APIBase)
+	data["apiBase"] = apiBase
+	return r.success(data, fmt.Sprintf("Vault linked · %s · %s · revision %s", session.Email, apiBase, emptyDefault(session.Revision)))
 }
 
 func (r *Runner) vaultPush(args []string) error {

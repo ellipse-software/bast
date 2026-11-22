@@ -183,6 +183,22 @@ bast keys delete <name> [--yes] [--json]
 
 Import from stdin without shell history: `bast keys import work --private - < id_ed25519`
 
+## Vault
+
+Vault syncs Bast-managed hosts and keys. The encryption passphrase stays on this machine.
+
+```sh
+bast vault login [--email address] [--api url] [--accept-terms] [--mode merge|replace_local|replace_remote]
+bast vault login --webdav https://dav.example.com/bast/ --username alice
+bast vault status [--json]
+bast vault pull [--mode merge|replace_local|replace_remote]
+bast vault push
+bast vault logout
+bast vault passphrase [--force]
+```
+
+`--webdav` stores the encrypted vault in a WebDAV directory you already have, with no Bast account. The command prompts for the WebDAV password and the encryption passphrase. `BAST_WEBDAV_PASSWORD` can supply only the WebDAV password. HTTPS is required except on loopback. The server must send strong ETags and honor `If-Match` and `If-None-Match: *`. Logout removes this machine's WebDAV credentials and leaves the remote file in place. WebDAV login does not support `--json` or `--no-input`. Hosted `bast vault login` still requires `--accept-terms` under `--json` / `--no-input`.
+
 ## Cloud sync
 
 ```sh
