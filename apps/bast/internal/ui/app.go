@@ -69,6 +69,8 @@ type form struct {
 	selecting        bool
 	validationError  string
 	input            textinput.Model
+	tunnelPick       int
+	parent           *form
 }
 
 type loadedMsg struct {
@@ -153,7 +155,6 @@ type hostListRowsCache struct {
 	historyCollapsed   bool
 	suggestionSig      uint64
 	entrySignature     uint64
-	forwardSig         string
 	rows               []hostRow
 }
 
@@ -257,6 +258,8 @@ type App struct {
 	tunnelSup              *tunnel.Supervisor
 	tunnelMgr              *tunnel.Manager
 	tunnelMgrErr           error
+	importNotice           string
+	importErr              error
 	tunnelTicking          bool
 	selectAfterLoadGroup   bool
 }
@@ -312,7 +315,33 @@ func New(p paths.Paths, client openssh.Client, version string) (*App, error) {
 	} else {
 		app.tunnelMgr = mgr
 	}
+	if result, err := tunnel.ImportConfigForwards(app.config, store); err != nil {
+		app.importErr = err
+	} else {
+		for _, alias := range result.Migrated {
+			if sup.ConfigOpen(alias) {
+				sup.CloseConfig(alias)
+				result.Closed = append(result.Closed, alias)
+			}
+		}
+		app.importNotice = result.Notice()
+	}
 	return app, nil
+}
+
+func (m *App) takeStartupNotice(enrichmentErrors int) tea.Cmd {
+	var parts []string
+	if m.importNotice != "" {
+		parts = append(parts, m.importNotice)
+		m.importNotice = ""
+	}
+	if enrichmentErrors > 0 {
+		parts = append(parts, fmt.Sprintf("%d host details could not be resolved", enrichmentErrors))
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	return m.setNotice(strings.Join(parts, ". "))
 }
 
 func (m *App) providerSyncing(provider string) bool {
@@ -587,17 +616,25 @@ func (m *App) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.setError(msg.err)
 			return m, m.autoSyncCmds()
 		}
+		if m.importErr != nil {
+			err := m.importErr
+			m.importErr = nil
+			m.importNotice = ""
+			m.setError(err)
+			return m, m.autoSyncCmds()
+		}
 		m.keys = msg.keys
 		m.selectAfterLoad()
+		notice := m.takeStartupNotice(msg.enrichmentErrors)
 		if cmd := m.connectAfterSandboxResume(); cmd != nil {
 			cmds := []tea.Cmd{cmd}
-			if msg.enrichmentErrors > 0 {
-				cmds = append(cmds, m.setNotice(fmt.Sprintf("%d host details could not be resolved", msg.enrichmentErrors)))
+			if notice != nil {
+				cmds = append(cmds, notice)
 			}
 			return m, tea.Batch(cmds...)
 		}
-		if msg.enrichmentErrors > 0 {
-			return m, tea.Batch(m.autoSyncCmds(), m.setNotice(fmt.Sprintf("%d host details could not be resolved", msg.enrichmentErrors)))
+		if notice != nil {
+			return m, tea.Batch(m.autoSyncCmds(), notice)
 		}
 		return m, m.autoSyncCmds()
 	case doctorDoneMsg:

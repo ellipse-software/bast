@@ -24,16 +24,27 @@ func (f *hostAdvancedAddFlags) register(fs *flag.FlagSet) {
 	f.forwardAgent = fs.String("forward-agent", "", "agent forwarding: yes or no")
 	f.startupCommand = fs.String("startup-command", "", "command to run after connect (RemoteCommand)")
 	f.requestTTY = fs.String("request-tty", "", "TTY allocation: force or no")
-	f.dynamicForward = fs.String("dynamic-forward", "", "SOCKS port (DynamicForward)")
+	f.dynamicForward = fs.String("dynamic-forward", "", "removed: use bast tunnel add")
 	f.compression = fs.String("compression", "", "compression: yes or no")
 	f.keepalive = fs.String("keepalive", "", "ServerAliveInterval in seconds")
 	fs.Var(&f.setEnv, "set-env", "environment variable KEY=VALUE (repeatable)")
-	fs.Var(&f.localForward, "local-forward", "local forward as port target (repeatable)")
-	fs.Var(&f.remoteForward, "remote-forward", "remote forward as port target (repeatable)")
+	fs.Var(&f.localForward, "local-forward", "removed: use bast tunnel add")
+	fs.Var(&f.remoteForward, "remote-forward", "removed: use bast tunnel add")
 	fs.Var(&f.customOptions, "ssh-option", "extra OpenSSH option (repeatable)")
 }
 
+func removedForwardFlagsError() error {
+	return usagef("port forwards are tunnels: bast tunnel add <name> --host <alias> --mode local --local <listen> --remote <target> [--open-with-host]")
+}
+
+func (f *hostAdvancedAddFlags) removedForwards() bool {
+	return len(f.localForward) > 0 || len(f.remoteForward) > 0 || strings.TrimSpace(*f.dynamicForward) != ""
+}
+
 func (f *hostAdvancedAddFlags) settings(proxyJump string, customFromSSHOption []string) (sshconfig.AdvancedSettings, error) {
+	if f.removedForwards() {
+		return sshconfig.AdvancedSettings{}, removedForwardFlagsError()
+	}
 	custom := append([]string(nil), f.customOptions...)
 	if len(customFromSSHOption) > 0 {
 		custom = append(custom, customFromSSHOption...)
@@ -44,9 +55,6 @@ func (f *hostAdvancedAddFlags) settings(proxyJump string, customFromSSHOption []
 		RemoteCommand:       strings.TrimSpace(*f.startupCommand),
 		RequestTTY:          normalizeRequestTTY(*f.requestTTY),
 		SetEnv:              splitSemicolonValues(f.setEnv),
-		LocalForwards:       splitSemicolonValues(f.localForward),
-		RemoteForwards:      splitSemicolonValues(f.remoteForward),
-		DynamicForward:      strings.TrimSpace(*f.dynamicForward),
 		ServerAliveInterval: strings.TrimSpace(*f.keepalive),
 		Compression:         normalizeTriState(*f.compression),
 		Custom:              sshconfig.ParseSSHFlags(strings.Join(custom, "; ")),
@@ -82,22 +90,22 @@ func (f *hostAdvancedEditFlags) register(fs *flag.FlagSet) {
 	fs.Var(&f.forwardAgent, "forward-agent", "agent forwarding: yes or no")
 	fs.Var(&f.startupCommand, "startup-command", "command to run after connect (RemoteCommand)")
 	fs.Var(&f.requestTTY, "request-tty", "TTY allocation: force or no")
-	fs.Var(&f.dynamicForward, "dynamic-forward", "SOCKS port (DynamicForward)")
+	fs.Var(&f.dynamicForward, "dynamic-forward", "removed: use bast tunnel add")
 	fs.Var(&f.compression, "compression", "compression: yes or no")
 	fs.Var(&f.keepalive, "keepalive", "ServerAliveInterval in seconds")
 	fs.Var(&f.setEnv, "set-env", "replacement environment variable KEY=VALUE (repeatable)")
-	fs.Var(&f.localForward, "local-forward", "replacement local forward port target (repeatable)")
-	fs.Var(&f.remoteForward, "remote-forward", "replacement remote forward port target (repeatable)")
+	fs.Var(&f.localForward, "local-forward", "removed: use bast tunnel add")
+	fs.Var(&f.remoteForward, "remote-forward", "removed: use bast tunnel add")
 	fs.Var(&f.customOptions, "ssh-option", "replacement extra OpenSSH option (repeatable)")
 	fs.BoolVar(&f.clearForwardAgent, "clear-forward-agent", false, "use OpenSSH default agent forwarding")
 	fs.BoolVar(&f.clearStartupCommand, "clear-startup-command", false, "clear startup command")
 	fs.BoolVar(&f.clearRequestTTY, "clear-request-tty", false, "use OpenSSH default TTY allocation")
-	fs.BoolVar(&f.clearDynamicForward, "clear-dynamic-forward", false, "clear dynamic forward")
+	fs.BoolVar(&f.clearDynamicForward, "clear-dynamic-forward", false, "removed: use bast tunnel edit")
 	fs.BoolVar(&f.clearCompression, "clear-compression", false, "use OpenSSH default compression")
 	fs.BoolVar(&f.clearKeepalive, "clear-keepalive", false, "clear keepalive interval")
 	fs.BoolVar(&f.clearSetEnv, "clear-set-env", false, "clear environment variables")
-	fs.BoolVar(&f.clearLocalForward, "clear-local-forward", false, "clear local forwards")
-	fs.BoolVar(&f.clearRemoteForward, "clear-remote-forward", false, "clear remote forwards")
+	fs.BoolVar(&f.clearLocalForward, "clear-local-forward", false, "removed: use bast tunnel edit")
+	fs.BoolVar(&f.clearRemoteForward, "clear-remote-forward", false, "removed: use bast tunnel edit")
 	fs.BoolVar(&f.clearCustomOptions, "clear-ssh-options", false, "clear custom OpenSSH options")
 }
 
@@ -132,7 +140,14 @@ func (f *hostAdvancedEditFlags) changed() bool {
 		f.clearKeepalive || f.clearSetEnv || f.clearLocalForward || f.clearRemoteForward || f.clearCustomOptions
 }
 
+func (f *hostAdvancedEditFlags) removedForwards() bool {
+	return f.dynamicForward.set || f.clearDynamicForward || len(f.localForward) > 0 || f.clearLocalForward || len(f.remoteForward) > 0 || f.clearRemoteForward
+}
+
 func (f *hostAdvancedEditFlags) apply(current sshconfig.AdvancedSettings, proxyJump string, proxySet, clearProxy bool) (sshconfig.AdvancedSettings, error) {
+	if f.removedForwards() {
+		return sshconfig.AdvancedSettings{}, removedForwardFlagsError()
+	}
 	next := current
 	if proxySet {
 		next.ProxyJump = strings.TrimSpace(proxyJump)
@@ -158,12 +173,6 @@ func (f *hostAdvancedEditFlags) apply(current sshconfig.AdvancedSettings, proxyJ
 	if f.clearRequestTTY {
 		next.RequestTTY = ""
 	}
-	if f.dynamicForward.set {
-		next.DynamicForward = strings.TrimSpace(f.dynamicForward.value)
-	}
-	if f.clearDynamicForward {
-		next.DynamicForward = ""
-	}
 	if f.compression.set {
 		next.Compression = normalizeTriState(f.compression.value)
 	}
@@ -181,18 +190,6 @@ func (f *hostAdvancedEditFlags) apply(current sshconfig.AdvancedSettings, proxyJ
 	}
 	if f.clearSetEnv {
 		next.SetEnv = nil
-	}
-	if len(f.localForward) > 0 {
-		next.LocalForwards = splitSemicolonValues(f.localForward)
-	}
-	if f.clearLocalForward {
-		next.LocalForwards = nil
-	}
-	if len(f.remoteForward) > 0 {
-		next.RemoteForwards = splitSemicolonValues(f.remoteForward)
-	}
-	if f.clearRemoteForward {
-		next.RemoteForwards = nil
 	}
 	if len(f.customOptions) > 0 {
 		next.Custom = sshconfig.ParseSSHFlags(strings.Join(f.customOptions, "; "))
@@ -294,20 +291,6 @@ func promptAdvancedSettings(r *Runner, current sshconfig.AdvancedSettings) (sshc
 		return sshconfig.AdvancedSettings{}, err
 	}
 	next.RequestTTY = normalizeRequestTTY(next.RequestTTY)
-	localText, err := r.prompt("Local forwards (; separated)", sshconfig.FormatForwardList(current.LocalForwards), false)
-	if err != nil {
-		return sshconfig.AdvancedSettings{}, err
-	}
-	next.LocalForwards = sshconfig.ParseForwardList(localText)
-	remoteText, err := r.prompt("Remote forwards (; separated)", sshconfig.FormatForwardList(current.RemoteForwards), false)
-	if err != nil {
-		return sshconfig.AdvancedSettings{}, err
-	}
-	next.RemoteForwards = sshconfig.ParseForwardList(remoteText)
-	next.DynamicForward, err = r.prompt("Dynamic forward", current.DynamicForward, false)
-	if err != nil {
-		return sshconfig.AdvancedSettings{}, err
-	}
 	next.Compression, err = r.prompt("Compression (default, yes, no)", displayTriState(current.Compression), false)
 	if err != nil {
 		return sshconfig.AdvancedSettings{}, err

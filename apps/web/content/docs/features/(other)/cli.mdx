@@ -42,11 +42,10 @@ bast hosts add "Production web" --hostname prod.example.com \
   --startup-command "tmux attach -t main" \
   --request-tty force \
   --set-env APP_ENV=production \
-  --local-forward "8080 localhost:80" \
   --keepalive 30
 ```
 
-Repeat `--set-env`, `--local-forward`, `--remote-forward`, and `--ssh-option` for multiple values. On edit, use the matching `--clear-*` flag to remove a value or return to the OpenSSH default.
+Repeat `--set-env` and `--ssh-option` for multiple values. On edit, use the matching `--clear-*` flag to remove a value or return to the OpenSSH default. Port forwards are tunnels: `bast tunnel add`, with `--open-with-host` when the forward should start on connect.
 
 See [Advanced host options](/docs/features/advanced-host-options) for what every option does, syntax examples, and security notes.
 

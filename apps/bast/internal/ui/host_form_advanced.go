@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -60,6 +61,7 @@ func (m *App) enterAdvancedSubsection(section string) {
 	f.screen = section
 	f.index = indices[0]
 	f.selecting = false
+	f.tunnelPick = -1
 	m.focusFormField()
 }
 
@@ -97,6 +99,7 @@ func (m *App) exitAdvancedSubsection() {
 	f := m.form
 	section := f.screen
 	f.screen = formScreenAdvancedHub
+	f.tunnelPick = -1
 	for i, item := range advancedHubList {
 		if item.section == section {
 			f.hubIndex = i
@@ -131,14 +134,11 @@ func (m *App) advancedSubsectionSummary(section string) string {
 		if agent := fieldDisplay(f, "Agent forwarding"); agent != "" && agent != "-" && agent != "Default" {
 			parts = append(parts, "agent "+strings.ToLower(agent))
 		}
-		if local := fieldDisplay(f, "Local forwards"); local != "" && local != "-" {
-			parts = append(parts, "local")
-		}
-		if remote := fieldDisplay(f, "Remote forwards"); remote != "" && remote != "-" {
-			parts = append(parts, "remote")
-		}
-		if dynamic := fieldDisplay(f, "Dynamic forward"); dynamic != "" && dynamic != "-" {
-			parts = append(parts, "socks")
+		switch n := len(m.hostFormTunnels()); {
+		case n == 1:
+			parts = append(parts, "1 tunnel")
+		case n > 1:
+			parts = append(parts, fmt.Sprintf("%d tunnels", n))
 		}
 		if len(parts) == 0 {
 			return "-"
@@ -281,11 +281,11 @@ func advancedFormFields(m *App, adv sshconfig.AdvancedSettings) []field {
 		{label: "Startup command", section: formSectionAdvancedSession, description: descHostRemoteCommand, value: adv.RemoteCommand, placeholder: "tmux attach -t main", optional: true},
 		requestTTY,
 		forwardAgent,
-		{label: "Local forwards", section: formSectionAdvancedForwarding, description: descHostLocalForward, value: sshconfig.FormatForwardList(adv.LocalForwards), placeholder: "8080 localhost:80", optional: true},
-		{label: "Remote forwards", section: formSectionAdvancedForwarding, description: descHostRemoteForward, value: sshconfig.FormatForwardList(adv.RemoteForwards), placeholder: "8080 localhost:80", optional: true},
-		{label: "Dynamic forward", section: formSectionAdvancedForwarding, description: descHostDynamicForward, value: adv.DynamicForward, placeholder: "1080", optional: true},
 		compression,
 		{label: "Keepalive (seconds)", section: formSectionAdvancedForwarding, description: descHostKeepalive, value: adv.ServerAliveInterval, placeholder: "30", optional: true},
+		{label: "Local forwards", section: formSectionAdvancedForwarding, description: descHostLocalForward, value: sshconfig.FormatForwardList(adv.LocalForwards), hidden: true},
+		{label: "Remote forwards", section: formSectionAdvancedForwarding, description: descHostRemoteForward, value: sshconfig.FormatForwardList(adv.RemoteForwards), hidden: true},
+		{label: "Dynamic forward", section: formSectionAdvancedForwarding, description: descHostDynamicForward, value: adv.DynamicForward, hidden: true},
 		{label: "Environment variables", section: formSectionAdvancedEnv, description: descHostSetEnv, value: sshconfig.FormatSetEnvList(adv.SetEnv), placeholder: "FOO=bar; BAZ=qux", optional: true},
 		{label: "Custom SSH flags", section: formSectionAdvancedCustom, description: descHostSSHFlags, value: sshconfig.FormatSSHFlags(adv.Custom), placeholder: "IdentitiesOnly yes", optional: true},
 	}

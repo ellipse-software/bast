@@ -63,6 +63,53 @@ func TestTunnelFormSaveValidatesAndStores(t *testing.T) {
 	}
 }
 
+func TestHostForwardingAddsOpenWithHostTunnel(t *testing.T) {
+	m := testApp(t)
+	m.openHostForm("Edit host: alpha", "host_edit", hostFormFields(m, metadataHostValues{label: "alpha"}, hostConnectionValues{includeConnection: true, hostname: "alpha.example"}, []field{{label: "Original label", value: "alpha", hidden: true}}))
+	m.enterAdvancedSubsection(formSectionAdvancedForwarding)
+	rendered := stripANSI(m.renderForm(m.styles()))
+	if !strings.Contains(rendered, "Add tunnel") || strings.Contains(rendered, "Local forwards") {
+		t.Fatalf("forwarding screen:\n%s", rendered)
+	}
+	if _, cmd := m.addTunnelFromHost(); cmd != nil {
+		t.Fatal("saved host should open the tunnel form")
+	}
+	if m.form == nil || m.form.action != "tunnel_save" || m.form.parent == nil || m.form.parent.action != "host_edit" {
+		t.Fatalf("tunnel form did not keep the host form")
+	}
+	if item := m.form.fieldByLabel("Open with host"); item == nil || item.value != "yes" {
+		t.Fatalf("open with host = %+v", m.form.fieldByLabel("Open with host"))
+	}
+	if item := m.form.fieldByLabel("Host"); item == nil || item.value != "alpha" {
+		t.Fatalf("host = %+v", item)
+	}
+	m.form.fieldByLabel("Name").value = "web"
+	m.form.fieldByLabel("Local").value = "8080"
+	m.form.fieldByLabel("Remote").value = "localhost:80"
+	m.submitForm()
+	if m.form == nil || m.form.action != "host_edit" {
+		t.Fatalf("parent not restored: %+v", m.form)
+	}
+	got, ok := m.metadata.Tunnel("web")
+	if !ok || !got.OpenWithHost || got.Host != "alpha" || got.Local != "8080" || got.Remote != "localhost:80" {
+		t.Fatalf("stored = %+v ok=%v", got, ok)
+	}
+
+	m.openAddHostForm()
+	m.enterAdvancedSubsection(formSectionAdvancedForwarding)
+	m.addTunnelFromHost()
+	if m.form == nil || m.form.action != "host_add" || !strings.Contains(m.status, "Save the host first") {
+		t.Fatalf("unsaved add form action=%v status=%q", formAction(m), m.status)
+	}
+}
+
+func formAction(m *App) string {
+	if m.form == nil {
+		return ""
+	}
+	return m.form.action
+}
+
 func TestTunnelEditKeepsHostMissingFromThePicker(t *testing.T) {
 	m := testApp(t)
 	kept := m.tunnelHostField("retired")

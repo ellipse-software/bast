@@ -46,6 +46,27 @@ func TestTunnelAddListEditRemove(t *testing.T) {
 	if !strings.Contains(out, `"local":"1090"`) {
 		t.Fatalf("edit not stored: %s", out)
 	}
+	if _, _, err := run("tunnel", "edit", "dev", "--open-with-host"); err != nil {
+		t.Fatal(err)
+	}
+	out, _, _ = run("--json", "tunnel", "list")
+	if !strings.Contains(out, `"name":"dev"`) || !strings.Contains(out, `"openWithHost":true`) {
+		t.Fatalf("open with host not stored: %s", out)
+	}
+	if _, _, err := run("tunnel", "edit", "dev", "--clear-open-with-host"); err != nil {
+		t.Fatal(err)
+	}
+	out, _, _ = run("--json", "tunnel", "list")
+	if strings.Contains(out, `"openWithHost"`) {
+		t.Fatalf("clear left openWithHost: %s", out)
+	}
+	if _, _, err := run("tunnel", "edit", "dev", "--open-with-host=false"); err != nil {
+		t.Fatal(err)
+	}
+	out, _, _ = run("--json", "tunnel", "list")
+	if strings.Contains(out, `"openWithHost"`) {
+		t.Fatalf("explicit false stored openWithHost: %s", out)
+	}
 
 	// Closing tunnels that are not running is safe, by name, glob, and group.
 	for _, sel := range [][]string{{"dev"}, {"prod-*"}, {"--group", "prod"}, {"--all"}} {

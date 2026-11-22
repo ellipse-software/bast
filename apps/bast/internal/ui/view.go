@@ -64,10 +64,11 @@ func (m *App) renderHostDetailActions(s styleSet, host sshconfig.Host, primary s
 	if m.hostMetadata()[host.Alias].RDP {
 		line += " " + s.title.Render(rdpAction)
 	}
+	if m.hostHasForwards(host) {
+		line += " " + s.title.Render(forwardAction)
+	}
 	if m.forwardOpen(host.Alias) {
 		line += " " + s.title.Render(closeTunnelAction)
-	} else if m.hostHasForwards(host) {
-		line += " " + s.title.Render(forwardAction)
 	}
 	return line + "\n\n"
 }
@@ -561,10 +562,6 @@ func (m *App) renderHosts(s styleSet) string {
 			detailContent = m.renderHistorySuggestionDetail(s, *rowsData[m.cursor].suggestion, detailWidth)
 		} else if rowsData[m.cursor].header {
 			detailContent = m.renderGroupDetail(s, rowsData[m.cursor], detailWidth)
-		} else if rowsData[m.cursor].forwardHeader {
-			detailContent = ""
-		} else if rowsData[m.cursor].forwardAlias != "" {
-			detailContent = m.renderForwardDetail(s, rowsData[m.cursor].forwardAlias, detailWidth)
 		} else if rowsData[m.cursor].entry != nil {
 			detailContent = m.renderEntryDetail(s, *rowsData[m.cursor].entry, detailWidth)
 		} else {
@@ -688,12 +685,6 @@ func (m *App) renderHostRowLine(s styleSet, row hostRow, selected bool, rowWidth
 		default:
 			return activeRow.Render(" " + line)
 		}
-	}
-	if row.forwardHeader {
-		return m.renderForwardHeader(s, rowWidth, selected)
-	}
-	if row.forwardAlias != "" {
-		return m.renderForwardRow(s, row, selected, rowWidth)
 	}
 	if row.entry != nil {
 		return m.renderEntryRow(s, row, selected, rowWidth)

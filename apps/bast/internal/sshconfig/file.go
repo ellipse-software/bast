@@ -822,6 +822,69 @@ func init() {
 	}
 }
 
+// ManagedInput reads one Bast-managed host block back into the values Update writes.
+func (m Manager) ManagedInput(id string) (HostInput, error) {
+	if id == "" {
+		return HostInput{}, errors.New("cannot edit an externally managed host")
+	}
+	b, err := os.ReadFile(m.ManagedConfig)
+	if err != nil {
+		return HostInput{}, err
+	}
+	block := findManagedBlock(b, id)
+	if block == nil {
+		return HostInput{}, fmt.Errorf("managed host block %q no longer exists", id)
+	}
+	var input HostInput
+	var extras []string
+	var auth []string
+	pubkeyNo, passwordYes := false, false
+	for _, line := range strings.Split(string(block), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts, err := fields(line)
+		if err != nil || len(parts) == 0 {
+			continue
+		}
+		name := strings.ToLower(parts[0])
+		value := strings.TrimSpace(strings.Join(parts[1:], " "))
+		switch name {
+		case "host":
+			input.Alias = value
+		case "hostname":
+			input.HostName = value
+		case "user":
+			input.User = value
+		case "port":
+			input.Port = value
+		case "identityfile":
+			if input.IdentityFile == "" {
+				input.IdentityFile = value
+			}
+		case "proxyjump":
+			input.ProxyJump = value
+		case "pubkeyauthentication":
+			pubkeyNo = strings.EqualFold(value, "no")
+			auth = append(auth, line)
+		case "passwordauthentication":
+			passwordYes = strings.EqualFold(value, "yes")
+			auth = append(auth, line)
+		case "preferredauthentications":
+			auth = append(auth, line)
+		default:
+			extras = append(extras, line)
+		}
+	}
+	input.PasswordOnly = pubkeyNo && passwordYes
+	if !input.PasswordOnly {
+		extras = append(extras, auth...)
+	}
+	input.ExtraOptions = extras
+	return input, nil
+}
+
 func extractBlockExtras(data []byte, id string) []string {
 	block := findManagedBlock(data, id)
 	if block == nil {
@@ -889,6 +952,10 @@ func validateExtraOptions(options []string) error {
 		name := strings.ToLower(parts[0])
 		if forbiddenDirectives[name] {
 			return fmt.Errorf("SSH flag %q is not allowed", parts[0])
+		}
+		switch name {
+		case "localforward", "remoteforward", "dynamicforward":
+			return fmt.Errorf("use bast tunnel add for %s", parts[0])
 		}
 		if managedDirectives[name] {
 			return fmt.Errorf("use the dedicated field for %s instead of SSH flags", parts[0])

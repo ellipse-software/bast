@@ -157,13 +157,7 @@ func reloadLabel(m *App) string {
 }
 
 func hostsEnterAvailable(m *App) bool {
-	if m.itemCount() == 0 {
-		return false
-	}
-	if _, ok := m.selectedForward(); ok || m.forwardHeaderSelected() {
-		return false
-	}
-	return true
+	return m.itemCount() != 0
 }
 
 func hostsEnterLabel(m *App) string {
@@ -542,7 +536,7 @@ func hostsFooterGroupRename(m *App) bool {
 
 func hostsFooterForward(m *App) bool {
 	host, ok := m.selectedHost()
-	return ok && m.hostHasForwards(host) && !m.forwardOpen(host.Alias)
+	return ok && m.hostHasForwards(host)
 }
 
 func hostsFooterCloseTunnel(m *App) bool {
@@ -550,9 +544,6 @@ func hostsFooterCloseTunnel(m *App) bool {
 }
 
 func hostsFooterForwardOpen(m *App) bool {
-	if _, ok := m.selectedForward(); ok {
-		return true
-	}
 	host, ok := m.selectedHost()
 	return ok && m.forwardOpen(host.Alias)
 }

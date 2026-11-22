@@ -1,21 +1,28 @@
 package ui
 
 import (
-	"strings"
 	"testing"
 
+	"bast/internal/metadata"
 	"bast/internal/sshconfig"
 )
 
-func TestForwardLinesDescribeEachKind(t *testing.T) {
-	lines := forwardLines(sshconfig.AdvancedSettings{
-		LocalForwards:  []string{"3005 localhost:3005"},
-		RemoteForwards: []string{"9000 localhost:3000"},
-		DynamicForward: "1080",
-	})
-	got := strings.Join(lines, " | ")
-	want := "3005 → localhost:3005 | remote 9000 → localhost:3000 | socks 1080"
-	if got != want {
-		t.Fatalf("lines = %q", got)
+func TestForwardUsesOpenWithHostTunnels(t *testing.T) {
+	m := testApp(t)
+	host := sshconfig.Host{Alias: "alpha"}
+	if m.hostHasForwards(host) || m.forwardOpen("alpha") {
+		t.Fatal("empty host offered a forward")
+	}
+	if err := m.metadata.PutTunnel(metadata.Tunnel{Name: "manual", Host: "alpha", Mode: "local", Local: "8080", Remote: "localhost:80"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if m.hostHasForwards(host) || m.forwardOpen("alpha") {
+		t.Fatal("a manual tunnel should not use Forward or Close")
+	}
+	if err := m.metadata.PutTunnel(metadata.Tunnel{Name: "web", Host: "alpha", Mode: "local", Local: "9090", Remote: "localhost:90", OpenWithHost: true}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !m.hostHasForwards(host) || m.forwardOpen("alpha") {
+		t.Fatal("an idle open-with-host tunnel should offer Forward only")
 	}
 }

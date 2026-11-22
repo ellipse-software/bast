@@ -15,7 +15,7 @@ import (
 	"bast/internal/platform"
 )
 
-const CurrentVersion = 11
+const CurrentVersion = 12
 
 type Host struct {
 	Label           string     `json:"label,omitempty"`

@@ -27,17 +27,18 @@ Startup command maps to `RemoteCommand`. Request TTY maps to `RequestTTY force` 
 | Option | What it does | Example |
 | --- | --- | --- |
 | Agent forwarding | Lets the remote server use keys from your local ssh-agent. Only enable it for servers you trust. | `Yes` |
-| Local forwards | Makes a service reachable on a local port. Use `local-port destination-host:destination-port`. Separate multiple forwards with semicolons. | `8080 localhost:80` |
-| Remote forwards | Makes a local service reachable from the remote side. Use `remote-port destination-host:destination-port`. Separate multiple forwards with semicolons. | `9000 localhost:3000` |
-| Dynamic forward | Starts a local SOCKS proxy on the given port. | `1080` |
 | Compression | Enables SSH compression. It can help on slow links but usually adds overhead on fast networks. | `Yes` |
 | Keepalive | Sends a server-alive message after this many idle seconds. This can keep connections alive through firewalls and NAT. | `30` |
 
-These values map to `ForwardAgent`, `LocalForward`, `RemoteForward`, `DynamicForward`, `Compression`, and `ServerAliveInterval`.
+These values map to `ForwardAgent`, `Compression`, and `ServerAliveInterval`.
 
-On a host that has a local, remote, or dynamic forward, the detail panel shows **Forward**. `Ctrl+P` starts `ssh -N` as its own process. The ports stay up after you return to the host list, quit Bast, or open another window. Every window lists the same forwards under a **Forwards** separator at the top of the host list. **Close** or `c` in any window stops that process. Connecting with Enter still opens a shell, and that shell keeps its own copies of the same forwards until you exit it.
+Port forwards are tunnels. This screen lists the tunnels for the host. **Add tunnel** opens the tunnel form with the host filled in and **Open with host** on. Save the host before adding a tunnel to a new one.
+
+Connecting starts that host's open-with-host tunnels. **Forward** or `Ctrl+P` starts the ones that are not running. **Close** or `c` stops the ones that are. Each tunnel is its own process. A tunnel opened by hand from the Tunnels tab is left alone. See [Tunnels](/docs/features/tunnels).
 
 Agent forwarding gives the remote host access to your agent while the session is open. It does not copy private-key files to the server, but a compromised server could use the forwarded agent during that session.
+
+The first time Bast starts after this change, `LocalForward`, `RemoteForward`, and `DynamicForward` on Bast-managed hosts are copied into tunnels with **Open with host** on, then removed from the SSH config. A shell that is already connected keeps those ports until it exits. `ssh` outside Bast does not bring them up.
 
 ## Environment
 
@@ -70,14 +71,11 @@ Every advanced field has a matching option on `bast hosts add` and `bast hosts e
 | Startup command | `--startup-command` | `--clear-startup-command` |
 | Request TTY | `--request-tty force\|no` | `--clear-request-tty` |
 | Environment variable | `--set-env` | `--clear-set-env` |
-| Local forward | `--local-forward` | `--clear-local-forward` |
-| Remote forward | `--remote-forward` | `--clear-remote-forward` |
-| Dynamic forward | `--dynamic-forward` | `--clear-dynamic-forward` |
 | Compression | `--compression yes\|no` | `--clear-compression` |
 | Keepalive | `--keepalive` | `--clear-keepalive` |
 | Custom flag | `--ssh-option` | `--clear-ssh-options` |
 
-Repeat `--set-env`, `--local-forward`, `--remote-forward`, or `--ssh-option` to add more than one value.
+Repeat `--set-env` or `--ssh-option` to add more than one value. Port forwards use `bast tunnel add`, including `--open-with-host` when the forward should start with the host.
 
 ```bash
 bast hosts add "Production web" \
@@ -86,8 +84,9 @@ bast hosts add "Production web" \
   --startup-command "tmux attach -t main" \
   --request-tty force \
   --set-env APP_ENV=production \
-  --local-forward "8080 localhost:80" \
   --keepalive 30
+
+bast tunnel add web --host Production_web --mode local --local 8080 --remote localhost:80 --open-with-host
 ```
 
 Host edits are patches, so omitted options stay unchanged. Use the matching clear option to restore the OpenSSH default or remove existing values, for example:
@@ -95,8 +94,7 @@ Host edits are patches, so omitted options stay unchanged. Use the matching clea
 ```bash
 bast hosts edit Production_web \
   --clear-proxy-jump \
-  --clear-startup-command \
-  --clear-local-forward
+  --clear-startup-command
 ```
 
 Run `bast hosts add --help` or `bast hosts edit --help` for the option list.

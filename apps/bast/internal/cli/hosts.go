@@ -360,6 +360,9 @@ func (r *Runner) hostEdit(args []string) error {
 			return usagef("cannot set and clear %s in the same command", conflict.name)
 		}
 	}
+	if advanced.removedForwards() {
+		return removedForwardFlagsError()
+	}
 	if err := advanced.conflicts(); err != nil {
 		return err
 	}
@@ -1007,6 +1010,9 @@ func (r *Runner) connect(args []string) error {
 			return err
 		}
 		r.prepareSSH(cmd, host.raw)
+	}
+	if !(host.Synced && host.SyncSource == "vercel") {
+		r.startOpenWithHost(host.Alias)
 	}
 	telemetry.Track("connect", r.Version)
 	return r.runProcess(cmd, false)

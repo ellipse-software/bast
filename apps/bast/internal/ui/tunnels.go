@@ -201,6 +201,9 @@ func (m *App) renderTunnelDetail(s styleSet, t metadata.Tunnel, width int) strin
 	if t.KeepAlive > 0 {
 		row("Keep-alive", fmt.Sprintf("%ds", t.KeepAlive))
 	}
+	if t.OpenWithHost {
+		row("Open with host", "yes")
+	}
 	return b.String()
 }
 
@@ -229,6 +232,7 @@ func (m *App) tunnelHostField(current string) field {
 }
 
 func (m *App) openTunnelForm(t metadata.Tunnel) {
+	parent := m.form
 	title := "Add tunnel"
 	if t.Name != "" {
 		title = "Edit " + t.Name
@@ -241,6 +245,15 @@ func (m *App) openTunnelForm(t metadata.Tunnel) {
 		}
 	}
 	mode.value = mode.options[mode.selected].value
+	openWith := field{
+		label: "Open with host", section: tunnelSectionMore,
+		description: "Start this tunnel when Bast connects to the host",
+		options:     []fieldOption{{label: "No", value: "no"}, {label: "Yes", value: "yes"}},
+	}
+	if t.OpenWithHost {
+		openWith.selected = 1
+	}
+	openWith.value = openWith.options[openWith.selected].value
 	keep := ""
 	if t.KeepAlive > 0 {
 		keep = strconv.Itoa(t.KeepAlive)
@@ -254,8 +267,10 @@ func (m *App) openTunnelForm(t metadata.Tunnel) {
 		{label: "Remote", section: tunnelSectionBasics, description: "host:port or socket; for remote modes: the server's listen port", value: t.Remote, optional: true},
 		{label: "Group", section: tunnelSectionMore, description: "Optional - group for open/close --group", value: t.Group, optional: true},
 		{label: "Keep-alive", section: tunnelSectionMore, description: "Optional - ServerAliveInterval seconds; blank uses 30", value: keep, optional: true},
+		openWith,
 	})
 	if m.form != nil {
+		m.form.parent = parent
 		m.form.revealed = len(m.form.fields) - 1
 	}
 }
@@ -273,6 +288,7 @@ func (m *App) submitTunnelSave(values map[string]string) (tea.Model, tea.Cmd) {
 		Name: strings.TrimSpace(values["Name"]), Host: values["Host"], Mode: values["Mode"],
 		Local: strings.TrimSpace(values["Local"]), Remote: strings.TrimSpace(values["Remote"]),
 		Group: strings.TrimSpace(values["Group"]), KeepAlive: keep,
+		OpenWithHost: values["Open with host"] == "yes",
 	}
 	if err := tunnel.Validate(tunnelSpec(t)); err != nil {
 		return m.formValidationError(err.Error())
@@ -284,7 +300,7 @@ func (m *App) submitTunnelSave(values map[string]string) (tea.Model, tea.Cmd) {
 	if orig != "" && orig != t.Name && m.tunnelMgr != nil {
 		m.tunnelMgr.Stop(orig)
 	}
-	m.form = nil
+	m.dismissForm()
 	notice := "Tunnel saved"
 	if m.tunnelMgr != nil && m.tunnelMgr.Running(t.Name) {
 		notice += "; close and open it to apply"
@@ -314,9 +330,129 @@ func (m *App) submitTunnelDelete(values map[string]string) (tea.Model, tea.Cmd) 
 	if err := m.metadata.DeleteTunnel(values["Name"]); err != nil {
 		return m.formError(err.Error())
 	}
-	m.form = nil
+	m.dismissForm()
 	m.cursor = max(0, m.cursor-1)
 	return m, m.setNotice("Tunnel deleted")
 }
 
 func (m *App) openAddTunnelForm() { m.openTunnelForm(metadata.Tunnel{}) }
+
+func (m *App) hostFormAlias() string {
+	if m.form == nil {
+		return ""
+	}
+	if item := m.form.fieldByLabel("Original label"); item != nil {
+		return strings.TrimSpace(item.value)
+	}
+	return ""
+}
+
+func (m *App) hostFormTunnels() []metadata.Tunnel {
+	alias := m.hostFormAlias()
+	if alias == "" || m.metadata == nil {
+		return nil
+	}
+	var out []metadata.Tunnel
+	for _, t := range m.metadata.Tunnels() {
+		if t.Host == alias {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func (m *App) forwardingAddKey(f *form) bool {
+	if f == nil || f.screen != formSectionAdvancedForwarding || f.tunnelPick >= 0 {
+		return false
+	}
+	if f.index < 0 || f.index >= len(f.fields) {
+		return false
+	}
+	item := f.fields[f.index]
+	return len(item.options) > 0 && !item.options[item.selected].custom
+}
+
+func (m *App) addTunnelFromHost() (tea.Model, tea.Cmd) {
+	alias := m.hostFormAlias()
+	if alias == "" {
+		return m, m.setNotice("Save the host first")
+	}
+	m.openTunnelForm(metadata.Tunnel{Host: alias, Mode: tunnel.ModeLocal, OpenWithHost: true})
+	return m, nil
+}
+
+func (m *App) updateForwardingTunnelList(key string) (tea.Model, tea.Cmd) {
+	f := m.form
+	tunnels := m.hostFormTunnels()
+	last := len(tunnels)
+	if f.tunnelPick > last {
+		f.tunnelPick = last
+	}
+	switch key {
+	case "esc", "backspace", "ctrl+h":
+		f.tunnelPick = -1
+		m.exitHostSection()
+	case "up", "k", "shift+tab":
+		if f.tunnelPick <= 0 {
+			f.tunnelPick = -1
+			return m, nil
+		}
+		f.tunnelPick--
+	case "down", "j", "tab":
+		if f.tunnelPick < last {
+			f.tunnelPick++
+		}
+	case "enter":
+		if f.tunnelPick >= len(tunnels) {
+			return m.addTunnelFromHost()
+		}
+		m.openTunnelForm(tunnels[f.tunnelPick])
+	case "a":
+		return m.addTunnelFromHost()
+	}
+	return m, nil
+}
+
+func (m *App) renderHostForwardingTunnels(s styleSet) string {
+	f := m.form
+	tunnels := m.hostFormTunnels()
+	if f.tunnelPick > len(tunnels) {
+		f.tunnelPick = len(tunnels)
+	}
+	width := max(20, m.terminalWidth()-8)
+	var b strings.Builder
+	b.WriteString("\n")
+	for i, t := range tunnels {
+		label := t.Name + "  " + t.Mode
+		if t.Local != "" {
+			label += "  " + t.Local
+		}
+		if t.OpenWithHost {
+			label += "  with host"
+		}
+		if f.tunnelPick == i {
+			b.WriteString("  " + s.selected.Render("› "+truncate(label, width)) + "\n")
+		} else {
+			b.WriteString("  " + s.muted.Render("  "+truncate(label, width)) + "\n")
+		}
+	}
+	add := "Add tunnel"
+	if f.tunnelPick == len(tunnels) {
+		b.WriteString("  " + s.selected.Render("› "+add) + "\n")
+	} else {
+		b.WriteString("  " + s.muted.Render("  "+add) + "\n")
+	}
+	return b.String()
+}
+
+func (m *App) startOpenWithHost(alias string) {
+	if m.metadata == nil || m.tunnelMgr == nil || alias == "" {
+		return
+	}
+	for _, t := range m.hostOpenWithHostTunnels(alias) {
+		if m.tunnelMgr.Running(t.Name) {
+			continue
+		}
+		_ = m.tunnelMgr.Start(tunnelSpec(t))
+	}
+}

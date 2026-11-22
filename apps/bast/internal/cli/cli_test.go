@@ -247,10 +247,17 @@ func TestInvocationAndCommandHelp(t *testing.T) {
 	if err != nil || errOut != "" || !strings.Contains(out, "Usage: bast hosts add") {
 		t.Fatalf("output=%q stderr=%q err=%v", out, errOut, err)
 	}
-	for _, option := range []string{"--forward-agent", "--request-tty", "--local-forward", "--ssh-option"} {
+	for _, option := range []string{"--forward-agent", "--request-tty", "--ssh-option"} {
 		if !strings.Contains(out, option) {
 			t.Fatalf("host add help missing %q:\n%s", option, out)
 		}
+	}
+	if strings.Contains(out, "--local-forward") {
+		t.Fatalf("host add help still offers --local-forward:\n%s", out)
+	}
+	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "tunnel", "--help")
+	if err != nil || errOut != "" || !strings.Contains(out, "--open-with-host") || !strings.Contains(out, "--clear-open-with-host") {
+		t.Fatalf("tunnel help output=%q stderr=%q err=%v", out, errOut, err)
 	}
 	out, errOut, err = runTestCLI(t, t.TempDir(), fakeOpenSSH(t), "sync", "aws", "--help")
 	if err != nil || errOut != "" || out != "Usage: bast sync aws\n" {

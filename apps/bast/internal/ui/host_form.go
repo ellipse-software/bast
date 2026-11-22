@@ -217,7 +217,7 @@ func (m *App) openHostForm(title, action string, fields []field) {
 	input.SetWidth(max(20, m.width-20))
 	m.form = &form{
 		title: title, action: action, fields: fields, input: input,
-		screen: "hub", hubIndex: 0,
+		screen: "hub", hubIndex: 0, tunnelPick: -1,
 	}
 	m.syncHostPasswordField()
 	m.focusHostHubItem()
@@ -413,6 +413,10 @@ func (m *App) hostSectionEnter() (tea.Model, tea.Cmd) {
 	}
 	m.commitFormField()
 	if !m.moveHostSection(1) {
+		if f.screen == formSectionAdvancedForwarding {
+			f.tunnelPick = 0
+			return m, nil
+		}
 		m.exitHostSection()
 	}
 	return m, nil
@@ -556,12 +560,20 @@ func (m *App) hostHubChoiceEnter() (tea.Model, tea.Cmd) {
 func (m *App) updateHostSectionForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	f := m.form
-	item := &f.fields[f.index]
 
 	if msg.Code == tea.KeyEnter && msg.Mod&tea.ModCtrl != 0 {
-		m.commitFormField()
+		if f.index >= 0 && f.index < len(f.fields) {
+			m.commitFormField()
+		}
 		return m.submitForm()
 	}
+	if f.screen == formSectionAdvancedForwarding && f.tunnelPick >= 0 {
+		return m.updateForwardingTunnelList(key)
+	}
+	if f.index < 0 || f.index >= len(f.fields) {
+		return m, nil
+	}
+	item := &f.fields[f.index]
 
 	if f.selecting {
 		switch key {
@@ -578,6 +590,11 @@ func (m *App) updateHostSectionForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		case "enter", "tab":
 			return m.hostSectionEnter()
+		case "a":
+			if m.forwardingAddKey(f) {
+				f.selecting = false
+				return m.addTunnelFromHost()
+			}
 		}
 		return m, nil
 	}
@@ -610,6 +627,10 @@ func (m *App) updateHostSectionForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if key == "down" || key == "tab" {
 		m.commitFormField()
 		if !m.moveHostSection(1) {
+			if f.screen == formSectionAdvancedForwarding {
+				f.tunnelPick = 0
+				return m, nil
+			}
 			m.exitHostSection()
 		}
 		return m, nil
@@ -621,6 +642,9 @@ func (m *App) updateHostSectionForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if key == "enter" {
 		return m.hostSectionEnter()
+	}
+	if key == "a" && m.forwardingAddKey(f) {
+		return m.addTunnelFromHost()
 	}
 	if len(item.options) > 0 && !item.options[item.selected].custom {
 		return m, nil
@@ -865,9 +889,10 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 	b.WriteString(m.renderHostFormHeader(s, breadcrumb))
 
 	indices := f.sectionFieldIndices(f.screen)
+	listFocused := f.screen == formSectionAdvancedForwarding && f.tunnelPick >= 0
 	for _, idx := range indices {
 		item := f.fields[idx]
-		if idx == f.index {
+		if idx == f.index && !listFocused {
 			b.WriteString("  " + s.active.Render("› "+item.label) + "\n")
 			if item.description != "" {
 				b.WriteString("    " + s.muted.Render(truncate(item.description, max(20, m.terminalWidth()-8))) + "\n")
@@ -917,6 +942,9 @@ func (m *App) renderHostSectionForm(s styleSet) string {
 			value = "-"
 		}
 		b.WriteString("  " + s.muted.Render("  "+item.label+"  "+value) + "\n")
+	}
+	if f.screen == formSectionAdvancedForwarding {
+		b.WriteString(m.renderHostForwardingTunnels(s))
 	}
 	return b.String()
 }

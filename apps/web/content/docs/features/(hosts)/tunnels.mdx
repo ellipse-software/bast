@@ -18,6 +18,21 @@ Ports accept lists and ranges, such as `8000-8002,9000`. Both sides must expand 
 
 Each tunnel is its own background `ssh -N`, so it stays up after you quit Bast. A dropped connection reconnects after 1s, 2s, 4s, up to 60s. A busy port, a rejected key, or a changed host key stops the tunnel and shows the reason. Network and DNS failures keep retrying. Closing a tunnel stops its retries.
 
+## Open with host
+
+**Open with host** starts the tunnel when Bast connects to that host, from the TUI or `bast connect`. **Forward** or `Ctrl+P` on the host starts the same tunnels when they are not already running. **Close** or `c` stops them.
+
+The host form's **Advanced**, then **Forwarding**, lists that host's tunnels. Adding one there sets the host and turns **Open with host** on. The Tunnels tab leaves it off until you turn it on.
+
+```sh
+bast tunnel add web --host bastion --mode local --local 8080 --remote localhost:80 --open-with-host
+bast tunnel edit web --clear-open-with-host
+```
+
+`--open-with-host=false` turns it off. `--clear-open-with-host` is edit only.
+
+`LocalForward`, `RemoteForward`, and `DynamicForward` on Bast-managed hosts are imported once into tunnels with **Open with host** set, then removed from the host block. A shell that is already connected keeps its ports until it exits.
+
 ## Command line
 
 ```sh

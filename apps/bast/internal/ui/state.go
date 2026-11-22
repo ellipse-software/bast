@@ -154,8 +154,6 @@ type hostRow struct {
 	label         string
 	host          sshconfig.Host
 	entry         *metadata.Entry
-	forwardAlias  string
-	forwardHeader bool
 	suggestion    *metadata.HistorySuggestion
 	historyHeader bool
 	header        bool
@@ -311,7 +309,6 @@ func (m *App) hostListRows() []hostRow {
 	entries := m.listedEntries(search)
 	entrySig := entrySignature(entries)
 	suggestionSig := historySuggestionSignature(m.historySuggestions)
-	forwardSig := strings.Join(m.activeForwardAliases(), "\n")
 	cache := m.hostListRowsCache
 	if cache.rows != nil &&
 		cache.hostGeneration == m.hostGeneration &&
@@ -322,8 +319,7 @@ func (m *App) hostListRows() []hostRow {
 		cache.hostSignature == m.hostRowsCache.hostSignature &&
 		cache.historyCollapsed == m.historySuggestionsCollapsed &&
 		cache.suggestionSig == suggestionSig &&
-		cache.entrySignature == entrySig &&
-		cache.forwardSig == forwardSig {
+		cache.entrySignature == entrySig {
 		return cache.rows
 	}
 	if len(entries) > 0 {
@@ -342,16 +338,13 @@ func (m *App) hostListRows() []hostRow {
 			}
 		}
 	}
-	if section := m.forwardSection(); len(section) > 0 {
-		rows = append(section, rows...)
-	}
 	m.hostListRowsCache = hostListRowsCache{
 		hostGeneration: m.hostGeneration, metadataRevision: m.hostMetaRevision,
 		collapseGeneration: m.collapseRevision, search: search,
 		showHidden:       m.showHidden,
 		hostSignature:    m.hostRowsCache.hostSignature,
 		historyCollapsed: m.historySuggestionsCollapsed, suggestionSig: suggestionSig,
-		entrySignature: entrySig, forwardSig: forwardSig, rows: rows,
+		entrySignature: entrySig, rows: rows,
 	}
 	return rows
 }
@@ -495,7 +488,7 @@ func (m *App) filteredKeys() []keys.Key {
 }
 func (m *App) selectedHost() (sshconfig.Host, bool) {
 	rows := m.hostListRows()
-	if m.cursor >= 0 && m.cursor < len(rows) && !rows[m.cursor].header && rows[m.cursor].suggestion == nil && rows[m.cursor].entry == nil && rows[m.cursor].forwardAlias == "" && !rows[m.cursor].forwardHeader {
+	if m.cursor >= 0 && m.cursor < len(rows) && !rows[m.cursor].header && rows[m.cursor].suggestion == nil && rows[m.cursor].entry == nil {
 		return rows[m.cursor].host, true
 	}
 	return sshconfig.Host{}, false

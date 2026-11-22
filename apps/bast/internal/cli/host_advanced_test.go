@@ -19,9 +19,6 @@ func TestHostAdvancedFlagsRoundTrip(t *testing.T) {
 		"--request-tty", "force",
 		"--set-env", "FOO=bar",
 		"--set-env", "CSV=a,b",
-		"--local-forward", "8080 localhost:80",
-		"--remote-forward", "9090 localhost:90",
-		"--dynamic-forward", "1080",
 		"--compression", "yes",
 		"--keepalive", "30",
 		"--ssh-option", "TCPKeepAlive yes",
@@ -41,9 +38,6 @@ func TestHostAdvancedFlagsRoundTrip(t *testing.T) {
 		"RequestTTY force",
 		"SetEnv FOO=bar",
 		"SetEnv CSV=a,b",
-		"LocalForward 8080 localhost:80",
-		"RemoteForward 9090 localhost:90",
-		"DynamicForward 1080",
 		"Compression yes",
 		"ServerAliveInterval 30",
 		"TCPKeepAlive yes",
@@ -63,9 +57,6 @@ func TestHostAdvancedFlagsRoundTrip(t *testing.T) {
 		`"requestTTY":"force"`,
 		`"FOO=bar"`,
 		`"CSV=a,b"`,
-		`"8080 localhost:80"`,
-		`"9090 localhost:90"`,
-		`"dynamicForward":"1080"`,
 		`"compression":"yes"`,
 		`"serverAliveInterval":"30"`,
 		`"TCPKeepAlive yes"`,
@@ -94,9 +85,25 @@ func TestHostAdvancedFlagsRoundTrip(t *testing.T) {
 			t.Fatalf("managed config still contains %q after clear:\n%s", absent, config)
 		}
 	}
-	for _, present := range []string{"RequestTTY force", "LocalForward 8080 localhost:80", "TCPKeepAlive yes"} {
+	for _, present := range []string{"RequestTTY force", "Compression yes", "TCPKeepAlive yes"} {
 		if !strings.Contains(config, present) {
 			t.Fatalf("managed config missing %q after partial clear:\n%s", present, config)
 		}
+	}
+}
+
+func TestHostForwardFlagsAreRejected(t *testing.T) {
+	home := t.TempDir()
+	client := fakeOpenSSH(t)
+	_, errOut, err := runTestCLI(t, home, client, "hosts", "add", "web", "--hostname", "web.example", "--local-forward", "8080 localhost:80")
+	if err == nil || !strings.Contains(errOut, "bast tunnel add") {
+		t.Fatalf("add errOut=%q err=%v", errOut, err)
+	}
+	if _, _, err := runTestCLI(t, home, client, "hosts", "add", "web", "--hostname", "web.example"); err != nil {
+		t.Fatal(err)
+	}
+	_, errOut, err = runTestCLI(t, home, client, "hosts", "edit", "web", "--clear-local-forward")
+	if err == nil || !strings.Contains(errOut, "bast tunnel add") {
+		t.Fatalf("edit errOut=%q err=%v", errOut, err)
 	}
 }

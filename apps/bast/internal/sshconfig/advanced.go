@@ -82,6 +82,8 @@ func (s AdvancedSettings) ExtraOptions() []string {
 			out = append(out, "SetEnv "+quoteSSHValue(env))
 		}
 	}
+	// These three stay writable so a host edit does not drop a forward the
+	// tunnel import could not convert. New host forms and CLI flags do not set them.
 	for _, forward := range s.LocalForwards {
 		if forward = strings.TrimSpace(forward); forward != "" {
 			out = append(out, "LocalForward "+forward)
@@ -103,6 +105,57 @@ func (s AdvancedSettings) ExtraOptions() []string {
 	}
 	out = append(out, s.Custom...)
 	return out
+}
+
+// ManagedForward is one LocalForward, RemoteForward, or DynamicForward line.
+// Kind is local, remote, or dynamic. Dynamic leaves Target empty.
+type ManagedForward struct {
+	Kind   string
+	Listen string
+	Target string
+}
+
+// TakeManagedForwards splits forward directives out of managed-block extra lines.
+// A forward line that does not parse is listed in bad and is not included in rest,
+// so the caller can leave the whole host untouched.
+func TakeManagedForwards(lines []string) (forwards []ManagedForward, rest []string, bad []string) {
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		parts, err := fields(trimmed)
+		if err != nil || len(parts) == 0 {
+			rest = append(rest, trimmed)
+			continue
+		}
+		kind := ""
+		switch strings.ToLower(parts[0]) {
+		case "localforward":
+			kind = "local"
+		case "remoteforward":
+			kind = "remote"
+		case "dynamicforward":
+			kind = "dynamic"
+		default:
+			rest = append(rest, trimmed)
+			continue
+		}
+		if kind == "dynamic" {
+			if len(parts) != 2 || strings.TrimSpace(parts[1]) == "" {
+				bad = append(bad, trimmed)
+				continue
+			}
+			forwards = append(forwards, ManagedForward{Kind: kind, Listen: parts[1]})
+			continue
+		}
+		if len(parts) != 3 || parts[1] == "" || parts[2] == "" {
+			bad = append(bad, trimmed)
+			continue
+		}
+		forwards = append(forwards, ManagedForward{Kind: kind, Listen: parts[1], Target: parts[2]})
+	}
+	return forwards, rest, bad
 }
 
 func quoteSSHValue(value string) string {

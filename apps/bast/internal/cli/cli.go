@@ -237,6 +237,7 @@ func (r *Runner) Run(args []string) error {
 		err = openErr
 		if err == nil {
 			r.store = store
+			r.importForwards()
 			if commandUsesOpenSSH(args[0]) {
 				err = r.OpenSSH.Check()
 			}
@@ -334,20 +335,19 @@ Commands: list, show, add, edit, delete, promote, favorite, unfavorite, hide,
 
 Connection: --user, --port, --identity, --password, --password-only, --proxy-jump
 Advanced: --forward-agent, --startup-command, --request-tty, --set-env,
-          --local-forward, --remote-forward, --dynamic-forward, --compression,
-          --keepalive, --ssh-option
-Metadata: label paths like Work/api set the group; or --group, --tag, --environment, --icon, --color, --notes`,
+          --compression, --keepalive, --ssh-option
+Metadata: label paths like Work/api set the group; or --group, --tag, --environment, --icon, --color, --notes
+Port forwards are tunnels: bast tunnel add`,
 		"hosts edit": `Usage: bast hosts edit <host> [options]
 
 Connection: --label, --hostname, --user, --port, --identity, --password,
             --password-only, --clear-password, --proxy-jump
 Advanced: --forward-agent, --startup-command, --request-tty, --set-env,
-          --local-forward, --remote-forward, --dynamic-forward, --compression,
-          --keepalive, --ssh-option
+          --compression, --keepalive, --ssh-option
 Metadata: --label paths like Work/api set the group; or --group, --tag,
           --environment, --icon, --color, --notes
 Repeat list options to provide multiple values. Use the corresponding --clear-*
-option to restore a default or remove values.`,
+option to restore a default or remove values. Port forwards are tunnels.`,
 		"hosts delete":  "Usage: bast hosts delete <host> [--yes]",
 		"hosts promote": "Usage: bast hosts promote <host>",
 		"rdp --help":    "Usage: bast rdp <list|add|edit|delete|open|close>",
@@ -365,8 +365,8 @@ Commands: list (l), open, close, add, edit, remove, logs
   bast tunnel close <name|glob>... | --all | --group name
   bast tunnel add <name> --host alias --mode local|remote|socks|socks-remote
                   [--local [addr:]port|socket] [--remote host:port|socket]
-                  [--group name] [--keep-alive seconds]
-  bast tunnel edit <name> [same options]
+                  [--group name] [--keep-alive seconds] [--open-with-host]
+  bast tunnel edit <name> [same options] [--clear-open-with-host]
 Ports accept lists and ranges, such as --local 8000-8002 --remote db:5432-5434.
 The host's user, port, and key come from its OpenSSH config. Tunnels reconnect
 on their own until closed. Set BAST_DEBUG=1 for verbose ssh logs.`,

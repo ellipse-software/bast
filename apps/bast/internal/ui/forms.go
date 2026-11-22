@@ -250,7 +250,7 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.form != nil && m.form.action == "vault_resolve" {
 			m.vaultConflict = nil
 		}
-		m.form = nil
+		m.dismissForm()
 		return m, nil
 	}
 	if (key == "backspace" || key == "ctrl+h") && !m.formTextInputActive() {
@@ -260,7 +260,7 @@ func (m *App) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.form != nil && m.form.action == "vault_resolve" {
 			m.vaultConflict = nil
 		}
-		m.form = nil
+		m.dismissForm()
 		return m, nil
 	}
 	if key == "up" || key == "shift+tab" {
@@ -1089,11 +1089,22 @@ func passwordOnly(resolved sshconfig.Resolved) bool {
 	return (pubkey == "no" || pubkey == "false") && (password == "yes" || password == "true")
 }
 
+func (m *App) dismissForm() {
+	if m.form != nil && m.form.parent != nil {
+		m.form = m.form.parent
+		if m.form.index >= 0 && m.form.index < len(m.form.fields) {
+			m.focusFormField()
+		}
+		return
+	}
+	m.form = nil
+}
+
 func (m *App) openForm(title, action string, fields []field) {
 	input := textinput.New()
 	input.Prompt = ""
 	input.SetWidth(max(20, m.width-20))
-	m.form = &form{title: title, action: action, fields: fields, input: input}
+	m.form = &form{title: title, action: action, fields: fields, input: input, tunnelPick: -1}
 	for m.form.index < len(fields) && fields[m.form.index].hidden {
 		m.form.index++
 	}

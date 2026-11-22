@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -62,14 +63,15 @@ func specOf(t metadata.Tunnel) tunnel.Spec {
 }
 
 type tunnelRow struct {
-	Name   string `json:"name"`
-	Group  string `json:"group"`
-	Host   string `json:"host"`
-	Mode   string `json:"mode"`
-	Local  string `json:"local"`
-	Remote string `json:"remote"`
-	State  string `json:"state"`
-	Error  string `json:"error,omitempty"`
+	Name         string `json:"name"`
+	Group        string `json:"group"`
+	Host         string `json:"host"`
+	Mode         string `json:"mode"`
+	Local        string `json:"local"`
+	Remote       string `json:"remote"`
+	State        string `json:"state"`
+	Error        string `json:"error,omitempty"`
+	OpenWithHost bool   `json:"openWithHost,omitempty"`
 }
 
 // interleaved parses flags that may come before or after positional names.
@@ -103,7 +105,11 @@ func (r *Runner) tunnelList(args []string) error {
 			continue
 		}
 		st := mgr.Status(t.Name)
-		rows = append(rows, tunnelRow{t.Name, t.Group, t.Host, t.Mode, t.Local, t.Remote, st.State, st.Error})
+		rows = append(rows, tunnelRow{
+			Name: t.Name, Group: t.Group, Host: t.Host, Mode: t.Mode,
+			Local: t.Local, Remote: t.Remote, State: st.State, Error: st.Error,
+			OpenWithHost: t.OpenWithHost,
+		})
 	}
 	if r.JSON {
 		return r.success(rows, "")
@@ -224,16 +230,24 @@ func (r *Runner) ensureTunnelHost(t metadata.Tunnel) error {
 	return r.ensureJump(record)
 }
 
-func (r *Runner) tunnelFlags(name string) (*flag.FlagSet, *metadata.Tunnel) {
+type tunnelFlagInput struct {
+	tunnel            metadata.Tunnel
+	openWithHost      bool
+	clearOpenWithHost bool
+}
+
+func (r *Runner) tunnelFlags(name string) (*flag.FlagSet, *tunnelFlagInput) {
 	fs := newFlagSet(name)
-	t := &metadata.Tunnel{}
-	fs.StringVar(&t.Host, "host", "", "SSH config host")
-	fs.StringVar(&t.Mode, "mode", "", "local, remote, socks or socks-remote")
-	fs.StringVar(&t.Local, "local", "", "local endpoint")
-	fs.StringVar(&t.Remote, "remote", "", "remote endpoint")
-	fs.StringVar(&t.Group, "group", "", "group name")
-	fs.IntVar(&t.KeepAlive, "keep-alive", 0, "ServerAliveInterval seconds")
-	return fs, t
+	in := &tunnelFlagInput{}
+	fs.StringVar(&in.tunnel.Host, "host", "", "SSH config host")
+	fs.StringVar(&in.tunnel.Mode, "mode", "", "local, remote, socks or socks-remote")
+	fs.StringVar(&in.tunnel.Local, "local", "", "local endpoint")
+	fs.StringVar(&in.tunnel.Remote, "remote", "", "remote endpoint")
+	fs.StringVar(&in.tunnel.Group, "group", "", "group name")
+	fs.IntVar(&in.tunnel.KeepAlive, "keep-alive", 0, "ServerAliveInterval seconds")
+	fs.BoolVar(&in.openWithHost, "open-with-host", false, "start this tunnel when Bast connects to the host")
+	fs.BoolVar(&in.clearOpenWithHost, "clear-open-with-host", false, "stop starting this tunnel with the host")
+	return fs, in
 }
 
 func (r *Runner) tunnelSave(edit bool, args []string) error {
@@ -241,10 +255,16 @@ func (r *Runner) tunnelSave(edit bool, args []string) error {
 	fs, in := r.tunnelFlags("tunnel " + verb)
 	pos, err := interleaved(fs, args)
 	if err != nil || len(pos) != 1 {
-		return usagef("usage: bast tunnel %s <name> --host alias --mode local|remote|socks|socks-remote [--local ..] [--remote ..] [--group g] [--keep-alive s]", verb)
+		return usagef("usage: bast tunnel %s <name> --host alias --mode local|remote|socks|socks-remote [--local ..] [--remote ..] [--group g] [--keep-alive s] [--open-with-host]", verb)
 	}
 	seen := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { seen[f.Name] = true })
+	if seen["open-with-host"] && seen["clear-open-with-host"] {
+		return usagef("--open-with-host and --clear-open-with-host cannot both be set")
+	}
+	if seen["clear-open-with-host"] && !edit {
+		return usagef("--clear-open-with-host is only valid on edit")
+	}
 	t := metadata.Tunnel{Name: pos[0]}
 	if edit {
 		old, ok := r.store.Tunnel(pos[0])
@@ -252,7 +272,7 @@ func (r *Runner) tunnelSave(edit bool, args []string) error {
 			return fail("not_found", fmt.Sprintf("no tunnel named %q", pos[0]))
 		}
 		t = old
-	} else if t.Mode = in.Mode; t.Mode == "" {
+	} else if t.Mode = in.tunnel.Mode; t.Mode == "" {
 		t.Mode = tunnel.ModeLocal
 	}
 	set := func(flag string, dst *string, v string) {
@@ -260,13 +280,19 @@ func (r *Runner) tunnelSave(edit bool, args []string) error {
 			*dst = v
 		}
 	}
-	set("host", &t.Host, in.Host)
-	set("mode", &t.Mode, in.Mode)
-	set("local", &t.Local, in.Local)
-	set("remote", &t.Remote, in.Remote)
-	set("group", &t.Group, in.Group)
+	set("host", &t.Host, in.tunnel.Host)
+	set("mode", &t.Mode, in.tunnel.Mode)
+	set("local", &t.Local, in.tunnel.Local)
+	set("remote", &t.Remote, in.tunnel.Remote)
+	set("group", &t.Group, in.tunnel.Group)
 	if seen["keep-alive"] {
-		t.KeepAlive = in.KeepAlive
+		t.KeepAlive = in.tunnel.KeepAlive
+	}
+	if seen["open-with-host"] {
+		t.OpenWithHost = in.openWithHost
+	}
+	if seen["clear-open-with-host"] {
+		t.OpenWithHost = false
 	}
 	if err := tunnel.Validate(specOf(t)); err != nil {
 		return fail("invalid_tunnel", err.Error())
@@ -284,6 +310,64 @@ func (r *Runner) tunnelSave(edit bool, args []string) error {
 	}
 	fmt.Fprintln(r.Out, t.Name)
 	return nil
+}
+
+// startOpenWithHost starts this host's open-with-host tunnels without blocking
+// the shell. Start waits up to 5s, so the loop runs in one goroutine.
+func (r *Runner) startOpenWithHost(alias string) {
+	if r.store == nil || alias == "" {
+		return
+	}
+	var specs []tunnel.Spec
+	for _, t := range r.store.Tunnels() {
+		if t.Host == alias && t.OpenWithHost {
+			specs = append(specs, specOf(t))
+		}
+	}
+	if len(specs) == 0 {
+		return
+	}
+	mgr, err := r.tunnelManager()
+	if err != nil {
+		return
+	}
+	go func() {
+		for _, spec := range specs {
+			if mgr.Running(spec.Name) {
+				continue
+			}
+			_ = mgr.Start(spec)
+		}
+	}()
+}
+
+// importForwards moves managed SSH forwards into tunnels. A failure is printed
+// and does not fail the command. Completion, doctor, and update never reach it.
+func (r *Runner) importForwards() {
+	if r.store == nil {
+		return
+	}
+	result, err := tunnel.ImportConfigForwards(r.config, r.store)
+	if err != nil {
+		fmt.Fprintln(r.Err, "bast: "+err.Error())
+		return
+	}
+	if len(result.Migrated) > 0 {
+		sup, openErr := tunnel.Open(filepath.Join(tunnel.CacheDir(r.Paths.Home), "tunnels"), r.OpenSSH.SSH)
+		if openErr != nil {
+			result.Problems = append(result.Problems, "could not stop old background forwards: "+openErr.Error())
+		} else {
+			for _, alias := range result.Migrated {
+				if sup.ConfigOpen(alias) {
+					sup.CloseConfig(alias)
+					result.Closed = append(result.Closed, alias)
+				}
+			}
+		}
+	}
+	if notice := result.Notice(); notice != "" {
+		fmt.Fprintln(r.Err, notice)
+	}
 }
 
 func (r *Runner) tunnelRemove(args []string) error {

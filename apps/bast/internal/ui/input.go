@@ -20,6 +20,7 @@ import (
 type connectionProcess struct {
 	cmd     *exec.Cmd
 	prepare func(status func(string)) error
+	onStart func()
 	version string
 }
 
@@ -48,6 +49,9 @@ func (c *connectionProcess) Run() error {
 			return fmt.Errorf("prepare connection: %w", err)
 		}
 		_, _ = io.WriteString(output, "\r\n")
+	}
+	if c.onStart != nil {
+		go c.onStart()
 	}
 	if err := c.cmd.Run(); err != nil {
 		connectbanner.WaitToContinue(input, output)
@@ -487,7 +491,12 @@ func (m *App) startSSH(host sshconfig.Host, prepare func(func(string)) error) (t
 	}
 	telemetry.Track("connect", m.version)
 	m.status = "Connected to " + m.hostLabel(host) + "; exit returns to Bast; " + enterGlyph(m.windowsTerminal) + " then ~. force-closes SSH"
-	return m, tea.Exec(&connectionProcess{cmd: cmd, prepare: prepare, version: m.version}, func(err error) tea.Msg {
+	var onStart func()
+	if host.SyncSource != "vercel" {
+		alias := host.Alias
+		onStart = func() { m.startOpenWithHost(alias) }
+	}
+	return m, tea.Exec(&connectionProcess{cmd: cmd, prepare: prepare, onStart: onStart, version: m.version}, func(err error) tea.Msg {
 		return processDoneMsg{name: "SSH session", err: err, sshSession: true}
 	})
 }

@@ -569,12 +569,9 @@ func hostAddFlags() []flagSpec {
 		enumFlag("forward-agent", "agent forwarding", "yes", "no"),
 		{name: "startup-command", desc: "command to run after connect"},
 		enumFlag("request-tty", "TTY allocation", "force", "no"),
-		{name: "dynamic-forward", desc: "SOCKS port"},
 		enumFlag("compression", "compression", "yes", "no"),
 		{name: "keepalive", desc: "ServerAliveInterval in seconds"},
 		{name: "set-env", desc: "environment variable KEY=VALUE", repeatable: true},
-		{name: "local-forward", desc: "local forward", repeatable: true},
-		{name: "remote-forward", desc: "remote forward", repeatable: true},
 		{name: "ssh-option", desc: "extra OpenSSH option", repeatable: true},
 	}
 }
@@ -596,12 +593,9 @@ func hostEditFlags() []flagSpec {
 		boolFlag("clear-forward-agent", "use OpenSSH default agent forwarding"),
 		boolFlag("clear-startup-command", "clear startup command"),
 		boolFlag("clear-request-tty", "use OpenSSH default TTY allocation"),
-		boolFlag("clear-dynamic-forward", "clear dynamic forward"),
 		boolFlag("clear-compression", "use OpenSSH default compression"),
 		boolFlag("clear-keepalive", "clear keepalive interval"),
 		boolFlag("clear-set-env", "clear environment variables"),
-		boolFlag("clear-local-forward", "clear local forwards"),
-		boolFlag("clear-remote-forward", "clear remote forwards"),
 		boolFlag("clear-ssh-options", "clear custom OpenSSH options"),
 	)
 	return flags
@@ -633,7 +627,10 @@ func tunnelSpec() specNode {
 		{name: "remote", desc: "remote endpoint"},
 		{name: "group", desc: "group name", kind: valueTunnelGroup},
 		{name: "keep-alive", desc: "keep-alive seconds"},
+		boolFlag("open-with-host", "start when the host connects"),
 	}
+	edit := append([]flagSpec{}, save...)
+	edit = append(edit, boolFlag("clear-open-with-host", "stop starting when the host connects"))
 	return specNode{
 		name: "tunnel",
 		desc: "run SSH tunnels in the background",
@@ -642,7 +639,7 @@ func tunnelSpec() specNode {
 			{name: "open", desc: "open tunnels", flags: sel, args: []argSpec{name}},
 			{name: "close", desc: "close tunnels", flags: sel, args: []argSpec{name}},
 			{name: "add", desc: "add a tunnel", flags: save, args: []argSpec{{desc: "name"}}},
-			{name: "edit", desc: "edit a tunnel", flags: save, args: []argSpec{{kind: valueTunnel, desc: "tunnel"}}},
+			{name: "edit", desc: "edit a tunnel", flags: edit, args: []argSpec{{kind: valueTunnel, desc: "tunnel"}}},
 			{name: "remove", desc: "remove a tunnel", args: []argSpec{{kind: valueTunnel, desc: "tunnel", repeatable: true}}},
 			{name: "logs", desc: "show a tunnel's log", args: []argSpec{{kind: valueTunnel, desc: "tunnel"}}},
 		},

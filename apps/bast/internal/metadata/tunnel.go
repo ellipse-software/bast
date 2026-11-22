@@ -10,13 +10,14 @@ import (
 // Tunnel is a named forward through an SSH config host. Host, user, port and
 // identity always come from OpenSSH config for Host; nothing is duplicated here.
 type Tunnel struct {
-	Name      string `json:"name"`
-	Host      string `json:"host"`
-	Mode      string `json:"mode"`
-	Local     string `json:"local,omitempty"`
-	Remote    string `json:"remote,omitempty"`
-	Group     string `json:"group,omitempty"`
-	KeepAlive int    `json:"keepAlive,omitempty"`
+	Name         string `json:"name"`
+	Host         string `json:"host"`
+	Mode         string `json:"mode"`
+	Local        string `json:"local,omitempty"`
+	Remote       string `json:"remote,omitempty"`
+	Group        string `json:"group,omitempty"`
+	KeepAlive    int    `json:"keepAlive,omitempty"`
+	OpenWithHost bool   `json:"openWithHost,omitempty"`
 }
 
 func (s *Store) Tunnels() []Tunnel {

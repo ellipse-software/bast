@@ -155,10 +155,12 @@ bast web close <label>
 
 Named tunnels are stored in Bast metadata, not `~/.ssh/config`. They run through an existing SSH host, so user, port, and key come from OpenSSH. Each tunnel is a background `ssh -N` that reconnects with backoff and survives quitting Bast. The TUI has a Tunnels tab (`6`).
 
+`--open-with-host` starts the tunnel when Bast connects to that host. The host form's Advanced, then Forwarding, lists that host's tunnels and adds them with the flag on. `Ctrl+P` starts the ones that are not running. `c` stops them. `--clear-open-with-host` clears the flag on edit. `bast hosts add` and `edit` reject `--local-forward`, `--remote-forward`, and `--dynamic-forward`. Existing managed forwards are imported once and removed from SSH config.
+
 ```sh
 bast tunnel list [--group name] [--json]      # alias: bast tunnel l
-bast tunnel add <name> --host alias --mode local|remote|socks|socks-remote [--local ..] [--remote ..] [--group name] [--keep-alive seconds]
-bast tunnel edit <name> [patch flags]
+bast tunnel add <name> --host alias --mode local|remote|socks|socks-remote [--local ..] [--remote ..] [--group name] [--keep-alive seconds] [--open-with-host]
+bast tunnel edit <name> [patch flags] [--clear-open-with-host]
 bast tunnel open <name|glob>... | --all | --group name
 bast tunnel close <name|glob>... | --all | --group name
 bast tunnel remove <name>...

@@ -640,9 +640,6 @@ func (m *App) actionHostsEnter() (tea.Model, tea.Cmd) {
 	if _, ok := m.selectedEntry(); ok {
 		return m.openSelectedEntry()
 	}
-	if _, ok := m.selectedForward(); ok || m.forwardHeaderSelected() {
-		return m, nil
-	}
 	return m.connectSelected()
 }
 
