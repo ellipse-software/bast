@@ -16,6 +16,7 @@
     "@stripe/stripe-js": "^9.14.0",
     "@types/mdx": "^2.0.14",
     "@upstash/redis": "^1.38.2",
+    "@vercel/oidc": "3.5.0",
     "files-sdk": "^2.2.5",
     "flags": "^4.3.0",
     "fumadocs-core": "^16.15.0",

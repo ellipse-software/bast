@@ -3,7 +3,7 @@
 import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { ComparisonsNav } from "@/components/comparisons-nav";
 import { FeaturesNav } from "@/components/features-nav";
@@ -24,6 +24,42 @@ const mobileLinkClass =
 const mobileSectionLabelClass =
   "px-4 pb-1 pt-5 text-xs font-medium tracking-tight text-muted first:pt-3 sm:px-6";
 
+const focusableSelector = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(", ");
+
+function visibleFocusables(root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>(focusableSelector)].filter(
+    (element) => element.getClientRects().length > 0,
+  );
+}
+
+/** Mark everything outside `keep` inert, and return a restore function. */
+function inertOutside(keep: HTMLElement): () => void {
+  const changed: HTMLElement[] = [];
+  let current = keep;
+  let parent = current.parentElement;
+  while (parent && parent !== document.documentElement) {
+    for (const child of parent.children) {
+      if (child === current || !(child instanceof HTMLElement) || child.inert) {
+        continue;
+      }
+      child.inert = true;
+      changed.push(child);
+    }
+    current = parent;
+    parent = current.parentElement;
+  }
+  return () => {
+    for (const element of changed) element.inert = false;
+  };
+}
+
 export function SiteHeader({
   wide = false,
   tone = "night",
@@ -37,6 +73,7 @@ export function SiteHeader({
   const [scrolled, setScrolled] = useState(false);
   const open = openForPath === pathname;
   const panelId = useId();
+  const headerRef = useRef<HTMLElement>(null);
   const frosted = scrolled || open;
 
   function setOpen(next: boolean) {
@@ -56,25 +93,66 @@ export function SiteHeader({
 
   useEffect(() => {
     if (!open) return;
+    const header = headerRef.current;
+    if (!header) return;
+
+    const mdBreakpoint =
+      getComputedStyle(document.documentElement)
+        .getPropertyValue("--breakpoint-md")
+        .trim() || "48rem";
+    const desktop = window.matchMedia(`(min-width: ${mdBreakpoint})`);
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setOpenForPath(null);
+        return;
+      }
+      if (event.key !== "Tab" || !header) return;
+
+      const items = visibleFocusables(header);
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+
+      if (!(active instanceof HTMLElement) || !header.contains(active)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
       }
     }
 
+    const closeOnDesktop = () => {
+      if (desktop.matches) setOpenForPath(null);
+    };
+    desktop.addEventListener("change", closeOnDesktop);
+    if (desktop.matches) {
+      return () => desktop.removeEventListener("change", closeOnDesktop);
+    }
+
+    const releaseInert = inertOutside(header);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     document.addEventListener("keydown", handleKeyDown);
 
     return () => {
+      releaseInert();
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", handleKeyDown);
+      desktop.removeEventListener("change", closeOnDesktop);
     };
   }, [open]);
 
   return (
     <header
+      ref={headerRef}
       style={night ? nightTheme : undefined}
       className={`sticky top-0 z-30 w-full transition-[background-color,border-color,backdrop-filter] duration-200 ease-out motion-reduce:transition-none ${
         frosted
@@ -141,10 +219,12 @@ export function SiteHeader({
       </div>
 
       {open ? (
+        // Out of flow: an in-flow panel grows the hero, and the dither recaptures.
+        // svh keeps this cap inside the small viewport and stops it resizing with browser chrome.
         <nav
           id={panelId}
           aria-label="Mobile"
-          className="max-h-[calc(100dvh-4.5rem)] overflow-y-auto overscroll-contain border-t border-border bg-background md:hidden"
+          className="max-h-svh-header absolute inset-x-0 top-full z-40 overflow-y-auto overscroll-contain border-t border-border bg-background md:hidden"
         >
           <div className={`mx-auto ${pageMaxWidthClass} pb-8`}>
             <p className={mobileSectionLabelClass}>Features</p>
